@@ -63,8 +63,11 @@ class GameSessionManager(
     private var locationJob: Job? = null
     private var isTracking = false
 
-    suspend fun create(playerName: String, center: GeoPoint): Boolean = command {
-        val settings = GameSettings(zone = shrinkingZone(center))
+    /** New game with the default settings: a shrinking zone around [center] (the host's position). */
+    suspend fun create(playerName: String, center: GeoPoint): Boolean =
+        create(playerName, GameSettings(zone = shrinkingZone(center)))
+
+    suspend fun create(playerName: String, settings: GameSettings): Boolean = command {
         begin(api.createGame(CreateGameRequest(playerName.trim(), settings)))
     }
 

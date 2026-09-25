@@ -73,6 +73,7 @@ import app.hovanki.client.resources.zone_outside
 import app.hovanki.client.resources.zone_radius
 import app.hovanki.client.resources.zone_shrinking
 import app.hovanki.client.resources.zone_shrinks_in
+import app.hovanki.client.session.CatchCode
 import app.hovanki.client.ui.common.Banner
 import app.hovanki.client.ui.common.LoadingScreen
 import app.hovanki.client.ui.common.ScreenColumn

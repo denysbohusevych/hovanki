@@ -11,8 +11,11 @@ import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.plugins.logging.SIMPLE
 import io.ktor.serialization.kotlinx.json.json
 
-/** The engine comes from the platform module (OkHttp on Android, Darwin on iOS) or a MockEngine in tests. */
-fun createHttpClient(engine: HttpClientEngine): HttpClient = HttpClient(engine) {
+/**
+ * The engine comes from the platform module (OkHttp on Android, Darwin on iOS) or a MockEngine in tests.
+ * [logRequests] = false keeps the output of many headless e2e bots readable.
+ */
+fun createHttpClient(engine: HttpClientEngine, logRequests: Boolean = true): HttpClient = HttpClient(engine) {
     // Non-2xx responses are turned into ApiException by HttpGameApi, with the server's ApiError body.
     expectSuccess = false
     install(ContentNegotiation) {
@@ -24,9 +27,11 @@ fun createHttpClient(engine: HttpClientEngine): HttpClient = HttpClient(engine) 
         requestTimeoutMillis = 15_000
         socketTimeoutMillis = 15_000
     }
-    install(Logging) {
-        logger = Logger.SIMPLE
-        // Method, URL and status only: headers would leak the session token into the logs.
-        level = LogLevel.INFO
+    if (logRequests) {
+        install(Logging) {
+            logger = Logger.SIMPLE
+            // Method, URL and status only: headers would leak the session token into the logs.
+            level = LogLevel.INFO
+        }
     }
 }
