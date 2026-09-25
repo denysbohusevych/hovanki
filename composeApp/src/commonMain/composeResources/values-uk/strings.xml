@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Hovanki</string>
+
+  <!-- Загальне -->
+  <string name="action_allow">Дозволити</string>
+  <string name="action_cancel">Скасувати</string>
+  <string name="action_confirm">Підтвердити</string>
+  <string name="action_dismiss">OK</string>
+  <string name="action_leave">Вийти</string>
+  <string name="connection_reconnecting">Немає зв’язку із сервером. Перепідключення…</string>
+  <string name="location_not_shared">Ваше місцезнаходження не передається. Без нього гра не працює.</string>
+  <string name="error_network">Не вдається зв’язатися із сервером. Перевірте інтернет і адресу сервера.</string>
+  <string name="error_not_found">Гру не знайдено. Перевірте код.</string>
+  <string name="error_too_far">За GPS ви надто далеко від цього гравця.</string>
+  <string name="error_no_location">Точних GPS-координат ще немає. Вийдіть на відкрите місце й спробуйте знову.</string>
+  <string name="error_session_lost">Ця гра більше не доступна на сервері.</string>
+
+  <!-- Початковий екран -->
+  <string name="home_tagline">Хованки на вулиці в зоні, що звужується.</string>
+  <string name="home_name_label">Ваше ім’я</string>
+  <string name="home_create">Створити гру тут</string>
+  <string name="home_create_hint">Центр ігрової зони — ваше поточне місцезнаходження.</string>
+  <string name="home_or_join">Або приєднайтеся до гри</string>
+  <string name="home_code_label">Код гри</string>
+  <string name="home_join">Приєднатися</string>
+  <string name="home_locating">Визначаємо ваше місцезнаходження…</string>
+  <string name="home_connecting">Підключаємося до сервера…</string>
+  <string name="home_server_label">Адреса сервера</string>
+  <string name="home_server_hint">Ігровий сервер, наприклад http://192.168.1.10:8080</string>
+  <string name="problem_name_missing">Введіть ім’я.</string>
+  <string name="problem_code_missing">Введіть код гри.</string>
+  <string name="problem_location_denied">Грі потрібне ваше точне місцезнаходження. Дозвольте його в налаштуваннях системи.</string>
+  <string name="problem_no_location_fix">Не вдалося точно визначити місцезнаходження. Вийдіть на відкрите місце й спробуйте знову.</string>
+
+  <!-- Лобі -->
+  <string name="lobby_code_title">Код гри</string>
+  <string name="lobby_code_hint">Друзі вводять цей код на початковому екрані, щоб приєднатися.</string>
+  <string name="lobby_players">Гравців: %1$d</string>
+  <string name="lobby_you">ви</string>
+  <string name="lobby_host">організатор</string>
+  <string name="lobby_seeker">Шукає</string>
+  <string name="lobby_pick_seekers">Оберіть, хто шукає. Решта ховається.</string>
+  <string name="lobby_start">Почати гру</string>
+  <string name="lobby_waiting">Чекаємо, поки організатор почне гру…</string>
+
+  <!-- Гра -->
+  <string name="phase_hiding">Ховаємося</string>
+  <string name="phase_seeking">Шукаємо</string>
+  <string name="role_hider">Ви ховаєтеся</string>
+  <string name="role_seeker">Ви шукаєте</string>
+  <string name="hiders_left">Залишилося тих, хто ховається: %1$d з %2$d</string>
+  <string name="hint_hider_hiding">Сховайтеся в зоні, поки ті, хто шукає, не вирушили!</string>
+  <string name="hint_hider_seeking">Не виходьте із зони й не видавайте себе. Вас шукають.</string>
+  <string name="hint_seeker_hiding">Інші ховаються. Ви почнете, коли закінчиться таймер.</string>
+  <string name="status_caught">Вас знайшли. Подивіться, чим закінчиться раунд.</string>
+  <string name="status_eliminated">Ви надто довго були поза зоною й вибули. Подивіться, чим закінчиться раунд.</string>
+  <string name="out_of_zone_warning">Поверніться в зону! Інакше вибуваєте через %1$s.</string>
+  <string name="zone_radius">Зона: %1$d м</string>
+  <string name="zone_shrinks_in">звузиться через %1$s</string>
+  <string name="zone_shrinking">звужується, ще %1$s</string>
+  <string name="zone_final">остаточний розмір</string>
+  <string name="zone_inside">Ви в зоні, до межі %1$d м.</string>
+  <string name="zone_outside">Ви поза зоною на %1$d м!</string>
+  <string name="radar_legend">Суцільне коло — зона. Пунктир — наступна зона. Синя точка — ви.</string>
+  <string name="reason_teammate">шукає</string>
+  <string name="reason_stale_signal">немає сигналу</string>
+  <string name="reason_out_of_zone">поза зоною</string>
+  <string name="reason_mock_location">підробка GPS</string>
+  <string name="seeker_found_title">Когось знайшли?</string>
+  <string name="seeker_found_hint">Натисніть на гравця, якого знайшли. Він має показати вам свій код.</string>
+  <string name="no_hiders_to_claim">Зараз нікого ловити.</string>
+  <string name="action_found">Знайшов</string>
+  <string name="claim_enter_code">Попросіть %1$s показати код на екрані.</string>
+  <string name="claim_code_label">Код</string>
+  <string name="claim_time_left">Залишилося: %1$s</string>
+  <string name="claim_disputed_mine">%1$s оскаржує знахідку. Інші гравці голосують.</string>
+  <string name="scanner_placeholder">Сканування QR-коду з’явиться згодом. Поки введіть цифри вручну.</string>
+  <string name="hider_claim_title">%1$s каже, що знайшов вас!</string>
+  <string name="hider_claim_hint">Покажіть цей код. Якщо вас насправді не знайшли — оскаржте.</string>
+  <string name="hider_code_next">Новий код через %1$s</string>
+  <string name="hider_disputed">Ви оскаржили знахідку. Інші гравці голосують.</string>
+  <string name="action_dispute">Оскаржити</string>
+  <string name="vote_title">%1$s каже, що знайшов %2$s. Це правда?</string>
+  <string name="vote_confirm">Так, знайшов</string>
+  <string name="vote_reject">Ні</string>
+  <string name="vote_done">Ви проголосували. Чекаємо на інших.</string>
+  <string name="action_leave_game">Вийти з гри</string>
+  <string name="leave_title">Вийти з гри?</string>
+  <string name="leave_text">Повернутися в цей раунд не вийде. Ті, хто шукає, побачать ваше останнє місцезнаходження.</string>
+
+  <!-- Результати -->
+  <string name="results_title">Гру закінчено</string>
+  <string name="results_hiders_win">Перемогли ті, хто ховався!</string>
+  <string name="results_seekers_win">Перемогли ті, хто шукав!</string>
+  <string name="results_you_survived">Вас не знайшли!</string>
+  <string name="results_you_caught">Вас знайшли.</string>
+  <string name="results_you_eliminated">Ви вибули, бо вийшли із зони.</string>
+  <string name="results_survived">Не знайдені</string>
+  <string name="results_caught">Знайдені</string>
+  <string name="results_eliminated">Вибули</string>
+  <string name="results_seekers">Шукали</string>
+  <string name="results_back">На початок</string>
+</resources>

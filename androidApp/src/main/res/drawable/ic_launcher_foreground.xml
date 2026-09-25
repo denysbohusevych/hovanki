@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A shrinking zone: the current and the next circle, and the player in the middle.
+     Everything stays inside the 66dp safe area of adaptive icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+  android:width="108dp"
+  android:height="108dp"
+  android:viewportWidth="108"
+  android:viewportHeight="108">
+  <path
+    android:pathData="M28,54a26,26 0,1 1,52 0a26,26 0,1 1,-52 0"
+    android:strokeWidth="3"
+    android:strokeColor="#C8E6C9" />
+  <path
+    android:pathData="M38,54a16,16 0,1 1,32 0a16,16 0,1 1,-32 0"
+    android:strokeWidth="4"
+    android:strokeColor="#FFFFFF" />
+  <path
+    android:fillColor="#FFFFFF"
+    android:pathData="M47,54a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+</vector>
