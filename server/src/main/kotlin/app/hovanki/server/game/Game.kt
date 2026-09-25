@@ -336,8 +336,8 @@ class Game(
                     }
                 }
 
-                // Back inside (or no longer sure it is outside): the warning is lifted.
-                recent.lastOrNull()?.let { !ZoneRules.isClearlyOutside(it, zone, rules) } == true -> {
+                // Back inside, judged on several fixes like leaving: one fix that jumps inside lifts nothing.
+                since != null && ZoneRules.isConfidentlyBack(recent, zone, rules) -> {
                     hider.outOfZoneSinceMillis = null
                 }
             }

@@ -80,4 +80,12 @@ object ZoneRules {
     fun isConfidentlyOutside(recentUsableFixes: List<LocationSample>, zone: ZoneCircle, rules: GameRules): Boolean =
         recentUsableFixes.size >= rules.minFixesForDecision &&
             recentUsableFixes.all { isClearlyOutside(it, zone, rules) }
+
+    /**
+     * Back after an out-of-zone warning: the latest [GameRules.minFixesForDecision] usable fixes are all not clearly
+     * outside. The counterpart of [isConfidentlyOutside]: one fix that jumps inside lifts no warning either.
+     */
+    fun isConfidentlyBack(recentUsableFixes: List<LocationSample>, zone: ZoneCircle, rules: GameRules): Boolean =
+        recentUsableFixes.size >= rules.minFixesForDecision &&
+            recentUsableFixes.takeLast(rules.minFixesForDecision).none { isClearlyOutside(it, zone, rules) }
 }

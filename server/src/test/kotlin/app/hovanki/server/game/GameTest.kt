@@ -185,6 +185,29 @@ class GameTest {
     }
 
     @Test
+    fun oneFixInsideDoesNotLiftTheWarning() {
+        startedGame()
+        // Zone radius 500 m, border margin 10 m: 540 m with 5 m accuracy is clearly outside, 500 m is not.
+        val outside = center.moveBy(540.0, 0.0)
+        repeat(3) {
+            report(hider, outside)
+            tick(5)
+        }
+        val deadline = assertNotNull(game.snapshotFor(hider, now).me.outOfZoneDeadlineMillis)
+
+        report(hider, center.moveBy(500.0, 0.0))
+        tick(1)
+        assertEquals(deadline, game.snapshotFor(hider, now).me.outOfZoneDeadlineMillis, "a GPS jump is not a return")
+
+        repeat(3) {
+            report(hider, center.moveBy(480.0, 0.0))
+            tick(2)
+        }
+        assertNull(game.snapshotFor(hider, now).me.outOfZoneDeadlineMillis, "back for several fixes: warning lifted")
+        assertEquals(PlayerStatus.ACTIVE, statusOf(hider))
+    }
+
+    @Test
     fun hidersAreInvisibleUntilTheirSignalGoesStale() {
         startedGame()
         report(hider, center.moveBy(50.0, 50.0))
