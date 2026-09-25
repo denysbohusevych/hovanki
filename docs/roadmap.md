@@ -18,7 +18,7 @@
 - Находка: заявка с проверкой GPS → код TOTP (5 попыток) → автоподтверждение по таймауту → спор → голосование / правило по умолчанию.
 - Хранение в памяти и удаление игр после окончания или простоя (`GameJanitor`).
 
-**Клиент (`:composeApp`, `:androidApp`, `iosApp`)**
+**Клиент (`:clientCore`, `:composeApp`, `:androidApp`, `iosApp`)**
 - Общий Compose UI для Android и iOS, Koin, навигация по состоянию.
 - `GameApi` на Ktor и `GameConnection` (HTTP-опрос), `ServerClock`.
 - Геолокация (FusedLocationProvider / CLLocationManager) и работа в фоне (foreground service / фоновый режим location).
