@@ -29,7 +29,7 @@ spring-boot = "4.1.1"
 
 turbine = "1.2.1"
 
-spotless = "8.9.0"
+spotless = "8.10.2"
 ktlint = "1.8.0"
 
 [libraries]
