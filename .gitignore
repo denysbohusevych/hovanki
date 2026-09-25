@@ -1,0 +1,33 @@
+# Gradle / Kotlin
+.gradle/
+.kotlin/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+local.properties
+
+# IDE
+.idea/
+*.iml
+.fleet/
+.vscode/
+captures/
+.cxx/
+.externalNativeBuild/
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcuserstate
+iosApp/build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (signing keys never go to git, see docs/ci-cd.md)
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+keystore.properties
+.env
