@@ -19,6 +19,8 @@ kotlin {
         namespace = "app.hovanki.shared"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
+        // Runs commonTest against the Android variant too.
+        withHostTest {}
         compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
     }
 

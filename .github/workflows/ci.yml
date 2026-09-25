@@ -35,6 +35,16 @@ jobs:
       - name: Tests and checks
         run: ./gradlew check --continue
 
+      - name: Build Android app
+        run: ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v5
+        with:
+          name: hovanki-debug-apk
+          path: androidApp/build/outputs/apk/debug/*.apk
+          retention-days: 14
+
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v5
@@ -65,3 +75,9 @@ jobs:
 
       - name: Shared tests on the iOS simulator
         run: ./gradlew :shared:iosSimulatorArm64Test
+
+      - name: Build iOS app (simulator, unsigned)
+        run: |
+          xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/ios CODE_SIGNING_ALLOWED=NO build

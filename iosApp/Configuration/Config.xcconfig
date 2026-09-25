@@ -1,0 +1,8 @@
+// Set your Apple Developer Team ID to run on a device (Xcode > Settings > Accounts).
+TEAM_ID=
+
+PRODUCT_NAME=Hovanki
+PRODUCT_BUNDLE_IDENTIFIER=app.hovanki.ios$(TEAM_ID)
+
+CURRENT_PROJECT_VERSION=1
+MARKETING_VERSION=0.1.0

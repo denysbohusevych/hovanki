@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Hovanki</string>
+
+  <!-- Common -->
+  <string name="action_allow">Allow</string>
+  <string name="action_cancel">Cancel</string>
+  <string name="action_confirm">Confirm</string>
+  <string name="action_dismiss">OK</string>
+  <string name="action_leave">Leave</string>
+  <string name="connection_reconnecting">No connection to the server. Reconnecting…</string>
+  <string name="location_not_shared">Your location is not shared. The game does not work without it.</string>
+  <string name="error_network">Cannot reach the server. Check your internet connection and the server address.</string>
+  <string name="error_not_found">Game not found. Check the code.</string>
+  <string name="error_too_far">GPS says you are too far away from this player.</string>
+  <string name="error_no_location">No accurate GPS fix yet. Step into the open and try again.</string>
+  <string name="error_session_lost">This game is no longer available on the server.</string>
+
+  <!-- Start screen -->
+  <string name="home_tagline">Hide and seek in the streets, inside a shrinking zone.</string>
+  <string name="home_name_label">Your name</string>
+  <string name="home_create">Create a game here</string>
+  <string name="home_create_hint">The game zone is centered on your current location.</string>
+  <string name="home_or_join">Or join a game</string>
+  <string name="home_code_label">Join code</string>
+  <string name="home_join">Join</string>
+  <string name="home_locating">Getting your location…</string>
+  <string name="home_connecting">Connecting to the server…</string>
+  <string name="home_server_label">Server address</string>
+  <string name="home_server_hint">Game server, e.g. http://192.168.1.10:8080</string>
+  <string name="problem_name_missing">Enter your name.</string>
+  <string name="problem_code_missing">Enter the join code.</string>
+  <string name="problem_location_denied">The game needs your precise location. Allow it in the system settings.</string>
+  <string name="problem_no_location_fix">Could not get an accurate location. Step into the open and try again.</string>
+
+  <!-- Lobby -->
+  <string name="lobby_code_title">Join code</string>
+  <string name="lobby_code_hint">Friends enter this code on the start screen to join.</string>
+  <string name="lobby_players">Players: %1$d</string>
+  <string name="lobby_you">you</string>
+  <string name="lobby_host">host</string>
+  <string name="lobby_seeker">Seeker</string>
+  <string name="lobby_pick_seekers">Pick the seekers. Everyone else hides.</string>
+  <string name="lobby_start">Start the game</string>
+  <string name="lobby_waiting">Waiting for the host to start the game…</string>
+
+  <!-- Game -->
+  <string name="phase_hiding">Hiding</string>
+  <string name="phase_seeking">Seeking</string>
+  <string name="role_hider">You are hiding</string>
+  <string name="role_seeker">You are seeking</string>
+  <string name="hiders_left">Hiders left: %1$d of %2$d</string>
+  <string name="hint_hider_hiding">Hide inside the zone before the seekers set off!</string>
+  <string name="hint_hider_seeking">Stay hidden inside the zone. The seekers are looking for you.</string>
+  <string name="hint_seeker_hiding">The hiders are hiding. You start when the timer runs out.</string>
+  <string name="status_caught">You were caught. Watch how the round ends.</string>
+  <string name="status_eliminated">You stayed out of the zone for too long and are out. Watch how the round ends.</string>
+  <string name="out_of_zone_warning">Get back into the zone! You are out in %1$s.</string>
+  <string name="zone_radius">Zone: %1$d m</string>
+  <string name="zone_shrinks_in">shrinks in %1$s</string>
+  <string name="zone_shrinking">shrinking, %1$s left</string>
+  <string name="zone_final">final size</string>
+  <string name="zone_inside">You are inside the zone, %1$d m from the border.</string>
+  <string name="zone_outside">You are %1$d m outside the zone!</string>
+  <string name="radar_legend">Solid circle: the zone. Dashed: the next zone. Blue dot: you.</string>
+  <string name="reason_teammate">seeker</string>
+  <string name="reason_stale_signal">no signal</string>
+  <string name="reason_out_of_zone">out of the zone</string>
+  <string name="reason_mock_location">fake GPS</string>
+  <string name="seeker_found_title">Found someone?</string>
+  <string name="seeker_found_hint">Tap the player you found. They will have to show you their code.</string>
+  <string name="no_hiders_to_claim">Nobody to catch right now.</string>
+  <string name="action_found">Found</string>
+  <string name="claim_enter_code">Ask %1$s for the code on their screen.</string>
+  <string name="claim_code_label">Code</string>
+  <string name="claim_time_left">Time left: %1$s</string>
+  <string name="claim_disputed_mine">%1$s disputes the catch. The other players are voting.</string>
+  <string name="scanner_placeholder">QR scanning is coming soon. Type the digits instead.</string>
+  <string name="hider_claim_title">%1$s says they found you!</string>
+  <string name="hider_claim_hint">Show this code. If they did not really find you, dispute the catch.</string>
+  <string name="hider_code_next">New code in %1$s</string>
+  <string name="hider_disputed">You disputed the catch. The other players are voting.</string>
+  <string name="action_dispute">Dispute</string>
+  <string name="vote_title">%1$s says they found %2$s. Did they?</string>
+  <string name="vote_confirm">Yes, found</string>
+  <string name="vote_reject">No</string>
+  <string name="vote_done">You voted. Waiting for the others.</string>
+  <string name="action_leave_game">Leave the game</string>
+  <string name="leave_title">Leave the game?</string>
+  <string name="leave_text">You cannot come back to this round. Your last position will be revealed to the seekers.</string>
+
+  <!-- Results -->
+  <string name="results_title">Game over</string>
+  <string name="results_hiders_win">The hiders win!</string>
+  <string name="results_seekers_win">The seekers win!</string>
+  <string name="results_you_survived">You survived!</string>
+  <string name="results_you_caught">You were caught.</string>
+  <string name="results_you_eliminated">You were eliminated for leaving the zone.</string>
+  <string name="results_survived">Survived</string>
+  <string name="results_caught">Caught</string>
+  <string name="results_eliminated">Eliminated</string>
+  <string name="results_seekers">Seekers</string>
+  <string name="results_back">Back to start</string>
+</resources>

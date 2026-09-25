@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="tracking_channel_name">Гра триває</string>
+  <string name="tracking_notification_title">Hovanki: раунд триває</string>
+  <string name="tracking_notification_text">Ваше місцезнаходження передається грі до кінця раунду.</string>
+</resources>

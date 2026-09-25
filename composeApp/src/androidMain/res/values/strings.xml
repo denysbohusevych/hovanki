@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Texts shown by Android itself (notifications). In-app texts are Compose resources in commonMain. -->
+<resources>
+  <string name="tracking_channel_name">Game in progress</string>
+  <string name="tracking_notification_title">Hovanki: round in progress</string>
+  <string name="tracking_notification_text">Your location is shared with the game until the round ends.</string>
+</resources>
