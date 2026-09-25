@@ -12,10 +12,7 @@ fun LocationSample.isUsable(rules: GameRules): Boolean = !isMock && accuracyMete
  * Out-of-order fixes and physically impossible jumps are dropped; history older than [retentionMillis] is pruned.
  * Not thread-safe: the owner synchronizes access.
  */
-class LocationTrack(
-    private val rules: GameRules,
-    private val retentionMillis: Long = 5 * 60_000L,
-) {
+class LocationTrack(private val rules: GameRules, private val retentionMillis: Long = 5 * 60_000L) {
     private val fixes = ArrayDeque<LocationSample>()
 
     /** Last accepted fix of any accuracy (what we can show on a map). */

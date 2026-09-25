@@ -47,14 +47,17 @@ internal object Sha1 {
                         f = (b and c) or (b.inv() and d)
                         k = 0x5A827999
                     }
+
                     i < 40 -> {
                         f = b xor c xor d
                         k = 0x6ED9EBA1
                     }
+
                     i < 60 -> {
                         f = (b and c) or (b and d) or (c and d)
                         k = 0x8F1BBCDC.toInt()
                     }
+
                     else -> {
                         f = b xor c xor d
                         k = 0xCA62C1D6.toInt()

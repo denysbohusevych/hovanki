@@ -14,17 +14,10 @@ data class ZoneCircle(val center: GeoPoint, val radiusMeters: Double)
  * same schedule (see `app.hovanki.shared.rules.circleAt`) for rule checks.
  */
 @Serializable
-data class ZoneSchedule(
-    val initial: ZoneCircle,
-    val stages: List<ZoneStage> = emptyList(),
-)
+data class ZoneSchedule(val initial: ZoneCircle, val stages: List<ZoneStage> = emptyList())
 
 @Serializable
-data class ZoneStage(
-    val holdSeconds: Int,
-    val shrinkSeconds: Int,
-    val target: ZoneCircle,
-)
+data class ZoneStage(val holdSeconds: Int, val shrinkSeconds: Int, val target: ZoneCircle)
 
 @Serializable
 data class GameSettings(

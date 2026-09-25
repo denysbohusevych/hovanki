@@ -4,11 +4,7 @@ package app.hovanki.shared.totp
  * RFC 6238 TOTP with HMAC-SHA1. The hider's phone shows the current code (works offline),
  * the server recomputes it from the same secret to confirm a catch.
  */
-class Totp(
-    private val secret: ByteArray,
-    val periodSeconds: Int = 30,
-    val digits: Int = 6,
-) {
+class Totp(private val secret: ByteArray, val periodSeconds: Int = 30, val digits: Int = 6) {
     init {
         require(periodSeconds > 0) { "periodSeconds must be positive" }
         require(digits in 1..9) { "digits must be in 1..9" }
@@ -54,6 +50,7 @@ class Totp(
     }
 
     private companion object {
-        val POWERS_OF_TEN = intArrayOf(1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000)
+        val POWERS_OF_TEN =
+            intArrayOf(1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000)
     }
 }

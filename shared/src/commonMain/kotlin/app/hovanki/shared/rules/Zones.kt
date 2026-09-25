@@ -41,14 +41,13 @@ fun ZoneSchedule.stateAt(elapsedMillis: Long): ZoneState {
 
 fun ZoneSchedule.circleAt(elapsedMillis: Long): ZoneCircle = stateAt(elapsedMillis).current
 
-private fun interpolate(from: ZoneCircle, to: ZoneCircle, fraction: Double): ZoneCircle =
-    ZoneCircle(
-        center = GeoPoint(
-            lat = from.center.lat + (to.center.lat - from.center.lat) * fraction,
-            lon = from.center.lon + (to.center.lon - from.center.lon) * fraction,
-        ),
-        radiusMeters = from.radiusMeters + (to.radiusMeters - from.radiusMeters) * fraction,
-    )
+private fun interpolate(from: ZoneCircle, to: ZoneCircle, fraction: Double): ZoneCircle = ZoneCircle(
+    center = GeoPoint(
+        lat = from.center.lat + (to.center.lat - from.center.lat) * fraction,
+        lon = from.center.lon + (to.center.lon - from.center.lon) * fraction,
+    ),
+    radiusMeters = from.radiusMeters + (to.radiusMeters - from.radiusMeters) * fraction,
+)
 
 /**
  * Default schedule: a circle around [center] that shrinks [steps] times down to [finalRadiusMeters].

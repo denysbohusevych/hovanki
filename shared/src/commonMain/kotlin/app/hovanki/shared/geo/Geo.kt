@@ -24,17 +24,15 @@ fun GeoPoint.distanceTo(other: GeoPoint): Double {
 /** Offset from an origin on a local flat projection (fine for a game area of a few kilometers). */
 data class LocalOffset(val eastMeters: Double, val northMeters: Double)
 
-fun GeoPoint.offsetFrom(origin: GeoPoint): LocalOffset =
-    LocalOffset(
-        eastMeters = (lon - origin.lon).toRadians() * EARTH_RADIUS_METERS * cos(origin.lat.toRadians()),
-        northMeters = (lat - origin.lat).toRadians() * EARTH_RADIUS_METERS,
-    )
+fun GeoPoint.offsetFrom(origin: GeoPoint): LocalOffset = LocalOffset(
+    eastMeters = (lon - origin.lon).toRadians() * EARTH_RADIUS_METERS * cos(origin.lat.toRadians()),
+    northMeters = (lat - origin.lat).toRadians() * EARTH_RADIUS_METERS,
+)
 
-fun GeoPoint.moveBy(eastMeters: Double, northMeters: Double): GeoPoint =
-    GeoPoint(
-        lat = lat + (northMeters / EARTH_RADIUS_METERS).toDegrees(),
-        lon = lon + (eastMeters / (EARTH_RADIUS_METERS * cos(lat.toRadians()))).toDegrees(),
-    )
+fun GeoPoint.moveBy(eastMeters: Double, northMeters: Double): GeoPoint = GeoPoint(
+    lat = lat + (northMeters / EARTH_RADIUS_METERS).toDegrees(),
+    lon = lon + (eastMeters / (EARTH_RADIUS_METERS * cos(lat.toRadians()))).toDegrees(),
+)
 
 internal fun Double.toRadians(): Double = this * PI / 180.0
 

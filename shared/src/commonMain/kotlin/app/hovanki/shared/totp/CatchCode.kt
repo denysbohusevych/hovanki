@@ -5,22 +5,17 @@ import app.hovanki.shared.protocol.GameRules
 import app.hovanki.shared.protocol.PlayerId
 
 /** Catch-code generator/verifier for a hider, built identically on the client and the server. */
-fun catchCodeTotp(secretHex: String, rules: GameRules): Totp =
-    Totp(
-        secret = secretHex.hexToBytes(),
-        periodSeconds = rules.catchCodePeriodSeconds,
-        digits = rules.catchCodeDigits,
-    )
+fun catchCodeTotp(secretHex: String, rules: GameRules): Totp = Totp(
+    secret = secretHex.hexToBytes(),
+    periodSeconds = rules.catchCodePeriodSeconds,
+    digits = rules.catchCodeDigits,
+)
 
 /**
  * Content of the QR code on the hider's screen: `hovanki:1:<gameId>:<playerId>:<code>`.
  * The same digits can be read out loud and typed in when the camera does not work.
  */
-data class CatchCodePayload(
-    val gameId: GameId,
-    val hiderId: PlayerId,
-    val code: String,
-) {
+data class CatchCodePayload(val gameId: GameId, val hiderId: PlayerId, val code: String) {
     fun encode(): String = listOf(PREFIX, VERSION, gameId.value, hiderId.value, code).joinToString(SEPARATOR)
 
     companion object {
