@@ -1,0 +1,6 @@
+# Profile for end-to-end tests (:e2e, e2e/run-devices.sh): enables the observer endpoint
+# /api/v1/debug/games (DebugController) that exposes every player's position. Never enable it in production.
+hovanki:
+  games:
+    # Tests create many short games; keep finished ones around a little for the report, then free the memory.
+    finished-retention: 10m
