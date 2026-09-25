@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: hovanki-server
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+hovanki:
+  games:
+    # Game data (including location history) is kept in memory only and deleted after the game (GDPR).
+    finished-retention: 30m
+    idle-retention: 6h
+    cleanup-interval: 1m
