@@ -229,4 +229,21 @@ class GameTest {
 
         assertEquals(GamePhase.FINISHED, game.phase)
     }
+
+    @Test
+    fun gameFinishesWhenTheLastHiderIsCaughtBySilence() {
+        startedGame()
+        report(seeker, center)
+        game.claimCatch(seeker, hider, CatchId("c1"), now)
+        game.confirmCatch(CatchId("c1"), seeker, code(), now)
+        game.claimCatch(seeker, host, CatchId("c2"), now)
+        val deadline = now + settings.rules.catchCodeTimeoutSeconds * 1000L
+
+        // The next request comes a bit after the deadline: the game still ended at the deadline.
+        tick(settings.rules.catchCodeTimeoutSeconds + 3)
+
+        assertEquals(GamePhase.FINISHED, game.phase)
+        assertEquals(deadline, game.debugState(now).finishedAtMillis)
+        assertEquals(deadline, game.debugState(now).phaseStartedAtMillis)
+    }
 }

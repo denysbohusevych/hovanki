@@ -368,6 +368,9 @@ class Game(
     }
 
     private fun finish(atMillis: Long) {
+        // Several rules can end the game within one advance() (last catch confirmed, then the zone check):
+        // the first one decides when it ended.
+        if (phase == GamePhase.FINISHED) return
         enterPhase(GamePhase.FINISHED, atMillis)
         finishedAtMillis = atMillis
         catches.values.filter { it.isOpen }.forEach { it.status = CatchStatus.REJECTED }
