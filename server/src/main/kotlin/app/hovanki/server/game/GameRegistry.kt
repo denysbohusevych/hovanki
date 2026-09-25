@@ -25,6 +25,8 @@ class GameRegistry {
 
     fun get(id: GameId): Game? = games[id]
 
+    fun all(): List<Game> = games.values.toList()
+
     fun findByJoinCode(joinCode: String): Game? = gamesByJoinCode[joinCode.uppercase()]?.let(games::get)
 
     fun registerToken(token: String, ref: PlayerRef) {

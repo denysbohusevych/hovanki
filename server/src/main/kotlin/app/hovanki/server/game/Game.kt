@@ -1,5 +1,10 @@
 package app.hovanki.server.game
 
+import app.hovanki.shared.debug.DebugCatch
+import app.hovanki.shared.debug.DebugFixCounts
+import app.hovanki.shared.debug.DebugGameState
+import app.hovanki.shared.debug.DebugPlayer
+import app.hovanki.shared.debug.DebugVote
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.CatchView
@@ -75,6 +80,7 @@ class Game(
         for (sample in samples.sortedBy { it.timestampMillis }) {
             // Never trust a timestamp from the future.
             val result = player.track.add(sample.copy(timestampMillis = minOf(sample.timestampMillis, nowMillis)))
+            player.fixResults[result] = (player.fixResults[result] ?: 0) + 1
             // Staleness is about location updates, not requests: an app with GPS off still syncs.
             if (result == LocationTrack.Result.ACCEPTED) player.lastFixReceivedMillis = nowMillis
         }
@@ -194,11 +200,7 @@ class Game(
             phase = phase,
             settings = settings,
             serverTimeMillis = nowMillis,
-            phaseEndsAtMillis = when (phase) {
-                GamePhase.HIDING -> phaseStartedAtMillis + settings.hidingSeconds * 1000L
-                GamePhase.SEEKING -> phaseStartedAtMillis + settings.seekingSeconds * 1000L
-                else -> null
-            },
+            phaseEndsAtMillis = phaseEndsAtMillis(),
             zoneStartedAtMillis = zoneStartedAtMillis,
             players = players.values.map { player ->
                 PlayerView(
@@ -214,7 +216,7 @@ class Game(
                 role = viewer.role,
                 status = viewer.status,
                 catchCodeSecret = viewer.catchCodeSecret,
-                outOfZoneDeadlineMillis = viewer.outOfZoneSinceMillis?.let { it + rules.outOfZoneGraceSeconds * 1000L },
+                outOfZoneDeadlineMillis = viewer.outOfZoneDeadlineMillis(),
             ),
             catches = catches.values
                 .filter { it.seekerId == viewerId || it.hiderId == viewerId || viewerId in eligibleVoters(it) }
@@ -225,19 +227,95 @@ class Game(
 
     fun hasPlayer(id: PlayerId): Boolean = id in players
 
+    /**
+     * Everything, unfiltered, for the e2e observer (served only with the `e2e` Spring profile).
+     * Never use it for player-facing responses: those go through [snapshotFor].
+     */
+    fun debugState(nowMillis: Long): DebugGameState {
+        val zoneStart = zoneStartedAtMillis
+        return DebugGameState(
+            gameId = id,
+            joinCode = joinCode,
+            hostId = hostId,
+            phase = phase,
+            settings = settings,
+            serverTimeMillis = nowMillis,
+            phaseStartedAtMillis = phaseStartedAtMillis,
+            phaseEndsAtMillis = phaseEndsAtMillis(),
+            zoneStartedAtMillis = zoneStart,
+            zone = if (zoneStart != null &&
+                phase == GamePhase.SEEKING
+            ) {
+                settings.zone.circleAt(nowMillis - zoneStart)
+            } else {
+                null
+            },
+            finishedAtMillis = finishedAtMillis,
+            players = players.values.map { player ->
+                DebugPlayer(
+                    id = player.id,
+                    name = player.name,
+                    role = player.role,
+                    status = player.status,
+                    latestFix = player.track.latest,
+                    latestUsableFix = player.track.latestUsable(),
+                    lastFixReceivedMillis = player.lastFixReceivedMillis,
+                    lastMockAtMillis = player.track.lastMockAtMillis,
+                    outOfZoneSinceMillis = player.outOfZoneSinceMillis,
+                    outOfZoneDeadlineMillis = player.outOfZoneDeadlineMillis(),
+                    revealedToSeekers = revealReason(player, nowMillis),
+                    catchCodeSecret = player.catchCodeSecret,
+                    fixes = DebugFixCounts(
+                        accepted = player.fixResults[LocationTrack.Result.ACCEPTED] ?: 0,
+                        mock = player.fixResults[LocationTrack.Result.MOCK] ?: 0,
+                        outOfOrder = player.fixResults[LocationTrack.Result.OUT_OF_ORDER] ?: 0,
+                        implausible = player.fixResults[LocationTrack.Result.IMPLAUSIBLE] ?: 0,
+                    ),
+                )
+            },
+            catches = catches.values.map { claim ->
+                DebugCatch(
+                    id = claim.id,
+                    seekerId = claim.seekerId,
+                    hiderId = claim.hiderId,
+                    status = claim.status,
+                    createdAtMillis = claim.createdAtMillis,
+                    deadlineMillis = claim.deadlineMillis,
+                    failedAttempts = claim.failedAttempts,
+                    votes = claim.votes.map { (voter, confirm) -> DebugVote(voter, confirm) },
+                    estimatedDistanceAtClaimMeters = claim.estimatedDistanceAtClaimMeters,
+                )
+            },
+        )
+    }
+
     private fun visibleLocation(viewer: Player, target: Player, nowMillis: Long): VisibleLocation? {
         if (viewer.id == target.id || viewer.role != Role.SEEKER) return null
         val fix = target.track.latest ?: return null
-        val reason = when {
-            phase != GamePhase.HIDING && phase != GamePhase.SEEKING -> null
-            target.role == Role.SEEKER -> VisibilityReason.TEAMMATE
-            phase != GamePhase.SEEKING || target.status != PlayerStatus.ACTIVE -> null
-            target.outOfZoneSinceMillis != null -> VisibilityReason.OUT_OF_ZONE
-            target.recentlyMocked(nowMillis) -> VisibilityReason.MOCK_LOCATION
-            target.isStale(nowMillis) -> VisibilityReason.STALE_SIGNAL
-            else -> null
-        } ?: return null
+        val reason = revealReason(target, nowMillis) ?: return null
         return VisibleLocation(fix.point, fix.accuracyMeters, fix.timestampMillis, reason)
+    }
+
+    /** Why seekers may see [target] right now, or null when it stays hidden from them. */
+    private fun revealReason(target: Player, nowMillis: Long): VisibilityReason? = when {
+        phase != GamePhase.HIDING && phase != GamePhase.SEEKING -> null
+        target.role == Role.SEEKER -> VisibilityReason.TEAMMATE
+        phase != GamePhase.SEEKING || target.status != PlayerStatus.ACTIVE -> null
+        target.outOfZoneSinceMillis != null -> VisibilityReason.OUT_OF_ZONE
+        target.recentlyMocked(nowMillis) -> VisibilityReason.MOCK_LOCATION
+        target.isStale(nowMillis) -> VisibilityReason.STALE_SIGNAL
+        else -> null
+    }
+
+    private fun phaseEndsAtMillis(): Long? = when (phase) {
+        GamePhase.HIDING -> phaseStartedAtMillis + settings.hidingSeconds * 1000L
+        GamePhase.SEEKING -> phaseStartedAtMillis + settings.seekingSeconds * 1000L
+        else -> null
+    }
+
+    private fun Player.outOfZoneDeadlineMillis(): Long? = outOfZoneSinceMillis?.let {
+        it +
+            rules.outOfZoneGraceSeconds * 1000L
     }
 
     private fun checkZone(nowMillis: Long) {
@@ -336,6 +414,7 @@ class Game(
         var catchCodeSecret: String? = null
         var lastFixReceivedMillis: Long? = null
         var outOfZoneSinceMillis: Long? = null
+        val fixResults = HashMap<LocationTrack.Result, Int>()
     }
 
     private class CatchClaim(
