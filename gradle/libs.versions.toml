@@ -72,6 +72,7 @@ koin-compose-viewmodel = { module = "io.insert-koin:koin-compose-viewmodel", ver
 
 # Server (versions come from the Spring Boot BOM)
 spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
+spring-boot = { module = "org.springframework.boot:spring-boot" }
 spring-boot-starter-webmvc = { module = "org.springframework.boot:spring-boot-starter-webmvc" }
 spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
 spring-boot-starter-kotlinx-serialization-json = { module = "org.springframework.boot:spring-boot-starter-kotlinx-serialization-json" }

@@ -11,6 +11,8 @@ flowchart LR
     composeApp["composeApp<br/>KMP: UI, DI, платформенные сервисы"] --> clientCore
     clientCore["clientCore<br/>KMP: сеть, сессия, ServerClock"] --> shared
     server["server<br/>Spring Boot"] --> shared
+    e2e["e2e<br/>JVM: боты и сценарии"] --> clientCore
+    e2e -.->|"тесты"| server
     shared["shared<br/>KMP: протокол, TOTP, гео, правила"]
     composeApp -.->|"HTTP JSON /api/v1"| server
 ```
@@ -22,6 +24,7 @@ flowchart LR
 | `:clientCore` | jvm, android, iosArm64, iosSimulatorArm64 | Клиентская логика без UI: `GameApi`/`HttpGameApi` (Ktor), `GameConnection`/`PollingGameConnection`, `LocationOutbox`, `ServerClock`, `GameSessionManager`, интерфейсы `LocationProvider` и `BackgroundTracker`. Без Compose и платформенного кода; JVM-таргет нужен headless-ботам e2e-тестов, чтобы они ходили через тот же сетевой код, что и приложение. |
 | `:composeApp` | android, iosArm64, iosSimulatorArm64 | KMP-библиотека (`com.android.kotlin.multiplatform.library`): Compose UI, Koin, движки Ktor, реализации платформенных сервисов. На iOS собирается во framework `ComposeApp` (вместе с `:clientCore`). |
 | `:androidApp` | Android | Тонкая точка входа: `Application` + `MainActivity`. AGP 9 со встроенным Kotlin. |
+| `:e2e` | JVM 21 | End-to-end тесты: headless-боты на коде `:clientCore` с имитацией GPS, часов и сети играют целые партии против настоящего сервера (в тестах он поднимается в том же процессе). См. [e2e.md](e2e.md). |
 | `iosApp/` | iOS 16+ | Xcode-проект, SwiftUI-оболочка вокруг `MainViewControllerKt.mainViewController()`. Framework собирается Run Script-фазой `./gradlew :composeApp:embedAndSignAppleFrameworkForXcode`. Подробности — [iosApp/README.md](../iosApp/README.md). |
 
 Главное правило: **всё, что должно одинаково работать на клиенте и сервере, живёт в `:shared`** (протокол, коды, зона, пороги GPS). Клиент использует это для подсказок и отрисовки, сервер — для решений.
@@ -198,6 +201,7 @@ sequenceDiagram
 | POST | `/api/v1/games/{gameId}/catches/{catchId}/dispute` | прячущийся из заявки | — | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/catches/{catchId}/vote` | игрок вне спора | `VoteRequest` | `GameSnapshot` |
 | GET | `/actuator/health` (+ `/liveness`, `/readiness`) | мониторинг | — | статус Spring Boot |
+| GET | `/api/v1/debug/games`, `/api/v1/debug/games/{gameId}` | только e2e-тесты, **только Spring-профиль `e2e`** | — | `DebugGameList`, `DebugGameState` (`app.hovanki.shared.debug`): полное состояние без фильтрации — все позиции, заявки, причины раскрытий. В обычном профиле маршрутов нет (404), это закреплено тестом `DebugEndpointAbsentTest` |
 
 Любая ошибка приходит телом `ApiError(code, message)` (`ApiExceptionHandler`); клиент ориентируется на `code`, HTTP-статус — для прокси и логов:
 

@@ -44,3 +44,5 @@ include(":clientCore")
 include(":composeApp")
 // Android entry point (Activity, Application). The iOS entry point is the Xcode project in /iosApp.
 include(":androidApp")
+// End-to-end tests: headless bots on the real client code play whole games against the real server.
+include(":e2e")
