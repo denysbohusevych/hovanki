@@ -2,11 +2,13 @@ package app.hovanki.client.ui.game
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.hovanki.client.session.CatchCode
 import app.hovanki.client.session.ConnectionStatus
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
 import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
+import app.hovanki.client.session.catchCodeToShow
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
@@ -22,7 +24,6 @@ import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.rules.ZoneState
 import app.hovanki.shared.rules.stateAt
 import app.hovanki.shared.totp.CatchCodePayload
-import app.hovanki.shared.totp.catchCodeTotp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -113,14 +114,8 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
         val openClaims = snapshot.catches.filter { it.status in OPEN_CLAIM_STATUSES }
         val myClaim = openClaims.firstOrNull { it.seekerId == me.playerId }
         val claimAgainstMe = openClaims.firstOrNull { it.hiderId == me.playerId }
-        val secret = me.catchCodeSecret
-        val catchCode = if (claimAgainstMe?.status == CatchStatus.AWAITING_CODE && secret != null) {
-            // Computed locally from the secret and server time: works even if the network drops right now.
-            val totp = catchCodeTotp(secret, rules)
-            CatchCode(totp.codeAt(now), totp.millisUntilNextCode(now))
-        } else {
-            null
-        }
+        // Computed locally from the secret and server time: works even if the network drops right now.
+        val catchCode = snapshot.catchCodeToShow(now)
         val canClaim = me.role == Role.SEEKER && me.status == PlayerStatus.ACTIVE &&
             snapshot.phase == GamePhase.SEEKING && myClaim == null
         val hiders = snapshot.players.filter { it.role == Role.HIDER }
@@ -211,7 +206,5 @@ data class ClaimUi(
     val canVote: Boolean,
     val myVote: Boolean?,
 )
-
-data class CatchCode(val code: String, val millisUntilNext: Long)
 
 data class RadarMarker(val name: String, val point: GeoPoint, val accuracyMeters: Double, val reason: VisibilityReason)
