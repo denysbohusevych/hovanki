@@ -1,0 +1,38 @@
+version: 2
+updates:
+  # Dependencies and plugins from gradle/libs.versions.toml and settings.gradle.kts.
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # A dependency goes into the first group it matches, so the compatibility groups come first.
+    groups:
+      # Kotlin, its compiler plugins (serialization, compose, spring) and KSP must move together.
+      kotlin:
+        patterns:
+          - "org.jetbrains.kotlin*"
+          - "com.google.devtools.ksp*"
+      # Compose Multiplatform, its androidx artifacts and the Android Gradle plugins.
+      compose-android:
+        patterns:
+          - "org.jetbrains.compose*"
+          - "org.jetbrains.androidx*"
+          - "com.android*"
+      # Everything else: minor and patch updates in one PR, majors separately.
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"

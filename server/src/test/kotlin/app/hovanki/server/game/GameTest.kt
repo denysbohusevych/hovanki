@@ -151,6 +151,21 @@ class GameTest {
     }
 
     @Test
+    fun disputeDefaultRuleUsesTheLikelyDistance() {
+        startedGame()
+        // 60 m apart with 15 m accuracy each: close enough to open a claim, too far for the default rule.
+        report(seeker, center, accuracy = 15.0)
+        report(hider, center.moveBy(60.0, 0.0), accuracy = 15.0)
+        val id = claim()
+        game.disputeCatch(id, hider, now)
+
+        tick(settings.rules.disputeVoteSeconds)
+
+        assertEquals(PlayerStatus.ACTIVE, statusOf(hider))
+        assertEquals(CatchStatus.REJECTED, game.snapshotFor(seeker, now).catches.single().status)
+    }
+
+    @Test
     fun leavingTheZoneWarnsThenEliminates() {
         startedGame()
         val outside = center.moveBy(700.0, 0.0)
@@ -179,6 +194,19 @@ class GameTest {
         assertNull(game.snapshotFor(hider, now).players.single { it.id == seeker }.location, "hiders never see others")
 
         tick(settings.rules.staleLocationRevealSeconds)
+        val revealed = game.snapshotFor(seeker, now).players.single { it.id == hider }.location
+        assertEquals(VisibilityReason.STALE_SIGNAL, revealed?.reason)
+    }
+
+    @Test
+    fun gpsOffIsRevealedEvenIfTheAppKeepsSyncing() {
+        startedGame()
+        report(hider, center.moveBy(50.0, 50.0))
+        repeat(9) {
+            tick(5)
+            game.recordLocations(hider, emptyList(), now)
+        }
+
         val revealed = game.snapshotFor(seeker, now).players.single { it.id == hider }.location
         assertEquals(VisibilityReason.STALE_SIGNAL, revealed?.reason)
     }

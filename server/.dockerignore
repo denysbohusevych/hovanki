@@ -1,0 +1,3 @@
+# Build context of server/Dockerfile: only the jar from `./gradlew :server:bootJar`.
+*
+!build/libs/*.jar

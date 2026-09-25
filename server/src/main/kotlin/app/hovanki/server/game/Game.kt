@@ -72,10 +72,11 @@ class Game(
 
     fun recordLocations(playerId: PlayerId, samples: List<LocationSample>, nowMillis: Long) {
         val player = player(playerId)
-        player.lastSeenMillis = nowMillis
         for (sample in samples.sortedBy { it.timestampMillis }) {
             // Never trust a timestamp from the future.
-            player.track.add(sample.copy(timestampMillis = minOf(sample.timestampMillis, nowMillis)))
+            val result = player.track.add(sample.copy(timestampMillis = minOf(sample.timestampMillis, nowMillis)))
+            // Staleness is about location updates, not requests: an app with GPS off still syncs.
+            if (result == LocationTrack.Result.ACCEPTED) player.lastFixReceivedMillis = nowMillis
         }
         lastActivityMillis = nowMillis
     }
@@ -94,11 +95,14 @@ class Game(
             throw GameException(ErrorCode.WRONG_STATE, "There is already an open catch claim")
         }
 
-        val seekerFix = seeker.freshUsableFix(nowMillis)
-            ?: throw GameException(ErrorCode.NO_LOCATION, "No accurate GPS fix yet, step into the open")
-        // Without a fix of the hider, GPS can't disprove the claim: the code decides.
-        val distance = hider.freshUsableFix(nowMillis)?.let { CatchRules.minPossibleDistanceMeters(seekerFix, it) }
-        if (distance != null && distance > rules.catchMaxDistanceMeters) {
+        val seekerFixes = seeker.track.recentUsableFixes(nowMillis)
+        if (seekerFixes.isEmpty()) {
+            throw GameException(ErrorCode.NO_LOCATION, "No accurate GPS fix yet, step into the open")
+        }
+        // Without fixes of the hider GPS can't disprove the claim: the code decides.
+        val hiderFixes = hider.track.recentUsableFixes(nowMillis)
+        val closest = CatchRules.closestPossibleDistanceMeters(seekerFixes, hiderFixes)
+        if (closest != null && closest > rules.catchMaxDistanceMeters) {
             throw GameException(ErrorCode.TOO_FAR, "GPS says you are too far away from this player")
         }
 
@@ -108,7 +112,7 @@ class Game(
             hiderId = hiderId,
             createdAtMillis = nowMillis,
             deadlineMillis = nowMillis + rules.catchCodeTimeoutSeconds * 1000L,
-            minDistanceAtClaimMeters = distance,
+            estimatedDistanceAtClaimMeters = CatchRules.estimatedDistanceMeters(seekerFixes, hiderFixes),
         )
         lastActivityMillis = nowMillis
     }
@@ -240,6 +244,8 @@ class Game(
         val zoneStart = zoneStartedAtMillis ?: return
         val zone = settings.zone.circleAt(nowMillis - zoneStart)
         for (hider in players.values.filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
+            // Players in an open catch claim or dispute are frozen until it is resolved.
+            if (catches.values.any { it.isOpen && it.hiderId == hider.id }) continue
             val recent = hider.track.recentUsableFixes(nowMillis)
             val since = hider.outOfZoneSinceMillis
             when {
@@ -267,8 +273,9 @@ class Game(
         val confirmed = if (yes != no) {
             yes > no
         } else {
-            // Default rule when nobody (or a tie) voted: trust GPS, unknown distance counts for the seeker.
-            (claim.minDistanceAtClaimMeters ?: 0.0) <= rules.catchMaxDistanceMeters
+            // Default rule when nobody voted (or a tie): the most likely GPS distance decides,
+            // an unknown distance (the hider sent no fixes) counts for the seeker.
+            (claim.estimatedDistanceAtClaimMeters ?: 0.0) <= rules.catchMaxDistanceMeters
         }
         resolve(claim, confirmed, atMillis)
     }
@@ -306,12 +313,9 @@ class Game(
         myVote = votes[viewerId],
     )
 
-    private fun Player.freshUsableFix(nowMillis: Long): LocationSample? =
-        track.latestUsable()?.takeIf { nowMillis - it.timestampMillis <= rules.decisionWindowSeconds * 1000L }
-
     private fun Player.isStale(nowMillis: Long): Boolean {
-        val lastSeen = lastSeenMillis ?: phaseStartedAtMillis
-        return nowMillis - lastSeen >= rules.staleLocationRevealSeconds * 1000L
+        val lastFix = lastFixReceivedMillis ?: phaseStartedAtMillis
+        return nowMillis - lastFix >= rules.staleLocationRevealSeconds * 1000L
     }
 
     private fun Player.recentlyMocked(nowMillis: Long): Boolean =
@@ -330,7 +334,7 @@ class Game(
         var role: Role = Role.HIDER
         var status: PlayerStatus = PlayerStatus.ACTIVE
         var catchCodeSecret: String? = null
-        var lastSeenMillis: Long? = null
+        var lastFixReceivedMillis: Long? = null
         var outOfZoneSinceMillis: Long? = null
     }
 
@@ -340,7 +344,7 @@ class Game(
         val hiderId: PlayerId,
         val createdAtMillis: Long,
         var deadlineMillis: Long,
-        val minDistanceAtClaimMeters: Double?,
+        val estimatedDistanceAtClaimMeters: Double?,
     ) {
         var status: CatchStatus = CatchStatus.AWAITING_CODE
         var failedAttempts = 0
