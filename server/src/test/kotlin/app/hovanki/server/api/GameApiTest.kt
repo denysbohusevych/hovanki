@@ -25,6 +25,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -88,6 +89,16 @@ class GameApiTest(@Autowired private val mvc: MockMvc) {
         assertEquals(ErrorCode.UNAUTHORIZED, protocolJson.decodeFromString<ApiError>(noToken).code)
 
         postRaw(ApiRoutes.GAMES, "{not json", session = null, expectedStatus = 400)
+    }
+
+    @Test
+    fun unknownPathsAndMethodsAreClientErrors() {
+        // Must not end up in the "unexpected error" handler (500 + stack trace in the log).
+        val unknownPath = mvc.get("/api/v1/nope").andExpect { status { isNotFound() } }.andReturn().response
+        assertEquals(ErrorCode.NOT_FOUND, protocolJson.decodeFromString<ApiError>(unknownPath.contentAsString).code)
+
+        val wrongMethod = mvc.get(ApiRoutes.GAMES).andExpect { status { isMethodNotAllowed() } }.andReturn().response
+        assertEquals(ErrorCode.BAD_REQUEST, protocolJson.decodeFromString<ApiError>(wrongMethod.contentAsString).code)
     }
 
     private fun sync(session: PlayerSession): GameSnapshot {
