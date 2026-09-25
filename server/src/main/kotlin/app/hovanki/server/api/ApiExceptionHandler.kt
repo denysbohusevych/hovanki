@@ -3,10 +3,13 @@ package app.hovanki.server.api
 import app.hovanki.server.game.GameException
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ErrorCode
+import jakarta.servlet.ServletException
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
+import org.springframework.web.ErrorResponse
+import org.springframework.web.ErrorResponseException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 
@@ -21,6 +24,16 @@ class ApiExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException::class)
     fun unreadable(e: HttpMessageNotReadableException): ResponseEntity<ApiError> =
         error(ErrorCode.BAD_REQUEST, "Malformed request body")
+
+    /** Spring's own client errors: unknown path, wrong HTTP method or content type. Keeps Spring's status. */
+    @ExceptionHandler(ServletException::class, ErrorResponseException::class)
+    fun requestRejected(e: Exception): ResponseEntity<ApiError> {
+        val status = (e as? ErrorResponse)?.statusCode
+        if (status == null || !status.is4xxClientError) return unexpected(e)
+        val code = if (status.value() == HttpStatus.NOT_FOUND.value()) ErrorCode.NOT_FOUND else ErrorCode.BAD_REQUEST
+        val reason = HttpStatus.resolve(status.value())?.reasonPhrase ?: "Bad request"
+        return ResponseEntity.status(status).body(ApiError(code, reason))
+    }
 
     @ExceptionHandler(Exception::class)
     fun unexpected(e: Exception): ResponseEntity<ApiError> {
