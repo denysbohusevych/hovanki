@@ -58,6 +58,22 @@ class ZonesTest {
         assertFalse(ZoneRules.isConfidentlyOutside(onTheBorder, zone, rules), "GPS error keeps the player inside")
     }
 
+    @Test
+    fun backOnlyWithSeveralFixesInside() {
+        val rules = GameRules()
+        val zone = schedule.initial
+        val outside = LocationSample(center.moveBy(eastMeters = 600.0, northMeters = 0.0), 10.0, 0)
+        val inside = LocationSample(center.moveBy(eastMeters = 450.0, northMeters = 0.0), 10.0, 0)
+
+        assertTrue(ZoneRules.isConfidentlyBack(listOf(outside, inside, inside, inside), zone, rules))
+        assertFalse(
+            ZoneRules.isConfidentlyBack(listOf(outside, outside, inside), zone, rules),
+            "a single fix never decides",
+        )
+        assertFalse(ZoneRules.isConfidentlyBack(listOf(inside, inside, outside), zone, rules), "the latest fixes count")
+        assertFalse(ZoneRules.isConfidentlyBack(listOf(inside, inside), zone, rules), "too few fixes")
+    }
+
     private fun fixesAt(point: GeoPoint, accuracy: Double) =
         (0 until 3).map { LocationSample(point, accuracy, timestampMillis = it * 5_000L) }
 }
