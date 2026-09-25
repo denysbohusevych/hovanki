@@ -14,8 +14,9 @@
 
 1. `./gradlew spotlessCheck` — ktlint через Spotless. Локально исправляется `./gradlew spotlessApply`.
 2. `./gradlew check --continue` — тесты и проверки всех модулей: `:shared` (JVM, Android), `:clientCore` (JVM), `:server`, Android-модули.
-3. Сборка debug-версии Android-приложения.
-4. При падении отчёты `**/build/reports/` прикладываются к запуску как артефакт `test-reports` (7 дней).
+3. `./gradlew :e2e:test` — end-to-end сценарии: headless-боты играют партии против сервера (отдельный шаг; `check` запускается с `-x :e2e:test`). Отчёты сценариев всегда прикладываются артефактом `e2e-reports`.
+4. Сборка debug-версии Android-приложения.
+5. При падении отчёты `**/build/reports/` прикладываются к запуску как артефакт `test-reports` (7 дней).
 
 **iOS** (`macos-26`, Xcode из образа раннера):
 

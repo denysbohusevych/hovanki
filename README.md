@@ -20,6 +20,7 @@
 | `clientCore/` | KMP (JVM, Android, iOS): клиентская логика без UI — API сервера, синхронизация, `ServerClock`, игровая сессия |
 | `composeApp/` | KMP-библиотека клиента: Compose UI, DI, платформенные сервисы (геолокация, фон) |
 | `androidApp/` | Android-приложение: точка входа (`Application`, `MainActivity`) |
+| `e2e/` | End-to-end тесты: headless-боты на клиентском коде играют партии против настоящего сервера |
 | `iosApp/` | Xcode-проект: SwiftUI-оболочка вокруг Compose UI |
 | `docs/` | [архитектура](docs/architecture.md), [CI/CD](docs/ci-cd.md), [roadmap](docs/roadmap.md), [ADR](docs/adr/) |
 | `gradle/libs.versions.toml` | версии зависимостей и плагинов |
@@ -78,6 +79,7 @@ open iosApp/iosApp.xcodeproj
 | `./gradlew :shared:jvmTest` | Быстрые тесты общего кода |
 | `./gradlew :clientCore:jvmTest` | Тесты клиентской логики (API, синхронизация, `ServerClock`) на JVM |
 | `./gradlew :server:test` | Тесты сервера |
+| `./gradlew :e2e:test` | End-to-end сценарии: боты играют целые партии против сервера (~3 мин), отчёты — `e2e/build/reports/e2e/` |
 | `./gradlew :shared:iosSimulatorArm64Test` | Тесты общего кода на iOS-симуляторе (только macOS); то же для `:clientCore` |
 | `./gradlew spotlessApply` | Отформатировать код (ktlint); `spotlessCheck` — проверка в CI |
 | `./gradlew :server:bootJar` | Jar сервера для Docker: `server/build/libs/hovanki-server.jar` |

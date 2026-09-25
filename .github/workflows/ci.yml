@@ -33,7 +33,11 @@ jobs:
         run: ./gradlew spotlessCheck
 
       - name: Tests and checks
-        run: ./gradlew check --continue
+        run: ./gradlew check --continue -x :e2e:test
+
+      # Headless bots on the app's client code play whole games against the real server (docs/e2e.md).
+      - name: End-to-end scenarios
+        run: ./gradlew :e2e:test
 
       - name: Build Android app
         run: ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease
@@ -43,6 +47,15 @@ jobs:
         with:
           name: hovanki-debug-apk
           path: androidApp/build/outputs/apk/debug/*.apk
+          retention-days: 14
+
+      - name: Upload e2e scenario reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-reports
+          path: e2e/build/reports/e2e/
+          if-no-files-found: ignore
           retention-days: 14
 
       - name: Upload test reports
