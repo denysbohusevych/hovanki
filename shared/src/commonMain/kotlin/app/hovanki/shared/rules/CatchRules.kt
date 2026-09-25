@@ -15,4 +15,15 @@ object CatchRules {
 
     fun isWithinReach(seeker: LocationSample, hider: LocationSample, rules: GameRules): Boolean =
         minPossibleDistanceMeters(seeker, hider) <= rules.catchMaxDistanceMeters
+
+    /**
+     * Best case over all pairs of recent fixes (never a single point): a claim is rejected only when
+     * even the closest pair is too far apart. Null when one side has no fixes.
+     */
+    fun closestPossibleDistanceMeters(seekerFixes: List<LocationSample>, hiderFixes: List<LocationSample>): Double? =
+        seekerFixes.flatMap { s -> hiderFixes.map { h -> minPossibleDistanceMeters(s, h) } }.minOrNull()
+
+    /** Most likely distance (closest pair of fixes, accuracy ignored); used by the dispute default rule. */
+    fun estimatedDistanceMeters(seekerFixes: List<LocationSample>, hiderFixes: List<LocationSample>): Double? =
+        seekerFixes.flatMap { s -> hiderFixes.map { h -> s.point.distanceTo(h.point) } }.minOrNull()
 }
