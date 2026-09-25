@@ -36,9 +36,3 @@ plugins {
 
 // Code shared by the mobile client and the server: protocol, TOTP, geo & game rules.
 include(":shared")
-// Mobile client (Compose Multiplatform UI + client logic) for Android and iOS.
-include(":composeApp")
-// Android entry point (Activity, Application). The iOS entry point is the Xcode project in /iosApp.
-include(":androidApp")
-// Spring Boot game server.
-include(":server")
