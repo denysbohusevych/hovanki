@@ -36,3 +36,5 @@ plugins {
 
 // Code shared by the mobile client and the server: protocol, TOTP, geo & game rules.
 include(":shared")
+// Spring Boot game server.
+include(":server")

@@ -1,7 +1,6 @@
 package app.hovanki.shared.protocol
 
 import app.hovanki.shared.rules.shrinkingZone
-import kotlinx.serialization.encodeToString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
