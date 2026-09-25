@@ -73,8 +73,8 @@ jobs:
           key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
           restore-keys: konan-${{ runner.os }}-
 
-      - name: Shared tests on the iOS simulator
-        run: ./gradlew :shared:iosSimulatorArm64Test
+      - name: Shared and client-core tests on the iOS simulator
+        run: ./gradlew :shared:iosSimulatorArm64Test :clientCore:iosSimulatorArm64Test
 
       - name: Build iOS app (simulator, unsigned)
         run: |

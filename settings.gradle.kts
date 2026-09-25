@@ -38,7 +38,9 @@ plugins {
 include(":shared")
 // Spring Boot game server.
 include(":server")
-// Mobile client (Compose Multiplatform UI + client logic) for Android and iOS.
+// Client logic without UI (API, connection, session), shared by the app and the e2e bots.
+include(":clientCore")
+// Mobile client (Compose Multiplatform UI + platform services) for Android and iOS.
 include(":composeApp")
 // Android entry point (Activity, Application). The iOS entry point is the Xcode project in /iosApp.
 include(":androidApp")

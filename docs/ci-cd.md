@@ -13,13 +13,13 @@
 **Lint, tests, Android** (`ubuntu-latest`, JDK 21):
 
 1. `./gradlew spotlessCheck` — ktlint через Spotless. Локально исправляется `./gradlew spotlessApply`.
-2. `./gradlew check --continue` — тесты и проверки всех модулей: `:shared` (JVM, Android), `:server`, Android-модули.
+2. `./gradlew check --continue` — тесты и проверки всех модулей: `:shared` (JVM, Android), `:clientCore` (JVM), `:server`, Android-модули.
 3. Сборка debug-версии Android-приложения.
 4. При падении отчёты `**/build/reports/` прикладываются к запуску как артефакт `test-reports` (7 дней).
 
 **iOS** (`macos-26`, Xcode из образа раннера):
 
-1. `./gradlew :shared:iosSimulatorArm64Test` — общие тесты на iOS-симуляторе (Kotlin/Native).
+1. `./gradlew :shared:iosSimulatorArm64Test :clientCore:iosSimulatorArm64Test` — тесты общего кода и клиентской логики на iOS-симуляторе (Kotlin/Native).
 2. `xcodebuild` приложения `iosApp` для симулятора, без подписи.
 
 Кэш Kotlin/Native (`~/.konan`) сохраняется между запусками, ключ — хэш `gradle/libs.versions.toml`.

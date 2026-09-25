@@ -17,7 +17,8 @@
 |---|---|
 | `shared/` | KMP (JVM, Android, iOS): DTO протокола, `ApiRoutes`, TOTP, гео, расписание зоны, правила GPS |
 | `server/` | Spring Boot сервер игры |
-| `composeApp/` | KMP-библиотека клиента: Compose UI, DI, сеть, платформенные сервисы (геолокация, фон) |
+| `clientCore/` | KMP (JVM, Android, iOS): клиентская логика без UI — API сервера, синхронизация, `ServerClock`, игровая сессия |
+| `composeApp/` | KMP-библиотека клиента: Compose UI, DI, платформенные сервисы (геолокация, фон) |
 | `androidApp/` | Android-приложение: точка входа (`Application`, `MainActivity`) |
 | `iosApp/` | Xcode-проект: SwiftUI-оболочка вокруг Compose UI |
 | `docs/` | [архитектура](docs/architecture.md), [CI/CD](docs/ci-cd.md), [roadmap](docs/roadmap.md), [ADR](docs/adr/) |
@@ -75,8 +76,9 @@ open iosApp/iosApp.xcodeproj
 | `./gradlew :androidApp:installDebug` | Собрать и поставить debug-сборку Android |
 | `./gradlew check` | Все тесты и проверки (то же, что в CI на Linux) |
 | `./gradlew :shared:jvmTest` | Быстрые тесты общего кода |
+| `./gradlew :clientCore:jvmTest` | Тесты клиентской логики (API, синхронизация, `ServerClock`) на JVM |
 | `./gradlew :server:test` | Тесты сервера |
-| `./gradlew :shared:iosSimulatorArm64Test` | Тесты общего кода на iOS-симуляторе (только macOS) |
+| `./gradlew :shared:iosSimulatorArm64Test` | Тесты общего кода на iOS-симуляторе (только macOS); то же для `:clientCore` |
 | `./gradlew spotlessApply` | Отформатировать код (ktlint); `spotlessCheck` — проверка в CI |
 | `./gradlew :server:bootJar` | Jar сервера для Docker: `server/build/libs/hovanki-server.jar` |
 

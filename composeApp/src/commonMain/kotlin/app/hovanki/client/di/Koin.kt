@@ -1,5 +1,6 @@
 package app.hovanki.client.di
 
+import app.hovanki.client.defaultServerUrl
 import app.hovanki.client.network.GameApi
 import app.hovanki.client.network.GameConnection
 import app.hovanki.client.network.HttpGameApi
@@ -31,7 +32,7 @@ fun initKoin(appDeclaration: KoinAppDeclaration = {}) {
 }
 
 val commonModule: Module = module {
-    single { ServerUrl() }
+    single { ServerUrl(defaultServerUrl()) }
     single { createHttpClient(get()) }
     single<GameApi> { HttpGameApi(get(), get()) }
     single<GameConnection> { PollingGameConnection(get()) }

@@ -8,7 +8,8 @@
 flowchart LR
     androidApp["androidApp<br/>Application + MainActivity"] --> composeApp
     iosApp["iosApp<br/>Xcode, SwiftUI-оболочка"] -->|"framework ComposeApp"| composeApp
-    composeApp["composeApp<br/>KMP: UI, DI, сеть, платформенные сервисы"] --> shared
+    composeApp["composeApp<br/>KMP: UI, DI, платформенные сервисы"] --> clientCore
+    clientCore["clientCore<br/>KMP: сеть, сессия, ServerClock"] --> shared
     server["server<br/>Spring Boot"] --> shared
     shared["shared<br/>KMP: протокол, TOTP, гео, правила"]
     composeApp -.->|"HTTP JSON /api/v1"| server
@@ -18,22 +19,23 @@ flowchart LR
 |---|---|---|
 | `:shared` | jvm, android, iosArm64, iosSimulatorArm64 | DTO протокола и `ApiRoutes`, `protocolJson`, TOTP-коды находки (свои SHA-1/HMAC на чистом Kotlin), гео-математика, расписание зоны, правила GPS: `LocationTrack`, `ZoneRules`, `CatchRules`. Без платформенных API. |
 | `:server` | JVM 21 | Spring Boot, REST под `/api/v1`, `GameRegistry` в памяти, доменный объект `Game`, `GameJanitor`. |
-| `:composeApp` | android, iosArm64, iosSimulatorArm64 | KMP-библиотека (`com.android.kotlin.multiplatform.library`): Compose UI, Koin, Ktor, платформенные сервисы. На iOS собирается во framework `ComposeApp`. |
+| `:clientCore` | jvm, android, iosArm64, iosSimulatorArm64 | Клиентская логика без UI: `GameApi`/`HttpGameApi` (Ktor), `GameConnection`/`PollingGameConnection`, `LocationOutbox`, `ServerClock`, `GameSessionManager`, интерфейсы `LocationProvider` и `BackgroundTracker`. Без Compose и платформенного кода; JVM-таргет нужен headless-ботам e2e-тестов, чтобы они ходили через тот же сетевой код, что и приложение. |
+| `:composeApp` | android, iosArm64, iosSimulatorArm64 | KMP-библиотека (`com.android.kotlin.multiplatform.library`): Compose UI, Koin, движки Ktor, реализации платформенных сервисов. На iOS собирается во framework `ComposeApp` (вместе с `:clientCore`). |
 | `:androidApp` | Android | Тонкая точка входа: `Application` + `MainActivity`. AGP 9 со встроенным Kotlin. |
 | `iosApp/` | iOS 16+ | Xcode-проект, SwiftUI-оболочка вокруг `MainViewControllerKt.mainViewController()`. Framework собирается Run Script-фазой `./gradlew :composeApp:embedAndSignAppleFrameworkForXcode`. Подробности — [iosApp/README.md](../iosApp/README.md). |
 
 Главное правило: **всё, что должно одинаково работать на клиенте и сервере, живёт в `:shared`** (протокол, коды, зона, пороги GPS). Клиент использует это для подсказок и отрисовки, сервер — для решений.
 
-## Слои внутри composeApp
+## Слои клиента
 
-| Слой | Ответственность | Source set |
+| Слой | Ответственность | Где |
 |---|---|---|
-| UI | Экраны на Compose, `ZoneRadar` (Canvas-заглушка вместо карты), навигация по состоянию: какой экран показывать, решает состояние сессии, а не стек переходов | `commonMain` |
-| Состояние экранов | ViewModel'и / стейт-холдеры: превращают `GameSnapshot` и локальные данные в UI-state, принимают действия пользователя | `commonMain` |
-| Игровая сессия | Цикл синхронизации, outbox координат, `ServerClock` | `commonMain` |
-| Сеть | `GameApi` (Ktor, `protocolJson`), `GameConnection` — транспорт за интерфейсом (сейчас HTTP-опрос) | `commonMain`; движок Ktor: OkHttp (Android), Darwin (iOS) |
-| Платформенные сервисы | `LocationProvider`, `BackgroundTracker`, `ProximityScanner`, `CatchCodeScanner` | интерфейсы в `commonMain`, реализации в `androidMain` / `iosMain` |
-| DI | Koin-модули: общий + платформенный | `commonMain` + `androidMain` / `iosMain` |
+| UI | Экраны на Compose, `ZoneRadar` (Canvas-заглушка вместо карты), навигация по состоянию: какой экран показывать, решает состояние сессии, а не стек переходов | `:composeApp`, `commonMain` |
+| Состояние экранов | ViewModel'и / стейт-холдеры: превращают `GameSnapshot` и локальные данные в UI-state, принимают действия пользователя | `:composeApp`, `commonMain` |
+| Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock` | `:clientCore`, `commonMain` |
+| Сеть | `GameApi` (Ktor, `protocolJson`), `GameConnection` — транспорт за интерфейсом (сейчас HTTP-опрос) | `:clientCore`, `commonMain`; движок Ktor выбирает `:composeApp`: OkHttp (Android), Darwin (iOS) |
+| Платформенные сервисы | `LocationProvider`, `BackgroundTracker`, `ProximityScanner`, `CatchCodeScanner` | интерфейсы в `commonMain` (`LocationProvider` и `BackgroundTracker` — в `:clientCore`), реализации в `:composeApp` `androidMain` / `iosMain` |
+| DI | Koin-модули: общий + платформенный | `:composeApp`, `commonMain` + `androidMain` / `iosMain` |
 
 Платформенные реализации:
 
@@ -223,12 +225,12 @@ sequenceDiagram
 
 1. `:shared` — путь в `ApiRoutes` (шаблон + функция-построитель), DTO запроса в `Messages.kt` (`@Serializable`, новые поля с дефолтами). Тест сериализации в `commonTest`, если формат нетривиальный.
 2. `:server` — метод доменного объекта `Game` (время параметром, ошибки через `GameException(ErrorCode, ...)`) и юнит-тест на него; метод `GameService` через `update(caller, gameId) { game, now -> ... }`, чтобы получить блокировку, `advance(now)` и снапшот; маппинг в контроллере.
-3. `:composeApp` — метод в `GameApi`, вызов из состояния экрана; ответ-снапшот отдать в ту же точку, куда приходят снапшоты синхронизации.
+3. `:clientCore` — метод в `GameApi`/`HttpGameApi` и команда в `GameSessionManager` (ответ-снапшот — в ту же точку, куда приходят снапшоты синхронизации); `:composeApp` — вызов из состояния экрана.
 4. Обновить таблицу API выше.
 
 ### Новый платформенный сервис
 
-1. Интерфейс в `composeApp/src/commonMain` (без платформенных типов в сигнатурах; потоки — `Flow`).
+1. Интерфейс в `composeApp/src/commonMain` (без платформенных типов в сигнатурах; потоки — `Flow`). Если сервис нужен `GameSessionManager`, интерфейс — в `clientCore/src/commonMain`.
 2. Реализации в `androidMain` и `iosMain`; no-op или фейк — для тестов и для платформы, где сервис ещё не готов.
 3. Биндинг в платформенном Koin-модуле; общий код получает интерфейс через `get()` / `koinInject()`.
 4. Разрешения и описания: `AndroidManifest.xml` в `androidApp`/`composeApp`, `Info.plist` в `iosApp` (`NS…UsageDescription`, `UIBackgroundModes`).
