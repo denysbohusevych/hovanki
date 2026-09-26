@@ -1,0 +1,7 @@
+# Waits until the element with test tag ID is on screen.
+appId: ${APP_ID}
+---
+- extendedWaitUntil:
+    visible:
+      id: ${ID}
+    timeout: 90000

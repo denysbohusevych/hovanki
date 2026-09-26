@@ -1,0 +1,23 @@
+# Waits until the element ${UNTIL} is visible, answering the location prompt like a player whenever it shows up.
+# iOS asks the first time the app needs location (creating or joining a game); on a busy simulator the prompt can
+# appear many seconds after the tap. On Android the permission is granted at install and the prompt never shows.
+appId: ${APP_ID}
+---
+- repeat:
+    while:
+      notVisible:
+        id: ${UNTIL}
+    times: 40
+    commands:
+      - runFlow:
+          when:
+            visible: "Allow While Using.*"
+          commands:
+            - tapOn: "Allow While Using.*"
+      - extendedWaitUntil:
+          visible:
+            id: ${UNTIL}
+          timeout: 2000
+          optional: true
+- assertVisible:
+    id: ${UNTIL}

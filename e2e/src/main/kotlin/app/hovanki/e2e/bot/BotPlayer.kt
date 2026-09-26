@@ -99,8 +99,11 @@ class BotPlayer(
             session.start(seekers.map { it.id })
         }
 
-    suspend fun claimCatch(hider: BotPlayer): CommandResult =
-        command("claims a catch on ${hider.name}") { it.claimCatch(hider.id) }
+    suspend fun claimCatch(hider: BotPlayer): CommandResult = claimCatch(hider.id, hider.name)
+
+    /** Claim on any player, e.g. one playing on a device. */
+    suspend fun claimCatch(hiderId: PlayerId, hiderName: String = hiderId.value): CommandResult =
+        command("claims a catch on $hiderName") { it.claimCatch(hiderId) }
 
     /** Types [code] into the open claim of this seeker. */
     suspend fun confirmCatch(code: String): CommandResult {

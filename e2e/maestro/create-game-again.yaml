@@ -1,0 +1,13 @@
+# The app gave up on the server ("Cannot reach the server" after its 15 s request timeout): dismiss the banner and
+# tap Create again, like a player would.
+appId: ${APP_ID}
+---
+- tapOn:
+    text: "OK"
+    optional: true
+- tapOn:
+    id: home_create
+- runFlow:
+    file: allow-location.yaml
+    env:
+      UNTIL: lobby_screen

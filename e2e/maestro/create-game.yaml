@@ -1,0 +1,14 @@
+# The host creates a game from the start screen; name, server and hiding time come from the launch options.
+appId: ${APP_ID}
+---
+- extendedWaitUntil:
+    visible:
+      id: home_create
+    timeout: 30000
+- tapOn:
+    id: home_create
+# The app asks for location (iOS: the system prompt), waits for a GPS fix to center the zone on, opens the lobby.
+- runFlow:
+    file: allow-location.yaml
+    env:
+      UNTIL: lobby_screen

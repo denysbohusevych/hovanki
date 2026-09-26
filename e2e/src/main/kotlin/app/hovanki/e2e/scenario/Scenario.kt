@@ -63,7 +63,7 @@ fun runScenario(name: String, serverUrl: String, timeout: Duration = 3.minutes, 
  * The script of one game: who stands where, who walks where, what they press, and what must happen.
  * Players are [BotPlayer]s running the app's client code; checks read the server's truth via [observer].
  */
-class Scenario internal constructor(val name: String, val serverUrl: String) {
+class Scenario(val name: String, val serverUrl: String) {
     val timeline = Timeline()
     val observer = Observer(serverUrl)
     val metrics = SyncMetrics()
@@ -95,6 +95,13 @@ class Scenario internal constructor(val name: String, val serverUrl: String) {
     }
 
     fun note(text: String) = timeline.log("scenario", text)
+
+    /** A game created elsewhere (on a device), found through the observer. */
+    fun useGame(id: GameId, code: String) {
+        gameIdOrNull = id
+        joinCode = code
+        note("game ${id.value}, join code $code")
+    }
 
     // ---- Game setup ----
 
@@ -270,7 +277,7 @@ class Scenario internal constructor(val name: String, val serverUrl: String) {
         note("✓ privacy: no bot received a position it may not see")
     }
 
-    internal fun close() {
+    fun close() {
         bots.forEach { it.close() }
         observer.close()
     }
