@@ -83,3 +83,63 @@ enum class ErrorCode {
     INVALID_CODE,
     INTERNAL,
 }
+
+/**
+ * Who sees a chat message. Set by the server from the sender's role: players only ever choose "everyone" or "my team".
+ */
+@Serializable
+enum class ChatChannel {
+    /** Everyone in the game; the only channel in the lobby. */
+    ALL,
+
+    /** Seekers only. */
+    SEEKERS,
+
+    /** Hiders only (including caught and eliminated ones). */
+    HIDERS,
+}
+
+/**
+ * The exact reason of an error, next to its [ErrorCode] ([ApiError.reason]). Added after the first app versions: they
+ * only read the code, and a value they don't know is read as null (the property has a default).
+ */
+@Serializable
+enum class ErrorReason {
+    NICKNAME_TAKEN,
+    EMAIL_TAKEN,
+    INVALID_NICKNAME,
+    INVALID_EMAIL,
+    INVALID_PASSWORD,
+
+    /** Unknown login, wrong password, or a wrong current password when changing it or deleting the account. */
+    WRONG_CREDENTIALS,
+
+    /** The account exists but its email is not confirmed yet: only the verification routes work. */
+    EMAIL_NOT_VERIFIED,
+
+    /** The emailed code is too old, used up (too many attempts) or was never sent: ask for a new one. */
+    CODE_EXPIRED,
+
+    /** The account token is unknown, revoked or expired: log in again. */
+    SESSION_EXPIRED,
+
+    /** Only for players with an account (e.g. inviting friends into a game). */
+    ACCOUNT_REQUIRED,
+    USER_NOT_FOUND,
+    NOT_FRIENDS,
+
+    /** The caller blocked this user. */
+    BLOCKED_BY_YOU,
+    NOT_GROUP_OWNER,
+    NOT_GROUP_MEMBER,
+    INVALID_GROUP_NAME,
+
+    /** Too many friends, requests, groups or group members. */
+    LIMIT_REACHED,
+
+    /** Empty or too long chat message. */
+    INVALID_MESSAGE,
+
+    /** Rate limit hit (HTTP 429): try again later. */
+    TOO_MANY_REQUESTS,
+}
