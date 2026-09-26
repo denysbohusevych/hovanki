@@ -1,0 +1,18 @@
+# Scrolls down until the element with test tag ID is visible, then waits for it. Swipes along the left edge, in the
+# screen's padding: a swipe that starts on the map pans the map, not the screen.
+appId: ${APP_ID}
+---
+- repeat:
+    while:
+      notVisible:
+        id: ${ID}
+    times: 4
+    commands:
+      - swipe:
+          start: 3%, 75%
+          end: 3%, 35%
+          duration: 500
+- extendedWaitUntil:
+    visible:
+      id: ${ID}
+    timeout: 15000

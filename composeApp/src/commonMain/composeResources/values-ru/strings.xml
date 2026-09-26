@@ -65,7 +65,7 @@
   <string name="zone_final">окончательный размер</string>
   <string name="zone_inside">Вы в зоне, до границы %1$d м.</string>
   <string name="zone_outside">Вы вне зоны на %1$d м!</string>
-  <string name="radar_legend">Сплошной круг — зона. Пунктир — следующая зона. Синяя точка — вы.</string>
+  <string name="map_legend">Сплошной круг — зона. Пунктир — следующая зона. Синяя точка — вы.</string>
   <string name="reason_teammate">ищет</string>
   <string name="reason_stale_signal">нет сигнала</string>
   <string name="reason_out_of_zone">вне зоны</string>

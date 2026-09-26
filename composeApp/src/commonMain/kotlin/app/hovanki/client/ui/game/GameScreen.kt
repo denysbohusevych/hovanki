@@ -54,11 +54,11 @@ import app.hovanki.client.resources.hint_hider_seeking
 import app.hovanki.client.resources.hint_seeker_hiding
 import app.hovanki.client.resources.leave_text
 import app.hovanki.client.resources.leave_title
+import app.hovanki.client.resources.map_legend
 import app.hovanki.client.resources.no_hiders_to_claim
 import app.hovanki.client.resources.out_of_zone_warning
 import app.hovanki.client.resources.phase_hiding
 import app.hovanki.client.resources.phase_seeking
-import app.hovanki.client.resources.radar_legend
 import app.hovanki.client.resources.role_hider
 import app.hovanki.client.resources.role_seeker
 import app.hovanki.client.resources.seeker_found_hint
@@ -147,14 +147,14 @@ fun GameScreen(viewModel: GameViewModel = koinViewModel()) {
             VoteCard(claim, isBusy = state.isBusy, onVote = { confirm -> viewModel.vote(claim.id, confirm) })
         }
 
-        ZoneRadar(
+        GameMap(
             zone = state.zone,
             myLocation = state.myLocation,
             markers = state.markers,
             modifier = Modifier.fillMaxWidth().aspectRatio(1f),
         )
         Text(
-            text = stringResource(Res.string.radar_legend),
+            text = stringResource(Res.string.map_legend),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

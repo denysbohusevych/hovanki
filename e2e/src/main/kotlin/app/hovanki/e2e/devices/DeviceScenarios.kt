@@ -63,6 +63,7 @@ private suspend fun DeviceRun.fullRound() = with(scenario) {
     awaitPhase(GamePhase.SEEKING, within = (HIDING_SECONDS + 30).seconds)
     for (player in devicePlayers) player.awaitVisible(TestTags.phase(GamePhase.SEEKING))
     screenshot("seeking")
+    checkMap()
 
     checkBackgroundTracking(lineup.deviceHiders.firstOrNull() ?: seeker)
 
@@ -246,6 +247,17 @@ private suspend fun DeviceRun.checkBackgroundTracking(player: DevicePlayer) = wi
     )
     player.device.bringAppToFront()
     player.awaitVisible(TestTags.GAME_SCREEN)
+}
+
+/** The map with its OpenStreetMap credit (tiles come from the network), then back to the top of the screen. */
+private suspend fun DeviceRun.checkMap() = with(scenario) {
+    for (player in devicePlayers) {
+        player.scrollAlongEdgeTo(TestTags.MAP_ATTRIBUTION)
+        val credit = player.readText(TestTags.MAP_ATTRIBUTION).orEmpty()
+        check("OpenStreetMap" in credit, "${player.name} shows the map credit (\"$credit\")")
+    }
+    screenshot("map")
+    for (player in devicePlayers) player.scrollAlongEdgeTo(TestTags.phase(GamePhase.SEEKING), down = false)
 }
 
 private suspend fun DevicePlayer.catchesUpWith(target: GeoPoint) {

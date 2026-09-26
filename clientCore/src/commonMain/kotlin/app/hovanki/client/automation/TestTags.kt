@@ -33,6 +33,8 @@ object TestTags {
     const val GAME_OUT_OF_ZONE = "game_out_of_zone"
     const val GAME_CAUGHT = "game_caught"
     const val GAME_ELIMINATED = "game_eliminated"
+    const val GAME_MAP = "game_map"
+    const val MAP_ATTRIBUTION = "map_attribution"
     const val CATCH_CODE = "catch_code"
     const val CATCH_DISPUTE = "catch_dispute"
     const val CODE_INPUT = "code_input"

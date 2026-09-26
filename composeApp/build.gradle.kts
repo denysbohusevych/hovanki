@@ -45,6 +45,7 @@ kotlin {
             implementation(libs.koin.core)
             implementation(libs.koin.compose)
             implementation(libs.koin.compose.viewmodel)
+            implementation(libs.maplibre.compose)
         }
         androidMain.dependencies {
             implementation(libs.androidx.core.ktx)
@@ -53,6 +54,7 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.koin.android)
             implementation(libs.kotlinx.coroutines.android)
+            runtimeOnly(libs.maplibre.compose.runtime.opengl.android)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
