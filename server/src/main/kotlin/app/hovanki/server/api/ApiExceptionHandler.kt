@@ -3,8 +3,11 @@ package app.hovanki.server.api
 import app.hovanki.server.game.GameException
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ErrorCode
+import app.hovanki.shared.protocol.ErrorReason
 import jakarta.servlet.ServletException
 import org.slf4j.LoggerFactory
+import org.springframework.beans.TypeMismatchException
+import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
@@ -19,11 +22,22 @@ class ApiExceptionHandler {
     private val log = LoggerFactory.getLogger(javaClass)
 
     @ExceptionHandler(GameException::class)
-    fun gameError(e: GameException): ResponseEntity<ApiError> = error(e.code, e.message.orEmpty())
+    fun gameError(e: GameException): ResponseEntity<ApiError> {
+        val body = ApiError(e.code, e.message.orEmpty(), e.reason)
+        if (e.reason != ErrorReason.TOO_MANY_REQUESTS) return ResponseEntity.status(e.code.httpStatus()).body(body)
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+            .header(HttpHeaders.RETRY_AFTER, (e.retryAfterSeconds ?: 1).toString())
+            .body(body)
+    }
 
     @ExceptionHandler(HttpMessageNotReadableException::class)
     fun unreadable(e: HttpMessageNotReadableException): ResponseEntity<ApiError> =
         error(ErrorCode.BAD_REQUEST, "Malformed request body")
+
+    /** A path variable or parameter of the wrong type, e.g. a chat seq that is not a number. */
+    @ExceptionHandler(TypeMismatchException::class)
+    fun typeMismatch(e: TypeMismatchException): ResponseEntity<ApiError> =
+        error(ErrorCode.BAD_REQUEST, "Malformed request parameter")
 
     /** Spring's own client errors: unknown path, wrong HTTP method or content type. Keeps Spring's status. */
     @ExceptionHandler(ServletException::class, ErrorResponseException::class)

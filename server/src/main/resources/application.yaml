@@ -12,6 +12,15 @@ spring:
   # Migrations in db/migration (classpath), applied at startup; only ever appended.
   flyway:
     enabled: true
+  # SMTP for hovanki.mail.sender=smtp: production sets SPRING_MAIL_HOST, _PORT, _USERNAME, _PASSWORD.
+  mail:
+    properties:
+      "[mail.smtp.auth]": true
+      "[mail.smtp.starttls.enable]": true
+      "[mail.smtp.starttls.required]": true
+      "[mail.smtp.connectiontimeout]": 10000
+      "[mail.smtp.timeout]": 10000
+      "[mail.smtp.writetimeout]": 10000
 
 server:
   port: ${PORT:8080}
@@ -34,9 +43,17 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    # Would open an SMTP connection on every health check, and a slow mail provider would mark the server down.
+    mail:
+      enabled: false
 
 hovanki:
   accounts:
+    bcrypt-strength: 10
+    # Emailed codes (6 digits): lifetime and wrong entries per code.
+    code-ttl: 15m
+    code-max-attempts: 5
     # Logged-in devices unused for this long are logged out.
     session-idle-retention: 180d
     # Accounts whose email was never confirmed are deleted after this, freeing the nickname and the email.
@@ -48,6 +65,23 @@ hovanki:
   # DataRetention: deletes what the retention periods above allow, once a day (server time is UTC).
   retention:
     cron: "0 17 3 * * *"
+  mail:
+    # log (local development: codes in the console, DEV ONLY), smtp (production: HOVANKI_MAIL_SENDER=smtp, with
+    # HOVANKI_MAIL_FROM and SPRING_MAIL_*; the server does not start without them), recording (tests, e2e profile).
+    sender: log
+  # Per client IP (behind the proxy, see forward-headers-strategy), account, login or email address.
+  rate-limits:
+    enabled: true
+    login-per-login: { count: 10, window: 15m }
+    login-per-ip: { count: 30, window: 15m }
+    register-per-ip: { count: 20, window: 1h }
+    email-per-minute: { count: 1, window: 1m }
+    email-per-hour: { count: 5, window: 1h }
+    password-reset-per-email: { count: 3, window: 1h }
+    password-reset-per-ip: { count: 10, window: 1h }
+    friend-requests: { count: 30, window: 1h }
+    invites: { count: 30, window: 1h }
+    reports: { count: 10, window: 1h }
   games:
     # Game data (including location history) is kept in memory only and deleted after the game (GDPR).
     finished-retention: 30m
