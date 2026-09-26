@@ -9,8 +9,12 @@ import app.hovanki.shared.protocol.ZoneCircle
 /** The buildings of an area where hiding is not allowed, and the ways through them (docs/adr/0003). */
 data class Buildings(val buildings: List<BuildingArea>, val passages: List<Passage> = emptyList())
 
-/** The buildings could not be loaded; the game runs without the building rule. [message] must not hold coordinates. */
-class BuildingsUnavailableException(message: String, cause: Throwable? = null) : Exception(message, cause)
+/**
+ * The buildings could not be loaded; the game runs without the building rule. [message] must not hold coordinates.
+ * [retry]: false when trying again (or elsewhere) cannot help, e.g. the zone has more buildings than the rule takes.
+ */
+class BuildingsUnavailableException(message: String, cause: Throwable? = null, val retry: Boolean = true) :
+    Exception(message, cause)
 
 /**
  * Where the outlines of a game's buildings come from (docs/adr/0003-map-and-buildings.md): OpenStreetMap through

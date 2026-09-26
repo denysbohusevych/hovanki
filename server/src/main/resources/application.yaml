@@ -30,4 +30,6 @@ hovanki:
   # The "no hiding in buildings" rule (docs/adr/0003-map-and-buildings.md): OpenStreetMap through Overpass.
   buildings:
     source: overpass
-    overpass-url: https://overpass-api.de/api/interpreter
+    overpass-urls:
+      - https://overpass-api.de/api/interpreter
+      - https://overpass.kumi.systems/api/interpreter

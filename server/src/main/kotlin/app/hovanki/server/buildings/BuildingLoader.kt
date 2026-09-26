@@ -35,16 +35,25 @@ class BuildingLoader(private val source: BuildingSource, private val properties:
 
     private fun loadWithRetry(gameId: String, area: ZoneCircle): Buildings? {
         if (properties.source == BuildingProperties.Source.OFF) return null
-        repeat(ATTEMPTS) { attempt ->
+        val attempts = properties.attempts.coerceAtLeast(1)
+        for (attempt in 1..attempts) {
             try {
-                return source.load(area)
+                return source.load(area).also {
+                    log.info(
+                        "Buildings for game {}: {} buildings, {} passages",
+                        gameId,
+                        it.buildings.size,
+                        it.passages.size,
+                    )
+                }
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 return null
             } catch (e: Exception) {
                 // Never the area itself: the zone is centered on the host's position.
-                log.warn("Buildings for game {} unavailable (attempt {}): {}", gameId, attempt + 1, e.message)
-                if (attempt + 1 < ATTEMPTS) Thread.sleep(properties.retryDelay.toMillis())
+                log.warn("Buildings for game {} unavailable (attempt {}): {}", gameId, attempt, e.message)
+                if (e is BuildingsUnavailableException && !e.retry) return null
+                if (attempt < attempts) Thread.sleep(properties.retryDelay.toMillis() * attempt)
             }
         }
         return null
@@ -56,7 +65,6 @@ class BuildingLoader(private val source: BuildingSource, private val properties:
 
     private companion object {
         val log = LoggerFactory.getLogger(BuildingLoader::class.java)
-        const val ATTEMPTS = 2
         const val POOL_SIZE = 2
     }
 }

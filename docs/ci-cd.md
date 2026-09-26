@@ -160,7 +160,7 @@ curl http://localhost:8080/actuator/health
 
 - Проверьте видимость пакета после первой публикации: чтобы тянуть образ без логина, он должен быть публичным (Package settings → Change visibility). Для приватного — `docker login ghcr.io` с PAT со scope `read:packages`.
 - Настройки — через переменные окружения: `PORT`, `HOVANKI_GAMES_FINISHED_RETENTION=15m`, `HOVANKI_GAMES_IDLE_RETENTION=2h` и т.п. (relaxed binding Spring Boot для `hovanki.games.*`).
-- Правило зданий: серверу нужен исходящий HTTPS к Overpass API (`overpass-api.de`) — `HOVANKI_BUILDINGS_OVERPASS_URL` для своего инстанса, `HOVANKI_BUILDINGS_SOURCE=off`, чтобы выключить правило. Без доступа игры идут без правила, и игроки это видят ([ADR 0003](adr/0003-map-and-buildings.md)).
+- Правило зданий: серверу нужен исходящий HTTPS к Overpass API (`overpass-api.de`) — `HOVANKI_BUILDINGS_OVERPASS_URLS` — свои адреса через запятую (свой инстанс первым), `HOVANKI_BUILDINGS_SOURCE=off`, чтобы выключить правило. Без доступа игры идут без правила, и игроки это видят ([ADR 0003](adr/0003-map-and-buildings.md)).
 - Пробы для оркестратора: `/actuator/health/liveness` и `/actuator/health/readiness`.
 - Игры хранятся в памяти: запускаем **одну реплику**, рестарт/деплой обрывает идущие игры.
 - Release-сборки приложений должны ходить по HTTPS (на Android cleartext разрешён только в debug, на iOS действует App Transport Security), поэтому в проде сервер ставится за reverse proxy с TLS (Caddy, Traefik, nginx) или за managed-балансировщик.
