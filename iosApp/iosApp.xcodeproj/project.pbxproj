@@ -10,6 +10,8 @@
 		8D3E6A2F1C0B4E9000000030 /* iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D3E6A2F1C0B4E9000000020 /* iOSApp.swift */; };
 		8D3E6A2F1C0B4E9000000031 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D3E6A2F1C0B4E9000000021 /* ContentView.swift */; };
 		8D3E6A2F1C0B4E9000000032 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8D3E6A2F1C0B4E9000000022 /* Assets.xcassets */; };
+		8D3E6A2F1C0B4E9000000033 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 8D3E6A2F1C0B4E9000000025 /* PrivacyInfo.xcprivacy */; };
+		8D3E6A2F1C0B4E9000000034 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8D3E6A2F1C0B4E9000000026 /* InfoPlist.xcstrings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -19,6 +21,9 @@
 		8D3E6A2F1C0B4E9000000022 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8D3E6A2F1C0B4E9000000023 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		8D3E6A2F1C0B4E9000000024 /* Config.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
+		8D3E6A2F1C0B4E9000000025 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		8D3E6A2F1C0B4E9000000026 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+		8D3E6A2F1C0B4E9000000027 /* debug-info-plist.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "debug-info-plist.sh"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -56,6 +61,8 @@
 				8D3E6A2F1C0B4E9000000021 /* ContentView.swift */,
 				8D3E6A2F1C0B4E9000000022 /* Assets.xcassets */,
 				8D3E6A2F1C0B4E9000000023 /* Info.plist */,
+				8D3E6A2F1C0B4E9000000026 /* InfoPlist.xcstrings */,
+				8D3E6A2F1C0B4E9000000025 /* PrivacyInfo.xcprivacy */,
 			);
 			path = iosApp;
 			sourceTree = "<group>";
@@ -64,6 +71,7 @@
 			isa = PBXGroup;
 			children = (
 				8D3E6A2F1C0B4E9000000024 /* Config.xcconfig */,
+				8D3E6A2F1C0B4E9000000027 /* debug-info-plist.sh */,
 			);
 			path = Configuration;
 			sourceTree = "<group>";
@@ -79,6 +87,7 @@
 				8D3E6A2F1C0B4E9000000041 /* Sources */,
 				8D3E6A2F1C0B4E9000000042 /* Frameworks */,
 				8D3E6A2F1C0B4E9000000043 /* Resources */,
+				8D3E6A2F1C0B4E9000000044 /* Debug: local network */,
 			);
 			buildRules = (
 			);
@@ -113,6 +122,8 @@
 			knownRegions = (
 				en,
 				Base,
+				ru,
+				uk,
 			);
 			mainGroup = 8D3E6A2F1C0B4E9000000002;
 			packageReferences = (
@@ -132,6 +143,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				8D3E6A2F1C0B4E9000000032 /* Assets.xcassets in Resources */,
+				8D3E6A2F1C0B4E9000000034 /* InfoPlist.xcstrings in Resources */,
+				8D3E6A2F1C0B4E9000000033 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -156,6 +169,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "if [ \"YES\" = \"$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED\" ]; then\n  echo \"Skipping Gradle build task invocation due to OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED environment variable set to \\\"YES\\\"\"\n  exit 0\nfi\ncd \"$SRCROOT/..\"\n./gradlew :composeApp:embedAndSignAppleFrameworkForXcode\n";
+		};
+		8D3E6A2F1C0B4E9000000044 /* Debug: local network */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "Debug: local network";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Plain HTTP to a development server on the LAN in Debug builds only; Release keeps ATS strict.\nsh \"$SRCROOT/Configuration/debug-info-plist.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

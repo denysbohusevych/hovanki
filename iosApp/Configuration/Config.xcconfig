@@ -1,8 +1,18 @@
-// Set your Apple Developer Team ID to run on a device (Xcode > Settings > Accounts).
-TEAM_ID=
+// Build settings of the iosApp target, Debug and Release. Per-machine overrides go into Local.xcconfig next to this
+// file (optional, git-ignored), e.g. the team and bundle id of a free Apple ID for a cable install: iosApp/README.md.
 
-PRODUCT_NAME=Hovanki
-PRODUCT_BUNDLE_IDENTIFIER=app.hovanki.ios$(TEAM_ID)
+// Apple Developer Team ID (10 characters: developer.apple.com > Account > Membership details). Not a secret, every
+// signed app carries it. CI takes it from the provisioning profile, so it may stay empty here.
+TEAM_ID =
 
-CURRENT_PROJECT_VERSION=1
-MARKETING_VERSION=0.1.0
+// The App Store bundle id, registered in the Developer account (docs/ci-cd.md, «iOS: TestFlight»).
+BUNDLE_ID = app.hovanki.ios
+
+PRODUCT_NAME = Hovanki
+PRODUCT_BUNDLE_IDENTIFIER = $(BUNDLE_ID)
+
+// Version shown in TestFlight and the App Store. The build number is the CI run number (preview.yml).
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+
+#include? "Local.xcconfig"

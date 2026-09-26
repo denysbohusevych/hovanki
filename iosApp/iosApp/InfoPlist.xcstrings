@@ -1,0 +1,78 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "NSCameraUsageDescription" : {
+      "comment" : "Privacy - Camera Usage Description",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "The camera scans the QR code on another player's screen to confirm a catch."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Камера сканирует QR-код на экране другого игрока, чтобы подтвердить находку."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Камера сканує QR-код на екрані іншого гравця, щоб підтвердити знахідку."
+          }
+        }
+      }
+    },
+    "NSLocationAlwaysAndWhenInUseUsageDescription" : {
+      "comment" : "Privacy - Location Always and When In Use Usage Description",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Lets a round go on when Hovanki is in the background. Your location goes only to the game server and is deleted when the game ends."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Позволяет раунду продолжаться, когда Hovanki в фоне. Местоположение получает только игровой сервер, после игры оно удаляется."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дозволяє раунду тривати, коли Hovanki у фоні. Місцезнаходження отримує лише ігровий сервер, після гри воно видаляється."
+          }
+        }
+      }
+    },
+    "NSLocationWhenInUseUsageDescription" : {
+      "comment" : "Privacy - Location When In Use Usage Description",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "During a round the game server receives your location, also while the screen is locked (blue indicator in the status bar), to check the game zone and confirm catches. It is deleted when the game ends."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Во время раунда игровой сервер получает ваше местоположение, в том числе при заблокированном экране (синий индикатор в строке состояния), чтобы проверять игровую зону и подтверждать находки. После игры оно удаляется."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Під час раунду ігровий сервер отримує ваше місцезнаходження, зокрема коли екран заблоковано (синій індикатор у рядку стану), щоб перевіряти ігрову зону й підтверджувати знахідки. Після гри воно видаляється."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

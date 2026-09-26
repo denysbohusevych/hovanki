@@ -22,19 +22,16 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>The camera is used to scan the QR code that confirms a catch.</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Hovanki connects to a game server on your local network during development.</string>
+	<string>The camera scans the QR code on another player's screen to confirm a catch.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Lets a round go on when Hovanki is in the background. Your location goes only to the game server and is deleted when the game ends.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>During a round your location is shared with the game server to track the game zone and confirm catches. It is deleted after the game.</string>
+	<string>During a round the game server receives your location, also while the screen is locked (blue indicator in the status bar), to check the game zone and confirm catches. It is deleted when the game ends.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
