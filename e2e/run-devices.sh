@@ -103,8 +103,11 @@ if ((!SKIP_BUILD)); then
   ./gradlew "${tasks[@]}"
   if ((WANT_IOS)); then
     log "building the iOS app for the simulator"
+    # Signed to run locally (ad hoc, no team), like Xcode does for the simulator: an unsigned app has no
+    # entitlements, and the Keychain refuses it (errSecMissingEntitlement), so the saved session would be lost.
     xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -sdk iphonesimulator \
-      -destination 'generic/platform=iOS Simulator' -derivedDataPath build/ios CODE_SIGNING_ALLOWED=NO build \
+      -destination 'generic/platform=iOS Simulator' -derivedDataPath build/ios \
+      CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build \
       >"$REPORT/logs/xcodebuild.log" 2>&1 || { tail -50 "$REPORT/logs/xcodebuild.log"; exit 1; }
   fi
 fi
