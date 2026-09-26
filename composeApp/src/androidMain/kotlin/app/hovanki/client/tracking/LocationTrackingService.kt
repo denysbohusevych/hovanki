@@ -34,7 +34,8 @@ class LocationTrackingService : Service() {
             Log.w(TAG, "Could not enter the foreground", e)
             stopSelf()
         }
-        // If Android kills the process, the game session is gone as well: nothing to restart.
+        // If Android kills the process, the app resumes the saved game when it is opened again; the service alone
+        // could not send anything.
         return START_NOT_STICKY
     }
 

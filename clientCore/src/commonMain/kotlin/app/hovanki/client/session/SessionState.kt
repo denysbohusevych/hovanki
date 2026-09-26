@@ -8,8 +8,10 @@ import app.hovanki.shared.protocol.PlayerSession
 data class SessionState(
     /** Null: not in a game (start screen). */
     val session: PlayerSession? = null,
-    /** Latest authoritative state; null only for a moment while a session starts. */
+    /** Latest authoritative state; null only while a session starts or [isResuming]. */
     val snapshot: GameSnapshot? = null,
+    /** A session saved by an earlier run of the app is being checked with the server; see `resumeSavedGame`. */
+    val isResuming: Boolean = false,
     val connectionStatus: ConnectionStatus = ConnectionStatus.ONLINE,
     /** Own location updates are running; false when the permission is missing or location failed. */
     val isSharingLocation: Boolean = false,
@@ -28,4 +30,10 @@ sealed interface SessionError {
 
     /** The server no longer knows this game (expired or server restarted); the session was closed. */
     data object SessionLost : SessionError
+
+    /** The game saved by an earlier run of the app has ended meanwhile; nothing to return to. */
+    data object SavedGameFinished : SessionError
+
+    /** The game saved by an earlier run of the app is gone (deleted on the server, token refused). */
+    data object SavedGameGone : SessionError
 }
