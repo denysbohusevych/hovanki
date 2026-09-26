@@ -1,0 +1,296 @@
+# End-to-end тесты
+
+Несколько клиентов играют одну партию против настоящего сервера, а тесты автоматически проверяют правила: зону, находку, коды, споры, раскрытия, фон, обрывы сети. Слоя два.
+
+| Слой | Кто играет | Где запускается | Команда |
+|---|---|---|---|
+| Быстрый | headless-боты на клиентском коде приложения | локально и в CI на каждый push (`ci.yml`) | `./gradlew :e2e:test` |
+| Медленный | приложение на Android-эмуляторах и iOS-симуляторах + боты | локально и nightly (`e2e-devices.yml`) | `e2e/run-devices.sh --android 2 --bots 3` |
+
+```mermaid
+flowchart LR
+    subgraph e2e["модуль :e2e (JVM)"]
+        bots["BotPlayer × N<br/>:clientCore + FakeGps / FakeNetwork / DeviceClock"]
+        orch["оркестратор устройств<br/>Maestro, adb, xcrun simctl"]
+        obs["Observer"]
+    end
+    subgraph devices["эмуляторы / симуляторы"]
+        app["debug-приложение<br/>test tags, LaunchOptions"]
+    end
+    bots -->|"HTTP /api/v1"| server[("сервер<br/>профиль e2e")]
+    orch -->|"тапы, геолокация, скриншоты"| app
+    app -->|"HTTP /api/v1"| server
+    obs -->|"GET /api/v1/debug/games"| server
+```
+
+## Быстрый слой: боты
+
+### Запуск
+
+```bash
+./gradlew :e2e:test                               # все сценарии, ~3 мин
+./gradlew :e2e:test --tests '*ZoneTest*'          # один класс
+./gradlew :e2e:test --tests '*NetworkTest.networkOutageOf30Seconds'
+```
+
+Тесты сами поднимают настоящий Spring Boot сервер в том же процессе на случайном порту с профилем `e2e`. Сценарии идут в реальном времени и в основном ждут игровые таймеры, поэтому JUnit гоняет их параллельно (`e2e/src/test/resources/junit-platform.properties`). Нагрузочный тест помечен `@Isolated` и идёт один.
+
+Те же сценарии против внешнего сервера — например, чтобы смотреть его логи или профилировать:
+
+```bash
+SPRING_PROFILES_ACTIVE=e2e ./gradlew :server:bootRun
+HOVANKI_E2E_SERVER_URL=http://localhost:8080 ./gradlew :e2e:test
+```
+
+Сервер обязательно с профилем `e2e`, иначе наблюдателю не к чему обращаться, и сценарии падают с понятной ошибкой.
+
+### Как устроен бот
+
+`BotPlayer` — это не копия клиента, а настоящий клиентский код из `:clientCore` на имитированном телефоне:
+
+| Часть приложения | В боте |
+|---|---|
+| `GameSessionManager`, `HttpGameApi` (Ktor), `PollingGameConnection`, `LocationOutbox`, `ServerClock`, `catchCodeToShow` | те же классы из `:clientCore` |
+| Движок Ktor | OkHttp — тот же, что на Android |
+| `LocationProvider` (Fused / CLLocationManager) | `FakeGps`: позиция на маршруте `Route` плюс шум `GpsNoise`, метки времени — по часам устройства |
+| Часы телефона | `DeviceClock` со сдвигом (`clockSkew`) |
+| Сеть | `FakeNetwork` — OkHttp-интерцептор: «роняет» сеть (`IOException`, как в тоннеле) и видит каждый ответ |
+| `BackgroundTracker` | `FakeBackgroundTracker` — только запоминает, просило ли приложение фоновый режим |
+| Процесс приложения | `killApp()` / `launchApp()`: сессия, outbox и соединение пропадают, GPS, сеть и часы остаются |
+
+Что бот делает сам, как человек с телефоном, задаёт `BotBehavior`:
+- `onClaim` — реакция прячущегося на заявку: показать код (`ShowCode`), оспорить (`Dispute`) или молчать (`Ignore`);
+- `onDispute` — как голосовать в чужом споре.
+
+Остальное делает сценарий: ходит, жмёт «нашёл», вводит код, выключает GPS или сеть, убивает приложение.
+
+**Шум GPS** (`GpsNoise`, с seed, поэтому каждый прогон видит те же точки):
+- гауссова ошибка в пределах accuracy (σ = accuracy / 2, обрезка по радиусу);
+- `spikeProbability` — редкие точки «у домов» с accuracy 30–40 м: правила должны их игнорировать;
+- `jumpProbability` — редкие прыжки на 20–35 м при нормальной accuracy: опасный случай, ради которого правила никогда не решают по одной точке;
+- флаг `isMock`.
+
+Пресеты: `GpsNoise.NONE` (точные позиции, accuracy 5 м), `openSky(seed)`, `city(seed)`. Для геометрии, которая должна сходиться до метра, есть `GpsNoise(..., exact = true)`.
+
+**Приватность проверяется всегда.** Каждый ответ, который получил любой бот в любом сценарии, проходит `SnapshotAudit`:
+- прячущийся не получает ни одной позиции (в JSON нет `"location"`);
+- ищущий видит ищущих только как `TEAMMATE`, а прячущихся — только с причиной раскрытия и только в SEEKING;
+- в LOBBY и FINISHED позиций нет;
+- секрет кода получает только прячущийся.
+
+Нарушение валит сценарий.
+
+### Наблюдатель
+
+Проверки идут по правде сервера, а не по тому, что видят боты. Debug-эндпоинт `GET /api/v1/debug/games` и `/api/v1/debug/games/{gameId}` (`DebugController`, DTO — `app.hovanki.shared.debug`) отдаёт полное состояние:
+- фаза и зона;
+- все позиции, последняя пригодная точка, когда пришла последняя точка;
+- счётчики точек: принята, mock, не по порядку, невозможный скачок;
+- предупреждение о зоне и причина раскрытия для ищущих;
+- заявки с голосами и оценкой расстояния.
+
+**Эндпоинт существует только в Spring-профиле `e2e`.** В обычном профиле бина нет и маршруты отвечают 404 — это закреплено тестом `DebugEndpointAbsentTest`. При старте с профилем `e2e` сервер пишет WARN. В проде профиль не включать.
+
+### Сценарии
+
+Все пороги берутся из `GameRules`, но с короткими таймерами (`GameSetups.FAST_RULES`): прятки 10 с, код 10 с, голосование 8 с, раскрытие при молчании 15 с, окно решений 10 с, sync раз в 1 с.
+
+| Класс | Сценарий | Что проверяет |
+|---|---|---|
+| `FullRoundTest` | Full round | Лобби по коду, старт с одним ищущим, прячущиеся расходятся (один с «городским» шумом), зона сужается, три находки по коду, игра заканчивается, когда пойманы все; фоновый трекинг включается и выключается |
+| `CatchTest` | Hider stays silent | Нет реакции → `CONFIRMED` ровно по таймауту кода, конец игры — в тот же момент |
+| | Dispute rejected by votes | Спор, оба голоса против → `REJECTED` сразу, не дожидаясь дедлайна |
+| | Dispute without votes, far apart | 65 м при accuracy 16 м: заявку принять можно, но наиболее вероятное расстояние > 40 м → `REJECTED` по дедлайну |
+| | Dispute without votes, close | Рядом, голосов нет → `CONFIRMED` |
+| | Claim from far away | 150 м → `TOO_FAR`, заявка не создаётся |
+| | Claim without seeker location | GPS ищущего выключен с начала → `NO_LOCATION` |
+| `ZoneTest` | Out of the zone and back | Предупреждение, раскрытие `OUT_OF_ZONE`, возврат снимает предупреждение, после старого дедлайна игрок в игре |
+| | Out of the zone for good | `ELIMINATED` только после grace-периода |
+| | One bad fix outside the border | Одна принятая точка за границей (прыжок) — ни предупреждения, ни раскрытия |
+| | One bad fix inside the border | Одна точка «внутри» не снимает предупреждение и не сбрасывает таймер |
+| `FairPlayTest` | GPS off, app keeps syncing | Молчание GPS при живом sync → `STALE_SIGNAL` через `staleLocationRevealSeconds`, в последней известной точке |
+| | Mock location | Мок-точки → `MOCK_LOCATION`; в трек не попадают, ищущий видит последнюю честную точку |
+| | Teleport | Скачок на ~1 км → точки отброшены как невозможные, зона не решает, затем `STALE_SIGNAL` в настоящей точке |
+| `NetworkTest` | Network outage for 30 s | Во время обрыва — `STALE_SIGNAL`; после — `LocationOutbox` отдаёт всё накопленное без потерь и отбраковки, состояние сходится |
+| | Device clocks off by ±2 min | Точки в порядке и во времени сервера, обратный отсчёт верный, код по `ServerClock` принимается, код по часам телефона — нет |
+| `PrivacyTest` | Privacy through a whole game | Партия со всеми раскрытиями: ищущие видели ровно `TEAMMATE`, `MOCK_LOCATION`, `STALE_SIGNAL`, `OUT_OF_ZONE` нужных игроков, прячущиеся — никого |
+| `RestartTest` | App killed and relaunched mid-round | Фиксирует текущее поведение: сессия была только в памяти, приложение на главном экране, вернуться в игру нельзя (`WRONG_STATE`); сервер раскрывает молчащего и засчитывает заявку по таймауту |
+| `LoadTest` | Load: 3 games x 30 bots | 3 параллельные игры по `Game.MAX_PLAYERS`, sync раз в 3 с, 40 с игры: ноль ошибок, все точки доходят, p95 `/sync` < 500 мс |
+
+### Как написать новый сценарий
+
+```kotlin
+class MyTest {
+    @Test
+    fun hiderHidesBehindTheSeeker() = scenario("Hider hides behind the seeker") {
+        val sam = player("Sam", at = PARK)                                  // телефон с приложением
+        val anna = player("Anna", at = PARK, behavior = BotBehavior(onClaim = ClaimReaction.Ignore))
+
+        sam.createsGame(GameSetups.fast())                                  // короткие таймеры
+        join(anna)
+        sam.startsGame(seekers = listOf(sam))
+        anna.walksTo(PARK.offset(eastMeters = 30.0))                        // маршрут, 1.5 м/с
+        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+
+        sam.catchesUpWith(anna)                                             // догнать и дать точкам дойти
+        sam.claimsCatch(anna)
+        awaitCatch(anna, CatchStatus.CONFIRMED, within = 15.seconds)        // правда сервера (наблюдатель)
+        check(anna.snapshot?.me?.status == PlayerStatus.CAUGHT, "Anna's phone knows")
+    }
+}
+```
+
+- `scenario(name) { ... }` (в `e2e/src/test`) запускает партию против `E2eServer`, пишет отчёт и проверяет приватность.
+- Игроки: `player(name, at, noise, behavior, clockSkew)`.
+- Действия бота: `walksTo`, `arrives`, `follows(route)`, `teleportsTo`, `turnsGpsOff/On`, `startsMockingLocation`, `losesNetwork/regainsNetwork`, `claimsCatch`, `entersCodeShownBy`, `catches`, `killApp/launchApp`, `vote`, `dispute`.
+- Правда сервера: `state()`, `bot.onServer()`, `lastClaimOn(hider)`.
+- Ожидания: `awaitPhase`, `awaitCatch`, `awaitStatus`, `awaitReveal(hider, reason, to = seeker)`, общее `eventually { ... }` / `awaitThat { ... }`, `holdsFor(period) { ... }` — «всё это время».
+- Проверки: `check(condition, what)`, `requireOk(result, what)`, `expectRejected(result, ErrorCode.X, what)`. Каждая успешная проверка попадает в таймлайн с «✓».
+
+Советы:
+- Геометрия, которая должна сходиться до метра (порог 40 м, граница зоны), — через `GpsNoise(..., exact = true)`: иначе шум иногда будет «прав».
+- Решения сервера смотрят на окно `decisionWindowSeconds`. После того как бот пришёл на место, подождите окно целиком (`delay((rules.decisionWindowSeconds + 2).seconds)`), иначе в окне останутся точки с дороги.
+- Не делайте жёстких `delay` на таймеры сервера: ждите состояние через `eventually` с запасом.
+- Нашли баг в игре — не обходите его в сценарии: чините отдельным коммитом с тестом (`GameTest` / `commonTest`) и оставляйте сценарий, который его ловит.
+
+### Как читать отчёт
+
+Каждый сценарий пишет `e2e/build/reports/e2e/<scenario>.md`. В CI это артефакт `e2e-reports` каждого запуска `ci.yml`. В отчёте:
+- **Result** — passed или причина падения;
+- **Final state (observer)** — игроки с ролями и статусами, счётчики точек (accepted / mock / out of order / implausible), текущая причина раскрытия, заявки с голосами и оценкой расстояния;
+- **Sync** — число запросов, p50/p95/p99/max `/sync`, неудачные запросы (ожидаемые 4xx вроде `TOO_FAR` тоже считаются);
+- **Timeline** — по секундам от старта: действия ботов, что каждый увидел (смена фазы, заявки, кого видит и почему, предупреждения, связь), проверки с «✓».
+
+При падении тот же таймлайн приходит в сообщении ошибки теста, поэтому в логе CI сразу видно, на каком шаге и после чего сломалось.
+
+## Медленный слой: приложение на эмуляторах и симуляторах
+
+### Что нужно
+
+- JDK 21.
+- Maestro 2.10+: `curl -fsSL https://get.maestro.mobile.dev | bash` (бинарник в `~/.maestro/bin`). В CI закреплена версия 2.10.0 (`MAESTRO_VERSION`).
+- Android:
+  - Android SDK с `cmdline-tools` (`ANDROID_HOME`);
+  - аппаратное ускорение: KVM на Linux, Hypervisor.framework на Mac.
+  - Системный образ `system-images;android-34;google_apis;<x86_64|arm64-v8a>` и эмулятор скрипт поставит сам через `sdkmanager`. Нужен образ `google_apis`: в нём есть Google Play services для FusedLocationProvider.
+- iOS: Mac на Apple Silicon с Xcode 26.4+.
+
+### Запуск
+
+```bash
+e2e/run-devices.sh --android 2 --bots 3 --scenario full-round         # 2 эмулятора + 3 бота
+e2e/run-devices.sh --ios 1 --bots 3 --scenario all                     # симулятор, оба сценария (Mac)
+e2e/run-devices.sh --android 1 --ios 1 --bots 2                        # смешанная партия (Mac)
+e2e/run-devices.sh --android-serials emulator-5554 --skip-build --keep # свой уже запущенный эмулятор
+e2e/run-devices.sh --ios 1 --fail-fast                                  # после первого упавшего сценария — стоп
+```
+
+Что делает скрипт:
+1. Собирает jar сервера, debug APK, приложение для симулятора (`xcodebuild`) и CLI `:e2e` (`installDist`).
+2. Поднимает сервер на `:8080` (`--port`) с профилем `e2e` и access log.
+   - Логи — в `e2e/build/reports/devices/logs/`: `server.log`, `access*.log`.
+   - В access log пишутся строка запроса, статус и время; заголовков там нет, так что нет и токенов.
+3. Создаёт AVD `hovanki-e2e-N` через `avdmanager`, если их нет, и запускает эмуляторы без окна на портах 5554, 5556…
+   - Экран Pixel 6 в 720×1600, чтобы программный GPU меньше грузил CPU. Анимации выключены, геолокация включена.
+   - Приложение ставится с `adb install -g`: разрешения на геолокацию и уведомления выданы заранее.
+4. Создаёт симуляторы `hovanki-e2e-N` на свежем iOS runtime и грузит их по одному, ставит приложение и один раз запускает его вхолостую.
+   - Разрешение на геолокацию заранее не выдаётся: флоу отвечают на системный запрос, как игрок (`allow-location.yaml`).
+5. Запускает `e2e devices`. Сначала прогревает сервер игрой ботов, потом идут сценарии, скриншоты, логи и отчёт.
+6. Гасит сервер, эмуляторы и симуляторы (`--keep` оставляет устройства).
+
+В CI (переменная `CI`) скрипт останавливает Gradle- и Kotlin-демоны после сборки и ограничивает heap сервера, CLI и Maestro: память нужна устройствам.
+
+Роли:
+- Первое устройство — хост.
+- Ищущий — второе устройство. Если устройство одно, ищущий — хост в `full-round` и бот в `restart`.
+- Остальные устройства и все боты прячутся. Устройства в игре называются `Android-1`, `iOS-1` и т.д.
+
+### Сценарии на устройствах
+
+| Сценарий | Что проверяет |
+|---|---|
+| `full-round` | Хост создаёт игру на телефоне (с настройками по умолчанию, кроме времени пряток), телефоны входят по коду, боты — через API, хост выбирает ищущего. На каждом устройстве экраны сменяются по фазам: лобби → прятки → поиск → результаты. Свёрнутое приложение продолжает слать точки (foreground service / фоновый режим location), сервер видит движение. Ищущий на телефоне ловит ботов, вводя 4 цифры вручную, и телефоны: код с экрана прячущегося сверяется с TOTP сервера и принимается. Скриншоты в каждой фазе |
+| `restart` | Приложение убито и запущено заново посреди раунда. Текущее поведение: оно на главном экране, повторный вход в идущую игру показывает ошибку; сервер держит игрока, раскрывает его ищущим как `STALE_SIGNAL`, заявка на него засчитывается по таймауту кода |
+
+С одним устройством (как iOS в CI) проверка «код с экрана прячущегося-телефона» не выполняется: прячутся только боты. Её покрывает Android с двумя эмуляторами.
+
+### Как это устроено
+
+- **UI** — Maestro-флоу в `e2e/maestro/`: `create-game`, `create-game-again`, `join-game`, `allow-location`, `start-game`, `claim-catch`, `enter-code`, `await-visible`, `join-refused`.
+  - Элементы ищутся по test tags из `TestTags` (`:clientCore`, `app.hovanki.client.automation`). На Android это resource-id в debug-сборке, на iOS — `accessibilityIdentifier`.
+  - Переменные передаются через env, `APP_ID` оркестратор ставит сам.
+- **Как вызывается Maestro** (`--maestro-mode`, по умолчанию `auto`):
+  - `maestro test` на каждый шаг — эмуляторы и несколько симуляторов. Каждый вызов заново запускает драйвер: на эмуляторе это ~10 с.
+  - Один долгоживущий `maestro mcp` — единственный iOS-симулятор. MCP-сервер держит сессию драйвера на устройство. Иначе каждый шаг на симуляторе в CI стоил бы больше минуты, дольше игровых фаз.
+  - Несколько симуляторов MCP-сервер ведёт через один порт XCTest ([maestro#3611](https://github.com/mobile-dev-inc/maestro/issues/3611)), поэтому для них остаётся CLI.
+  - `mcp` / `cli` включают нужный режим принудительно.
+- **Параметры запуска** вместо ввода руками (только debug, см. [architecture.md](architecture.md#автоматизация-ui-только-debug)):
+  - Android: `adb shell am start … --es hovanki.server http://10.0.2.2:8080 --es hovanki.name Android-1 --es hovanki.joinCode ABC234` или deep link `hovanki://join?server=…&name=…&joinCode=…`;
+  - iOS: `xcrun simctl launch <udid> app.hovanki.ios -hovanki.server http://localhost:8080 -hovanki.name iOS-1`.
+- **Геолокация** — тот же `Route`, что у ботов. Раз в секунду:
+  - Android: `adb -s emulator-5554 emu geo fix <lon> <lat>`;
+  - iOS: `xcrun simctl location <udid> set <lat>,<lon>`.
+
+  Отдельно маршрут можно напечатать или «проиграть» в устройство:
+
+  ```bash
+  ./gradlew :e2e:route --args="--to 50.4481,30.5402 --speed 1.5 --format geo-fix"   # печать
+  ./gradlew :e2e:route --args="--to 50.4481,30.5402 --adb emulator-5554"            # в эмулятор
+  ./gradlew :e2e:route --args="--to 50.4481,30.5402 --simctl <udid> --noise city"   # в симулятор, с шумом
+  ```
+
+- **Сервер** — тот же jar, что в проде, с профилем `e2e`. Устройства ходят на `http://10.0.2.2:<port>` (эмулятор) и `http://localhost:<port>` (симулятор), боты и наблюдатель — на `http://localhost:<port>`.
+- **Повторы** — только там, где на CI-машинах наблюдались сбои окружения. Каждый повтор пишется в таймлайн со знаком «⚠», второй сбой валит сценарий:
+  - «Create» ещё раз, если приложение показало «Cannot reach the server». На macOS-раннере сервер однажды ответил на создание игры через 15.9 с при таймауте приложения 15 с, а тот же запрос следом — за 0.3 с.
+  - Тап ещё раз, если после него на экране ничего не изменилось. На iOS-симуляторе тап по кнопке Compose иногда не становится кликом: UIKit касание доставил, `onClick` не вызвался.
+
+### Отчёт
+
+`e2e/build/reports/devices/`:
+- `index.md` — список сценариев со статусом;
+- `<scenario>/index.html` — скриншоты по моментам (лобби, прятки, поиск, фон, код на экране, результаты, падение), таймлайн с проверками «✓» и предупреждениями «⚠»;
+- `<scenario>/report.md` — то же в markdown;
+- `<scenario>/logs/<устройство>.log` — logcat или лог процесса приложения на симуляторе вместе с его stdout/stderr;
+- `<scenario>/final-state.json` — полное состояние игры от наблюдателя;
+- `logs/server.log`, `logs/access*.log`, `logs/emulator-N.log`, `logs/xcodebuild.log`, `logs/maestro-mcp.log`;
+- `commands.log` — каждая команда adb / xcrun / maestro (и вызов MCP) с кодом выхода.
+
+Если флоу упал, в сообщение попадает:
+- вывод Maestro;
+- дамп экрана: `id: текст [границы]`, отметки `(disabled)` / `(focused)`;
+- скриншот `failed-<flow>`.
+
+В логе CI при падении есть ещё:
+- кто слушает порт сервера;
+- память и swap;
+- запросы из access log;
+- выжимка логов устройств.
+
+### CI
+
+`.github/workflows/e2e-devices.yml` — запуск вручную (Actions → E2E devices → Run workflow, можно выбрать сценарий и число ботов) и nightly в 02:17 UTC:
+- **`Android emulators`** (`ubuntu-latest`, ~15 мин):
+  - KVM включается udev-правилом;
+  - два эмулятора поднимает `e2e/run-devices.sh` (`reactivecircus/android-emulator-runner` рассчитан на один);
+  - системный образ кэшируется.
+- **`iOS simulator`** (`macos-26`, ~20 мин): один симулятор. На раннере 3 ядра и 7 ГБ; второй симулятор грузился ~17 мин и тормозил все шаги.
+
+Артефакты: `e2e-devices-android`, `e2e-devices-ios` — весь каталог отчёта.
+
+## Известные ограничения
+
+- **iOS — только на Mac** с Xcode. На Linux работают боты и Android.
+- **Эмуляторам нужно аппаратное ускорение** (KVM / Hypervisor.framework). В облачных контейнерах без KVM работает только быстрый слой (`:e2e:test`), слой устройств — через GitHub Actions.
+- **Мок-геолокация — не настоящий GPS.**
+  - `geo fix` и `simctl location` дают точку с постоянной accuracy, без шума, прыжков и потери сигнала. Реалистичный шум есть только у ботов.
+  - Фоновые ограничения реальных телефонов они тоже не эмулируют. iOS может приостановить приложение, «энергосбережение» Android-производителей — остановить foreground service.
+  - Проверка фона на эмуляторе и симуляторе необходима, но недостаточна: на реальных телефонах фон проверяется руками.
+- **Точки симулятора iOS помечены как подменённые** (`isSimulatedBySoftware`). Для игроков на симуляторе оркестратор передаёт debug-параметр `allowSimulatedLocation`, поэтому анти-спуфинг на iOS-симуляторе в e2e выключен. Проверку `MOCK_LOCATION` покрывают боты.
+- **Потерянные тапы на iOS-симуляторе.** Тап Maestro по кнопке Compose иногда не вызывает `onClick`: касание UIKit доставил, следующий тап срабатывает. Флоу повторяют такой тап один раз с «⚠» в отчёте. Бывает ли это у живых пользователей на iPhone, из CI не видно — стоит проверить на устройстве.
+- **Один iOS-симулятор в CI.** Код с экрана прячущегося-телефона проверяется только на Android. Два и больше симуляторов — локально на Mac, через CLI Maestro, это медленнее.
+- **Реальное время.**
+  - Сценарии не ускоряют часы сервера.
+  - Таймеры укорочены: через `GameRules` у ботов и через время пряток на устройствах. Остальные пороги игры, созданной с телефона, — по умолчанию: раскрытие при молчании 45 с, таймаут кода 60 с. Поэтому `restart` идёт несколько минут.
+- **Боты ходят через OkHttp** — движок Android. Движок Darwin (iOS) проверяется только на симуляторах.
+- **Перезапуск теряет сессию** — сценарии это фиксируют как текущее поведение. Восстановление сессии — в [roadmap](roadmap.md).
+- **Нагрузочный тест** меряет сервер в том же процессе и на той же машине, что и 90 ботов. Это проверка на регрессии и ошибки под нагрузкой, а не бенчмарк продакшн-сервера.
