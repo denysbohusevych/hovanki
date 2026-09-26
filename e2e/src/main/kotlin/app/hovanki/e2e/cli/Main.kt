@@ -5,6 +5,8 @@ import app.hovanki.e2e.devices.Device
 import app.hovanki.e2e.devices.DeviceRun
 import app.hovanki.e2e.devices.DeviceScenarios
 import app.hovanki.e2e.devices.IosDevice
+import app.hovanki.e2e.devices.LocalServer
+import app.hovanki.e2e.devices.LocalSetup
 import app.hovanki.e2e.devices.Maestro
 import app.hovanki.e2e.devices.Shell
 import app.hovanki.e2e.devices.warmUpServer
@@ -17,7 +19,9 @@ import kotlin.time.Duration.Companion.minutes
  * Command line of `:e2e` (`./gradlew :e2e:installDist` → `e2e/build/install/e2e/bin/e2e`):
  *
  * - `devices`: runs device scenarios on already booted emulators/simulators with the debug app installed and a server
- *   with the `e2e` profile running; `e2e/run-devices.sh` prepares all of that and calls it.
+ *   with the `e2e` profile running; `e2e/run-devices.sh` prepares all of that and calls it. With `--android auto`,
+ *   `--install-apk` and `--server-jar` it finds the running emulators, installs the app and starts the server itself:
+ *   `./gradlew :e2e:devices`, e.g. from Android Studio.
  * - `route`: prints the fixes of a route or feeds them to an emulator/simulator in real time (see [RouteCli]).
  */
 fun main(args: Array<String>) {
@@ -41,20 +45,54 @@ private fun runDevices(options: CliArgs): Int {
     val reportRoot = File(options.single("report") ?: "e2e/build/reports/devices").apply { mkdirs() }
     val shell = Shell(File(reportRoot, "commands.log"))
     val iosBundleId = options.single("ios-bundle-id") ?: "app.hovanki.ios"
-    val devices: List<Device> =
-        options.list("android").mapIndexed { i, serial -> AndroidDevice(serial, "Android-${i + 1}", shell) } +
-            options.list("ios").mapIndexed { i, udid -> IosDevice(udid, "iOS-${i + 1}", shell, iosBundleId) }
-    require(devices.isNotEmpty()) { "No devices: pass --android <serial,...> and/or --ios <udid,...>" }
-    // iOS asks when the app first needs location; the flows answer like a player (allow-location.yaml).
-    devices.filterIsInstance<AndroidDevice>().forEach { it.grantPermissions() }
-    val maestro = Maestro(
-        shell,
-        File(options.single("flows") ?: "e2e/maestro"),
-        binary = options.single("maestro") ?: "maestro",
-        mcpDevices = Maestro.Mode.valueOf((options.single("maestro-mode") ?: "auto").uppercase()).mcpDevices(devices),
-        logDir = File(reportRoot, "logs"),
-    )
-    return maestro.use { runScenarios(options, devices, maestro, serverUrl, port, reportRoot) }
+    val maestroBinary = options.single("maestro") ?: "maestro"
+    // `--android auto`: the emulators already running on this machine (./gradlew :e2e:devices, Android Studio).
+    val androidSerials = options.list("android").let { serials ->
+        if (serials != listOf("auto")) return@let serials
+        LocalSetup.runningEmulators(shell).also {
+            check(it.isNotEmpty()) { "No running emulators: start one or two in Android Studio (Device Manager)" }
+            println("[devices] running emulators: ${it.joinToString()}")
+        }
+    }
+    val androidDevices = androidSerials.mapIndexed { i, serial -> AndroidDevice(serial, "Android-${i + 1}", shell) }
+    val iosDevices = options.list("ios").mapIndexed { i, udid -> IosDevice(udid, "iOS-${i + 1}", shell, iosBundleId) }
+    val devices: List<Device> = androidDevices + iosDevices
+    require(devices.isNotEmpty()) { "No devices: pass --android <serial,...|auto> and/or --ios <udid,...>" }
+
+    // What e2e/run-devices.sh otherwise does: install the app, start the server.
+    val apk = options.single("install-apk")?.let(::File)
+    val serverJar = options.single("server-jar")?.let(::File)
+    if (apk != null || serverJar != null) LocalSetup.checkMaestro(maestroBinary)
+    val restoreSettings = mutableListOf<() -> Unit>()
+    var server: LocalServer? = null
+    try {
+        if (apk != null) {
+            require(apk.isFile) { "No APK $apk: build it with ./gradlew :androidApp:assembleDebug" }
+            for (device in androidDevices) {
+                println("[devices] installing the debug app on ${device.id}")
+                restoreSettings += LocalSetup.prepare(device, apk)
+            }
+        }
+        if (serverJar != null) {
+            val log = File(reportRoot, "logs/server.log")
+            println("[devices] starting the server on :$port (profile e2e), log: $log")
+            server = LocalServer.start(serverJar, port, File(reportRoot, "logs"))
+        }
+        // iOS asks when the app first needs location; the flows answer like a player (allow-location.yaml).
+        androidDevices.forEach { it.grantPermissions() }
+        val maestro = Maestro(
+            shell,
+            File(options.single("flows") ?: "e2e/maestro"),
+            binary = maestroBinary,
+            mcpDevices = Maestro.Mode.valueOf((options.single("maestro-mode") ?: "auto").uppercase())
+                .mcpDevices(devices),
+            logDir = File(reportRoot, "logs"),
+        )
+        return maestro.use { runScenarios(options, devices, maestro, serverUrl, port, reportRoot) }
+    } finally {
+        server?.close()
+        restoreSettings.forEach { runCatching { it() } }
+    }
 }
 
 private fun runScenarios(
@@ -125,8 +163,9 @@ class CliArgs(args: List<String>) {
 
 private val USAGE = """
     Usage:
-      e2e devices --android emulator-5554,emulator-5556 [--ios <udid,...>] [--bots 3] [--scenario full-round|restart|all]
-        [--fail-fast true] [--maestro-mode auto|mcp|cli]
+      e2e devices --android emulator-5554,emulator-5556|auto [--ios <udid,...>] [--bots 3]
+                  [--scenario full-round|restart|all] [--fail-fast true] [--maestro-mode auto|mcp|cli]
+                  [--maestro <path>] [--install-apk androidApp-debug.apk] [--server-jar hovanki-server.jar]
                   [--port 8080] [--server http://localhost:8080] [--flows e2e/maestro] [--report e2e/build/reports/devices]
       e2e route   --to <lat,lon> [--to <lat,lon> ...] [--from <lat,lon>] [--speed 1.5] [--interval 1000] [--hold 0]
                   [--noise none|open-sky|city] [--seed 1] [--format csv|geo-fix] [--adb <serial> | --simctl <udid>]
