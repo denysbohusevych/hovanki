@@ -9,8 +9,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.hovanki.client.session.ConnectionStatus
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.ui.common.LoadingScreen
+import app.hovanki.client.ui.common.ResumingScreen
 import app.hovanki.client.ui.game.GameScreen
 import app.hovanki.client.ui.home.HomeScreen
 import app.hovanki.client.ui.lobby.LobbyScreen
@@ -34,6 +36,12 @@ fun App() {
                 val snapshot = state.snapshot
                 when {
                     state.session == null -> HomeScreen()
+
+                    // Started again during a game: checking with the server whether it is still on.
+                    snapshot == null && state.isResuming -> ResumingScreen(
+                        isReconnecting = state.connectionStatus == ConnectionStatus.RECONNECTING,
+                        onLeave = sessionManager::leave,
+                    )
 
                     snapshot == null -> LoadingScreen()
 

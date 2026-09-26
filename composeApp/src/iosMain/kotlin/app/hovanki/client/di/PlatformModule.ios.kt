@@ -5,6 +5,8 @@ import app.hovanki.client.location.IosLocationProvider
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.proximity.NoopProximityScanner
 import app.hovanki.client.proximity.ProximityScanner
+import app.hovanki.client.storage.KeychainSecureStore
+import app.hovanki.client.storage.SecureStore
 import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.client.tracking.IosBackgroundTracker
 import io.ktor.client.engine.HttpClientEngine
@@ -14,6 +16,7 @@ import org.koin.dsl.module
 
 actual val platformModule: Module = module {
     single<HttpClientEngine> { Darwin.create() }
+    single<SecureStore> { KeychainSecureStore() }
     single<LocationProvider> {
         val launchOptions = get<LaunchOptionsHolder>()
         IosLocationProvider(allowSimulatedLocation = { launchOptions.options.value?.allowSimulatedLocation == true })

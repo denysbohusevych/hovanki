@@ -13,10 +13,18 @@ class LaunchOptionsTest {
             LaunchOptions.JOIN_CODE to "ABC234",
             LaunchOptions.HIDING_SECONDS to " 15 ",
             LaunchOptions.ALLOW_SIMULATED_LOCATION to "true",
+            LaunchOptions.FORGET_SAVED_GAME to "1",
         )
 
         assertEquals(
-            LaunchOptions("http://10.0.2.2:8080", "Sam", "ABC234", hidingSeconds = 15, allowSimulatedLocation = true),
+            LaunchOptions(
+                "http://10.0.2.2:8080",
+                "Sam",
+                "ABC234",
+                hidingSeconds = 15,
+                allowSimulatedLocation = true,
+                forgetSavedGame = true,
+            ),
             LaunchOptions.read(values::get),
         )
     }

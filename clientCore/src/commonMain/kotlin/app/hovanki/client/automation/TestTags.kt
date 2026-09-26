@@ -11,6 +11,8 @@ import app.hovanki.shared.protocol.PlayerId
  */
 object TestTags {
     const val LOADING = "loading"
+    const val RESUMING = "resuming"
+    const val RESUMING_LEAVE = "resuming_leave"
 
     const val HOME_SCREEN = "home_screen"
     const val HOME_NAME = "home_name"

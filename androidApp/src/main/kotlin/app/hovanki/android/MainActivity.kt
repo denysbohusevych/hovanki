@@ -7,13 +7,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import app.hovanki.client.App
 import app.hovanki.client.di.offerLaunchOptions
+import app.hovanki.client.di.onAppStart
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         // UI automation hooks exist in debug builds only (src/debug); in release both calls do nothing.
-        if (savedInstanceState == null) readLaunchOptions(intent)?.let(::offerLaunchOptions)
+        // Also after the system recreated the activity in a new process: that one resumes the saved game too.
+        onAppStart(if (savedInstanceState == null) readLaunchOptions(intent) else null)
         setContent { AutomationRoot { App() } }
     }
 

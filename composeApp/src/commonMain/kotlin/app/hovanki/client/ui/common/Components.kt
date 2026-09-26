@@ -14,25 +14,31 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.location.rememberLocationPermissionRequester
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_allow
 import app.hovanki.client.resources.action_dismiss
+import app.hovanki.client.resources.action_leave_game
 import app.hovanki.client.resources.connection_reconnecting
 import app.hovanki.client.resources.error_network
 import app.hovanki.client.resources.error_no_location
 import app.hovanki.client.resources.error_not_found
+import app.hovanki.client.resources.error_saved_game_finished
+import app.hovanki.client.resources.error_saved_game_gone
 import app.hovanki.client.resources.error_session_lost
 import app.hovanki.client.resources.error_too_far
 import app.hovanki.client.resources.location_not_shared
+import app.hovanki.client.resources.resuming_game
 import app.hovanki.client.session.ConnectionStatus
 import app.hovanki.client.session.SessionError
 import app.hovanki.shared.protocol.ErrorCode
@@ -55,6 +61,37 @@ fun ScreenColumn(modifier: Modifier = Modifier, content: @Composable ColumnScope
 fun LoadingScreen(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize().testTag(TestTags.LOADING), contentAlignment = Alignment.Center) {
         CircularProgressIndicator()
+    }
+}
+
+/**
+ * The app was started again during a game and checks with the server whether it is still on (a moment, or longer
+ * without a connection). The player may give up and leave the game.
+ */
+@Composable
+fun ResumingScreen(isReconnecting: Boolean, onLeave: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxSize().padding(24.dp).testTag(TestTags.RESUMING),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CircularProgressIndicator()
+        Text(
+            text = stringResource(Res.string.resuming_game),
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+        )
+        if (isReconnecting) {
+            Text(
+                text = stringResource(Res.string.connection_reconnecting),
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.testTag(TestTags.BANNER_RECONNECTING),
+            )
+        }
+        OutlinedButton(onClick = onLeave, modifier = Modifier.testTag(TestTags.RESUMING_LEAVE)) {
+            Text(stringResource(Res.string.action_leave_game))
+        }
     }
 }
 
@@ -149,6 +186,10 @@ fun SessionError.describe(): String = when (this) {
     is SessionError.Network -> stringResource(Res.string.error_network)
 
     SessionError.SessionLost -> stringResource(Res.string.error_session_lost)
+
+    SessionError.SavedGameFinished -> stringResource(Res.string.error_saved_game_finished)
+
+    SessionError.SavedGameGone -> stringResource(Res.string.error_saved_game_gone)
 }
 
 /** "m:ss", rounded up so a countdown shows 0:00 only when the time is really over. */

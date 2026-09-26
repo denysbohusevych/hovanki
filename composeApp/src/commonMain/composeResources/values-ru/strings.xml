@@ -15,6 +15,9 @@
   <string name="error_too_far">По GPS вы слишком далеко от этого игрока.</string>
   <string name="error_no_location">Точных GPS-координат пока нет. Выйдите на открытое место и попробуйте снова.</string>
   <string name="error_session_lost">Эта игра больше не доступна на сервере.</string>
+  <string name="error_saved_game_finished">Игра, в которой вы были, закончилась, пока приложение было закрыто.</string>
+  <string name="error_saved_game_gone">Не удалось вернуться в игру: на сервере её больше нет (она закончилась или сервер перезапустили).</string>
+  <string name="resuming_game">Возвращаемся в вашу игру…</string>
 
   <!-- Стартовый экран -->
   <string name="home_tagline">Прятки на улице в сужающейся зоне.</string>
