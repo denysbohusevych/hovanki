@@ -15,8 +15,9 @@ import kotlin.time.Duration.Companion.seconds
 /**
  * A throwaway game of two bots before the devices play: on a busy CI machine the server's first requests (class
  * loading, JIT) took longer than the app's 15 s request timeout, and the app on the device showed "Cannot reach the
- * server" for a server that was only warming up. The scenarios find their game by the host device's name, so this
- * one does not get in the way; the server's janitor removes it later.
+ * server" for a server that was only warming up. The scenarios find their game by the host's nickname, so this one
+ * does not get in the way; the server's janitor removes it later. The account routes warm up when each scenario makes
+ * its host's account through the API ([DeviceAccounts]), before the app on the device logs in.
  */
 suspend fun warmUpServer(serverUrl: String) {
     val timeline = Timeline()
@@ -27,7 +28,7 @@ suspend fun warmUpServer(serverUrl: String) {
     val deviceLike = bot("Warm-up app")
     try {
         withTimeout(3.minutes) {
-            // The settings a phone creates a game with (see HomeViewModel), besides the bots' short timers.
+            // The settings a phone creates a game with (see GameStarter in :composeApp), besides the bots' timers.
             deviceLike.createGame(GameSessionManager.defaultSettings(GameSetups.PARK))
             check(host.createGame(GameSetups.fast()) == CommandResult.Ok) {
                 "Warm-up: the server did not create a game"

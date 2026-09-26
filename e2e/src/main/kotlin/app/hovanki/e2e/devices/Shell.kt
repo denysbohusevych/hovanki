@@ -11,9 +11,19 @@ class Shell(private val log: File? = null) {
         val ok: Boolean get() = exitCode == 0
 
         fun orThrow(): Result {
-            check(ok) { "${command.joinToString(" ")} failed ($exitCode): ${stderr.ifBlank { stdout }.take(2_000)}" }
+            check(ok) { "${commandLine(command)} failed ($exitCode): ${stderr.ifBlank { stdout }.take(2_000)}" }
             return this
         }
+    }
+
+    companion object {
+        /** A launch option whose value never goes to a log: the password the app logs in with (`LaunchOptions`). */
+        private const val SECRET_OPTION = "hovanki.password"
+
+        /** [command] as the log shows it, with the value after a password launch option masked. */
+        fun commandLine(command: List<String>): String = command.mapIndexed { index, argument ->
+            if (index > 0 && command[index - 1].endsWith(SECRET_OPTION)) "***" else argument
+        }.joinToString(" ")
     }
 
     fun run(command: List<String>, timeout: Duration = 2.minutes, outputFile: File? = null): Result {
@@ -31,7 +41,7 @@ class Shell(private val log: File? = null) {
             stdout = stdout?.get().orEmpty(),
             stderr = stderr.get() + if (finished) "" else "\n(timed out after $timeout)",
         )
-        log?.appendText("$ ${command.joinToString(" ")}\n  -> exit ${result.exitCode}${summary(result)}\n")
+        log?.appendText("$ ${commandLine(command)}\n  -> exit ${result.exitCode}${summary(result)}\n")
         return result
     }
 
@@ -41,7 +51,7 @@ class Shell(private val log: File? = null) {
     fun record(command: List<String>, call: () -> Pair<Int, String>): Result {
         val result = runCatching { call() }
             .fold({ (exitCode, output) -> Result(command, exitCode, output, "") }) { Result(command, -1, "", "$it") }
-        log?.appendText("$ ${command.joinToString(" ")}\n  -> exit ${result.exitCode}${summary(result)}\n")
+        log?.appendText("$ ${commandLine(command)}\n  -> exit ${result.exitCode}${summary(result)}\n")
         return result
     }
 

@@ -58,11 +58,13 @@ object LocalSetup {
 }
 
 /**
- * The production server jar with the `e2e` profile on [port] of this machine, as a child process; its log and the
- * access log (request line, status, time; no headers, so no tokens) go to [logDir]. [close] stops it; so does a
- * shutdown hook when the run is cancelled (the Stop button in the IDE).
+ * The production server jar with the `e2e` profile on [port] of this machine, as a child process, on a fresh
+ * [LocalPostgres] database; its log and the access log (request line, status, time; no headers, so no tokens) go to
+ * [logDir]. [close] stops the server and drops the database; so does a shutdown hook when the run is cancelled (the
+ * Stop button in the IDE).
  */
-class LocalServer private constructor(private val process: Process) : AutoCloseable {
+class LocalServer private constructor(private val process: Process, private val database: LocalPostgres) :
+    AutoCloseable {
     private val hook = Thread { stop() }.also { Runtime.getRuntime().addShutdownHook(it) }
 
     override fun close() {
@@ -71,13 +73,18 @@ class LocalServer private constructor(private val process: Process) : AutoClosea
     }
 
     private fun stop() {
-        if (!process.isAlive) return
-        process.destroy()
-        if (!process.waitFor(20, TimeUnit.SECONDS)) process.destroyForcibly()
+        if (process.isAlive) {
+            process.destroy()
+            if (!process.waitFor(20, TimeUnit.SECONDS)) process.destroyForcibly()
+        }
+        database.close()
     }
 
     companion object {
-        /** [buildings]: `hovanki.buildings.source` of the server, `overpass` for real buildings around the game. */
+        /**
+         * [buildings]: `hovanki.buildings.source` of the server, `overpass` for real buildings around the game.
+         * The `e2e` profile keeps the emails in memory for the debug route the device runs read the codes from.
+         */
         fun start(
             jar: File,
             port: Int,
@@ -91,6 +98,8 @@ class LocalServer private constructor(private val process: Process) : AutoClosea
                     "port: -Pe2e.port=8081"
             }
             logDir.mkdirs()
+            val database = LocalPostgres.start()
+            println("[devices] PostgreSQL for the server: ${database.description}")
             val java = File(System.getProperty("java.home"), "bin/java").path
             val command = listOf(
                 java,
@@ -107,8 +116,15 @@ class LocalServer private constructor(private val process: Process) : AutoClosea
                 "--server.tomcat.accesslog.pattern=%t %a \"%r\" %s %{ms}Tms",
             )
             val log = File(logDir, "server.log")
-            val process = ProcessBuilder(command).redirectErrorStream(true).redirectOutput(log).start()
-            val server = LocalServer(process)
+            val process = try {
+                ProcessBuilder(command).redirectErrorStream(true).redirectOutput(log)
+                    .apply { environment().putAll(database.serverEnvironment()) }
+                    .start()
+            } catch (e: Exception) {
+                database.close()
+                throw e
+            }
+            val server = LocalServer(process, database)
             val deadline = System.nanoTime() + timeout.inWholeNanoseconds
             while (System.nanoTime() < deadline) {
                 if (healthy(port)) return server

@@ -51,11 +51,12 @@ private class Lineup(
 }
 
 /**
- * Full round with every UI path that matters: the host creates the game on the phone, phones join by code, bots
- * join through the API, the host picks the seeker; screens follow the phases; the app keeps reporting its position
- * in the background; the map shows the zone's buildings on every phone; a phone hider walks into a building, is warned,
- * seen by the seekers and walks out again; the seeker catches bots (code typed by hand) and phones (code read off the
- * hider's screen and checked against the server); everybody ends on the results screen.
+ * Full round with every UI path that matters: the host, logged in, creates the game on the phone, the other phones
+ * join by code as guests, bots join through the API, the host picks the seeker; screens follow the phases; the app
+ * keeps reporting its position in the background; the map shows the zone's buildings on every phone; a phone hider
+ * walks into a building, is warned, seen by the seekers and walks out again; the seeker catches bots (code typed by
+ * hand) and phones (code read off the hider's screen and checked against the server); everybody ends on the results
+ * screen, and «Back» leads the host to the «Play» tab and the guests to the welcome screen.
  */
 private suspend fun DeviceRun.fullRound() = with(scenario) {
     val lineup = setUpGame(seekerOnDevice = true)
@@ -98,13 +99,16 @@ private suspend fun DeviceRun.fullRound() = with(scenario) {
     awaitPhase(GamePhase.FINISHED)
     for (player in devicePlayers) player.awaitVisible(TestTags.RESULTS_SCREEN)
     screenshot("results")
+    // «Back» on the results: the host is on the «Play» tab again, still logged in; the guests on the welcome screen.
+    for (player in devicePlayers) player.flow("close-results", "UNTIL" to player.startScreen)
+    screenshot("back on the start screen")
 }
 
 /**
  * The app is killed mid-round and started again. While it is dead, the server keeps the player and reveals their last
- * point to the seekers (stale signal). The relaunched app resumes the session saved on the device: the game screen
- * again, fresh fixes hide the player, and a claim against them is confirmed with the code on the resumed app's screen,
- * not by the code timeout.
+ * point to the seekers (stale signal). The relaunched app restores the host's account and resumes the session saved
+ * on the device: the game screen again, fresh fixes hide the player, and a claim against them is confirmed with the
+ * code on the resumed app's screen, not by the code timeout.
  */
 private suspend fun DeviceRun.restartMidRound() = with(scenario) {
     val lineup = setUpGame(seekerOnDevice = false)
@@ -168,15 +172,20 @@ private suspend fun DeviceRun.restartMidRound() = with(scenario) {
 private suspend fun DeviceRun.setUpGame(seekerOnDevice: Boolean): Lineup = with(scenario) {
     val host = devicePlayers.first()
     location?.let(::placeDevices)
+    // Only a logged-in player creates games in the app. The account is made through the API (registration, the code
+    // from the email); the app logs in with it at start, from its launch options.
+    val account = accounts.create(host.name)
+    host.account = account
+    note("${host.name} has the confirmed account ${account.nickname} (registered through the API)")
     host.launchApp(hidingSeconds = HIDING_SECONDS)
-    host.awaitVisible(TestTags.HOME_SCREEN)
+    host.awaitVisible(host.startScreen)
     screenshot("start screen", listOf(host))
     createGameOnDevice(host)
     // The join code on the lobby screen names the game: a timed-out first attempt can leave another one behind.
     val shownCode = host.readText(TestTags.LOBBY_JOIN_CODE)?.filter(Char::isLetterOrDigit)
     val game = eventually("${host.name}'s game is on the server", 30.seconds) {
         observer.games().games.lastOrNull {
-            host.name in it.playerNames && it.phase == GamePhase.LOBBY &&
+            host.playerName in it.playerNames && it.phase == GamePhase.LOBBY &&
                 (shownCode == null || it.joinCode == shownCode)
         }
     }
@@ -197,15 +206,24 @@ private suspend fun DeviceRun.setUpGame(seekerOnDevice: Boolean): Lineup = with(
     val seekerBot = if (seekerDevice == null) player("Bot-seeker", at = origin.offset(eastMeters = -8.0)) else null
     val botHiders = (1..botCount).map { player("Bot-$it", at = origin.offset(northMeters = -8.0 * it)) }
 
+    // The other devices are guests: logged out, they join by code from the welcome screen.
     for (player in devicePlayers.drop(1)) {
         player.launchApp(joinCode = game.joinCode)
-        player.awaitVisible(TestTags.HOME_SCREEN)
+        player.awaitVisible(player.startScreen)
         player.flow("join-game")
     }
     for (bot in listOfNotNull(seekerBot) + botHiders) requireOk(bot.join(game.joinCode), "${bot.name} joins")
     val expected = devicePlayers.size + botHiders.size + listOfNotNull(seekerBot).size
     val lobby = eventually("all $expected players are in the lobby") { state().takeIf { it.players.size == expected } }
-    for (player in devicePlayers) player.playerId = lobby.players.single { it.name == player.name }.id
+    for (player in devicePlayers) player.playerId = lobby.players.single { it.name == player.playerName }.id
+    check(
+        lobby.players.single { it.id == host.id }.userId != null,
+        "${host.name} plays under the nickname ${account.nickname}, with the account",
+    )
+    check(
+        devicePlayers.drop(1).all { player -> lobby.players.single { it.id == player.id }.userId == null },
+        "the other devices play as guests",
+    )
     awaitBuildings(listOfNotNull(seekerBot) + botHiders)
     screenshot("lobby")
 
