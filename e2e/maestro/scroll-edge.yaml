@@ -1,0 +1,15 @@
+# Scrolls the screen with two swipes along its left edge, from START to END ("x%, y%"), then waits for the element
+# with test tag ID. The edge is the screen's padding: a swipe that starts on the map pans the map, not the screen.
+appId: ${APP_ID}
+---
+- repeat:
+    times: 2
+    commands:
+      - swipe:
+          start: ${START}
+          end: ${END}
+          duration: 500
+- extendedWaitUntil:
+    visible:
+      id: ${ID}
+    timeout: 15000

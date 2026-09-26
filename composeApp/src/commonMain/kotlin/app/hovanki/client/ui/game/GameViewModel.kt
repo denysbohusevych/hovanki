@@ -132,7 +132,7 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
                 zone.current.radiusMeters - it.point.distanceTo(zone.current.center)
             },
             markers = snapshot.players.mapNotNull { player ->
-                player.location?.let { RadarMarker(player.name, it.point, it.accuracyMeters, it.reason) }
+                player.location?.let { MapMarker(player.name, it.point, it.accuracyMeters, it.reason) }
             },
             hidersLeft = hiders.count { it.status == PlayerStatus.ACTIVE },
             hidersTotal = hiders.size,
@@ -175,7 +175,7 @@ data class GameUiState(
     /** Positive inside the zone, negative outside. */
     val metersToZoneBorder: Double?,
     /** Players the server lets us see right now. */
-    val markers: List<RadarMarker>,
+    val markers: List<MapMarker>,
     val hidersLeft: Int,
     val hidersTotal: Int,
     /** Hiders an active seeker can claim now. */
@@ -207,4 +207,5 @@ data class ClaimUi(
     val myVote: Boolean?,
 )
 
-data class RadarMarker(val name: String, val point: GeoPoint, val accuracyMeters: Double, val reason: VisibilityReason)
+/** A player the server lets us see, on the map. */
+data class MapMarker(val name: String, val point: GeoPoint, val accuracyMeters: Double, val reason: VisibilityReason)

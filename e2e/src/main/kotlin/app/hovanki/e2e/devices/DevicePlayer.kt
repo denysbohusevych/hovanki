@@ -119,6 +119,16 @@ class DevicePlayer(val device: Device, start: GeoPoint, private val run: DeviceR
         run.scenario.note("✓ $name shows $id")
     }
 
+    /**
+     * Scrolls the screen [down] (or back up) and waits for the element with test tag [id]. Swipes along the edge of
+     * the screen: one that starts on the map pans the map instead of scrolling.
+     */
+    suspend fun scrollAlongEdgeTo(id: String, down: Boolean = true) {
+        val (start, end) = if (down) "3%, 75%" to "3%, 30%" else "3%, 30%" to "3%, 75%"
+        flow("scroll-edge", "ID" to id, "START" to start, "END" to end)
+        run.scenario.note("✓ $name shows $id")
+    }
+
     /** Text of the element with test tag [id] on the current screen. */
     suspend fun readText(id: String): String? = run.maestro.hierarchy(device).textOf(id)
 

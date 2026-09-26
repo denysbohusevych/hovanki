@@ -65,7 +65,7 @@
   <string name="zone_final">final size</string>
   <string name="zone_inside">You are inside the zone, %1$d m from the border.</string>
   <string name="zone_outside">You are %1$d m outside the zone!</string>
-  <string name="radar_legend">Solid circle: the zone. Dashed: the next zone. Blue dot: you.</string>
+  <string name="map_legend">Solid circle: the zone. Dashed: the next zone. Blue dot: you.</string>
   <string name="reason_teammate">seeker</string>
   <string name="reason_stale_signal">no signal</string>
   <string name="reason_out_of_zone">out of the zone</string>

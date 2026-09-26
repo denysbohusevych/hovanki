@@ -22,7 +22,8 @@
 - Общий Compose UI для Android и iOS, Koin, навигация по состоянию.
 - `GameApi` на Ktor и `GameConnection` (HTTP-опрос), `ServerClock`.
 - Геолокация (FusedLocationProvider / CLLocationManager) и работа в фоне (foreground service / фоновый режим location).
-- Показ кода находки и ручной ввод 4 цифр; схематичная зона на Canvas (`ZoneRadar`) вместо карты.
+- Показ кода находки и ручной ввод 4 цифр.
+- Карта: maplibre-compose, тайлы OpenFreeMap, поверх — зона, следующая зона, своя позиция и игроки, которых разрешено видеть ([ADR 0003](adr/0003-map-and-buildings.md)).
 - Возврат в игру после перезапуска приложения: сессия в Keystore / Keychain, проверка через `sync` ([ADR 0002](adr/0002-session-storage.md)). Главный экран помнит имя игрока и адрес сервера.
 - Строки интерфейса на английском, украинском и русском (Compose resources).
 
@@ -34,7 +35,6 @@
 
 ### До первого теста на улице
 
-- [ ] **Карта**: MapLibre через maplibre-compose с тайлами OpenFreeMap вместо заглушки `ZoneRadar` — провайдер выбран в [ADR 0003](adr/0003-map-and-buildings.md).
 - [ ] **QR**: отрисовка QR с `CatchCodePayload` на экране прячущегося; сканер — CameraX + ML Kit (Android), AVFoundation (iOS) вместо заглушки `CatchCodeScanner`.
 - [ ] **Согласие на геолокацию** (GDPR): экран с объяснением до системного запроса разрешений, ссылка на политику приватности.
 - [ ] **Создание игры**: выбор центра и радиуса зоны на карте; подсказка, если зона сильно застроена.
