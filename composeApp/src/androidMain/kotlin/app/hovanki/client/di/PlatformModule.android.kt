@@ -1,5 +1,7 @@
 package app.hovanki.client.di
 
+import app.hovanki.client.BuildInfo
+import app.hovanki.client.androidBuildInfo
 import app.hovanki.client.location.AndroidLocationProvider
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.proximity.NoopProximityScanner
@@ -13,6 +15,7 @@ import org.koin.core.module.Module
 import org.koin.dsl.module
 
 actual val platformModule: Module = module {
+    single<BuildInfo> { androidBuildInfo(androidContext()) }
     single<HttpClientEngine> { OkHttp.create() }
     single<LocationProvider> { AndroidLocationProvider(androidContext()) }
     single<BackgroundTracker> { AndroidBackgroundTracker(androidContext()) }

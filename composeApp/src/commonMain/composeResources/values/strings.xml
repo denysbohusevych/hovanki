@@ -26,10 +26,12 @@
   <string name="home_join">Join</string>
   <string name="home_locating">Getting your location…</string>
   <string name="home_connecting">Connecting to the server…</string>
+  <string name="home_location_note">During a round the game server receives your precise location, also while the screen is locked. It is deleted when the game ends.</string>
   <string name="home_server_label">Server address</string>
-  <string name="home_server_hint">Game server, e.g. http://192.168.1.10:8080</string>
+  <string name="home_server_hint">Game server, e.g. https://name.trycloudflare.com</string>
   <string name="problem_name_missing">Enter your name.</string>
   <string name="problem_code_missing">Enter the join code.</string>
+  <string name="problem_server_missing">Enter the server address at the bottom of the screen.</string>
   <string name="problem_location_denied">The game needs your precise location. Allow it in the system settings.</string>
   <string name="problem_no_location_fix">Could not get an accurate location. Step into the open and try again.</string>
 

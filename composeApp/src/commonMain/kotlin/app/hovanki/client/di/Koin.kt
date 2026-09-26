@@ -34,7 +34,7 @@ fun initKoin(appDeclaration: KoinAppDeclaration = {}) {
 }
 
 val commonModule: Module = module {
-    single { ServerUrl(defaultServerUrl()) }
+    single { ServerUrl(defaultServerUrl(get())) }
     single { LaunchOptionsHolder() }
     single { createHttpClient(get()) }
     single<GameApi> { HttpGameApi(get(), get()) }
@@ -52,5 +52,8 @@ fun offerLaunchOptions(options: LaunchOptions) {
     KoinPlatformTools.defaultContext().get().get<LaunchOptionsHolder>().offer(options)
 }
 
-/** Platform services: HTTP engine, [app.hovanki.client.location.LocationProvider], background tracking, BLE. */
+/**
+ * Platform services: [app.hovanki.client.BuildInfo], HTTP engine, [app.hovanki.client.location.LocationProvider],
+ * background tracking, BLE.
+ */
 expect val platformModule: Module

@@ -34,6 +34,7 @@ import app.hovanki.client.resources.home_create
 import app.hovanki.client.resources.home_create_hint
 import app.hovanki.client.resources.home_join
 import app.hovanki.client.resources.home_locating
+import app.hovanki.client.resources.home_location_note
 import app.hovanki.client.resources.home_name_label
 import app.hovanki.client.resources.home_or_join
 import app.hovanki.client.resources.home_server_hint
@@ -43,6 +44,7 @@ import app.hovanki.client.resources.problem_code_missing
 import app.hovanki.client.resources.problem_location_denied
 import app.hovanki.client.resources.problem_name_missing
 import app.hovanki.client.resources.problem_no_location_fix
+import app.hovanki.client.resources.problem_server_missing
 import app.hovanki.client.ui.common.Banner
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.describe
@@ -109,6 +111,11 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
         ) {
             Text(stringResource(Res.string.home_join))
         }
+        Text(
+            text = stringResource(Res.string.home_location_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         status.activity?.let { activity ->
             Row(
@@ -155,6 +162,12 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_SERVER),
         )
+        Text(
+            text = viewModel.buildLabel,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.testTag(TestTags.HOME_BUILD),
+        )
     }
 }
 
@@ -162,6 +175,7 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
 private fun HomeProblem.describe(): String = when (this) {
     HomeProblem.NAME_MISSING -> stringResource(Res.string.problem_name_missing)
     HomeProblem.CODE_MISSING -> stringResource(Res.string.problem_code_missing)
+    HomeProblem.SERVER_MISSING -> stringResource(Res.string.problem_server_missing)
     HomeProblem.LOCATION_DENIED -> stringResource(Res.string.problem_location_denied)
     HomeProblem.NO_LOCATION_FIX -> stringResource(Res.string.problem_no_location_fix)
 }
