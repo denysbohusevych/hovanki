@@ -6,7 +6,7 @@
 #   e2e/run-devices.sh --ios 2 --bots 3 --scenario all            # macOS with Xcode
 #   e2e/run-devices.sh --android-serials emulator-5554 --skip-build  # emulators you already started
 #
-# Needs: JDK 21; Android: ANDROID_HOME with cmdline-tools and hardware acceleration (KVM on Linux);
+# Needs: JDK 21; Android: SDK (local.properties sdk.dir or ANDROID_HOME) with cmdline-tools, KVM on Linux;
 # iOS: macOS with Xcode 26.4+; Maestro (curl -fsSL https://get.maestro.mobile.dev | bash).
 set -euo pipefail
 # Empty arrays are expanded as ${a[@]+"${a[@]}"}: bash 3.2 (macOS) treats "${a[@]}" of an empty array as unset.
@@ -29,7 +29,7 @@ IMAGE_TAG=${HOVANKI_E2E_IMAGE_TAG:-google_atd}
 EMULATOR_GPU=${HOVANKI_E2E_EMULATOR_GPU:-swiftshader_indirect}
 
 usage() {
-  sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
   cat <<'USAGE'
 Options:
   --android N              start N Android emulators (AVDs hovanki-e2e-N are created if missing)
@@ -89,9 +89,33 @@ trap cleanup EXIT
 
 # ---- Tools ----
 if ((WANT_ANDROID)); then
-  SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
-  [[ -n $SDK ]] || { echo "Set ANDROID_HOME" >&2; exit 2; }
+  # Like AGP and :e2e:devices: sdk.dir from local.properties (Android Studio writes it), then ANDROID_HOME, then
+  # where Android Studio installs the SDK by default.
+  from_properties=
+  if [[ -f local.properties ]]; then
+    from_properties=$(sed -n 's/^[[:space:]]*sdk\.dir[[:space:]]*[=:][[:space:]]*//p' local.properties | tail -1 \
+      | sed 's/\\\(.\)/\1/g')
+  fi
+  SDK=
+  for candidate in "$from_properties" "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" \
+    "$HOME/Library/Android/sdk" "$HOME/Android/Sdk"; do
+    if [[ -n $candidate && -d $candidate ]]; then SDK=$candidate; break; fi
+  done
+  if [[ -z $SDK ]]; then
+    echo "Android SDK not found: open the project in Android Studio once (it writes sdk.dir to local.properties)" \
+      "or export ANDROID_HOME=<path to the SDK>" >&2
+    exit 2
+  fi
+  log "Android SDK: $SDK"
+  # The Gradle build of the APK below must use the same SDK.
+  export ANDROID_HOME=$SDK
   export PATH="$SDK/emulator:$SDK/platform-tools:$SDK/cmdline-tools/latest/bin:$PATH"
+  # Android Studio does not install them by default; avdmanager and sdkmanager create the AVDs.
+  if ((ANDROID > 0)) && ! command -v avdmanager >/dev/null; then
+    echo "avdmanager not found: install Android SDK Command-line Tools (Android Studio → Settings → Languages &" \
+      "Frameworks → Android SDK → SDK Tools → Android SDK Command-line Tools (latest))" >&2
+    exit 2
+  fi
 fi
 command -v maestro >/dev/null || export PATH="$HOME/.maestro/bin:$PATH"
 command -v maestro >/dev/null || { echo "Maestro not found: curl -fsSL https://get.maestro.mobile.dev | bash" >&2; exit 2; }

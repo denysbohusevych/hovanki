@@ -187,7 +187,7 @@ class MyTest {
 - JDK 21.
 - Maestro 2.10+: `curl -fsSL https://get.maestro.mobile.dev | bash` (бинарник в `~/.maestro/bin`). В CI закреплена версия 2.10.0 (`MAESTRO_VERSION`).
 - Android:
-  - Android SDK с `cmdline-tools` (`ANDROID_HOME`);
+  - Android SDK с пакетом Android SDK Command-line Tools: Android Studio по умолчанию его не ставит (Settings → Languages & Frameworks → Android SDK → SDK Tools). SDK скрипт ищет, как AGP: `sdk.dir` в `local.properties`, затем `ANDROID_HOME`, затем место установки Android Studio по умолчанию (`~/Library/Android/sdk`, `~/Android/Sdk`);
   - аппаратное ускорение: KVM на Linux, Hypervisor.framework на Mac.
   - Системный образ `system-images;android-33;google_atd;<x86_64|arm64-v8a>` и эмулятор скрипт поставит сам через `sdkmanager`.
     - ATD (Automated Test Device) — образ Google для автотестов: без SystemUI, Settings и встроенных приложений, с меньшей нагрузкой на CPU и память. В CI два эмулятора работают на раннере с 2 ядрами и 7 ГБ.
