@@ -24,7 +24,7 @@ flowchart LR
 | `:clientCore` | jvm, android, iosArm64, iosSimulatorArm64 | Клиентская логика без UI: `GameApi`/`HttpGameApi` (Ktor), `GameConnection`/`PollingGameConnection`, `LocationOutbox`, `ServerClock`, `GameSessionManager`, интерфейсы `LocationProvider` и `BackgroundTracker`. Без Compose и платформенного кода; JVM-таргет нужен headless-ботам e2e-тестов, чтобы они ходили через тот же сетевой код, что и приложение. |
 | `:composeApp` | android, iosArm64, iosSimulatorArm64 | KMP-библиотека (`com.android.kotlin.multiplatform.library`): Compose UI, Koin, движки Ktor, реализации платформенных сервисов. На iOS собирается во framework `ComposeApp` (вместе с `:clientCore`). |
 | `:androidApp` | Android | Тонкая точка входа: `Application` + `MainActivity`. AGP 9 со встроенным Kotlin. |
-| `:e2e` | JVM 21 | End-to-end тесты: headless-боты на коде `:clientCore` с имитацией GPS, часов и сети играют целые партии против настоящего сервера (в тестах он поднимается в том же процессе). См. [e2e.md](e2e.md). |
+| `:e2e` | JVM 21 | End-to-end тесты: headless-боты на коде `:clientCore` с имитацией GPS, часов и сети играют целые партии против настоящего сервера (в тестах он поднимается в том же процессе). Там же оркестратор слоя устройств: debug-приложение на эмуляторах и симуляторах, UI через Maestro. См. [e2e.md](e2e.md). |
 | `iosApp/` | iOS 16+ | Xcode-проект, SwiftUI-оболочка вокруг `MainViewControllerKt.mainViewController()`. Framework собирается Run Script-фазой `./gradlew :composeApp:embedAndSignAppleFrameworkForXcode`. Подробности — [iosApp/README.md](../iosApp/README.md). |
 
 Главное правило: **всё, что должно одинаково работать на клиенте и сервере, живёт в `:shared`** (протокол, коды, зона, пороги GPS). Клиент использует это для подсказок и отрисовки, сервер — для решений.
@@ -256,3 +256,4 @@ sequenceDiagram
 2. Composable в `commonMain`, без платформенного кода; состояние — в ViewModel/стейт-холдере, зарегистрированном в Koin.
 3. Время на экране — только через `ServerClock`, данные игры — только из `GameSnapshot`.
 4. Проверить на обеих платформах (Android-эмулятор и iOS-симулятор).
+5. Ключевым элементам — `Modifier.testTag` с константой из `TestTags`, если e2e-флоу (`e2e/maestro/`) будут на них нажимать или их читать.

@@ -20,9 +20,9 @@
 | `clientCore/` | KMP (JVM, Android, iOS): клиентская логика без UI — API сервера, синхронизация, `ServerClock`, игровая сессия |
 | `composeApp/` | KMP-библиотека клиента: Compose UI, DI, платформенные сервисы (геолокация, фон) |
 | `androidApp/` | Android-приложение: точка входа (`Application`, `MainActivity`) |
-| `e2e/` | End-to-end тесты: headless-боты на клиентском коде играют партии против настоящего сервера |
+| `e2e/` | End-to-end тесты: headless-боты на клиентском коде играют партии против настоящего сервера; оркестратор приложения на эмуляторах и симуляторах (Maestro) |
 | `iosApp/` | Xcode-проект: SwiftUI-оболочка вокруг Compose UI |
-| `docs/` | [архитектура](docs/architecture.md), [CI/CD](docs/ci-cd.md), [roadmap](docs/roadmap.md), [ADR](docs/adr/) |
+| `docs/` | [архитектура](docs/architecture.md), [e2e-тесты](docs/e2e.md), [CI/CD](docs/ci-cd.md), [roadmap](docs/roadmap.md), [ADR](docs/adr/) |
 | `gradle/libs.versions.toml` | версии зависимостей и плагинов |
 
 ## Что нужно
@@ -80,6 +80,8 @@ open iosApp/iosApp.xcodeproj
 | `./gradlew :clientCore:jvmTest` | Тесты клиентской логики (API, синхронизация, `ServerClock`) на JVM |
 | `./gradlew :server:test` | Тесты сервера |
 | `./gradlew :e2e:test` | End-to-end сценарии: боты играют целые партии против сервера (~3 мин), отчёты — `e2e/build/reports/e2e/` |
+| `e2e/run-devices.sh --android 2 --bots 3` | Приложение на двух эмуляторах вместе с ботами, UI через Maestro (`--ios 1` — симулятор на Mac); отчёт — `e2e/build/reports/devices/`. Подробности — [docs/e2e.md](docs/e2e.md) |
+| `./gradlew :e2e:route --args="--to 50.4481,30.5402 --adb emulator-5554"` | Провести эмулятор (`--simctl <udid>` — симулятор) по маршруту пешком |
 | `./gradlew :shared:iosSimulatorArm64Test` | Тесты общего кода на iOS-симуляторе (только macOS); то же для `:clientCore` |
 | `./gradlew spotlessApply` | Отформатировать код (ktlint); `spotlessCheck` — проверка в CI |
 | `./gradlew :server:bootJar` | Jar сервера для Docker: `server/build/libs/hovanki-server.jar` |
@@ -87,6 +89,7 @@ open iosApp/iosApp.xcodeproj
 ## Документация
 
 - [Архитектура](docs/architecture.md): модули, поток данных раунда, видимость, время, фазы, находка, API, рецепты.
+- [E2E-тесты](docs/e2e.md): боты, приложение на эмуляторах и симуляторах, как написать сценарий и читать отчёт.
 - [CI/CD](docs/ci-cd.md): проверки, релиз по тегу, секреты подписи, образ сервера, защита веток.
 - [Roadmap](docs/roadmap.md): что уже сделано и что дальше.
 - [ADR 0001: выбор стека](docs/adr/0001-stack.md).

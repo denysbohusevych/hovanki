@@ -3,6 +3,7 @@
 | Файл | Когда запускается | Что делает |
 |---|---|---|
 | `.github/workflows/ci.yml` | push в любую ветку (кроме изменений только в `*.md` и `docs/`), PR из форков, вручную | Проверки: форматирование, тесты, сборка Android и iOS |
+| `.github/workflows/e2e-devices.yml` | каждую ночь, вручную | Медленный e2e-слой: приложение на двух Android-эмуляторах и iOS-симуляторе вместе с ботами ([e2e.md](e2e.md)) |
 | `.github/workflows/release.yml` | push тега `v*`, вручную | Подписанный Android-релиз (APK + AAB), Docker-образ сервера, GitHub Release |
 | `.github/dependabot.yml` | раз в неделю | PR с обновлениями Gradle-зависимостей и GitHub Actions |
 
@@ -26,6 +27,17 @@
 Кэш Kotlin/Native (`~/.konan`) сохраняется между запусками, ключ — хэш `gradle/libs.versions.toml`.
 
 PR из той же репы проверяются push-запуском на тот же коммит (статусы привязаны к коммиту и видны в PR), поэтому отдельный `pull_request`-запуск делается только для форков.
+
+## E2E на устройствах (`e2e-devices.yml`)
+
+Каждую ночь в 02:17 UTC и вручную (Actions → E2E devices → Run workflow: сценарий `all` / `full-round` / `restart` и число ботов). На PR не запускается: прогон идёт 15–20 минут, а быстрый слой (`:e2e:test`) уже есть в `ci.yml`.
+
+| Job | Раннер | Что делает |
+|---|---|---|
+| `Android emulators` | `ubuntu-latest` + KVM | `e2e/run-devices.sh --android 2`: два эмулятора, системный образ в кэше |
+| `iOS simulator` | `macos-26` | `e2e/run-devices.sh --ios 1`: один симулятор, второй на раннере грузится слишком долго |
+
+Отчёт со скриншотами и логами — артефакты `e2e-devices-android` и `e2e-devices-ios` (14 дней). Новый запуск на той же ветке отменяет предыдущий. Как читать отчёт — [e2e.md](e2e.md#отчёт).
 
 ## Релиз (`release.yml`)
 
