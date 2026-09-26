@@ -1,5 +1,6 @@
 # Hovanki server on one VM: the game server behind Caddy, which gets and renews the Let's Encrypt certificate.
-# Settings come from `.env` next to this file (DOMAIN, HOVANKI_TAG). Setup and updates: docs/deploy.md.
+# Settings come from `.env` next to this file: DOMAIN, and HOVANKI_TAG (default `main`, updated by
+# hovanki-update.timer after every push to main). Setup and updates: docs/deploy.md.
 # One replica only: games live in memory, so a restart ends the games in progress.
 
 x-logging: &logging
@@ -10,7 +11,7 @@ x-logging: &logging
 
 services:
   server:
-    image: ghcr.io/denysbohusevych/hovanki-server:${HOVANKI_TAG:-latest}
+    image: ghcr.io/denysbohusevych/hovanki-server:${HOVANKI_TAG:-main}
     restart: unless-stopped
     # The heap is 75% of this limit (JAVA_TOOL_OPTIONS in server/Dockerfile); leaves room for Caddy on a 1 GB VM.
     mem_limit: 640m

@@ -1,6 +1,6 @@
 # Деплой сервера (AWS EC2)
 
-Одна виртуальная машина в AWS: сервер в Docker, перед ним Caddy с сертификатом Let's Encrypt. Файлы лежат в [`deploy/`](../deploy/): `aws-user-data.sh` готовит машину при первом запуске, `compose.yaml` запускает сервер и Caddy.
+Одна виртуальная машина в AWS: сервер в Docker, перед ним Caddy с сертификатом Let's Encrypt. Сервер обновляется сам после каждого push в `main` ([Автообновление](#автообновление)). Файлы лежат в [`deploy/`](../deploy/): `aws-user-data.sh` готовит машину при первом запуске, `compose.yaml` запускает сервер и Caddy, `hovanki-update.service` и `hovanki-update.timer` обновляют сервер.
 
 ## Почему так
 
@@ -22,7 +22,7 @@
 - Аккаунт AWS на Free plan с MFA на root-пользователе.
 - Имя для сертификата: поддомен на [duckdns.org](https://www.duckdns.org) (вход через GitHub). sslip.io не подходит: у него один общий на всех лимит Let's Encrypt, и он часто исчерпан.
 - GitHub PAT (classic) со scope `read:packages`: образ в GHCR приватный, как и репозиторий. GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic).
-- Образ сервера в GHCR. Его публикует `release.yml`: тег `v*` даёт образы `0.1.0` и `latest`, ручной запуск (Actions → Release → Run workflow) — `sha-<коммит>` ([CI/CD](ci-cd.md#образ-сервера)).
+- Образ сервера в GHCR. Образ `main` публикует `ci.yml` после каждого push в `main`, релизные `0.1.0` и `latest` — `release.yml` по тегу `v*` ([CI/CD](ci-cd.md#образ-сервера)).
 
 ## Первый запуск
 
@@ -41,7 +41,7 @@
 5. **Имя.** На duckdns.org добавить поддомен, например `hovanki`, и указать в поле current ip Elastic IP. Проверка: `dig +short hovanki.duckdns.org` отвечает этим IP.
 6. **Сервер.** Через 2–3 минуты после запуска машины (скрипт из user data ставит Docker) выполнить с компьютера, из корня репозитория:
    ```bash
-   scp -i ~/Downloads/hovanki.pem deploy/compose.yaml ubuntu@<IP>:/opt/hovanki/
+   scp -i ~/Downloads/hovanki.pem deploy/compose.yaml deploy/hovanki-update.* ubuntu@<IP>:/opt/hovanki/
    ssh -i ~/Downloads/hovanki.pem ubuntu@<IP>
    ```
    Затем на машине:
@@ -50,14 +50,32 @@
    cd /opt/hovanki
    cat > .env <<'EOF'
    DOMAIN=hovanki.duckdns.org
-   HOVANKI_TAG=latest
+   HOVANKI_TAG=main
    EOF
    docker login ghcr.io -u denysbohusevych     # пароль — PAT с read:packages
    docker compose up -d
+   sudo cp hovanki-update.service hovanki-update.timer /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now hovanki-update.timer
    ```
-   Пока тега `v*` нет, образа `latest` тоже нет: в `HOVANKI_TAG` указать `sha-<коммит>` из ручного запуска Release. Если `docker` отвечает «permission denied», переподключиться по SSH: группа `docker` применяется при новом входе.
+   Если `docker` отвечает «permission denied», переподключиться по SSH: группа `docker` применяется при новом входе.
 7. **Проверка.** С компьютера: `curl https://hovanki.duckdns.org/actuator/health` → `{"status":"UP",…}`. Если нет, смотреть `docker compose logs caddy`. Обычно причина одна из двух: закрыт порт 80 или имя указывает не на Elastic IP.
 8. **Адрес в сборках.** Строка `hovanki.serverUrl=https://hovanki.duckdns.org` в `gradle.properties` (уже вписана). Тестовые сборки из `main` стартуют с этим адресом ([CI/CD](ci-cd.md#адрес-сервера-по-умолчанию)). Другое имя — поменять строку.
+
+## Автообновление
+
+Каждый push в `main`, прошедший проверки CI, публикует образ `ghcr.io/denysbohusevych/hovanki-server:main` (job `Server image` в `ci.yml`). На машине таймер `hovanki-update.timer` раз в 2 минуты запускает `hovanki-update.service`:
+
+1. `docker compose pull server` — скачать образ тега `HOVANKI_TAG` из `.env`;
+2. `docker compose up -d server` — перезапустить сервер, только если образ изменился;
+3. `docker image prune -f` — удалить старые образы.
+
+Сервер обновляется примерно через 5–10 минут после push: проверки CI, сборка образа, до 2 минут ожидания таймера. Caddy таймер не трогает.
+
+- **Каждое обновление обрывает идущие игры**: они хранятся в памяти. Образ собирается на каждый push в `main`, в том числе на правки только документации. Когда начнутся игры, таймер стоит научить ждать, пока игр нет.
+- **Закрепить версию**: `HOVANKI_TAG=sha-<коммит>` в `.env`, затем `docker compose up -d`. Таймер продолжит работать, но этот тег не меняется. Вернуть автообновление — `HOVANKI_TAG=main`.
+- **Выключить**: `sudo systemctl disable --now hovanki-update.timer`.
+- **Проверить**: `systemctl list-timers hovanki-update.timer` — когда следующий запуск; `journalctl -u hovanki-update -n 50` — что было при последних. Ошибка `unauthorized` значит, что истёк PAT: создать новый и повторить `docker login ghcr.io`.
 
 ## Обслуживание
 
@@ -65,8 +83,8 @@
 
 | Задача | Как |
 |---|---|
-| Обновить сервер | Новый образ публикует `release.yml`. Затем `docker compose pull && docker compose up -d`. Идущие игры оборвутся. |
-| Откатить | Прописать предыдущий тег в `HOVANKI_TAG` в `.env` и выполнить `docker compose up -d` |
+| Обновить сервер | Само, после каждого push в `main` ([Автообновление](#автообновление)). Сразу, не дожидаясь таймера: `sudo systemctl start hovanki-update`. Обновить Caddy: `docker compose pull caddy && docker compose up -d caddy`. |
+| Откатить | Прописать нужный `sha-<коммит>` в `HOVANKI_TAG` в `.env` и выполнить `docker compose up -d`. Пока там не `main`, автообновление стоит. |
 | Логи | `docker compose logs -f server`. Ротация — 3 файла по 10 МБ на контейнер. Access-лог Caddy выключен: Caddy пишет только ошибки проксирования (например, 502, пока сервер перезапускается), значения `Authorization` и cookies в них скрыты. Сервер координаты и токены не логирует. |
 | Перезагрузка машины | Контейнеры поднимаются сами (`restart: unless-stopped`). Обновления безопасности Ubuntu ставит сама, перезагрузку после обновления ядра делать руками в спокойное время: `sudo reboot`. |
 | SSH не пускает | Скорее всего, сменился домашний IP. EC2 → Security Groups → правило SSH → Source: My IP. |

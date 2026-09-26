@@ -1,0 +1,10 @@
+# Checks for a new server image every 2 minutes; see hovanki-update.service and docs/deploy.md.
+[Unit]
+Description=Check for a new Hovanki server image every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target

@@ -150,7 +150,7 @@ iOS job идёт около 12 минут на каждый push в `main` (бе
 
 ## CI (`ci.yml`)
 
-Два параллельных job'а; новый push в ту же ветку отменяет предыдущий запуск.
+Два параллельных job'а; новый push в ту же ветку отменяет предыдущий запуск. В `main` после первого из них идёт третий — `Server image`.
 
 **Lint, tests, Android** (`ubuntu-latest`, JDK 21):
 
@@ -165,6 +165,8 @@ iOS job идёт около 12 минут на каждый push в `main` (бе
 2. `xcodebuild` приложения `iosApp` для симулятора, без подписи.
 
 Кэш Kotlin/Native (`~/.konan`) сохраняется между запусками, ключ — хэш `gradle/libs.versions.toml`.
+
+**Server image** (только push в `main`, после «Lint, tests, Android»): образ сервера с тегами `main` и `sha-<коммит>` через общий workflow `server-image.yml`, тот же, что в релизе. Сервер в AWS подтягивает `main` сам ([deploy.md](deploy.md#автообновление)).
 
 PR из той же репы проверяются push-запуском на тот же коммит (статусы привязаны к коммиту и видны в PR), поэтому отдельный `pull_request`-запуск делается только для форков.
 
@@ -241,7 +243,7 @@ git push origin v0.1.0
 | Job | Что делает | Результат |
 |---|---|---|
 | `android` | Раскодирует keystore из секретов (если есть), `./gradlew :androidApp:assembleRelease :androidApp:bundleRelease -Phovanki.versionName=… -Phovanki.versionCode=…` | Артефакт `android-release`: `hovanki-<версия>-release.apk` и `.aab` |
-| `server-image` | `./gradlew :server:bootJar` → `server/build/libs/hovanki-server.jar`, сборка `server/Dockerfile` и push в GHCR | `ghcr.io/denysbohusevych/hovanki-server` |
+| `server-image` | Общий workflow `server-image.yml`: `./gradlew :server:bootJar` → `server/build/libs/hovanki-server.jar`, сборка `server/Dockerfile` и push в GHCR | `ghcr.io/denysbohusevych/hovanki-server` |
 | `github-release` | Только для тега: GitHub Release с APK/AAB, автоматическими release notes и ссылкой на образ | Страница релиза |
 
 Права у каждого job'а минимальные: `contents: read`, `packages: write` только у `server-image`, `contents: write` только у `github-release`. Параллельные запуски для одного тега не отменяются, а ждут.
@@ -294,6 +296,7 @@ gh secret set ANDROID_KEY_PASSWORD
 |---|---|
 | `0.1.0`, `0.1` | тег `v0.1.0` |
 | `latest` | последний релизный тег без суффикса pre-release |
+| `main` | каждый push в `main`, прошедший CI; его подтягивает сервер в AWS ([deploy.md](deploy.md#автообновление)) |
 | `sha-<коммит>` | каждая сборка, включая ручные |
 
 ```bash

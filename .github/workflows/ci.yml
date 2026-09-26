@@ -83,3 +83,18 @@ jobs:
           xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/ios CODE_SIGNING_ALLOWED=NO build
+
+  # Every push to main that passes the checks publishes the server image as `main`; the server in AWS pulls it
+  # within minutes and restarts (docs/deploy.md). A restart ends the games in progress.
+  server-image:
+    name: Server image
+    needs: jvm
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/server-image.yml
+    with:
+      tags: |
+        type=raw,value=main
+        type=sha
