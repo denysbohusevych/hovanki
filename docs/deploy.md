@@ -57,7 +57,7 @@
    ```
    Пока тега `v*` нет, образа `latest` тоже нет: в `HOVANKI_TAG` указать `sha-<коммит>` из ручного запуска Release. Если `docker` отвечает «permission denied», переподключиться по SSH: группа `docker` применяется при новом входе.
 7. **Проверка.** С компьютера: `curl https://hovanki.duckdns.org/actuator/health` → `{"status":"UP",…}`. Если нет, смотреть `docker compose logs caddy`. Обычно причина одна из двух: закрыт порт 80 или имя указывает не на Elastic IP.
-8. **Адрес в сборках.** Вписать в `gradle.properties` строку `hovanki.serverUrl=https://hovanki.duckdns.org`. Следующий push в `main` соберёт тестовые сборки, которые стартуют с этим адресом ([CI/CD](ci-cd.md#адрес-сервера-по-умолчанию)).
+8. **Адрес в сборках.** Строка `hovanki.serverUrl=https://hovanki.duckdns.org` в `gradle.properties` (уже вписана). Тестовые сборки из `main` стартуют с этим адресом ([CI/CD](ci-cd.md#адрес-сервера-по-умолчанию)). Другое имя — поменять строку.
 
 ## Обслуживание
 
@@ -67,7 +67,7 @@
 |---|---|
 | Обновить сервер | Новый образ публикует `release.yml`. Затем `docker compose pull && docker compose up -d`. Идущие игры оборвутся. |
 | Откатить | Прописать предыдущий тег в `HOVANKI_TAG` в `.env` и выполнить `docker compose up -d` |
-| Логи | `docker compose logs -f server`. Ротация — 3 файла по 10 МБ на контейнер. Access-лог Caddy выключен; сервер координаты и токены не логирует. |
+| Логи | `docker compose logs -f server`. Ротация — 3 файла по 10 МБ на контейнер. Access-лог Caddy выключен: Caddy пишет только ошибки проксирования (например, 502, пока сервер перезапускается), значения `Authorization` и cookies в них скрыты. Сервер координаты и токены не логирует. |
 | Перезагрузка машины | Контейнеры поднимаются сами (`restart: unless-stopped`). Обновления безопасности Ubuntu ставит сама, перезагрузку после обновления ядра делать руками в спокойное время: `sudo reboot`. |
 | SSH не пускает | Скорее всего, сменился домашний IP. EC2 → Security Groups → правило SSH → Source: My IP. |
 | Удалить всё | EC2 → Instances → Terminate, затем Elastic IPs → Release. Непривязанный Elastic IP тоже стоит денег. |

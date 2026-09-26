@@ -50,7 +50,7 @@ Kotlin-фреймворк собирается только для `iosArm64` и
   в Info.plist Debug-сборки. Release (TestFlight, App Store) ходит только по HTTPS — на хостинг или через туннель
   ([docs/ci-cd.md](../docs/ci-cd.md#сервер-через-туннель)).
 - Адрес по умолчанию: Debug — `http://localhost:8080`, Release — Gradle-свойство `hovanki.serverUrl`
-  (пусто, пока нет хостинга).
+  (сейчас `https://hovanki.duckdns.org`, [docs/deploy.md](../docs/deploy.md)).
 
 ## Геолокация в фоне
 

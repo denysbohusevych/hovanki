@@ -71,9 +71,9 @@ open iosApp/iosApp.xcodeproj
 
 ## Сборки на реальные телефоны
 
-Играть на улице с друзьями, пока у сервера нет хостинга: сервер на вашем компьютере открывается наружу через HTTPS-туннель (`cloudflared tunnel --url http://localhost:8080`, без аккаунта), Android-сборка ставится с pre-release [`preview`](https://github.com/denysbohusevych/hovanki/releases/tag/preview) (каждый push в `main`, обновления через Obtainium), iPhone — через TestFlight или из Xcode по кабелю. Пошагово — [docs/ci-cd.md, «Как поставить сборку на телефон»](docs/ci-cd.md#как-поставить-сборку-на-телефон).
+Играть на улице с друзьями: сервер работает в AWS (`https://hovanki.duckdns.org`, [docs/deploy.md](docs/deploy.md)), и тестовые сборки стартуют с этим адресом; свою версию сервера можно открыть наружу через HTTPS-туннель (`cloudflared tunnel --url http://localhost:8080`, без аккаунта). Android-сборка ставится с pre-release [`preview`](https://github.com/denysbohusevych/hovanki/releases/tag/preview) (каждый push в `main`, обновления через Obtainium), iPhone — через TestFlight или из Xcode по кабелю. Пошагово — [docs/ci-cd.md, «Как поставить сборку на телефон»](docs/ci-cd.md#как-поставить-сборку-на-телефон).
 
-Тестовые сборки ходят только по HTTPS. Адрес сервера вводится на главном экране; адрес по умолчанию задаёт Gradle-свойство `hovanki.serverUrl` (`gradle.properties`), когда появится хостинг. Версия и commit сборки — мелко внизу главного экрана.
+Тестовые сборки ходят только по HTTPS. Адрес сервера вводится на главном экране; адрес по умолчанию задаёт Gradle-свойство `hovanki.serverUrl` (`gradle.properties`). Версия и commit сборки — мелко внизу главного экрана.
 
 ## Команды
 

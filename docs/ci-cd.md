@@ -10,11 +10,11 @@
 
 ## Как поставить сборку на телефон
 
-Путь для игры с друзьями, пока у сервера нет хостинга: сервер работает на вашем компьютере и открыт наружу через HTTPS-туннель, Android-сборка ставится из GitHub, iPhone — через TestFlight или из Xcode по кабелю.
+Путь для игры с друзьями: сервер работает в AWS (`https://hovanki.duckdns.org`, [deploy.md](deploy.md)), и тестовые сборки сразу стартуют с этим адресом. Android-сборка ставится из GitHub, iPhone — через TestFlight или из Xcode по кабелю. Туннель к своему компьютеру нужен, чтобы сыграть на своей версии сервера.
 
 | Что | Откуда | Обновления |
 |---|---|---|
-| Сервер | `./gradlew :server:bootRun` на компьютере + [Cloudflare Quick Tunnel](#сервер-через-туннель) | новый запуск туннеля — новый адрес |
+| Сервер | `https://hovanki.duckdns.org` в AWS ([deploy.md](deploy.md)); своя версия — `./gradlew :server:bootRun` + [Cloudflare Quick Tunnel](#сервер-через-туннель) | AWS: вручную, [обновление](deploy.md#обслуживание); туннель: новый запуск — новый адрес |
 | Android | pre-release [`preview`](https://github.com/denysbohusevych/hovanki/releases/tag/preview), файл `hovanki-preview.apk` | каждый push в `main`; ставить вручную или через Obtainium |
 | iPhone | TestFlight, когда подтверждён Apple Developer Program | каждый push в `main`; TestFlight предлагает обновить |
 | iPhone до подтверждения | Xcode по кабелю, бесплатный Apple ID | сборка работает 7 дней |
@@ -52,11 +52,13 @@
 
 ### Адрес сервера по умолчанию
 
-Тестовые и релизные сборки стартуют с адресом из Gradle-свойства `hovanki.serverUrl`. Пока его нет, поле пустое и адрес вводят руками. Когда появится хостинг — одна строка в `gradle.properties`:
+Тестовые и релизные сборки стартуют с адресом из Gradle-свойства `hovanki.serverUrl` в `gradle.properties`. Сейчас это сервер в AWS ([deploy.md](deploy.md)):
 
 ```properties
-hovanki.serverUrl=https://hovanki.example.org
+hovanki.serverUrl=https://hovanki.duckdns.org
 ```
+
+Без свойства поле адреса пустое и адрес вводят руками.
 
 - Действует на Android и iOS, локально и в CI: при сборке значение попадает в сгенерированный `BuildConstants` модуля `:composeApp` (задача `generateBuildConstants`).
 - Только `https://`, иначе сборка падает с понятной ошибкой: вне debug Android не пускает HTTP, а iOS закрывает его App Transport Security.
