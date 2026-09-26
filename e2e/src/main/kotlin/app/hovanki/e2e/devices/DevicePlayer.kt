@@ -57,17 +57,22 @@ class DevicePlayer(val device: Device, start: GeoPoint, private val run: DeviceR
         }
     }
 
-    /** Starts the app fresh, with the start screen prefilled by debug launch options. */
-    fun launchApp(joinCode: String? = null, hidingSeconds: Int? = null) {
+    /**
+     * Starts the app fresh, with the start screen prefilled by debug launch options. A game saved by an earlier run
+     * (another scenario on the same device) is dropped, unless [forgetSavedGame] is false: the app then resumes it,
+     * like a player opening it again after it was killed.
+     */
+    fun launchApp(joinCode: String? = null, hidingSeconds: Int? = null, forgetSavedGame: Boolean = true) {
         val options = buildMap {
             put(LaunchOptions.SERVER, device.serverUrl(run.port))
             put(LaunchOptions.NAME, name)
             joinCode?.let { put(LaunchOptions.JOIN_CODE, it) }
             hidingSeconds?.let { put(LaunchOptions.HIDING_SECONDS, it.toString()) }
             if (device is IosDevice) put(LaunchOptions.ALLOW_SIMULATED_LOCATION, "true")
+            if (forgetSavedGame) put(LaunchOptions.FORGET_SAVED_GAME, "true")
         }
         device.launchApp(options)
-        log("app launched")
+        log(if (forgetSavedGame) "app launched" else "app launched again")
     }
 
     fun killApp() {

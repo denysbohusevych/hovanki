@@ -1,6 +1,7 @@
 package app.hovanki.e2e.bot
 
 import app.hovanki.client.location.LocationProvider
+import app.hovanki.client.storage.SecureStore
 import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.route.Route
@@ -13,9 +14,10 @@ import kotlinx.coroutines.flow.flow
 import okhttp3.Interceptor
 import okhttp3.Response
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
-// The simulated phone around the real client code: clock, GPS, network and the OS background service.
+// The simulated phone around the real client code: clock, GPS, network, the OS background service and storage.
 // Everything here survives an app restart (BotPlayer.killApp), like the hardware does.
 
 /** The phone's own clock; [skewMillis] makes it wrong, like a manually set or drifting clock. */
@@ -135,5 +137,23 @@ class FakeBackgroundTracker(private val onChange: (Boolean) -> Unit = {}) : Back
     override fun stop() {
         isRunning = false
         onChange(false)
+    }
+}
+
+/**
+ * The phone's storage for the app's [SecureStore] (Keystore/Keychain on a real phone): survives [BotPlayer.killApp],
+ * so the relaunched app finds its saved session.
+ */
+class PhoneStorage : SecureStore {
+    private val values = ConcurrentHashMap<String, String>()
+
+    override fun read(key: String): String? = values[key]
+
+    override fun write(key: String, value: String) {
+        values[key] = value
+    }
+
+    override fun remove(key: String) {
+        values.remove(key)
     }
 }

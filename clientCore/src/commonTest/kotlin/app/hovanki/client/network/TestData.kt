@@ -29,32 +29,40 @@ fun testSample(timestampMillis: Long) = LocationSample(
     timestampMillis = timestampMillis,
 )
 
-fun testSnapshot(serverTimeMillis: Long = 1_000L, syncIntervalSeconds: Int = 3) = GameSnapshot(
-    gameId = testSession.gameId,
-    joinCode = "ABC234",
-    hostId = testSession.playerId,
-    phase = GamePhase.LOBBY,
-    settings = GameSettings(
-        zone = shrinkingZone(GeoPoint(50.4501, 30.5234)),
-        rules = GameRules(syncIntervalSeconds = syncIntervalSeconds),
-    ),
-    serverTimeMillis = serverTimeMillis,
-    players = listOf(PlayerView(testSession.playerId, "Anna", Role.HIDER, PlayerStatus.ACTIVE)),
-    me = MyState(testSession.playerId, Role.HIDER, PlayerStatus.ACTIVE),
-)
+fun testSnapshot(serverTimeMillis: Long = 1_000L, syncIntervalSeconds: Int = 3, phase: GamePhase = GamePhase.LOBBY) =
+    GameSnapshot(
+        gameId = testSession.gameId,
+        joinCode = "ABC234",
+        hostId = testSession.playerId,
+        phase = phase,
+        settings = GameSettings(
+            zone = shrinkingZone(GeoPoint(50.4501, 30.5234)),
+            rules = GameRules(syncIntervalSeconds = syncIntervalSeconds),
+        ),
+        serverTimeMillis = serverTimeMillis,
+        players = listOf(PlayerView(testSession.playerId, "Anna", Role.HIDER, PlayerStatus.ACTIVE)),
+        me = MyState(testSession.playerId, Role.HIDER, PlayerStatus.ACTIVE),
+    )
 
-/** [GameApi] whose `sync` is scripted by the test; everything else is unused by the connection. */
-class FakeGameApi(private val onSync: suspend (SyncRequest) -> GameSnapshot) : GameApi {
+/** [GameApi] whose `sync` (and `join`) is scripted by the test; everything else is unused by the connection. */
+class FakeGameApi(
+    private val onJoin: suspend (JoinGameRequest) -> SessionResponse = { unused() },
+    private val onSync: suspend (SyncRequest) -> GameSnapshot,
+) : GameApi {
     val syncRequests = mutableListOf<SyncRequest>()
+
+    /** Sessions the syncs were sent with (the token goes into the Authorization header). */
+    val syncSessions = mutableListOf<PlayerSession>()
 
     override suspend fun sync(session: PlayerSession, request: SyncRequest): GameSnapshot {
         syncRequests += request
+        syncSessions += session
         return onSync(request)
     }
 
     override suspend fun createGame(request: CreateGameRequest): SessionResponse = unused()
 
-    override suspend fun joinGame(request: JoinGameRequest): SessionResponse = unused()
+    override suspend fun joinGame(request: JoinGameRequest): SessionResponse = onJoin(request)
 
     override suspend fun startGame(session: PlayerSession, request: StartGameRequest): GameSnapshot = unused()
 
@@ -65,6 +73,6 @@ class FakeGameApi(private val onSync: suspend (SyncRequest) -> GameSnapshot) : G
     override suspend fun disputeCatch(session: PlayerSession, catchId: CatchId): GameSnapshot = unused()
 
     override suspend fun vote(session: PlayerSession, catchId: CatchId, confirm: Boolean): GameSnapshot = unused()
-
-    private fun unused(): Nothing = error("Not used by the connection")
 }
+
+private fun unused(): Nothing = error("Not used by the connection")

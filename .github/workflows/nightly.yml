@@ -1,0 +1,208 @@
+name: Nightly
+
+# Long checks that don't run on push (docs/ci-cd.md):
+# - E2E bots: headless bots on the app's client code play whole games against the real server (./gradlew :e2e:test).
+# - E2E devices (docs/e2e.md): the debug app on Android emulators and an iOS simulator mixed with bots, against the
+#   server with the e2e profile; Maestro drives the UI.
+# Nightly, and on demand on any branch: Actions → Nightly → Run workflow (pick the branch and the suite).
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: What to run
+        type: choice
+        options: [all, bots, devices]
+        default: all
+      scenario:
+        description: Device scenario
+        type: choice
+        options: [all, full-round, restart]
+        default: all
+      bots:
+        description: Headless bots per device game
+        default: "3"
+  schedule:
+    # Nightly, off the full hour when GitHub's scheduler is busiest.
+    - cron: "17 2 * * *"
+
+# A new manual run on the same branch replaces the previous one; it never cancels the scheduled run.
+concurrency:
+  group: nightly-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # A scheduled run has no inputs: everything, with the defaults.
+  SCENARIO: ${{ inputs.scenario || 'all' }}
+  BOTS: ${{ inputs.bots || '3' }}
+  MAESTRO_CLI_NO_ANALYTICS: "1"
+  MAESTRO_CLI_ANALYSIS_NOTIFICATION_DISABLED: "true"
+  # The version the device layer was verified with; the installer reads it.
+  MAESTRO_VERSION: 2.10.0
+
+jobs:
+  bots:
+    name: E2E bots
+    if: inputs.suite != 'devices'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: End-to-end scenarios
+        run: ./gradlew :e2e:test
+
+      - name: Upload e2e scenario reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-reports
+          path: e2e/build/reports/e2e/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-test-reports
+          path: e2e/build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  android:
+    name: Android emulators
+    if: inputs.suite != 'bots'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+
+      # Each emulator checks for ~7.4 GB free for its data partition at start; the runner image sometimes leaves
+      # less than that. Toolchains the job doesn't use free ~10 GB.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift "$AGENT_TOOLSDIRECTORY/CodeQL"
+          df -h /
+
+      # Hardware acceleration for the emulators. reactivecircus/android-emulator-runner runs a single emulator,
+      # e2e/run-devices.sh starts two itself.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Cache the emulator system image
+        uses: actions/cache@v6
+        with:
+          path: /usr/local/lib/android/sdk/system-images/android-33/google_atd/x86_64
+          key: android-system-image-33-google_atd-x86_64
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Two emulators, bots, scenarios
+        run: e2e/run-devices.sh --android 2 --bots "$BOTS" --scenario "$SCENARIO"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-devices-android
+          path: e2e/build/reports/devices/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  ios:
+    name: iOS simulator
+    if: inputs.suite != 'bots'
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v6
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: konan-${{ runner.os }}-
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      # One simulator: the macOS runner (3 cores, 7 GB) needs ~17 min to boot a second one and then slows down every
+      # step. Several simulators are for a local Mac: e2e/run-devices.sh --ios 2.
+      - name: A simulator, bots, scenarios
+        run: e2e/run-devices.sh --ios 1 --bots "$BOTS" --scenario "$SCENARIO"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-devices-ios
+          path: e2e/build/reports/devices/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # A failed scheduled run opens an issue labelled `nightly-failure` (or comments on the open one); the next green
+  # scheduled run closes it. GitHub notifies the repository's watchers about new issues. GITHUB_TOKEN only, no secrets.
+  report:
+    name: Nightly issue
+    needs: [bots, android, ios]
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      LABEL: nightly-failure
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+      RESULTS: |
+        | Job | Result |
+        |---|---|
+        | E2E bots | ${{ needs.bots.result }} |
+        | Android emulators | ${{ needs.android.result }} |
+        | iOS simulator | ${{ needs.ios.result }} |
+    steps:
+      - name: Open, update or close the nightly issue
+        run: |
+          open_issue=$(gh issue list --label "$LABEL" --state open --limit 1 --json number --jq '.[0].number // empty' || true)
+          if [ "$FAILED" = "true" ]; then
+            gh label create "$LABEL" --color d73a4a --description "The scheduled nightly workflow failed" --force
+            body=$(printf 'Nightly run failed on `%s`: %s\n\n%s\n\nReports: artifacts `e2e-reports`, `e2e-devices-android`, `e2e-devices-ios` of the run; scenario timelines are also in the job logs. See docs/ci-cd.md.\n\ncc @%s' \
+              "$GITHUB_SHA" "$RUN_URL" "$RESULTS" "$GITHUB_REPOSITORY_OWNER")
+            if [ -n "$open_issue" ]; then
+              gh issue comment "$open_issue" --body "$body"
+            else
+              gh issue create --title "Nightly e2e failed" --label "$LABEL" --body "$body"
+            fi
+          elif [ -n "$open_issue" ]; then
+            gh issue close "$open_issue" --comment "Nightly is green again: $RUN_URL"
+          fi

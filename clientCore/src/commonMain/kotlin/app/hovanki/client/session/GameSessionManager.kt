@@ -6,6 +6,9 @@ import app.hovanki.client.network.ConnectionEvent
 import app.hovanki.client.network.GameApi
 import app.hovanki.client.network.GameConnection
 import app.hovanki.client.network.LocationOutbox
+import app.hovanki.client.network.ServerUrl
+import app.hovanki.client.storage.ClientStorage
+import app.hovanki.client.storage.SavedSession
 import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CreateGameRequest
@@ -38,6 +41,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * The one place that owns the current game: session credentials, the latest snapshot, the connection to the server
  * and our own location updates. App-scoped (outlives screens), so a round keeps running while the UI changes.
  *
+ * The session is also saved to [storage], so a killed app comes back into its game: [resumeSavedGame] at app start.
+ *
  * Commands return true on success; on failure they return false and put the reason into [SessionState.lastError].
  * Every command applies the snapshot from its response immediately. Runs on the main thread.
  */
@@ -47,6 +52,8 @@ class GameSessionManager(
     private val clock: ServerClock,
     private val locationProvider: LocationProvider,
     private val backgroundTracker: BackgroundTracker,
+    private val serverUrl: ServerUrl,
+    private val storage: ClientStorage,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
 ) {
     private val mutableState = MutableStateFlow(SessionState())
@@ -62,6 +69,7 @@ class GameSessionManager(
     private var connectionJob: Job? = null
     private var locationJob: Job? = null
     private var isTracking = false
+    private var resumeAttempted = false
 
     /** New game with the default settings: a shrinking zone around [center] (the host's position). */
     suspend fun create(playerName: String, center: GeoPoint): Boolean = create(playerName, defaultSettings(center))
@@ -87,9 +95,33 @@ class GameSessionManager(
 
     suspend fun vote(catchId: CatchId, confirm: Boolean): Boolean = sessionCommand { api.vote(it, catchId, confirm) }
 
+    /**
+     * Comes back into the game saved by an earlier run of the app, if there is one. Call once when the app starts;
+     * later calls do nothing. The session is set right away ([SessionState.isResuming], no snapshot yet: a loading
+     * screen, not the start screen) and checked with the regular `sync`:
+     * - the game is running: phase screen, polling, location and background tracking as before the restart;
+     * - the game is over, deleted on the server or the token is refused: the saved session is dropped and the start
+     *   screen shows [SessionError.SavedGameFinished] / [SessionError.SavedGameGone];
+     * - no connection: keeps retrying like a running game (the player may leave).
+     */
+    fun resumeSavedGame() {
+        if (resumeAttempted) return
+        resumeAttempted = true
+        if (mutableState.value.session != null) return
+        val saved = storage.loadSession() ?: return
+        serverUrl.value = saved.serverUrl
+        startSession(saved.session, snapshot = null)
+    }
+
+    /** Drops a saved game without resuming it; for UI automation that must start from the start screen. */
+    fun forgetSavedGame() {
+        if (mutableState.value.session == null) storage.clearSession()
+    }
+
     /** Leaves the game locally (the server has no "leave": silence reveals the player like a lost signal). */
     fun leave() {
         stopBackgroundWork()
+        storage.clearSession()
         mutableState.value = SessionState()
     }
 
@@ -120,10 +152,15 @@ class GameSessionManager(
     }
 
     private fun begin(response: SessionResponse) {
+        storage.saveSession(SavedSession(serverUrl.value, response.session))
+        startSession(response.session, response.snapshot)
+    }
+
+    /** Runs [session]: its first [snapshot] comes from create/join, or from the first poll when resuming. */
+    private fun startSession(session: PlayerSession, snapshot: GameSnapshot?) {
         stopBackgroundWork()
-        val session = response.session
-        mutableState.value = SessionState(session = session)
-        applySnapshot(response.snapshot)
+        mutableState.value = SessionState(session = session, isResuming = snapshot == null)
+        if (snapshot != null) applySnapshot(snapshot)
         val sessionOutbox = LocationOutbox()
         outbox = sessionOutbox
         connectionJob = scope.launch {
@@ -136,20 +173,32 @@ class GameSessionManager(
     }
 
     private fun onConnectionEvent(event: ConnectionEvent) {
+        val resuming = mutableState.value.isResuming
         when (event) {
             is ConnectionEvent.Snapshot -> {
-                mutableState.update { it.copy(connectionStatus = ConnectionStatus.ONLINE) }
+                if (resuming && event.snapshot.phase == GamePhase.FINISHED) {
+                    endSession(SessionError.SavedGameFinished)
+                    return
+                }
+                mutableState.update { it.copy(connectionStatus = ConnectionStatus.ONLINE, isResuming = false) }
                 applySnapshot(event.snapshot)
+                // Location updates need the game's settings: a resumed session starts them with its first snapshot.
+                if (resuming) startLocationUpdates()
             }
 
             is ConnectionEvent.Problem ->
                 mutableState.update { it.copy(connectionStatus = ConnectionStatus.RECONNECTING) }
 
-            is ConnectionEvent.Ended -> {
-                stopBackgroundWork()
-                mutableState.value = SessionState(lastError = SessionError.SessionLost)
-            }
+            is ConnectionEvent.Ended ->
+                endSession(if (resuming) SessionError.SavedGameGone else SessionError.SessionLost)
         }
+    }
+
+    /** The server no longer has this game for us: back to the start screen with [error]. */
+    private fun endSession(error: SessionError) {
+        stopBackgroundWork()
+        storage.clearSession()
+        mutableState.value = SessionState(lastError = error)
     }
 
     private fun applySnapshot(snapshot: GameSnapshot) {
@@ -167,8 +216,11 @@ class GameSessionManager(
 
             GamePhase.HIDING, GamePhase.SEEKING -> startTracking()
 
-            // Results are final: no more polling, location or foreground service.
-            GamePhase.FINISHED -> stopBackgroundWork()
+            // Results are final: no more polling, location or foreground service, and nothing to resume.
+            GamePhase.FINISHED -> {
+                stopBackgroundWork()
+                storage.clearSession()
+            }
         }
     }
 

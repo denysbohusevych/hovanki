@@ -15,6 +15,9 @@
   <string name="error_too_far">GPS says you are too far away from this player.</string>
   <string name="error_no_location">No accurate GPS fix yet. Step into the open and try again.</string>
   <string name="error_session_lost">This game is no longer available on the server.</string>
+  <string name="error_saved_game_finished">The game you were in ended while the app was closed.</string>
+  <string name="error_saved_game_gone">Could not return to your game: the server no longer has it (it ended or the server was restarted).</string>
+  <string name="resuming_game">Returning to your game…</string>
 
   <!-- Start screen -->
   <string name="home_tagline">Hide and seek in the streets, inside a shrinking zone.</string>

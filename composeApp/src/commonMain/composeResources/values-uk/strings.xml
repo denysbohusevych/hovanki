@@ -15,6 +15,9 @@
   <string name="error_too_far">За GPS ви надто далеко від цього гравця.</string>
   <string name="error_no_location">Точних GPS-координат ще немає. Вийдіть на відкрите місце й спробуйте знову.</string>
   <string name="error_session_lost">Ця гра більше не доступна на сервері.</string>
+  <string name="error_saved_game_finished">Гра, у якій ви були, закінчилася, поки застосунок був закритий.</string>
+  <string name="error_saved_game_gone">Не вдалося повернутися до гри: на сервері її вже немає (вона закінчилася або сервер перезапустили).</string>
+  <string name="resuming_game">Повертаємося до вашої гри…</string>
 
   <!-- Початковий екран -->
   <string name="home_tagline">Хованки на вулиці в зоні, що звужується.</string>

@@ -30,8 +30,11 @@ object DeviceScenarios {
     )
 }
 
-/** Hiding phase of the device-created games: long enough for everybody to walk to their spot. */
-private const val HIDING_SECONDS = 30
+/**
+ * Hiding phase of the device-created games: long enough for everybody to walk to their spot, and for every device to
+ * show the hiding screen (one Maestro check per device, ~15 s each on a busy CI emulator; 30 s once lost that race).
+ */
+private const val HIDING_SECONDS = 60
 
 private val PARK = GameSetups.PARK
 
@@ -94,9 +97,10 @@ private suspend fun DeviceRun.fullRound() = with(scenario) {
 }
 
 /**
- * The app is killed and started again mid-round. Pinned behavior: the session lived only in memory, so the app is
- * back on the start screen and can't rejoin the running game; the server keeps the player, reveals them to seekers
- * once their signal is stale, and a claim against them is confirmed by the code timeout.
+ * The app is killed mid-round and started again. While it is dead, the server keeps the player and reveals their last
+ * point to the seekers (stale signal). The relaunched app resumes the session saved on the device: the game screen
+ * again, fresh fixes hide the player, and a claim against them is confirmed with the code on the resumed app's screen,
+ * not by the code timeout.
  */
 private suspend fun DeviceRun.restartMidRound() = with(scenario) {
     val lineup = setUpGame(seekerOnDevice = false)
@@ -107,13 +111,7 @@ private suspend fun DeviceRun.restartMidRound() = with(scenario) {
     host.awaitVisible(TestTags.phase(GamePhase.SEEKING))
 
     host.killApp()
-    host.launchApp(joinCode = joinCode)
-    host.awaitVisible(TestTags.HOME_SCREEN)
-    screenshot("relaunched", listOf(host))
     check(playerOnServer(host.id).status == PlayerStatus.ACTIVE, "the server still counts ${host.name} in")
-    host.flow("join-refused")
-    screenshot("rejoin refused", listOf(host))
-
     eventually(
         "seekers see ${host.name}'s last point (stale signal)",
         (rules.staleLocationRevealSeconds + 20).seconds,
@@ -122,18 +120,41 @@ private suspend fun DeviceRun.restartMidRound() = with(scenario) {
     }
     lineup.seekerDevice?.let { screenshot("seeker sees the stale signal", listOf(it)) }
 
+    host.launchApp(forgetSavedGame = false)
+    host.awaitVisible(TestTags.phase(GamePhase.SEEKING))
+    screenshot("resumed after the restart", listOf(host))
+    eventually("fresh fixes hide ${host.name} from the seekers again", 60.seconds) {
+        playerOnServer(host.id).takeIf { it.revealedToSeekers == null }
+    }
+
     val seekerDevice = lineup.seekerDevice
+    val seekerBot = lineup.seekerBot
     if (seekerDevice != null) {
         seekerDevice.catchesUpWith(host.truePosition)
         seekerDevice.flowRetryingLostTap("claim-catch", TestTags.claimButton(host.id), "HIDER_ID" to host.id.value)
     } else {
-        val bot = checkNotNull(lineup.seekerBot)
+        val bot = checkNotNull(seekerBot)
         bot.gps.walkTo(host.truePosition, 4.0)
         delay(bot.gps.arrivesAtMillis - System.currentTimeMillis() + 3_000)
         requireOk(bot.claimCatch(host.id, host.name), "${bot.name} claims ${host.name}")
     }
-    awaitClaim(host.id, CatchStatus.CONFIRMED, within = (rules.catchCodeTimeoutSeconds + 20).seconds)
-    check(playerOnServer(host.id).status == PlayerStatus.CAUGHT, "silence counted as caught")
+    host.awaitVisible(TestTags.CATCH_CODE)
+    val shown = checkNotNull(host.readText(TestTags.CATCH_CODE)) { "${host.name} shows no code" }.filter(Char::isDigit)
+    screenshot("code on the resumed app", listOfNotNull(host, seekerDevice))
+    if (seekerDevice != null) {
+        seekerDevice.flow("enter-code", "CODE" to shown)
+    } else {
+        requireOk(
+            checkNotNull(seekerBot).confirmCatch(shown),
+            "${seekerBot.name} enters the code on ${host.name}'s screen",
+        )
+    }
+    val claim = awaitClaim(host.id, CatchStatus.CONFIRMED)
+    check(
+        claim.deadlineMillis < claim.createdAtMillis + rules.catchCodeTimeoutSeconds * 1000L,
+        "confirmed by the code on ${host.name}'s screen, before the code timeout",
+    )
+    check(playerOnServer(host.id).status == PlayerStatus.CAUGHT, "${host.name} is caught")
 }
 
 private suspend fun DeviceRun.setUpGame(seekerOnDevice: Boolean): Lineup = with(scenario) {

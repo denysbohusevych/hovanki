@@ -11,6 +11,7 @@ import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.SessionError
+import app.hovanki.client.storage.ClientStorage
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,11 +28,13 @@ class HomeViewModel(
     private val sessionManager: GameSessionManager,
     private val serverUrl: ServerUrl,
     private val launchOptions: LaunchOptionsHolder,
+    private val storage: ClientStorage,
     buildInfo: BuildInfo,
 ) : ViewModel() {
     // Text field values are Compose state rather than StateFlow: text fields need synchronous updates,
-    // otherwise fast typing can lose characters. The ViewModel keeps them when the player returns from a game.
-    var playerName by mutableStateOf("")
+    // otherwise fast typing can lose characters. The ViewModel keeps them when the player returns from a game;
+    // the name and the server address that worked last time are also kept between launches (ClientStorage).
+    var playerName by mutableStateOf(storage.playerName.orEmpty())
         private set
     var joinCode by mutableStateOf("")
         private set
@@ -83,14 +86,14 @@ class HomeViewModel(
                 return@launchWork
             }
             mutableStatus.update { it.copy(activity = HomeActivity.CONNECTING) }
-            sessionManager.create(playerName, gameSettings(fix.point))
+            if (sessionManager.create(playerName, gameSettings(fix.point))) rememberFields()
         }
     }
 
     /** Joining works without location too, but the lobby keeps asking for it. */
     fun joinGame() {
         launchWork(HomeActivity.CONNECTING) {
-            sessionManager.join(joinCode, playerName)
+            if (sessionManager.join(joinCode, playerName)) rememberFields()
         }
     }
 
@@ -109,6 +112,10 @@ class HomeViewModel(
         options.serverUrl?.let(::onServerAddressChange)
         options.playerName?.let(::onPlayerNameChange)
         options.joinCode?.let(::onJoinCodeChange)
+    }
+
+    private fun rememberFields() {
+        storage.rememberPlayer(playerName.trim(), serverUrl.value)
     }
 
     private fun requireName(): Boolean = validate(playerName.isNotBlank(), HomeProblem.NAME_MISSING)

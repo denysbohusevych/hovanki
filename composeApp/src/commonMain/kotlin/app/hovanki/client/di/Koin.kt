@@ -11,6 +11,7 @@ import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.createHttpClient
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
+import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.ui.game.GameViewModel
 import app.hovanki.client.ui.home.HomeViewModel
 import app.hovanki.client.ui.lobby.LobbyViewModel
@@ -34,13 +35,15 @@ fun initKoin(appDeclaration: KoinAppDeclaration = {}) {
 }
 
 val commonModule: Module = module {
-    single { ServerUrl(defaultServerUrl(get())) }
+    single { ClientStorage(get()) }
+    // The address that worked last time; the build's default on the first launch.
+    single { ServerUrl(get<ClientStorage>().serverUrl ?: defaultServerUrl(get())) }
     single { LaunchOptionsHolder() }
     single { createHttpClient(get()) }
     single<GameApi> { HttpGameApi(get(), get()) }
     single<GameConnection> { PollingGameConnection(get()) }
     single { ServerClock() }
-    single { GameSessionManager(get(), get(), get(), get(), get()) }
+    single { GameSessionManager(get(), get(), get(), get(), get(), get(), get()) }
 
     viewModelOf(::HomeViewModel)
     viewModelOf(::LobbyViewModel)
@@ -53,7 +56,20 @@ fun offerLaunchOptions(options: LaunchOptions) {
 }
 
 /**
- * Platform services: [app.hovanki.client.BuildInfo], HTTP engine, [app.hovanki.client.location.LocationProvider],
- * background tracking, BLE.
+ * The UI starts (Android: MainActivity is created, iOS: the view controller): hands over the debug launch [options],
+ * then comes back into a game saved by an earlier run of the app, if any. Main thread; later calls only offer options.
+ */
+fun onAppStart(options: LaunchOptions?) {
+    val sessionManager = KoinPlatformTools.defaultContext().get().get<GameSessionManager>()
+    if (options != null) {
+        offerLaunchOptions(options)
+        if (options.forgetSavedGame) sessionManager.forgetSavedGame()
+    }
+    sessionManager.resumeSavedGame()
+}
+
+/**
+ * Platform services: [app.hovanki.client.BuildInfo], HTTP engine, [app.hovanki.client.storage.SecureStore],
+ * [app.hovanki.client.location.LocationProvider], background tracking, BLE.
  */
 expect val platformModule: Module

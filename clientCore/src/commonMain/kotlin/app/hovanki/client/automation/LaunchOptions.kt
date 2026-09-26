@@ -22,6 +22,8 @@ data class LaunchOptions(
      * which the server treats as spoofing. Lets simulator players take part in automated games.
      */
     val allowSimulatedLocation: Boolean = false,
+    /** Start from the start screen: drop a game saved by an earlier run instead of resuming it. */
+    val forgetSavedGame: Boolean = false,
 ) {
     companion object {
         const val KEY_PREFIX = "hovanki."
@@ -30,6 +32,7 @@ data class LaunchOptions(
         const val JOIN_CODE = "joinCode"
         const val HIDING_SECONDS = "hidingSeconds"
         const val ALLOW_SIMULATED_LOCATION = "allowSimulatedLocation"
+        const val FORGET_SAVED_GAME = "forgetSavedGame"
 
         /** Options from [value] (key without the prefix → value); null when none is set. */
         fun read(value: (key: String) -> String?): LaunchOptions? {
@@ -38,11 +41,13 @@ data class LaunchOptions(
                 playerName = value(NAME)?.takeIf { it.isNotBlank() },
                 joinCode = value(JOIN_CODE)?.takeIf { it.isNotBlank() },
                 hidingSeconds = value(HIDING_SECONDS)?.trim()?.toIntOrNull()?.takeIf { it >= 0 },
-                allowSimulatedLocation =
-                value(ALLOW_SIMULATED_LOCATION)?.trim()?.lowercase() in setOf("true", "1", "yes"),
+                allowSimulatedLocation = value(ALLOW_SIMULATED_LOCATION).isTrue(),
+                forgetSavedGame = value(FORGET_SAVED_GAME).isTrue(),
             )
             return options.takeIf { it != LaunchOptions() }
         }
+
+        private fun String?.isTrue(): Boolean = this?.trim()?.lowercase() in setOf("true", "1", "yes")
     }
 }
 

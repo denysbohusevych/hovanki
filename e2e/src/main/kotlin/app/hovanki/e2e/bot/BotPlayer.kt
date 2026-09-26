@@ -10,6 +10,7 @@ import app.hovanki.client.session.ServerClock
 import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
 import app.hovanki.client.session.catchCodeToShow
+import app.hovanki.client.storage.ClientStorage
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.scenario.Timeline
 import app.hovanki.shared.protocol.ApiRoutes
@@ -43,6 +44,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * Scenarios steer it like a person: walk, press buttons ([claimCatch], [dispute], [vote]), read another phone's
  * screen ([shownCode]), switch GPS or network off, kill the app. [behavior] covers the reactions a person
  * has without being told (show the code, vote). Every response it receives is checked by [SnapshotAudit].
+ * The app keeps its session in [storage], so after [killApp] and [launchApp] it resumes the game, like on a phone.
  */
 class BotPlayer(
     val name: String,
@@ -61,6 +63,7 @@ class BotPlayer(
     val backgroundTracker = FakeBackgroundTracker { running ->
         if (logChanges) log(if (running) "background tracking started" else "background tracking stopped")
     }
+    val storage = PhoneStorage()
 
     private val violations = CopyOnWriteArrayList<String>()
 
@@ -131,7 +134,7 @@ class BotPlayer(
         return snapshot.catchCodeToShow(running.serverClock.now())
     }
 
-    /** Swipes the app away: session, outbox and connection are gone; GPS, network and clock stay. */
+    /** Swipes the app away: the process with its outbox and connection is gone; GPS, network, clock and storage stay. */
     fun killApp() {
         val running = app ?: return
         app = null
@@ -139,7 +142,7 @@ class BotPlayer(
         log("app killed")
     }
 
-    /** Starts the app again, like tapping its icon: a fresh process that knows nothing about the game. */
+    /** Starts the app again, like tapping its icon: a fresh process that resumes the game saved in [storage]. */
     fun launchApp() {
         if (app != null) return
         app = App()
@@ -168,6 +171,8 @@ class BotPlayer(
                     is SessionError.Rejected -> CommandResult.Rejected(error.code, error.message)
                     is SessionError.Network -> CommandResult.Failed(error.details)
                     SessionError.SessionLost -> CommandResult.Failed("session lost")
+                    SessionError.SavedGameFinished -> CommandResult.Failed("saved game finished")
+                    SessionError.SavedGameGone -> CommandResult.Failed("saved game gone")
                     null -> CommandResult.Failed("unknown")
                 }
             }
@@ -202,8 +207,18 @@ class BotPlayer(
         val scope = CoroutineScope(SupervisorJob() + mainThread)
         private val httpClient = createHttpClient(OkHttp.create { addInterceptor(network) }, logRequests = false)
         val serverClock = ServerClock(clock::now)
-        private val api = HttpGameApi(httpClient, ServerUrl(serverUrl))
-        val session = GameSessionManager(api, PollingGameConnection(api), serverClock, gps, backgroundTracker, scope)
+        private val url = ServerUrl(serverUrl)
+        private val api = HttpGameApi(httpClient, url)
+        val session = GameSessionManager(
+            api,
+            PollingGameConnection(api),
+            serverClock,
+            gps,
+            backgroundTracker,
+            url,
+            ClientStorage(storage),
+            scope,
+        )
 
         @Volatile var showingCodeFor: CatchId? = null
         private val handledClaims = HashSet<CatchId>()
@@ -218,6 +233,8 @@ class BotPlayer(
                     previous = state
                 }
             }
+            // What the app does at start (MainActivity / mainViewController): back into a saved game.
+            scope.launch { session.resumeSavedGame() }
         }
 
         fun close() {
@@ -256,6 +273,8 @@ class BotPlayer(
         }
 
         private fun logChanges(before: SessionState, after: SessionState) {
+            if (!before.isResuming && after.isResuming) log("resumes the saved game")
+            if (before.isResuming && !after.isResuming && after.session != null) log("is back in the game")
             if (before.connectionStatus != after.connectionStatus) log("connection ${after.connectionStatus}")
             val error = after.lastError
             if (error != null && error != before.lastError) log("error: $error")
