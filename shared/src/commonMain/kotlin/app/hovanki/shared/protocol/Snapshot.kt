@@ -22,6 +22,8 @@ data class GameSnapshot(
     val me: MyState,
     /** Catch claims the viewer is involved in or may vote on. */
     val catches: List<CatchView> = emptyList(),
+    /** The "no hiding in buildings" rule: null from older servers (no rule), or when the value is unknown. */
+    val buildings: BuildingsState? = null,
 )
 
 @Serializable
@@ -39,8 +41,18 @@ data class VisibleLocation(
     val point: GeoPoint,
     val accuracyMeters: Double,
     val atMillis: Long,
+    /**
+     * Why the viewer sees this player, as the first app versions understand it: only the values they know. Has no
+     * default, so a new value here would break them: newer reasons go to [cause] and map to the closest old one
+     * (a building reveal is [VisibilityReason.OUT_OF_ZONE] here).
+     */
     val reason: VisibilityReason,
-)
+    /** The exact reason, including ones added later (e.g. [VisibilityReason.INSIDE_BUILDING]); null: see [reason]. */
+    val cause: VisibilityReason? = null,
+) {
+    /** Why the viewer sees this player: [cause] when the server sent one this client understands, else [reason]. */
+    val exactReason: VisibilityReason get() = cause ?: reason
+}
 
 @Serializable
 data class MyState(
@@ -51,6 +63,11 @@ data class MyState(
     val catchCodeSecret: String? = null,
     /** Set while the server is confident the player is outside the zone: return before this time. */
     val outOfZoneDeadlineMillis: Long? = null,
+    /**
+     * Set while the server is confident the player is inside a building: the seekers see them from this time on
+     * (already in the past: they see them now). Cleared once the player is out again.
+     */
+    val insideBuildingRevealAtMillis: Long? = null,
 )
 
 @Serializable

@@ -1,7 +1,10 @@
 package app.hovanki.server.api
 
+import app.hovanki.shared.debug.DebugBuildings
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.BuildingsResponse
+import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.ConfirmCatchRequest
 import app.hovanki.shared.protocol.CreateGameRequest
@@ -99,6 +102,23 @@ class GameApiTest(@Autowired private val mvc: MockMvc) {
 
         val wrongMethod = mvc.get(ApiRoutes.GAMES).andExpect { status { isMethodNotAllowed() } }.andReturn().response
         assertEquals(ErrorCode.BAD_REQUEST, protocolJson.decodeFromString<ApiError>(wrongMethod.contentAsString).code)
+    }
+
+    @Test
+    fun buildingsOfTheZoneOverHttp() {
+        val created = post<SessionResponse>(ApiRoutes.GAMES, CreateGameRequest("Host", settings).toJson())
+        // Tests use the fixed test quarter (src/test/resources/config/application.yaml), which answers at once.
+        assertEquals(BuildingsState.READY, created.snapshot.buildings)
+
+        val response = mvc.get(ApiRoutes.buildings(created.session.gameId)) {
+            accept = MediaType.APPLICATION_JSON
+            header("Authorization", "${ApiRoutes.AUTH_SCHEME} ${created.session.token}")
+        }.andExpect { status { isOk() } }.andReturn().response.contentAsString
+        val buildings = protocolJson.decodeFromString<BuildingsResponse>(response)
+
+        assertEquals(DebugBuildings.around(park).buildings, buildings.buildings)
+        assertEquals(1, buildings.passages.size)
+        mvc.get(ApiRoutes.buildings(created.session.gameId)).andExpect { status { isUnauthorized() } }
     }
 
     private fun sync(session: PlayerSession): GameSnapshot {

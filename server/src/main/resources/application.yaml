@@ -5,6 +5,11 @@ spring:
 server:
   port: ${PORT:8080}
   shutdown: graceful
+  # The buildings of a zone can be hundreds of KB of JSON; OkHttp and NSURLSession unpack gzip themselves.
+  compression:
+    enabled: true
+    mime-types: application/json
+    min-response-size: 2KB
 
 management:
   endpoints:
@@ -22,3 +27,7 @@ hovanki:
     finished-retention: 30m
     idle-retention: 6h
     cleanup-interval: 1m
+  # The "no hiding in buildings" rule (docs/adr/0003-map-and-buildings.md): OpenStreetMap through Overpass.
+  buildings:
+    source: overpass
+    overpass-url: https://overpass-api.de/api/interpreter

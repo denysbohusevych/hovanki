@@ -196,7 +196,7 @@ class BotPlayer(
             return
         }
         SnapshotAudit.check(snapshot, body).forEach { violations += "$name: $it" }
-        snapshot.players.forEach { player -> player.location?.let { reveals += player.id to it.reason } }
+        snapshot.players.forEach { player -> player.location?.let { reveals += player.id to it.exactReason } }
     }
 
     /** One run of the app process. */
@@ -284,6 +284,12 @@ class BotPlayer(
             if (old?.phase != new.phase) log("sees phase ${new.phase}")
             if (old != null && old.me.status != new.me.status) log("is ${new.me.status}")
             val deadline = new.me.outOfZoneDeadlineMillis
+            val buildingReveal = new.me.insideBuildingRevealAtMillis
+            if (old?.me?.insideBuildingRevealAtMillis == null && buildingReveal != null) {
+                log("warned: inside a building, seen in ${(buildingReveal - new.serverTimeMillis) / 1000} s")
+            } else if (old?.me?.insideBuildingRevealAtMillis != null && buildingReveal == null) {
+                log("building warning lifted")
+            }
             if (old?.me?.outOfZoneDeadlineMillis == null && deadline != null) {
                 log("warned: outside the zone, ${(deadline - new.serverTimeMillis) / 1000} s to return")
             } else if (old?.me?.outOfZoneDeadlineMillis != null && deadline == null) {
@@ -295,8 +301,10 @@ class BotPlayer(
                     log("sees claim ${names[claim.seekerId]} → ${names[claim.hiderId]}: ${claim.status}")
                 }
             }
-            val oldVisible = old?.players.orEmpty().mapNotNull { p -> p.location?.let { p.id to it.reason } }.toMap()
-            val newVisible = new.players.mapNotNull { p -> p.location?.let { p.id to it.reason } }.toMap()
+            val oldVisible = old?.players.orEmpty().mapNotNull { p ->
+                p.location?.let { p.id to it.exactReason }
+            }.toMap()
+            val newVisible = new.players.mapNotNull { p -> p.location?.let { p.id to it.exactReason } }.toMap()
             for ((id, reason) in newVisible) if (oldVisible[id] != reason) log("sees ${names[id]} ($reason)")
             for (id in oldVisible.keys - newVisible.keys) log("no longer sees ${names[id]}")
         }

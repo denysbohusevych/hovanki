@@ -1,5 +1,6 @@
 package app.hovanki.shared.debug
 
+import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.GameId
@@ -54,6 +55,7 @@ data class DebugGameState(
     val finishedAtMillis: Long? = null,
     val players: List<DebugPlayer>,
     val catches: List<DebugCatch>,
+    val buildings: BuildingsState? = null,
 )
 
 @Serializable
@@ -71,6 +73,8 @@ data class DebugPlayer(
     val lastMockAtMillis: Long? = null,
     val outOfZoneSinceMillis: Long? = null,
     val outOfZoneDeadlineMillis: Long? = null,
+    /** Since when the server is confident the player is inside a building. */
+    val insideBuildingSinceMillis: Long? = null,
     /** Why seekers see this player right now; null when hidden from them. */
     val revealedToSeekers: VisibilityReason? = null,
     val catchCodeSecret: String? = null,
