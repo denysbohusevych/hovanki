@@ -54,14 +54,18 @@ Kotlin-фреймворк собирается только для `iosArm64` и
 
 - Симулятор ходит на Mac по `http://localhost:8080`.
 - Реальное устройство в той же Wi-Fi сети ходит на `http://<имя-мака>.local:8080`
-  (имя: `scutil --get LocalHostName` или Системные настройки > Основные > Общий доступ). Адрес сервера
-  задаётся на главном экране приложения. При первом подключении iOS спросит доступ к локальной сети.
+  (имя: `scutil --get LocalHostName` или Системные настройки > Основные > Общий доступ). Поля адреса в приложении
+  нет: адрес передаётся параметром запуска Debug-сборки. Xcode → Product → Scheme → Edit Scheme… → Run →
+  Arguments → Arguments Passed On Launch: `-hovanki.server http://<имя-мака>.local:8080` (две строки или одна
+  через пробел). Схема с этим параметром — локальная настройка, не коммитьте её. При первом подключении iOS
+  спросит доступ к локальной сети.
 - Обычный HTTP к localhost и `*.local` разрешён только в Debug: build phase «Debug: local network»
   (`Configuration/debug-info-plist.sh`) добавляет `NSAllowsLocalNetworking` и `NSLocalNetworkUsageDescription`
   в Info.plist Debug-сборки. Release (TestFlight, App Store) ходит только по HTTPS — на хостинг или через туннель
   ([docs/ci-cd.md](../docs/ci-cd.md#сервер-через-туннель)).
 - Адрес по умолчанию: Debug — `http://localhost:8080`, Release — Gradle-свойство `hovanki.serverUrl`
-  (сейчас `https://hovanki.duckdns.org`, [docs/deploy.md](../docs/deploy.md)).
+  (сейчас `https://hovanki.duckdns.org`, [docs/deploy.md](../docs/deploy.md)). Release ходит только туда: аккаунты
+  живут на одном сервере ([ADR 0004](../docs/adr/0004-accounts-friends-chat.md)).
 
 ## Геолокация в фоне
 

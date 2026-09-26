@@ -33,3 +33,6 @@ Thumbs.db
 *.mobileprovision
 keystore.properties
 .env
+
+# Claude Code agent worktrees (local only)
+.claude/worktrees/
