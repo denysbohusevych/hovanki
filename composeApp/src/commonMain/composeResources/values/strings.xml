@@ -109,6 +109,49 @@
   <string name="profile_delete_warning">This deletes your account for good: nickname, email, friends and groups. You cannot undo it.</string>
   <string name="profile_delete_confirm">Delete for good</string>
 
+  <!-- Friends and groups -->
+  <string name="action_close">Close</string>
+  <string name="action_accept">Accept</string>
+  <string name="action_decline">Decline</string>
+  <string name="action_save">Save</string>
+  <string name="friends_add_title">Add a friend</string>
+  <string name="friends_nickname_label">Nickname</string>
+  <string name="friends_add">Send a friend request</string>
+  <string name="friends_nickname_missing">Enter your friend’s nickname.</string>
+  <string name="friends_request_sent">Request sent to %1$s. You become friends when they accept it.</string>
+  <string name="friends_now_friends">You and %1$s are friends now.</string>
+  <string name="friends_incoming">Friend requests</string>
+  <string name="friends_list">Friends</string>
+  <string name="friends_outgoing">Your requests</string>
+  <string name="friends_blocked">Blocked</string>
+  <string name="friends_empty">No friends yet. Add them by nickname here, or in a game you play together.</string>
+  <string name="friends_withdraw">Withdraw</string>
+  <string name="friends_remove">Remove from friends</string>
+  <string name="friends_block">Block</string>
+  <string name="friends_block_hint">Blocking also removes them from your groups, hides their chat messages and stops their requests and invitations.</string>
+  <string name="friends_unblock">Unblock</string>
+  <string name="groups_hint">A group is a company of friends you play with: one tap invites them all into a game.</string>
+  <string name="groups_empty">No groups yet.</string>
+  <string name="group_new">New group</string>
+  <string name="group_name_label">Group name</string>
+  <string name="group_pick_friends">Friends in the group</string>
+  <string name="group_no_friends">Add friends first to put them in a group.</string>
+  <string name="group_create">Create the group</string>
+  <string name="group_members">Members: %1$d</string>
+  <string name="group_owner">owner</string>
+  <string name="group_play">Play with the group</string>
+  <string name="group_play_hint">Creates a game where you are and invites everyone in the group.</string>
+  <string name="group_add_members">Add friends</string>
+  <string name="group_add_confirm">Add to the group</string>
+  <string name="group_all_friends_in">All your friends are in the group already.</string>
+  <string name="group_rename">Rename</string>
+  <string name="group_delete">Delete the group</string>
+  <string name="group_delete_text">Delete “%1$s” for all its members?</string>
+  <string name="group_delete_confirm">Delete</string>
+  <string name="group_leave">Leave the group</string>
+  <string name="group_leave_owner_hint">If you leave, the member who has been in the group longest becomes its owner.</string>
+  <string name="group_remove_member">Remove</string>
+
   <!-- Creating and joining games -->
   <string name="home_name_label">Your name</string>
   <string name="home_create">Create a game here</string>
@@ -134,6 +177,20 @@
   <string name="lobby_pick_seekers">Pick the seekers. Everyone else hides.</string>
   <string name="lobby_start">Start the game</string>
   <string name="lobby_waiting">Waiting for the host to start the game…</string>
+  <string name="lobby_invite">Invite friends</string>
+  <string name="invite_title">Invite to the game</string>
+  <string name="invite_groups">Groups</string>
+  <string name="invite_friends">Friends</string>
+  <string name="invite_in_game">in the game</string>
+  <string name="invite_send">Send invitations</string>
+  <string name="invite_nobody">You have no friends or groups to invite yet. Add friends on the main screen.</string>
+  <string name="invites_sent">Invitations sent. Your friends see them on their “Play” tab.</string>
+  <string name="player_guest">guest</string>
+  <string name="player_add_friend">Add friend</string>
+  <string name="player_accept_friend">Accept request</string>
+  <string name="player_request_sent">request sent</string>
+  <string name="player_friend">friend</string>
+  <string name="player_blocked">blocked</string>
 
   <!-- Game -->
   <string name="phase_hiding">Hiding</string>

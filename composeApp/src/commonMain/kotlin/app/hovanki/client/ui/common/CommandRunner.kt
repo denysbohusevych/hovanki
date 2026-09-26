@@ -23,14 +23,14 @@ class CommandRunner(private val scope: CoroutineScope) {
     val isBusy: StateFlow<Boolean> = mutableBusy.asStateFlow()
 
     /**
-     * Runs [command]; [onSuccess] or, with the failure shown, [onFailure] afterwards. [wrongCredentials]: the text for
-     * a wrong password (see [notice]).
+     * Runs [command]; [onSuccess] with its value or, with the failure shown, [onFailure] afterwards.
+     * [wrongCredentials]: the text for a wrong password (see [notice]).
      */
-    fun execute(
-        command: suspend () -> ApiResult<*>,
+    fun <T> execute(
+        command: suspend () -> ApiResult<T>,
         wrongCredentials: StringResource = Res.string.error_wrong_login,
-        onFailure: (ApiResult<*>) -> Unit = {},
-        onSuccess: () -> Unit = {},
+        onFailure: (ApiResult<T>) -> Unit = {},
+        onSuccess: (T) -> Unit = {},
     ) {
         if (mutableBusy.value) return
         mutableBusy.value = true
@@ -38,11 +38,10 @@ class CommandRunner(private val scope: CoroutineScope) {
         scope.launch {
             try {
                 val result = command()
-                val notice = result.notice(wrongCredentials)
-                if (notice == null) {
-                    onSuccess()
+                if (result is ApiResult.Success) {
+                    onSuccess(result.value)
                 } else {
-                    mutableMessage.value = FormMessage(notice)
+                    result.notice(wrongCredentials)?.let { mutableMessage.value = FormMessage(it) }
                     onFailure(result)
                 }
             } finally {

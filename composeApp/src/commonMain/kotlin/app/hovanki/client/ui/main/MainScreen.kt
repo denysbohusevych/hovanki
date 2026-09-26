@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
@@ -26,8 +25,11 @@ import app.hovanki.client.resources.tab_friends
 import app.hovanki.client.resources.tab_groups
 import app.hovanki.client.resources.tab_play
 import app.hovanki.client.resources.tab_profile
-import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.friends.FriendsTab
+import app.hovanki.client.ui.groups.GroupPanel
+import app.hovanki.client.ui.groups.GroupsTab
+import app.hovanki.client.ui.groups.GroupsViewModel
 import app.hovanki.client.ui.play.PlayTab
 import app.hovanki.client.ui.profile.ProfileTab
 import org.jetbrains.compose.resources.DrawableResource
@@ -37,12 +39,20 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Logged in with a confirmed email, not in a game: «Play», «Friends», «Groups» and «Profile» in a navigation bar.
- * While it is shown, the inbox (game invites, friend requests) is polled for the tabs and their badges.
+ * Logged in with a confirmed email, not in a game: «Play», «Friends», «Groups» and «Profile» in a navigation bar, or a
+ * group's panel over all of it. While it is shown, the inbox (game invites, friend requests) is polled for the tabs and
+ * their badges.
  */
 @Composable
-fun MainScreen(viewModel: MainViewModel = koinViewModel()) {
+fun MainScreen(viewModel: MainViewModel = koinViewModel(), groupsViewModel: GroupsViewModel = koinViewModel()) {
     val inbox by viewModel.inbox.collectAsStateWithLifecycle()
+    val groups by groupsViewModel.groups.collectAsStateWithLifecycle()
+    val openGroup = groupsViewModel.openGroupId?.let { id -> groups?.groups?.firstOrNull { it.id == id } }
+    if (openGroup != null) {
+        GroupPanel(group = openGroup, viewModel = groupsViewModel)
+        return
+    }
+
     val tab = viewModel.tab
     // Back from another tab goes to «Play»; from «Play» it leaves the app as usual.
     SystemBackHandler(enabled = tab != MainTab.PLAY, onBack = { viewModel.select(MainTab.PLAY) })
@@ -51,8 +61,8 @@ fun MainScreen(viewModel: MainViewModel = koinViewModel()) {
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
                 MainTab.PLAY -> PlayTab(invites = inbox.invites)
-                MainTab.FRIENDS -> TabPlaceholder(Res.string.tab_friends, TestTags.FRIENDS_SCREEN)
-                MainTab.GROUPS -> TabPlaceholder(Res.string.tab_groups, TestTags.GROUPS_SCREEN)
+                MainTab.FRIENDS -> FriendsTab()
+                MainTab.GROUPS -> GroupsTab(groupsViewModel)
                 MainTab.PROFILE -> ProfileTab()
             }
         }
@@ -80,14 +90,6 @@ fun MainScreen(viewModel: MainViewModel = koinViewModel()) {
 private fun TabIcon(icon: DrawableResource, badge: Int) {
     BadgedBox(badge = { if (badge > 0) Badge { Text(badge.toString()) } }) {
         Icon(painter = painterResource(icon), contentDescription = null)
-    }
-}
-
-// TODO(friends, groups): their tabs are still empty.
-@Composable
-private fun TabPlaceholder(title: StringResource, tag: String) {
-    ScreenColumn(modifier = Modifier.testTag(tag)) {
-        Text(text = stringResource(title), style = MaterialTheme.typography.headlineSmall)
     }
 }
 

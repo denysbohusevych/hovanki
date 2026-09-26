@@ -60,7 +60,7 @@ fun App() {
                     else -> when (snapshot.phase) {
                         GamePhase.LOBBY -> LobbyScreen()
                         GamePhase.HIDING, GamePhase.SEEKING -> GameScreen()
-                        GamePhase.FINISHED -> ResultsScreen(snapshot = snapshot, onBackToStart = sessionManager::leave)
+                        GamePhase.FINISHED -> ResultsScreen(snapshot = snapshot)
                     }
                 }
             }

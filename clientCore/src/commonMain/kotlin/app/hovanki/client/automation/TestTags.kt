@@ -111,19 +111,33 @@ object TestTags {
     /** A friends, groups or invite command failed. */
     const val SOCIAL_ERROR = "social_error"
 
+    /** News after a friends command, e.g. "request sent". */
+    const val SOCIAL_INFO = "social_info"
+
     const val GROUPS_SCREEN = "groups_screen"
 
     /** Opens the new group form. */
     const val GROUP_NEW = "group_new"
+
+    /** The name of a new group, or the new name when renaming one. */
     const val GROUP_NAME = "group_name"
     const val GROUP_CREATE = "group_create"
 
     /** A group's panel over the main screen. */
     const val GROUP_PANEL = "group_panel"
     const val GROUP_PLAY = "group_play"
+
+    /** Owner: opens the list of friends to add ([groupPick]), [GROUP_ADD_CONFIRM] adds them. */
     const val GROUP_ADD_MEMBERS = "group_add_members"
+    const val GROUP_ADD_CONFIRM = "group_add_confirm"
+
+    /** Owner: opens the name field ([GROUP_NAME]), [GROUP_SAVE_NAME] saves it. */
     const val GROUP_RENAME = "group_rename"
+    const val GROUP_SAVE_NAME = "group_save_name"
+
+    /** Owner: asks to confirm, [GROUP_DELETE_CONFIRM] deletes the group. */
     const val GROUP_DELETE = "group_delete"
+    const val GROUP_DELETE_CONFIRM = "group_delete_confirm"
     const val GROUP_LEAVE = "group_leave"
 
     /** Closes a full-screen panel (group, invite, chat), like the system back button. */
@@ -133,6 +147,9 @@ object TestTags {
     const val LOBBY_INVITE = "lobby_invite"
     const val INVITE_PANEL = "invite_panel"
     const val INVITE_SEND = "invite_send"
+
+    /** Lobby: the invitations went out. */
+    const val INVITES_SENT = "invites_sent"
 
     /** Opens the chat panel; shows the unread count ([CHAT_UNREAD]). */
     const val CHAT_OPEN = "chat_open"
@@ -224,8 +241,11 @@ object TestTags {
     /** Lobby and results: the player has no account. */
     fun playerGuest(id: PlayerId) = "player_guest_${id.value}"
 
-    /** Lobby and results: sends a friend request to the player. */
+    /** Lobby and results: sends a friend request to the player (or accepts theirs). */
     fun addFriend(id: PlayerId) = "add_friend_${id.value}"
+
+    /** Lobby and results: "friend", "request sent" or "blocked" next to the player. */
+    fun playerRelation(id: PlayerId) = "player_relation_${id.value}"
 
     fun chatMessage(seq: Long) = "chat_message_$seq"
 }

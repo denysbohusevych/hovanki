@@ -109,6 +109,49 @@
   <string name="profile_delete_warning">Акаунт видалиться назавжди: нік, email, друзі та групи. Скасувати це не можна.</string>
   <string name="profile_delete_confirm">Видалити назавжди</string>
 
+  <!-- Друзі та групи -->
+  <string name="action_close">Закрити</string>
+  <string name="action_accept">Прийняти</string>
+  <string name="action_decline">Відхилити</string>
+  <string name="action_save">Зберегти</string>
+  <string name="friends_add_title">Додати друга</string>
+  <string name="friends_nickname_label">Нік</string>
+  <string name="friends_add">Надіслати запит у друзі</string>
+  <string name="friends_nickname_missing">Введіть нік друга.</string>
+  <string name="friends_request_sent">Запит для %1$s надіслано. Ви станете друзями, коли його приймуть.</string>
+  <string name="friends_now_friends">Тепер ви з %1$s друзі.</string>
+  <string name="friends_incoming">Запити в друзі</string>
+  <string name="friends_list">Друзі</string>
+  <string name="friends_outgoing">Ваші запити</string>
+  <string name="friends_blocked">Заблоковані</string>
+  <string name="friends_empty">Друзів поки немає. Додайте їх за ніком тут або в грі, де ви граєте разом.</string>
+  <string name="friends_withdraw">Відкликати</string>
+  <string name="friends_remove">Видалити з друзів</string>
+  <string name="friends_block">Заблокувати</string>
+  <string name="friends_block_hint">Блокування також прибирає гравця з ваших груп, приховує його повідомлення в чаті та зупиняє його запити й запрошення.</string>
+  <string name="friends_unblock">Розблокувати</string>
+  <string name="groups_hint">Група — це компанія друзів, з якою ви граєте: одне натискання кличе в гру всіх одразу.</string>
+  <string name="groups_empty">Груп поки немає.</string>
+  <string name="group_new">Нова група</string>
+  <string name="group_name_label">Назва групи</string>
+  <string name="group_pick_friends">Друзі в групі</string>
+  <string name="group_no_friends">Спочатку додайте друзів, щоб покликати їх у групу.</string>
+  <string name="group_create">Створити групу</string>
+  <string name="group_members">Учасників: %1$d</string>
+  <string name="group_owner">власник</string>
+  <string name="group_play">Грати з групою</string>
+  <string name="group_play_hint">Створює гру там, де ви зараз, і кличе в неї всю групу.</string>
+  <string name="group_add_members">Додати друзів</string>
+  <string name="group_add_confirm">Додати в групу</string>
+  <string name="group_all_friends_in">Усі ваші друзі вже в групі.</string>
+  <string name="group_rename">Перейменувати</string>
+  <string name="group_delete">Видалити групу</string>
+  <string name="group_delete_text">Видалити «%1$s» для всіх учасників?</string>
+  <string name="group_delete_confirm">Видалити</string>
+  <string name="group_leave">Вийти з групи</string>
+  <string name="group_leave_owner_hint">Якщо ви вийдете, власником стане учасник, який у групі найдовше.</string>
+  <string name="group_remove_member">Прибрати</string>
+
   <!-- Створення гри та вхід у неї -->
   <string name="home_name_label">Ваше ім’я</string>
   <string name="home_create">Створити гру тут</string>
@@ -134,6 +177,20 @@
   <string name="lobby_pick_seekers">Оберіть, хто шукає. Решта ховається.</string>
   <string name="lobby_start">Почати гру</string>
   <string name="lobby_waiting">Чекаємо, поки організатор почне гру…</string>
+  <string name="lobby_invite">Покликати друзів</string>
+  <string name="invite_title">Запрошення в гру</string>
+  <string name="invite_groups">Групи</string>
+  <string name="invite_friends">Друзі</string>
+  <string name="invite_in_game">уже в грі</string>
+  <string name="invite_send">Надіслати запрошення</string>
+  <string name="invite_nobody">Кликати поки нікого: немає ні друзів, ні груп. Додайте друзів на головному екрані.</string>
+  <string name="invites_sent">Запрошення надіслано. Друзі побачать їх на вкладці «Грати».</string>
+  <string name="player_guest">гість</string>
+  <string name="player_add_friend">У друзі</string>
+  <string name="player_accept_friend">Прийняти запит</string>
+  <string name="player_request_sent">запит надіслано</string>
+  <string name="player_friend">друг</string>
+  <string name="player_blocked">заблокований</string>
 
   <!-- Гра -->
   <string name="phase_hiding">Ховаємося</string>

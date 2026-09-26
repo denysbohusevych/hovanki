@@ -3,11 +3,16 @@ package app.hovanki.client.ui.lobby
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,11 +29,15 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.action_dismiss
 import app.hovanki.client.resources.action_leave
 import app.hovanki.client.resources.building_rule_off
+import app.hovanki.client.resources.ic_person_add
+import app.hovanki.client.resources.invites_sent
 import app.hovanki.client.resources.lobby_code_hint
 import app.hovanki.client.resources.lobby_code_title
 import app.hovanki.client.resources.lobby_host
+import app.hovanki.client.resources.lobby_invite
 import app.hovanki.client.resources.lobby_pick_seekers
 import app.hovanki.client.resources.lobby_players
 import app.hovanki.client.resources.lobby_seeker
@@ -36,9 +45,12 @@ import app.hovanki.client.resources.lobby_start
 import app.hovanki.client.resources.lobby_waiting
 import app.hovanki.client.resources.lobby_you
 import app.hovanki.client.ui.common.Banner
+import app.hovanki.client.ui.common.CommandStatus
 import app.hovanki.client.ui.common.LoadingScreen
+import app.hovanki.client.ui.common.PlayerAccountBadge
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SessionBanners
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -50,6 +62,12 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel()) {
         LoadingScreen()
         return
     }
+    if (state.canInvite && viewModel.invitePanelIn == state.gameId) {
+        InvitePanel(state, viewModel)
+        return
+    }
+    val message by viewModel.message.collectAsStateWithLifecycle()
+    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
 
     ScreenColumn(modifier = Modifier.testTag(TestTags.LOBBY_SCREEN)) {
         JoinCodeCard(state.joinCode)
@@ -64,6 +82,28 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel()) {
             Banner(
                 text = stringResource(Res.string.building_rule_off),
                 modifier = Modifier.testTag(TestTags.BUILDING_RULE_OFF),
+            )
+        }
+        if (state.canInvite) {
+            OutlinedButton(
+                onClick = { viewModel.openInvites(state.gameId) },
+                modifier = Modifier.fillMaxWidth().testTag(TestTags.LOBBY_INVITE),
+            ) {
+                Icon(
+                    painter = painterResource(Res.drawable.ic_person_add),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(Res.string.lobby_invite))
+            }
+        }
+        if (viewModel.invitesSentIn == state.gameId) {
+            Banner(
+                text = stringResource(Res.string.invites_sent),
+                modifier = Modifier.testTag(TestTags.INVITES_SENT),
+                actionLabel = stringResource(Res.string.action_dismiss),
+                onAction = viewModel::dismissInvitesSent,
             )
         }
 
@@ -82,9 +122,17 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel()) {
             PlayerRow(
                 player = player,
                 canPickRoles = state.isHost,
+                isBusy = isBusy,
                 onToggleSeeker = { viewModel.toggleSeeker(player.id) },
+                onAddFriend = { player.account.userId?.let(viewModel::addFriend) },
             )
         }
+        CommandStatus(
+            isBusy = false,
+            message = message,
+            onDismiss = viewModel::dismissMessage,
+            errorTag = TestTags.SOCIAL_ERROR,
+        )
 
         if (state.isHost) {
             Button(
@@ -133,8 +181,15 @@ private fun JoinCodeCard(joinCode: String) {
     }
 }
 
+/** A player: name, «you»/«host», «guest» or what they are to the viewer (add as a friend), the host's seeker switch. */
 @Composable
-private fun PlayerRow(player: LobbyPlayer, canPickRoles: Boolean, onToggleSeeker: () -> Unit) {
+private fun PlayerRow(
+    player: LobbyPlayer,
+    canPickRoles: Boolean,
+    isBusy: Boolean,
+    onToggleSeeker: () -> Unit,
+    onAddFriend: () -> Unit,
+) {
     val youTag = stringResource(Res.string.lobby_you)
     val hostTag = stringResource(Res.string.lobby_host)
     val tags = listOfNotNull(youTag.takeIf { player.isMe }, hostTag.takeIf { player.isHost })
@@ -151,6 +206,7 @@ private fun PlayerRow(player: LobbyPlayer, canPickRoles: Boolean, onToggleSeeker
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            PlayerAccountBadge(player.id, player.account, isBusy = isBusy, onAddFriend = onAddFriend)
         }
         if (canPickRoles) {
             Text(
