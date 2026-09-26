@@ -77,7 +77,7 @@ CI на push не играет партии, поэтому перед PR их �
 |---|---|---|
 | Любой код | `./gradlew spotlessApply` и `./gradlew check` (или быстрый цикл `./gradlew :shared:jvmTest :clientCore:jvmTest :server:test`) | локально |
 | Правила игры, протокол, поведение клиент–сервер (`:shared`, `:server`, `:clientCore`, `:e2e`) | `./gradlew :e2e:test` (~3 мин, работает и в облачном контейнере без KVM) | локально |
-| UI, платформенный код (`:composeApp`, `androidApp`, `iosApp`), Maestro-флоу, `run-devices.sh` | ночной workflow вручную на своей ветке: `suite=devices`, нужный сценарий | GitHub Actions, 15–20 мин |
+| UI, платформенный код (`:composeApp`, `androidApp`, `iosApp`), Maestro-флоу, `run-devices.sh` | `./gradlew :e2e:devices` на своих эмуляторах ([e2e.md](e2e.md#из-android-studio-на-своих-эмуляторах)) или ночной workflow вручную на своей ветке: `suite=devices`, нужный сценарий | локально с Android Studio / GitHub Actions, 15–20 мин |
 
 В описании PR — что из этого запускалось (чеклист в шаблоне PR).
 

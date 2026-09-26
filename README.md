@@ -83,6 +83,7 @@ open iosApp/iosApp.xcodeproj
 | `./gradlew :clientCore:jvmTest` | Тесты клиентской логики (API, синхронизация, `ServerClock`) на JVM |
 | `./gradlew :server:test` | Тесты сервера |
 | `./gradlew :e2e:test` | End-to-end сценарии: боты играют целые партии против сервера (~3 мин), отчёты — `e2e/build/reports/e2e/`. Только явно: в `check` и CI на push не входят, идут ночью |
+| `./gradlew :e2e:devices` | Приложение на уже запущенных эмуляторах (из Android Studio) вместе с ботами: ставит debug-сборку, поднимает сервер, UI через Maestro; `-Pe2e.scenario=restart\|all`. То же — конфигурации «E2E emulators» в Android Studio. Подробности — [docs/e2e.md](docs/e2e.md#из-android-studio-на-своих-эмуляторах) |
 | `e2e/run-devices.sh --android 2 --bots 3` | Приложение на двух эмуляторах вместе с ботами, UI через Maestro (`--ios 1` — симулятор на Mac); отчёт — `e2e/build/reports/devices/`. Подробности — [docs/e2e.md](docs/e2e.md) |
 | `./gradlew :e2e:route --args="--to 50.4481,30.5402 --adb emulator-5554"` | Провести эмулятор (`--simctl <udid>` — симулятор) по маршруту пешком |
 | `./gradlew :shared:iosSimulatorArm64Test` | Тесты общего кода на iOS-симуляторе (только macOS); то же для `:clientCore` |

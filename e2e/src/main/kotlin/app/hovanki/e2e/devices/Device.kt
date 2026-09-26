@@ -54,6 +54,22 @@ class AndroidDevice(override val id: String, override val label: String, private
         adb("shell", "cmd", "location", "set-location-enabled", "true")
     }
 
+    /** `adb install -r -g`: the runtime permissions (location, notifications) are granted up front. */
+    fun install(apk: File) {
+        shell.run(listOf("adb", "-s", id, "install", "-r", "-g", apk.absolutePath), timeout = 3.minutes).orThrow()
+    }
+
+    /** Sets global [settings] (`settings put global`) and returns their previous values ("null" when unset). */
+    fun putGlobalSettings(settings: Map<String, String>): Map<String, String> = settings.mapValues { (key, value) ->
+        val previous = adb("shell", "settings", "get", "global", key).stdout.trim().ifEmpty { "null" }
+        if (value == "null") {
+            adb("shell", "settings", "delete", "global", key)
+        } else {
+            adb("shell", "settings", "put", "global", key, value).orThrow()
+        }
+        previous
+    }
+
     override fun launchApp(options: Map<String, String>) {
         stopApp()
         // A leftover system dialog ("... isn't responding" on a busy emulator) would cover the app.
