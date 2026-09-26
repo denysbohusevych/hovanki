@@ -21,6 +21,7 @@ FAIL_FAST=0
 SKIP_BUILD=0
 REPORT=e2e/build/reports/devices
 LOCATION=
+DEVICE_LOCATION=
 BUILDINGS=overpass
 ANDROID_SERIALS=()
 IOS_UDIDS=()
@@ -42,6 +43,8 @@ Options:
   --scenario NAME          full-round | restart | all (default full-round)
   --port P                 server port on this machine (default 8080)
   --location LAT,LON       play there (default: where the first device is, its own location)
+  --device-location LAT,LON  put the devices there before the run, as Extended Controls → Location would: the
+                           scenarios still take the host's own location (CI: fresh devices have none worth playing at)
   --buildings SOURCE       overpass: real OpenStreetMap buildings around the game (default); fake: the test
                            quarter next to the zone center; off: no building rule
   --skip-build             reuse the server jar, APK/app and e2e CLI from the last build
@@ -60,6 +63,7 @@ while (($#)); do
     --scenario) SCENARIO=$2; shift 2 ;;
     --port) PORT=$2; shift 2 ;;
     --location) LOCATION=$2; shift 2 ;;
+    --device-location) DEVICE_LOCATION=$2; shift 2 ;;
     --buildings) BUILDINGS=$2; shift 2 ;;
     --skip-build) SKIP_BUILD=1; shift ;;
     --keep) KEEP=1; shift ;;
@@ -219,6 +223,8 @@ for serial in ${ANDROID_SERIALS[@]+"${ANDROID_SERIALS[@]}"}; do
   # "... isn't responding" dialogs of a busy emulator must not cover the app under test.
   adb -s "$serial" shell settings put global hide_error_dialogs 1
   adb -s "$serial" shell cmd location set-location-enabled true || true
+  # The emulator console takes longitude first.
+  [[ -n $DEVICE_LOCATION ]] && adb -s "$serial" emu geo fix "${DEVICE_LOCATION#*,}" "${DEVICE_LOCATION%%,*}" >/dev/null
   log "installing the debug app on $serial"
   # -g grants the runtime permissions (location, notifications) up front.
   adb -s "$serial" install -r -g androidApp/build/outputs/apk/debug/androidApp-debug.apk >/dev/null
@@ -246,6 +252,7 @@ for udid in ${IOS_UDIDS[@]+"${IOS_UDIDS[@]}"}; do
   log "booting simulator $udid"
   xcrun simctl boot "$udid" 2>/dev/null || true # already booted when passed with --ios-udids
   xcrun simctl bootstatus "$udid" -b >/dev/null
+  [[ -n $DEVICE_LOCATION ]] && xcrun simctl location "$udid" set "$DEVICE_LOCATION"
   log "installing the debug app on $udid"
   xcrun simctl install "$udid" "$IOS_APP"
   # The first launch on a fresh simulator is by far the slowest: take it here, not inside a scenario.
