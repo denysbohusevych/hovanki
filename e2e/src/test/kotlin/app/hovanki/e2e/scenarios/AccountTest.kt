@@ -9,7 +9,6 @@ import app.hovanki.e2e.scenario.GameSetups.PARK
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GamePhase
-import org.junit.jupiter.api.Disabled
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.seconds
 
@@ -175,7 +174,6 @@ class AccountTest {
         check(bob.userId != null && bob.userId != annaId, "a new account, not Anna's")
     }
 
-    @Disabled("Needs the server's accounts in games (plan step 4): the server ignores the account token for now")
     @Test
     fun loggedInPlayerAndGuestInOneGame() = scenario("A logged-in player and a guest in one game") {
         val sam = player("Sam", at = PARK)

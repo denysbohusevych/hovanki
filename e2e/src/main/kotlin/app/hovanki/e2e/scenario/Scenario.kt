@@ -21,6 +21,7 @@ import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.GroupView
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.VisibilityReason
 import kotlinx.coroutines.delay
@@ -163,6 +164,24 @@ class Scenario(val name: String, val serverUrl: String) {
         val code = emailedCode(account.email, EmailPurpose.RESET_PASSWORD, known)
         requireOk(resetPassword(account.email, code, newPassword), "$name sets a new password")
         return account.withPassword(newPassword)
+    }
+
+    // ---- Friends and groups ----
+
+    /** Asks [other] to be friends by nickname, [other] accepts: friends on both sides, both lists up to date. */
+    suspend fun BotPlayer.befriends(other: BotPlayer) {
+        val me = checkNotNull(userId) { "$name is not logged in" }
+        val nickname = checkNotNull(other.user?.nickname) { "${other.name} is not logged in" }
+        requireOk(sendFriendRequest(nickname), "$name asks ${other.name} to be friends")
+        requireOk(other.acceptFriendRequest(me), "${other.name} accepts $name's friend request")
+        requireOk(refreshFriends(), "$name reloads the friends list")
+    }
+
+    /** A new group owned by this player with [members] (its friends), as the owner's app shows it. */
+    suspend fun BotPlayer.createsGroup(groupName: String, members: List<BotPlayer>): GroupView {
+        val memberIds = members.map { checkNotNull(it.userId) { "${it.name} is not logged in" } }
+        requireOk(createGroup(groupName, memberIds), "$name creates the group $groupName")
+        return groups.single { it.name == groupName && it.ownerId == userId }
     }
 
     // ---- Movement and the phone ----
@@ -322,7 +341,7 @@ class Scenario(val name: String, val serverUrl: String) {
         if (violations.isNotEmpty()) {
             throw AssertionError("Privacy violations:\n" + violations.distinct().joinToString("\n"))
         }
-        note("✓ privacy: no bot received a position it may not see")
+        note("✓ privacy: no bot received a position or a chat message it may not see")
     }
 
     fun close() {
