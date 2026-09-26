@@ -3,6 +3,8 @@ package app.hovanki.client.network
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
+import app.hovanki.shared.protocol.ChatChannel
+import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
@@ -33,11 +35,16 @@ fun testSample(timestampMillis: Long) = LocationSample(
     timestampMillis = timestampMillis,
 )
 
+/** Anna, the player of [testSession]. */
+val testPlayer = PlayerView(testSession.playerId, "Anna", Role.HIDER, PlayerStatus.ACTIVE)
+
 fun testSnapshot(
     serverTimeMillis: Long = 1_000L,
     syncIntervalSeconds: Int = 3,
     phase: GamePhase = GamePhase.LOBBY,
     buildings: BuildingsState? = null,
+    players: List<PlayerView> = listOf(testPlayer),
+    chat: List<ChatMessage> = emptyList(),
 ) = GameSnapshot(
     gameId = testSession.gameId,
     joinCode = "ABC234",
@@ -48,10 +55,15 @@ fun testSnapshot(
         rules = GameRules(syncIntervalSeconds = syncIntervalSeconds),
     ),
     serverTimeMillis = serverTimeMillis,
-    players = listOf(PlayerView(testSession.playerId, "Anna", Role.HIDER, PlayerStatus.ACTIVE)),
+    players = players,
     me = MyState(testSession.playerId, Role.HIDER, PlayerStatus.ACTIVE),
     buildings = buildings,
+    chat = chat,
 )
+
+/** A chat message [seq] from [from] (by default the viewer, [testSession]'s player). */
+fun testMessage(seq: Long, from: PlayerId = testSession.playerId, channel: ChatChannel = ChatChannel.ALL) =
+    ChatMessage(seq, from, "message $seq", sentAtMillis = 1_000L + seq, channel)
 
 /**
  * [GameApi] scripted by the test: `sync` always, the other calls when a test gives them an answer (unused ones fail).

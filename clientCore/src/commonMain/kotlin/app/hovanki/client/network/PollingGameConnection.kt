@@ -12,12 +12,16 @@ import kotlinx.coroutines.flow.flow
  * that uploads the queued samples and returns the fresh snapshot. Failures are retried with exponential backoff.
  */
 class PollingGameConnection(private val api: GameApi) : GameConnection {
-    override fun connect(session: PlayerSession, outbox: LocationOutbox): Flow<ConnectionEvent> = flow {
+    override fun connect(
+        session: PlayerSession,
+        outbox: LocationOutbox,
+        chatAfter: () -> Long?,
+    ): Flow<ConnectionEvent> = flow {
         var backoffMillis = MIN_BACKOFF_MILLIS
         while (true) {
             val samples = outbox.drain()
             val snapshot = try {
-                api.sync(session, SyncRequest(samples))
+                api.sync(session, SyncRequest(samples, chatAfter()))
             } catch (e: CancellationException) {
                 outbox.requeue(samples)
                 throw e
