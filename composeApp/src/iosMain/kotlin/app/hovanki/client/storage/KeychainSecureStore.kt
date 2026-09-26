@@ -29,6 +29,7 @@ import platform.Foundation.create
 import platform.Security.SecItemAdd
 import platform.Security.SecItemCopyMatching
 import platform.Security.SecItemDelete
+import platform.Security.errSecItemNotFound
 import platform.Security.errSecSuccess
 import platform.Security.kSecAttrAccessible
 import platform.Security.kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
@@ -64,6 +65,7 @@ class KeychainSecureStore(private val service: String = SERVICE) : SecureStore {
             val status = withQuery(key, kSecReturnData to kCFBooleanTrue, kSecMatchLimit to kSecMatchLimitOne) {
                 SecItemCopyMatching(it, result.ptr)
             }
+            if (status != errSecSuccess) report("read", status)
             if (status == errSecSuccess) CFBridgingRelease(result.value) as? NSData else null
         } ?: return null
         val bytes = ByteArray(found.length.toInt())
@@ -83,6 +85,7 @@ class KeychainSecureStore(private val service: String = SERVICE) : SecureStore {
                 kSecValueData to dataRef,
                 kSecAttrAccessible to kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             ) { query -> SecItemAdd(query, null) }
+            report("write", status)
             check(status == errSecSuccess) { "Keychain write failed: $status" }
         } finally {
             CFRelease(dataRef)
@@ -90,7 +93,12 @@ class KeychainSecureStore(private val service: String = SERVICE) : SecureStore {
     }
 
     override fun remove(key: String) {
-        withQuery(key) { query -> SecItemDelete(query) }
+        report("remove", withQuery(key) { query -> SecItemDelete(query) })
+    }
+
+    /** Unexpected Keychain statuses go to the app's console; only the status, never a value. */
+    private fun report(operation: String, status: Int) {
+        if (status != errSecSuccess && status != errSecItemNotFound) println("Keychain $operation failed: $status")
     }
 
     /** Runs [block] with a query for this store's item [account] (all its items if null), plus [attributes]. */
