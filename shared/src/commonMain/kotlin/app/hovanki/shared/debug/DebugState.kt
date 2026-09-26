@@ -75,6 +75,8 @@ data class DebugPlayer(
     val outOfZoneDeadlineMillis: Long? = null,
     /** Since when the server is confident the player is inside a building. */
     val insideBuildingSinceMillis: Long? = null,
+    /** When the player's app fetched the buildings its map draws; null if it has not. */
+    val buildingsLoadedAtMillis: Long? = null,
     /** Why seekers see this player right now; null when hidden from them. */
     val revealedToSeekers: VisibilityReason? = null,
     val catchCodeSecret: String? = null,

@@ -18,15 +18,24 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * A player on a real emulator/simulator running the debug app: taps go through Maestro flows, the position is fed
- * to the device's GPS once per second along a [Route] (`adb emu geo fix` / `xcrun simctl location set`).
+ * A player on a real emulator/simulator running the debug app: taps go through Maestro flows. Until [placeAt], the
+ * device keeps its own location; from then on the position is fed to the device's GPS once per second along a
+ * [Route] (`adb emu geo fix` / `xcrun simctl location set`).
  */
-class DevicePlayer(val device: Device, start: GeoPoint, private val run: DeviceRun) {
+class DevicePlayer(val device: Device, private val run: DeviceRun) {
     val name: String get() = device.label
 
     private class Movement(val route: Route, val startedAtMillis: Long)
 
-    @Volatile private var movement = Movement(Route.stay(start), System.currentTimeMillis())
+    @Volatile private var movement: Movement? = null
+
+    /** Whether the scenario moves this device, see [placeAt]. */
+    val isPlaced: Boolean get() = movement != null
+
+    /** From now on the device is at [point], until it walks somewhere else. */
+    fun placeAt(point: GeoPoint) {
+        movement = Movement(Route.stay(point), System.currentTimeMillis())
+    }
 
     /** Known once the player is in a game (looked up by name on the server). */
     @Volatile var playerId: PlayerId? = null
@@ -34,7 +43,9 @@ class DevicePlayer(val device: Device, start: GeoPoint, private val run: DeviceR
     val id: PlayerId get() = checkNotNull(playerId) { "$name has not joined a game" }
 
     val truePosition: GeoPoint
-        get() = movement.let { it.route.positionAt(System.currentTimeMillis() - it.startedAtMillis) }
+        get() = checkNotNull(movement) { "$name has not been placed" }.let {
+            it.route.positionAt(System.currentTimeMillis() - it.startedAtMillis)
+        }
 
     fun walkTo(target: GeoPoint, speed: Double = Route.WALKING): Route {
         val route = Route(listOf(truePosition, target), speed)
@@ -45,14 +56,17 @@ class DevicePlayer(val device: Device, start: GeoPoint, private val run: DeviceR
 
     suspend fun walkToAndArrive(target: GeoPoint, speed: Double = Route.WALKING) {
         walkTo(target, speed)
-        val left = movement.let { it.startedAtMillis + it.route.durationMillis - System.currentTimeMillis() }
+        val left = checkNotNull(movement).let {
+            it.startedAtMillis + it.route.durationMillis -
+                System.currentTimeMillis()
+        }
         if (left > 0) delay(left)
     }
 
-    /** Feeds the current position to the device's GPS every second until the scope ends. */
+    /** Feeds the current position to the device's GPS every second, once placed, until the scope ends. */
     fun startGps(scope: CoroutineScope): Job = scope.launch(Dispatchers.IO) {
         while (isActive) {
-            device.setLocation(truePosition)
+            if (isPlaced) device.setLocation(truePosition)
             delay(1.seconds)
         }
     }
@@ -108,7 +122,9 @@ class DevicePlayer(val device: Device, start: GeoPoint, private val run: DeviceR
         val failure = runCatching { flow(flow, *env) }.exceptionOrNull() ?: return
         if (failure is CancellationException) throw failure
         val screen = runCatching { run.maestro.hierarchy(device) }.getOrNull()
-        if (screen == null || !screen.contains(tapped) || screen.contains(TestTags.BANNER_ERROR)) throw failure
+        // An error or a problem on screen means the tap did work.
+        val problem = screen?.let { it.contains(TestTags.BANNER_ERROR) || it.contains(TestTags.HOME_PROBLEM) }
+        if (screen == null || !screen.contains(tapped) || problem == true) throw failure
         run.scenario.note("⚠ $name: the tap on $tapped had no effect, tapping again")
         flow(flow, *env)
     }
@@ -117,6 +133,12 @@ class DevicePlayer(val device: Device, start: GeoPoint, private val run: DeviceR
     suspend fun awaitVisible(id: String) {
         flow("await-visible", "ID" to id)
         run.scenario.note("✓ $name shows $id")
+    }
+
+    /** Waits until the element with test tag [id] is gone from the screen. */
+    suspend fun awaitGone(id: String) {
+        flow("await-gone", "ID" to id)
+        run.scenario.note("✓ $name no longer shows $id")
     }
 
     /**

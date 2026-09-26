@@ -1,6 +1,7 @@
 package app.hovanki.server.buildings
 
 import app.hovanki.shared.debug.DebugBuildings
+import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.Passage
 import app.hovanki.shared.protocol.ZoneCircle
@@ -21,9 +22,15 @@ fun interface BuildingSource {
     fun load(area: ZoneCircle): Buildings
 }
 
-/** The test quarter of [DebugBuildings] next to the zone center: the building rule without an external service. */
+/**
+ * The test quarter of [DebugBuildings] next to the zone center: the building rule without an external service. Zones
+ * around [DebugBuildings.NO_DATA_AT] get nothing, as when the real source is down.
+ */
 class FakeBuildingSource : BuildingSource {
     override fun load(area: ZoneCircle): Buildings {
+        if (area.center.distanceTo(DebugBuildings.NO_DATA_AT) <= DebugBuildings.NO_DATA_RADIUS_METERS) {
+            throw BuildingsUnavailableException("The test source has no buildings here")
+        }
         val quarter = DebugBuildings.around(area.center)
         return Buildings(quarter.buildings, quarter.passages)
     }

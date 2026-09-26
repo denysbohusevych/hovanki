@@ -44,8 +44,10 @@ tasks.register<JavaExec>("route") {
 // Studio (run configurations in .run/). Builds the server jar and the debug APK, installs the app on every running
 // emulator, starts the server with the `e2e` profile, runs Maestro and the bots; the emulators stay as they were.
 // Options: -Pe2e.scenario=full-round|restart|all -Pe2e.bots=3 -Pe2e.emulators=auto|emulator-5554,... -Pe2e.port=8080
-// -Pe2e.failFast=true -Pe2e.maestro=<path>. Report: e2e/build/reports/devices/. e2e/run-devices.sh does the same with
-// headless emulators it starts itself (CI) and iOS simulators.
+// -Pe2e.failFast=true -Pe2e.maestro=<path> -Pe2e.location=<lat,lon> (default: where the first emulator is)
+// -Pe2e.buildings=overpass|fake|off (default overpass: real buildings around the game).
+// Report: e2e/build/reports/devices/. e2e/run-devices.sh does the same with headless emulators it starts itself (CI)
+// and iOS simulators.
 val rootDirectory = rootProject.layout.projectDirectory
 // Like AGP: sdk.dir from local.properties (Android Studio writes it), then ANDROID_HOME. adb comes from there, so the
 // task works from the IDE, whose PATH often has no platform-tools.
@@ -72,6 +74,8 @@ tasks.register<JavaExec>("devices") {
     val emulators = providers.gradleProperty("e2e.emulators").orElse("auto")
     val failFast = providers.gradleProperty("e2e.failFast").orElse("false")
     val maestro = providers.gradleProperty("e2e.maestro").orElse("")
+    val location = providers.gradleProperty("e2e.location").orElse("")
+    val buildings = providers.gradleProperty("e2e.buildings").orElse("overpass")
     val home = providers.systemProperty("user.home")
     val windows = providers.systemProperty("os.name").map { it.startsWith("Windows") }
     val serverJar = rootDirectory.file("server/build/libs/hovanki-server.jar").asFile
@@ -103,7 +107,9 @@ tasks.register<JavaExec>("devices") {
             "--server-jar", serverJar.absolutePath,
             "--flows", flows.absolutePath,
             "--report", report.get().asFile.absolutePath,
+            "--buildings", buildings.get(),
         )
+        if (location.get().isNotBlank()) args("--location", location.get())
     }
 }
 
