@@ -79,8 +79,9 @@ class Game(
     }
 
     /** The buildings the rule judges by, for [viewerId] to draw exactly those on the map. */
-    fun buildingsFor(viewerId: PlayerId): BuildingsResponse {
-        player(viewerId)
+    fun buildingsFor(viewerId: PlayerId, nowMillis: Long): BuildingsResponse {
+        val viewer = player(viewerId)
+        if (buildingsState == BuildingsState.READY) viewer.buildingsLoadedAtMillis = nowMillis
         return buildings.copy(state = buildingsState)
     }
 
@@ -299,6 +300,7 @@ class Game(
                     outOfZoneSinceMillis = player.outOfZoneSinceMillis,
                     outOfZoneDeadlineMillis = player.outOfZoneDeadlineMillis(),
                     insideBuildingSinceMillis = player.insideBuildingSinceMillis,
+                    buildingsLoadedAtMillis = player.buildingsLoadedAtMillis,
                     revealedToSeekers = revealReason(player, nowMillis),
                     catchCodeSecret = player.catchCodeSecret,
                     fixes = DebugFixCounts(
@@ -492,6 +494,9 @@ class Game(
         var lastFixReceivedMillis: Long? = null
         var outOfZoneSinceMillis: Long? = null
         var insideBuildingSinceMillis: Long? = null
+
+        /** When the player's app last fetched the READY buildings (for the e2e observer). */
+        var buildingsLoadedAtMillis: Long? = null
         val fixResults = HashMap<LocationTrack.Result, Int>()
     }
 

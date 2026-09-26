@@ -10,6 +10,7 @@ import app.hovanki.e2e.devices.LocalSetup
 import app.hovanki.e2e.devices.Maestro
 import app.hovanki.e2e.devices.Shell
 import app.hovanki.e2e.devices.warmUpServer
+import app.hovanki.shared.protocol.GeoPoint
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.system.exitProcess
@@ -75,8 +76,9 @@ private fun runDevices(options: CliArgs): Int {
         }
         if (serverJar != null) {
             val log = File(reportRoot, "logs/server.log")
-            println("[devices] starting the server on :$port (profile e2e), log: $log")
-            server = LocalServer.start(serverJar, port, File(reportRoot, "logs"))
+            val buildings = options.single("buildings") ?: "overpass"
+            println("[devices] starting the server on :$port (profile e2e, buildings: $buildings), log: $log")
+            server = LocalServer.start(serverJar, port, File(reportRoot, "logs"), buildings)
         }
         // iOS asks when the app first needs location; the flows answer like a player (allow-location.yaml).
         androidDevices.forEach { it.grantPermissions() }
@@ -104,6 +106,7 @@ private fun runScenarios(
     reportRoot: File,
 ): Int {
     val bots = options.single("bots")?.toInt() ?: 3
+    val location = options.single("location")?.let(::parseLocation)
     runCatching { runBlocking { warmUpServer(serverUrl) } }
         .onFailure { println("[warm-up] ${it.message} (the scenarios run anyway)") }
     val requested = options.single("scenario") ?: "full-round"
@@ -119,7 +122,7 @@ private fun runScenarios(
         }
         val scenario = DeviceScenarios.all[name]
             ?: error("Unknown scenario '$name', known: ${DeviceScenarios.all.keys.joinToString()} or all")
-        val run = DeviceRun(name, serverUrl, port, devices, bots, maestro, reportRoot)
+        val run = DeviceRun(name, serverUrl, port, devices, bots, maestro, reportRoot, location)
         val passed = run.execute(timeout = 20.minutes, block = scenario)
         val reason = run.failure?.let { " — ${it.message?.lines()?.first()}" }.orEmpty()
         println("[$name] ${if (passed) "passed" else "FAILED$reason"}: ${File(run.reportDir, "report.md")}")
@@ -140,6 +143,15 @@ private fun runScenarios(
         },
     )
     return if (results.all { it.second }) 0 else 1
+}
+
+/** `52.2297,21.0122` → a point; anything else fails the run with the expected format. */
+internal fun parseLocation(text: String): GeoPoint {
+    val parts = text.split(',').map { it.trim().toDoubleOrNull() }
+    require(parts.size == 2 && parts.all { it != null }) { "--location takes LAT,LON, e.g. 52.2297,21.0122: '$text'" }
+    val (lat, lon) = parts.map { checkNotNull(it) }
+    require(lat in -90.0..90.0 && lon in -180.0..180.0) { "--location out of range: '$text'" }
+    return GeoPoint(lat, lon)
 }
 
 /** `--key value` pairs; a key may repeat, list values may also be comma-separated. */
@@ -167,6 +179,7 @@ private val USAGE = """
                   [--scenario full-round|restart|all] [--fail-fast true] [--maestro-mode auto|mcp|cli]
                   [--maestro <path>] [--install-apk androidApp-debug.apk] [--server-jar hovanki-server.jar]
                   [--port 8080] [--server http://localhost:8080] [--flows e2e/maestro] [--report e2e/build/reports/devices]
+                  [--location <lat,lon>] [--buildings overpass|fake|off]
       e2e route   --to <lat,lon> [--to <lat,lon> ...] [--from <lat,lon>] [--speed 1.5] [--interval 1000] [--hold 0]
                   [--noise none|open-sky|city] [--seed 1] [--format csv|geo-fix] [--adb <serial> | --simctl <udid>]
 """.trimIndent()

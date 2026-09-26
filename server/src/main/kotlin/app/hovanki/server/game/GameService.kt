@@ -48,7 +48,7 @@ class GameService(
     /** Buildings the zone will ever cover, loaded while the players gather (an instant fake one in tests). */
     fun buildings(caller: PlayerRef, gameId: GameId): BuildingsResponse {
         val game = gameOf(caller, gameId)
-        return synchronized(game) { game.buildingsFor(caller.playerId) }
+        return synchronized(game) { game.buildingsFor(caller.playerId, clock.millis()) }
     }
 
     fun join(request: JoinGameRequest): SessionResponse {

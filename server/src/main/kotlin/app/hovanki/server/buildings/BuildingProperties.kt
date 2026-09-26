@@ -8,8 +8,14 @@ import java.time.Duration
 @ConfigurationProperties("hovanki.buildings")
 data class BuildingProperties(
     val source: Source = Source.OVERPASS,
-    /** Public instance by default; a self-hosted one when the load grows. */
-    val overpassUrl: URI = URI.create("https://overpass-api.de/api/interpreter"),
+    /**
+     * Tried in order until one answers with data: the main public instance, then another public one (a busy
+     * instance answers 429, 504 or an error instead of data). A self-hosted one first when the load grows.
+     */
+    val overpassUrls: List<URI> = listOf(
+        URI.create("https://overpass-api.de/api/interpreter"),
+        URI.create("https://overpass.kumi.systems/api/interpreter"),
+    ),
     val connectTimeout: Duration = Duration.ofSeconds(5),
     /** The whole request; the query itself asks Overpass for a shorter server-side timeout. */
     val requestTimeout: Duration = Duration.ofSeconds(30),
@@ -17,7 +23,8 @@ data class BuildingProperties(
     val maxResponseBytes: Int = 16 * 1024 * 1024,
     val maxBuildings: Int = 10_000,
     val maxVertices: Int = 300_000,
-    /** One more attempt after this pause when the first one fails. */
+    /** Attempts over all [overpassUrls]; after a failed one the loader waits [retryDelay], then twice that, etc. */
+    val attempts: Int = 2,
     val retryDelay: Duration = Duration.ofSeconds(5),
 ) {
     enum class Source {

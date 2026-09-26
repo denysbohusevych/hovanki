@@ -1,11 +1,13 @@
 package app.hovanki.e2e.devices
 
+import app.hovanki.e2e.route.BuildingSearch
 import app.hovanki.e2e.route.offset
 import app.hovanki.e2e.scenario.GameSetups
 import app.hovanki.e2e.scenario.Scenario
 import app.hovanki.e2e.scenario.ScenarioReport
 import app.hovanki.e2e.scenario.Timeline
 import app.hovanki.shared.debug.DebugGameState
+import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.protocolJson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +32,11 @@ class DeviceRun(
     val botCount: Int,
     val maestro: Maestro,
     reportRoot: File,
+    /**
+     * Where to play (`--location`); null: wherever the first device is. The game is centered on the host's own
+     * location, as for a player, and everything else is placed around it.
+     */
+    val location: GeoPoint? = null,
 ) {
     val scenario = Scenario(name, serverUrl)
     val timeline: Timeline get() = scenario.timeline
@@ -42,9 +49,18 @@ class DeviceRun(
 
     /** Players on the devices, in the order of [devices]; the first one hosts. */
     val devicePlayers: List<DevicePlayer> by lazy {
-        devices.mapIndexed { index, device ->
-            DevicePlayer(device, START.offset(eastMeters = 8.0 * index), this).also { it.startGps(gpsScope) }
-        }
+        devices.map { device -> DevicePlayer(device, this).also { it.startGps(gpsScope) } }
+    }
+
+    /** The zone center of the game, known once the host has created it; bots and routes are placed around it. */
+    lateinit var origin: GeoPoint
+
+    /** The buildings of the game as the server judges them; null without building data. */
+    var buildings: BuildingSearch? = null
+
+    /** The host at [center], the other devices a few meters east of it, in a row. */
+    fun placeDevices(center: GeoPoint) {
+        devicePlayers.forEachIndexed { index, player -> player.placeAt(center.offset(eastMeters = 8.0 * index)) }
     }
 
     suspend fun screenshot(label: String, of: List<DevicePlayer> = devicePlayers) = withContext(Dispatchers.IO) {
@@ -149,7 +165,8 @@ class DeviceRun(
         )
     }
 
-    private companion object {
-        val START = GameSetups.PARK
+    companion object {
+        /** Where the game goes when the host device has no location of its own: a park in Kyiv. */
+        val FALLBACK_LOCATION = GameSetups.PARK
     }
 }
