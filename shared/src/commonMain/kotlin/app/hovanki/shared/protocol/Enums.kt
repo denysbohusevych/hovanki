@@ -114,9 +114,6 @@ enum class ErrorReason {
     /** Unknown login, wrong password, or a wrong current password when changing it or deleting the account. */
     WRONG_CREDENTIALS,
 
-    /** The account exists but its email is not confirmed yet: only the verification routes work. */
-    EMAIL_NOT_VERIFIED,
-
     /** The emailed code is too old, used up (too many attempts) or was never sent: ask for a new one. */
     CODE_EXPIRED,
 

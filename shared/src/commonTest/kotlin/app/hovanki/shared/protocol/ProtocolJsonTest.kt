@@ -80,7 +80,7 @@ class ProtocolJsonTest {
         val json = """{"code":"WRONG_STATE","message":"Later","reason":"SOMETHING_NEWER"}"""
         assertEquals(ApiError(ErrorCode.WRONG_STATE, "Later"), protocolJson.decodeFromString<ApiError>(json))
 
-        val known = ApiError(ErrorCode.FORBIDDEN, "Confirm your email", ErrorReason.EMAIL_NOT_VERIFIED)
+        val known = ApiError(ErrorCode.FORBIDDEN, "Wrong login or password", ErrorReason.WRONG_CREDENTIALS)
         assertEquals(known, protocolJson.decodeFromString<ApiError>(protocolJson.encodeToString(known)))
     }
 
