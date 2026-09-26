@@ -90,6 +90,14 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
 
+      # Each emulator checks for ~7.4 GB free for its data partition at start; the runner image sometimes leaves
+      # less than that. Toolchains the job doesn't use free ~10 GB.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift "$AGENT_TOOLSDIRECTORY/CodeQL"
+          df -h /
+
       # Hardware acceleration for the emulators. reactivecircus/android-emulator-runner runs a single emulator,
       # e2e/run-devices.sh starts two itself.
       - name: Enable KVM
