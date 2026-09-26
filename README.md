@@ -97,4 +97,5 @@ open iosApp/iosApp.xcodeproj
 - [Roadmap](docs/roadmap.md): что уже сделано и что дальше.
 - [ADR 0001: выбор стека](docs/adr/0001-stack.md).
 - [ADR 0002: сессия на устройстве, возврат в игру после перезапуска](docs/adr/0002-session-storage.md).
+- [ADR 0003: карта и здания как запретная зона](docs/adr/0003-map-and-buildings.md).
 - [CLAUDE.md](CLAUDE.md): правила для AI-агентов (и людей) при работе с кодом.
