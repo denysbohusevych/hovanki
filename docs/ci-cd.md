@@ -83,7 +83,7 @@ hovanki.serverUrl=https://hovanki.example.org
 **Автообновление через [Obtainium](https://github.com/ImranR98/Obtainium)** — он сам проверяет GitHub и ставит новые сборки:
 
 1. Установить Obtainium (APK со страницы его релизов, F-Droid или IzzyOnDroid).
-2. Репозиторий приватный, Obtainium нужен токен: GitHub → Settings → Developer settings → Fine-grained personal access tokens → Generate new token, доступ только к репозиторию `hovanki`, Permissions → Contents: Read-only. В Obtainium: Настройки → GitHub → Personal Access Token. Для публичного репозитория токен не нужен.
+2. Репозиторий приватный, поэтому Obtainium'у нужен токен: GitHub → Settings → Developer settings → Fine-grained personal access tokens → Generate new token, доступ только к репозиторию `hovanki`, Permissions → Contents: Read-only. В Obtainium: Настройки → GitHub → Personal Access Token. Для публичного репозитория токен не нужен.
 3. «Добавить приложение» → URL `https://github.com/denysbohusevych/hovanki`, до добавления включить:
    - **Include prereleases** — `preview` помечен как pre-release;
    - **Filter release titles by regular expression**: `^Preview` — чтобы не взять APK из релизов `v*` (там другое приложение, `app.hovanki`);
@@ -108,7 +108,7 @@ hovanki.serverUrl=https://hovanki.example.org
 Нужны Mac с Xcode 26.4+ и JDK 21. Хватает бесплатного Apple ID (Personal Team), но такая сборка работает 7 дней, потом её ставят заново.
 
 1. Xcode → Settings → Accounts → «+» → Apple ID. Появится команда «<Имя> (Personal Team)».
-2. Узнать её Team ID: открыть `iosApp/iosApp.xcodeproj` → target `iosApp` → Signing & Capabilities → Team → выбрать Personal Team. Xcode запишет ID в Build Settings → Development Team — скопировать его, а само изменение проекта откатить: `git checkout -- iosApp/iosApp.xcodeproj`.
+2. Узнать её Team ID: открыть `iosApp/iosApp.xcodeproj` → target `iosApp` → Signing & Capabilities → Team → выбрать Personal Team. Xcode запишет ID в проект: `git diff iosApp/iosApp.xcodeproj` покажет `DEVELOPMENT_TEAM = ABCDE12345;`. Скопировать ID, а изменение проекта откатить: `git checkout -- iosApp/iosApp.xcodeproj`.
 3. Создать `iosApp/Configuration/Local.xcconfig` (он в `.gitignore`):
 
    ```
