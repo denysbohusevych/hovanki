@@ -92,6 +92,29 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "subject=$(git log -1 --format=%s)" >> "$GITHUB_OUTPUT"
 
+      # A tester build is the release build: no debug flag, no cleartext traffic, no automation deep link.
+      - name: Check the APK
+        run: |
+          aapt2="$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort -V | tail -1)"
+          apk="$(ls dist/*.apk)"
+          badging="$("$aapt2" dump badging "$apk")"
+          manifest="$("$aapt2" dump xmltree --file AndroidManifest.xml "$apk")"
+          grep -E "^(package|application-label):" <<<"$badging"
+          fail=0
+          if ! grep -q "^package: name='app.hovanki.preview' versionCode='$BUILD_NUMBER'" <<<"$badging"; then
+            echo "::error::Unexpected package name or versionCode"; fail=1
+          fi
+          if grep -q "^application-debuggable" <<<"$badging"; then
+            echo "::error::The preview APK is debuggable"; fail=1
+          fi
+          if grep -q "usesCleartextTraffic.*=true" <<<"$manifest"; then
+            echo "::error::The preview APK allows cleartext HTTP"; fail=1
+          fi
+          if grep -q '"hovanki"' <<<"$manifest"; then
+            echo "::error::The preview APK has the debug deep link hovanki://"; fail=1
+          fi
+          exit $fail
+
       - uses: actions/upload-artifact@v7
         with:
           name: android-preview
@@ -278,7 +301,11 @@ jobs:
             fi
           done
           [ -f "$app/PrivacyInfo.xcprivacy" ] || { echo "::error::PrivacyInfo.xcprivacy is missing"; fail=1; }
-          for lang in en ru uk; do
+          # English is Info.plist itself (Xcode writes no en.lproj for it), so CFBundleLocalizations lists it: without
+          # that, iOS would pick Russian permission texts for a phone set to English, then Russian.
+          echo "Localizations: $(plutil -extract CFBundleLocalizations json -o - "$plist")"
+          echo "en: $(value NSLocationWhenInUseUsageDescription)"
+          for lang in ru uk; do
             strings="$app/$lang.lproj/InfoPlist.strings"
             if [ -f "$strings" ]; then
               echo "$lang: $(plutil -extract NSLocationWhenInUseUsageDescription raw -o - "$strings")"

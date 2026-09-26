@@ -130,7 +130,7 @@ Push в `main` (кроме правок только в `*.md` и `docs/`) и р
 
 | Job | Раннер | Что делает |
 |---|---|---|
-| `Android preview APK` | `ubuntu-latest` | `./gradlew :androidApp:assemblePreview -Phovanki.versionCode=<номер>` с keystore из [секретов релиза](#секреты-для-подписи-android); APK — артефакт `android-preview` (14 дней) |
+| `Android preview APK` | `ubuntu-latest` | `./gradlew :androidApp:assemblePreview -Phovanki.versionCode=<номер>` с keystore из [секретов релиза](#секреты-для-подписи-android); проверка APK (`aapt2`): пакет и `versionCode`, не debuggable, без cleartext и debug deep link `hovanki://`; APK — артефакт `android-preview` (14 дней) |
 | `Android pre-release` | `ubuntu-latest` | Только из `main` и только подписанный APK: удаляет и заново создаёт pre-release с тегом `preview` на текущем коммите; в описании — версия, commit, ссылка на запуск |
 | `iOS TestFlight` | `macos-26` | Release-архив, проверка бандла, загрузка в TestFlight (только из `main`), см. [iOS: TestFlight](#ios-testflight) |
 
@@ -270,7 +270,7 @@ Job `iOS TestFlight` в `preview.yml`: Release-архив → проверка �
 - **Версия** — `MARKETING_VERSION` в `Config.xcconfig` (`0.1.0`), **build number** — номер запуска `preview.yml`. Перед выпуском новой версии в App Store поднять `MARKETING_VERSION`. Релиз в App Store — это отправка на ревью уже загруженной сборки TestFlight, отдельный workflow не нужен.
 - **Release без dev-исключений ATS**: в `Info.plist` нет `NSAllowsLocalNetworking` и `NSLocalNetworkUsageDescription`. Их добавляет только в Debug build phase «Debug: local network» (`iosApp/Configuration/debug-info-plist.sh`), а job проверяет, что в Release-бандле их нет.
 - **Экспортное шифрование**: `ITSAppUsesNonExemptEncryption = NO` (только HTTPS) — App Store Connect не спрашивает про шифрование у каждой сборки.
-- **Приватность**: `PrivacyInfo.xcprivacy` — точная геолокация и игровые данные (имя, заявки, голоса) собираются для работы приложения, не связаны с личностью, без трекинга; причины для required-reason API из Compose и Kotlin/Native. Тексты разрешений на en/uk/ru — `InfoPlist.xcstrings`. Анкету App Privacy в App Store Connect заполнить так же.
+- **Приватность**: `PrivacyInfo.xcprivacy` — точная геолокация и игровые данные (имя, заявки, голоса) собираются для работы приложения, не связаны с личностью, без трекинга; причины для required-reason API из Compose и Kotlin/Native. Тексты разрешений на en/uk/ru: английские — в `Info.plist`, переводы — `InfoPlist.xcstrings`, список языков — `CFBundleLocalizations` (без него iOS показала бы русские тексты телефону с языками «английский, русский»: Xcode не создаёт `en.lproj` для текстов из `Info.plist`). Анкету App Privacy в App Store Connect заполнить так же.
 - **Иконка** `AppIcon-1024.png` — без неё App Store Connect сборку не примет.
 
 ### Подпись: ручные сертификаты, а не fastlane match
@@ -323,7 +323,7 @@ Job проверяет профиль до сборки: тип App Store (бе�
 Пока секретов нет, job зелёный, а загрузку пропускает с сообщением в сводке запуска. Он при этом:
 
 - собирает Release-архив для устройства без подписи: release-фреймворк Kotlin (без `LaunchOptions`), Swift, ресурсы;
-- проверяет бандл: `CFBundleVersion` равен номеру запуска, в `Info.plist` нет `NSAppTransportSecurity` и `NSLocalNetworkUsageDescription`, есть `PrivacyInfo.xcprivacy` и тексты разрешений на en/ru/uk.
+- проверяет бандл: `CFBundleVersion` равен номеру запуска, в `Info.plist` нет `NSAppTransportSecurity` и `NSLocalNetworkUsageDescription`, есть `PrivacyInfo.xcprivacy`, `CFBundleLocalizations` и переводы текстов разрешений (`ru.lproj`, `uk.lproj`).
 
 Подпись, экспорт и загрузка впервые выполнятся, когда появятся секреты; без них их не проверить.
 
