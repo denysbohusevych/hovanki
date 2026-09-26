@@ -1,0 +1,20 @@
+# The host makes SEEKER_ID the seeker and starts the round.
+appId: ${APP_ID}
+---
+- scrollUntilVisible:
+    element:
+      id: seeker_switch_${SEEKER_ID}
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    id: seeker_switch_${SEEKER_ID}
+- scrollUntilVisible:
+    element:
+      id: lobby_start
+    direction: DOWN
+- tapOn:
+    id: lobby_start
+- extendedWaitUntil:
+    visible:
+      id: phase_hiding
+    timeout: 30000

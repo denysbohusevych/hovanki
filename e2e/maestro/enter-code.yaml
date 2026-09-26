@@ -1,0 +1,12 @@
+# The seeker types the 4 digits the hider shows (manual entry, no camera).
+appId: ${APP_ID}
+---
+- tapOn:
+    id: code_input
+- inputText: ${CODE}
+- scrollUntilVisible:
+    element:
+      id: code_confirm
+    direction: DOWN
+- tapOn:
+    id: code_confirm

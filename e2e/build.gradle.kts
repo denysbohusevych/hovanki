@@ -4,6 +4,13 @@
 // scenarios at an external server started with the Spring profile `e2e`.
 plugins {
     alias(libs.plugins.kotlinJvm)
+    // `e2e` command line: device scenarios (e2e/run-devices.sh) and routes for devices.
+    application
+}
+
+application {
+    applicationName = "e2e"
+    mainClass.set("app.hovanki.e2e.cli.MainKt")
 }
 
 kotlin {
@@ -21,6 +28,14 @@ dependencies {
     testImplementation(libs.spring.boot)
     testImplementation(libs.kotlin.test)
     testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+// `./gradlew :e2e:route --args="--to 50.4481,30.5402 --adb emulator-5554"`: the bots' Route and GpsNoise for devices.
+tasks.register<JavaExec>("route") {
+    group = "e2e"
+    description = "Prints a route's GPS fixes or feeds them to an emulator/simulator (see RouteCli)."
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("app.hovanki.e2e.cli.RouteCliKt")
 }
 
 val externalServerUrl = providers.environmentVariable("HOVANKI_E2E_SERVER_URL").orElse("")

@@ -1,0 +1,14 @@
+# The seeker presses "Found" next to HIDER_ID and gets the code form.
+appId: ${APP_ID}
+---
+- scrollUntilVisible:
+    element:
+      id: claim_${HIDER_ID}
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    id: claim_${HIDER_ID}
+- extendedWaitUntil:
+    visible:
+      id: code_input
+    timeout: 15000
