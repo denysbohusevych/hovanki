@@ -5,19 +5,28 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.hovanki.client.automation.LaunchOptions
+import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.SessionError
+import app.hovanki.shared.protocol.GameSettings
+import app.hovanki.shared.protocol.GeoPoint
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-class HomeViewModel(private val sessionManager: GameSessionManager, private val serverUrl: ServerUrl) : ViewModel() {
+class HomeViewModel(
+    private val sessionManager: GameSessionManager,
+    private val serverUrl: ServerUrl,
+    private val launchOptions: LaunchOptionsHolder,
+) : ViewModel() {
     // Text field values are Compose state rather than StateFlow: text fields need synchronous updates,
     // otherwise fast typing can lose characters. The ViewModel keeps them when the player returns from a game.
     var playerName by mutableStateOf("")
@@ -33,6 +42,11 @@ class HomeViewModel(private val sessionManager: GameSessionManager, private val 
     val sessionError: StateFlow<SessionError?> = sessionManager.state
         .map { it.lastError }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), sessionManager.state.value.lastError)
+
+    init {
+        // Debug builds under UI automation: start parameters prefill the form (see LaunchOptions).
+        viewModelScope.launch { launchOptions.options.filterNotNull().collect(::prefill) }
+    }
 
     fun onPlayerNameChange(value: String) {
         playerName = value.take(MAX_NAME_LENGTH)
@@ -63,7 +77,7 @@ class HomeViewModel(private val sessionManager: GameSessionManager, private val 
                 return@launchWork
             }
             mutableStatus.update { it.copy(activity = HomeActivity.CONNECTING) }
-            sessionManager.create(playerName, fix.point)
+            sessionManager.create(playerName, gameSettings(fix.point))
         }
     }
 
@@ -77,6 +91,18 @@ class HomeViewModel(private val sessionManager: GameSessionManager, private val 
     fun dismissProblems() {
         mutableStatus.update { it.copy(problem = null) }
         sessionManager.clearError()
+    }
+
+    private fun gameSettings(center: GeoPoint): GameSettings {
+        val defaults = GameSessionManager.defaultSettings(center)
+        val hidingSeconds = launchOptions.options.value?.hidingSeconds ?: return defaults
+        return defaults.copy(hidingSeconds = hidingSeconds)
+    }
+
+    private fun prefill(options: LaunchOptions) {
+        options.serverUrl?.let(::onServerAddressChange)
+        options.playerName?.let(::onPlayerNameChange)
+        options.joinCode?.let(::onJoinCodeChange)
     }
 
     private fun requireName(): Boolean = validate(playerName.isNotBlank(), HomeProblem.NAME_MISSING)

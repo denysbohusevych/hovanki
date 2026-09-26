@@ -1,5 +1,6 @@
 package app.hovanki.client.di
 
+import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.location.IosLocationProvider
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.proximity.NoopProximityScanner
@@ -13,7 +14,10 @@ import org.koin.dsl.module
 
 actual val platformModule: Module = module {
     single<HttpClientEngine> { Darwin.create() }
-    single<LocationProvider> { IosLocationProvider() }
+    single<LocationProvider> {
+        val launchOptions = get<LaunchOptionsHolder>()
+        IosLocationProvider(allowSimulatedLocation = { launchOptions.options.value?.allowSimulatedLocation == true })
+    }
     single<BackgroundTracker> { IosBackgroundTracker() }
     // TODO(BLE, after MVP): Kable-based scanner, see docs/adr/0001-stack.md.
     single<ProximityScanner> { NoopProximityScanner() }

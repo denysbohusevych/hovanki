@@ -6,6 +6,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.lobby_you
 import app.hovanki.client.resources.results_back
@@ -35,7 +37,7 @@ fun ResultsScreen(snapshot: GameSnapshot, onBackToStart: () -> Unit) {
     val hiders = snapshot.players.filter { it.role == Role.HIDER }
     val survivors = hiders.filter { it.status == PlayerStatus.ACTIVE }
 
-    ScreenColumn {
+    ScreenColumn(modifier = Modifier.testTag(TestTags.RESULTS_SCREEN)) {
         Text(text = stringResource(Res.string.results_title), style = MaterialTheme.typography.headlineMedium)
         Text(
             text = stringResource(
@@ -58,7 +60,7 @@ fun ResultsScreen(snapshot: GameSnapshot, onBackToStart: () -> Unit) {
         PlayerGroup(Res.string.results_eliminated, hiders.filter { it.status == PlayerStatus.ELIMINATED }, me.playerId)
         PlayerGroup(Res.string.results_seekers, snapshot.players.filter { it.role == Role.SEEKER }, me.playerId)
 
-        Button(onClick = onBackToStart, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = onBackToStart, modifier = Modifier.fillMaxWidth().testTag(TestTags.RESULTS_BACK)) {
             Text(stringResource(Res.string.results_back))
         }
     }

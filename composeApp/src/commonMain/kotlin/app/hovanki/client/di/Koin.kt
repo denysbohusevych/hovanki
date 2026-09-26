@@ -1,5 +1,7 @@
 package app.hovanki.client.di
 
+import app.hovanki.client.automation.LaunchOptions
+import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.defaultServerUrl
 import app.hovanki.client.network.GameApi
 import app.hovanki.client.network.GameConnection
@@ -33,6 +35,7 @@ fun initKoin(appDeclaration: KoinAppDeclaration = {}) {
 
 val commonModule: Module = module {
     single { ServerUrl(defaultServerUrl()) }
+    single { LaunchOptionsHolder() }
     single { createHttpClient(get()) }
     single<GameApi> { HttpGameApi(get(), get()) }
     single<GameConnection> { PollingGameConnection(get()) }
@@ -42,6 +45,11 @@ val commonModule: Module = module {
     viewModelOf(::HomeViewModel)
     viewModelOf(::LobbyViewModel)
     viewModelOf(::GameViewModel)
+}
+
+/** Hands debug start parameters (UI automation) to the start screen; see [LaunchOptions]. */
+fun offerLaunchOptions(options: LaunchOptions) {
+    KoinPlatformTools.defaultContext().get().get<LaunchOptionsHolder>().offer(options)
 }
 
 /** Platform services: HTTP engine, [app.hovanki.client.location.LocationProvider], background tracking, BLE. */

@@ -23,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -30,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.hovanki.client.automation.TestTags
 import app.hovanki.client.catchcode.CatchCodeScanner
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_cancel
@@ -101,7 +103,7 @@ fun GameScreen(viewModel: GameViewModel = koinViewModel()) {
     }
     var showLeaveDialog by rememberSaveable { mutableStateOf(false) }
 
-    ScreenColumn {
+    ScreenColumn(modifier = Modifier.testTag(TestTags.GAME_SCREEN)) {
         PhaseHeader(state)
         SessionBanners(
             connectionStatus = state.connectionStatus,
@@ -111,12 +113,24 @@ fun GameScreen(viewModel: GameViewModel = koinViewModel()) {
             onLocationPermissionGranted = viewModel::onLocationPermissionGranted,
         )
         state.outOfZoneMillisLeft?.let { millisLeft ->
-            Banner(text = stringResource(Res.string.out_of_zone_warning, formatCountdown(millisLeft)), isError = true)
+            Banner(
+                text = stringResource(Res.string.out_of_zone_warning, formatCountdown(millisLeft)),
+                modifier = Modifier.testTag(TestTags.GAME_OUT_OF_ZONE),
+                isError = true,
+            )
         }
         when (state.myStatus) {
             PlayerStatus.ACTIVE -> Unit
-            PlayerStatus.CAUGHT -> Banner(text = stringResource(Res.string.status_caught))
-            PlayerStatus.ELIMINATED -> Banner(text = stringResource(Res.string.status_eliminated))
+
+            PlayerStatus.CAUGHT -> Banner(
+                text = stringResource(Res.string.status_caught),
+                modifier = Modifier.testTag(TestTags.GAME_CAUGHT),
+            )
+
+            PlayerStatus.ELIMINATED -> Banner(
+                text = stringResource(Res.string.status_eliminated),
+                modifier = Modifier.testTag(TestTags.GAME_ELIMINATED),
+            )
         }
 
         when (state.myRole) {
@@ -172,7 +186,11 @@ private fun PhaseHeader(state: GameUiState) {
     val roleTitle = if (state.myRole == Role.HIDER) Res.string.role_hider else Res.string.role_seeker
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = stringResource(phaseTitle), style = MaterialTheme.typography.headlineSmall)
+            Text(
+                text = stringResource(phaseTitle),
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.testTag(TestTags.phase(state.phase)),
+            )
             Text(text = stringResource(roleTitle), style = MaterialTheme.typography.bodyMedium)
             Text(
                 text = stringResource(Res.string.hiders_left, state.hidersLeft, state.hidersTotal),
@@ -185,6 +203,7 @@ private fun PhaseHeader(state: GameUiState) {
                 text = formatCountdown(millisLeft),
                 style = MaterialTheme.typography.displaySmall,
                 fontFamily = FontFamily.Monospace,
+                modifier = Modifier.testTag(TestTags.GAME_TIMER),
             )
         }
     }
@@ -265,13 +284,18 @@ private fun ShowCodeCard(claim: ClaimUi, code: CatchCode?, isBusy: Boolean, onDi
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 8.sp,
+                    modifier = Modifier.testTag(TestTags.CATCH_CODE),
                 )
                 Text(text = stringResource(Res.string.hider_code_next, formatCountdown(code.millisUntilNext)))
             }
             claim.millisLeft?.let { millisLeft ->
                 Text(text = stringResource(Res.string.claim_time_left, formatCountdown(millisLeft)))
             }
-            OutlinedButton(onClick = onDispute, enabled = !isBusy) {
+            OutlinedButton(
+                onClick = onDispute,
+                enabled = !isBusy,
+                modifier = Modifier.testTag(TestTags.CATCH_DISPUTE),
+            ) {
                 Text(stringResource(Res.string.action_dispute))
             }
         }
@@ -316,7 +340,9 @@ private fun HiderList(hiders: List<PlayerView>, isBusy: Boolean, onClaim: (Playe
     hiders.forEach { hider ->
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(text = hider.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-            Button(onClick = { onClaim(hider.id) }, enabled = !isBusy) {
+            Button(onClick = {
+                onClaim(hider.id)
+            }, enabled = !isBusy, modifier = Modifier.testTag(TestTags.claimButton(hider.id))) {
                 Text(stringResource(Res.string.action_found))
             }
         }
@@ -350,12 +376,12 @@ private fun EnterCodeCard(
                 singleLine = true,
                 textStyle = MaterialTheme.typography.headlineMedium.copy(fontFamily = FontFamily.Monospace),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag(TestTags.CODE_INPUT),
             )
             Button(
                 onClick = { onConfirm(code) },
                 enabled = code.length == codeDigits && !isBusy,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag(TestTags.CODE_CONFIRM),
             ) {
                 Text(stringResource(Res.string.action_confirm))
             }
@@ -376,10 +402,18 @@ private fun VoteCard(claim: ClaimUi, isBusy: Boolean, onVote: (confirm: Boolean)
             }
             if (claim.canVote) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onVote(true) }, enabled = !isBusy) {
+                    Button(
+                        onClick = { onVote(true) },
+                        enabled = !isBusy,
+                        modifier = Modifier.testTag(TestTags.voteConfirm(claim.id)),
+                    ) {
                         Text(stringResource(Res.string.vote_confirm))
                     }
-                    OutlinedButton(onClick = { onVote(false) }, enabled = !isBusy) {
+                    OutlinedButton(
+                        onClick = { onVote(false) },
+                        enabled = !isBusy,
+                        modifier = Modifier.testTag(TestTags.voteReject(claim.id)),
+                    ) {
                         Text(stringResource(Res.string.vote_reject))
                     }
                 }
