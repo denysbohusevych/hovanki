@@ -185,6 +185,8 @@ e2e/run-devices.sh --ios 1 --bots 3 --scenario all              # iOS-симул
 e2e/run-devices.sh --android 1 --ios 1 --bots 2                 # смешанная партия (Mac)
 ```
 
+Для эмуляторов скрипту нужен пакет **Android SDK Command-line Tools** (`avdmanager`, `sdkmanager`): Android Studio по умолчанию его не ставит — Settings → Languages & Frameworks → Android SDK → SDK Tools → Android SDK Command-line Tools (latest). SDK он находит сам, как `:e2e:devices`: `sdk.dir` в `local.properties`, `ANDROID_HOME`, `~/Library/Android/sdk` (Mac), `~/Android/Sdk` (Linux).
+
 Для iOS нужен Mac на Apple Silicon с Xcode 26.4+. Скрипт сам соберёт приложение для симулятора, создаст симулятор, поставит приложение, а после прогона удалит симулятор. Все опции — `e2e/run-devices.sh --help` и [e2e.md](e2e.md#запуск-скриптом).
 
 ## Отчёт устройств
@@ -209,6 +211,8 @@ e2e/run-devices.sh --android 1 --ios 1 --bots 2                 # смешанн
 |---|---|---|
 | `No running emulators: start one or two in Android Studio` | эмулятор не запущен, ещё грузится или в состоянии `offline` | дождаться рабочего стола; `adb devices` должен показывать `device` |
 | `Cannot run program "adb"` | не найден Android SDK | проверить `sdk.dir` в `local.properties` или задать `ANDROID_HOME` |
+| `Android SDK not found` (скрипт) | SDK не в `local.properties`, не в `ANDROID_HOME` и не на месте по умолчанию | открыть проект в Android Studio (она запишет `sdk.dir`) или `export ANDROID_HOME=<путь к SDK>` |
+| `avdmanager not found` (скрипт) | не установлены Android SDK Command-line Tools | Settings → Languages & Frameworks → Android SDK → SDK Tools → Android SDK Command-line Tools (latest) |
 | `Maestro not found` | Maestro не установлен или лежит не в `~/.maestro/bin` | [поставить](#maestro) или передать `-Pe2e.maestro=<путь>` |
 | `Port 8080 is busy` | работает свой `bootRun` или сервер, оставшийся от прерванного прогона | остановить его или взять другой порт: `-Pe2e.port=8081` |
 | `The server exited on start` | сервер упал при старте, хвост лога — в сообщении | смотреть `e2e/build/reports/devices/logs/server.log` |
