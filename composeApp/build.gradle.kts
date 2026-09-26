@@ -31,7 +31,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.shared)
-            implementation(projects.clientCore)
+            // Part of this module's API (LaunchOptions, SessionState): :androidApp needs it too.
+            api(projects.clientCore)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.ui)

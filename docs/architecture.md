@@ -49,6 +49,15 @@ flowchart LR
 | `ProximityScanner` | — | — | no-op, BLE через Kable после MVP |
 | `CatchCodeScanner` | CameraX + ML Kit (план) | AVFoundation (план) | expect/actual-заглушка, ручной ввод кода работает |
 
+### Автоматизация UI (только debug)
+
+Для e2e-тестов на эмуляторах и симуляторах ([e2e.md](e2e.md)); release-сборки это поведение не меняет.
+
+- Ключевые элементы помечены `Modifier.testTag`, константы — `TestTags` в `:clientCore` (пакет `app.hovanki.client.automation`, общий с оркестратором e2e). На Android debug-сборка включает `testTagsAsResourceId` (`AutomationRoot`), и теги становятся resource-id. На iOS Compose отдаёт их как `accessibilityIdentifier`.
+- `LaunchOptions` (там же) — адрес сервера, имя игрока, join-код, время пряток для игры, созданной с устройства. Они предзаполняют главный экран вместо ввода руками.
+  - Android читает их только в source set `debug` (`androidApp/src/debug`): extras `hovanki.*` или deep link `hovanki://join?server=…&name=…&joinCode=…`, объявленный только в debug-манифесте. В `release` лежат no-op-двойники.
+  - iOS читает `NSUserDefaults` (launch arguments `-hovanki.server …`) только в debug-бинаре (`Platform.isDebugBinary`).
+
 ## Раунд: поток данных
 
 Клиент раз в `GameRules.syncIntervalSeconds` (по умолчанию 3 с) отправляет накопленные координаты и получает в ответ свежее состояние игры. Любой изменяющий запрос (заявка, код, голос) тоже сразу возвращает `GameSnapshot`, чтобы UI не ждал следующего опроса.

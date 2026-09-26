@@ -18,10 +18,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.hovanki.client.automation.TestTags
 import app.hovanki.client.location.rememberLocationPermissionRequester
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_dismiss
@@ -56,7 +58,7 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
     val requestLocationThenJoin = rememberLocationPermissionRequester { viewModel.joinGame() }
     val isBusy = status.activity != null
 
-    ScreenColumn {
+    ScreenColumn(modifier = Modifier.testTag(TestTags.HOME_SCREEN)) {
         Text(
             text = stringResource(Res.string.app_name),
             style = MaterialTheme.typography.displaySmall,
@@ -71,12 +73,12 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
             singleLine = true,
             enabled = !isBusy,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_NAME),
         )
         Button(
             onClick = { if (viewModel.canCreateGame()) requestLocationThenCreate() },
             enabled = !isBusy,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_CREATE),
         ) {
             Text(stringResource(Res.string.home_create))
         }
@@ -98,18 +100,22 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
                 capitalization = KeyboardCapitalization.Characters,
                 keyboardType = KeyboardType.Ascii,
             ),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_JOIN_CODE),
         )
         OutlinedButton(
             onClick = { if (viewModel.canJoinGame()) requestLocationThenJoin() },
             enabled = !isBusy,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_JOIN),
         ) {
             Text(stringResource(Res.string.home_join))
         }
 
         status.activity?.let { activity ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.testTag(TestTags.HOME_BUSY),
+            ) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 Text(
                     text = when (activity) {
@@ -122,6 +128,7 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
         status.problem?.let { problem ->
             Banner(
                 text = problem.describe(),
+                modifier = Modifier.testTag(TestTags.HOME_PROBLEM),
                 isError = true,
                 actionLabel = stringResource(Res.string.action_dismiss),
                 onAction = viewModel::dismissProblems,
@@ -130,6 +137,7 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
         sessionError?.let { error ->
             Banner(
                 text = error.describe(),
+                modifier = Modifier.testTag(TestTags.BANNER_ERROR),
                 isError = true,
                 actionLabel = stringResource(Res.string.action_dismiss),
                 onAction = viewModel::dismissProblems,
@@ -145,7 +153,7 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
             singleLine = true,
             enabled = !isBusy,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_SERVER),
         )
     }
 }

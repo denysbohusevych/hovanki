@@ -15,12 +15,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_leave
 import app.hovanki.client.resources.lobby_code_hint
@@ -47,7 +49,7 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel()) {
         return
     }
 
-    ScreenColumn {
+    ScreenColumn(modifier = Modifier.testTag(TestTags.LOBBY_SCREEN)) {
         JoinCodeCard(state.joinCode)
         SessionBanners(
             connectionStatus = state.connectionStatus,
@@ -80,12 +82,16 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel()) {
             Button(
                 onClick = viewModel::start,
                 enabled = state.canStart && !state.isStarting,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag(TestTags.LOBBY_START),
             ) {
                 Text(stringResource(Res.string.lobby_start))
             }
         } else {
-            Text(text = stringResource(Res.string.lobby_waiting), style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = stringResource(Res.string.lobby_waiting),
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.testTag(TestTags.LOBBY_WAITING),
+            )
         }
         TextButton(onClick = viewModel::leave, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(Res.string.action_leave))
@@ -108,6 +114,7 @@ private fun JoinCodeCard(joinCode: String) {
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 6.sp,
+                modifier = Modifier.testTag(TestTags.LOBBY_JOIN_CODE),
             )
             Text(
                 text = stringResource(Res.string.lobby_code_hint),
@@ -124,7 +131,7 @@ private fun PlayerRow(player: LobbyPlayer, canPickRoles: Boolean, onToggleSeeker
     val hostTag = stringResource(Res.string.lobby_host)
     val tags = listOfNotNull(youTag.takeIf { player.isMe }, hostTag.takeIf { player.isHost })
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).testTag(TestTags.lobbyPlayer(player.id)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -143,7 +150,11 @@ private fun PlayerRow(player: LobbyPlayer, canPickRoles: Boolean, onToggleSeeker
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.padding(end = 8.dp),
             )
-            Switch(checked = player.isSeeker, onCheckedChange = { onToggleSeeker() })
+            Switch(
+                checked = player.isSeeker,
+                onCheckedChange = { onToggleSeeker() },
+                modifier = Modifier.testTag(TestTags.seekerSwitch(player.id)),
+            )
         }
     }
 }

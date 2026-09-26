@@ -23,13 +23,17 @@ import platform.Foundation.NSError
 import platform.Foundation.timeIntervalSince1970
 import platform.darwin.NSObject
 
-class IosLocationProvider : LocationProvider {
+/**
+ * [allowSimulatedLocation]: debug builds under UI automation on the Simulator (see LaunchOptions); always false in
+ * release builds, where a simulated location is reported as mock.
+ */
+class IosLocationProvider(private val allowSimulatedLocation: () -> Boolean = { false }) : LocationProvider {
     override fun hasPermission(): Boolean = isLocationAuthorized(CLLocationManager().authorizationStatus)
 
     // CLLocationManager delivers delegate callbacks on the run loop of the thread that created it: use the main one.
     override fun locationUpdates(intervalMillis: Long): Flow<LocationSample> = callbackFlow {
         val updates = LocationUpdates(
-            onFix = { trySend(it) },
+            onFix = { fix -> trySend(if (fix.isMock && allowSimulatedLocation()) fix.copy(isMock = false) else fix) },
             onAccessLost = { close(IllegalStateException("Location access was revoked")) },
         )
         updates.start()

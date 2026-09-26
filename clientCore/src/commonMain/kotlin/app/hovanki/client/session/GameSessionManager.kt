@@ -64,8 +64,7 @@ class GameSessionManager(
     private var isTracking = false
 
     /** New game with the default settings: a shrinking zone around [center] (the host's position). */
-    suspend fun create(playerName: String, center: GeoPoint): Boolean =
-        create(playerName, GameSettings(zone = shrinkingZone(center)))
+    suspend fun create(playerName: String, center: GeoPoint): Boolean = create(playerName, defaultSettings(center))
 
     suspend fun create(playerName: String, settings: GameSettings): Boolean = command {
         begin(api.createGame(CreateGameRequest(playerName.trim(), settings)))
@@ -243,10 +242,13 @@ class GameSessionManager(
         return false
     }
 
-    private companion object {
-        const val FIRST_FIX_INTERVAL_MILLIS = 1_000L
+    companion object {
+        /** What the app creates: default rules and timers, a shrinking zone around the host at [center]. */
+        fun defaultSettings(center: GeoPoint): GameSettings = GameSettings(zone = shrinkingZone(center))
+
+        private const val FIRST_FIX_INTERVAL_MILLIS = 1_000L
 
         /** Good enough to center the zone on (the default zone is hundreds of meters wide). */
-        const val GOOD_FIX_ACCURACY_METERS = 50.0
+        private const val GOOD_FIX_ACCURACY_METERS = 50.0
     }
 }

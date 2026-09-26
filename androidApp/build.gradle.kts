@@ -69,5 +69,8 @@ dependencies {
     implementation(projects.composeApp)
     implementation(libs.androidx.activity.compose)
     implementation(libs.compose.runtime)
+    // AutomationRoot (debug): Box + semantics for testTagsAsResourceId.
+    implementation(libs.compose.foundation)
+    implementation(libs.compose.ui)
     implementation(libs.koin.android)
 }

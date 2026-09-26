@@ -2,5 +2,14 @@
 <!-- Debug builds may talk to a local development server over plain http (emulator: 10.0.2.2). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-  <application android:usesCleartextTraffic="true" />
+  <application android:usesCleartextTraffic="true">
+    <activity android:name=".MainActivity" android:exported="true">
+      <!-- UI automation (docs/e2e.md): adb shell am start -d "hovanki://join?server=...&name=...&joinCode=..." -->
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <data android:scheme="hovanki" android:host="join" />
+      </intent-filter>
+    </activity>
+  </application>
 </manifest>

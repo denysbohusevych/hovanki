@@ -19,7 +19,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import app.hovanki.client.automation.TestTags
 import app.hovanki.client.location.rememberLocationPermissionRequester
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_allow
@@ -51,7 +53,7 @@ fun ScreenColumn(modifier: Modifier = Modifier, content: @Composable ColumnScope
 
 @Composable
 fun LoadingScreen(modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(modifier = modifier.fillMaxSize().testTag(TestTags.LOADING), contentAlignment = Alignment.Center) {
         CircularProgressIndicator()
     }
 }
@@ -106,11 +108,15 @@ fun SessionBanners(
         if (granted) onLocationPermissionGranted()
     }
     if (connectionStatus == ConnectionStatus.RECONNECTING) {
-        Banner(text = stringResource(Res.string.connection_reconnecting))
+        Banner(
+            text = stringResource(Res.string.connection_reconnecting),
+            modifier = Modifier.testTag(TestTags.BANNER_RECONNECTING),
+        )
     }
     if (!isSharingLocation) {
         Banner(
             text = stringResource(Res.string.location_not_shared),
+            modifier = Modifier.testTag(TestTags.BANNER_NO_LOCATION),
             isError = true,
             actionLabel = stringResource(Res.string.action_allow),
             onAction = requestLocation,
@@ -119,6 +125,7 @@ fun SessionBanners(
     if (error != null) {
         Banner(
             text = error.describe(),
+            modifier = Modifier.testTag(TestTags.BANNER_ERROR),
             isError = true,
             actionLabel = stringResource(Res.string.action_dismiss),
             onAction = onDismissError,
