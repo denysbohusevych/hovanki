@@ -1,0 +1,87 @@
+name: Tunnel check (temporary)
+
+# TEMPORARY one-off check for the tester builds, removed after use: the app's client code (:clientCore over OkHttp,
+# as on Android) plays the e2e scenarios against the server through a Cloudflare Quick Tunnel, and the tunnel's HTTPS
+# passes iOS App Transport Security (nscurl --ats-diagnostics).
+on:
+  push:
+    branches: [claude/focused-knuth-s0d5tu]
+
+permissions:
+  contents: read
+
+jobs:
+  bots:
+    name: e2e bots through a Quick Tunnel
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Build server and scenarios
+        run: ./gradlew :server:bootJar :e2e:testClasses
+
+      - name: Server, tunnel, scenarios
+        run: |
+          curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          ./cloudflared --version
+          java -jar server/build/libs/hovanki-server.jar --spring.profiles.active=e2e >server.log 2>&1 &
+          for _ in $(seq 60); do curl -sf http://localhost:8080/actuator/health >/dev/null && break; sleep 2; done
+          ./cloudflared tunnel --no-autoupdate --url http://localhost:8080 >tunnel.log 2>&1 &
+          url=""
+          for _ in $(seq 60); do
+            url="$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' tunnel.log | head -1 || true)"
+            [ -n "$url" ] && break
+            sleep 2
+          done
+          [ -n "$url" ] || { cat tunnel.log; exit 1; }
+          echo "Tunnel: $url"
+          for _ in $(seq 60); do curl -sf "$url/actuator/health" >/dev/null && break; sleep 3; done
+          curl -sS "$url/actuator/health"; echo
+          curl -sS -o /dev/null -w "HTTPS via the tunnel: HTTP %{http_code}, TLS verify result %{ssl_verify_result}\n" "$url/actuator/health"
+          echo | openssl s_client -connect "${url#https://}:443" -servername "${url#https://}" 2>/dev/null \
+            | openssl x509 -noout -issuer -subject -dates
+          HOVANKI_E2E_SERVER_URL="$url" ./gradlew :e2e:test
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tunnel-check
+          path: |
+            e2e/build/reports/e2e/
+            server.log
+            tunnel.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ats:
+    name: iOS ATS against a Quick Tunnel
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - name: Tunnel to a local HTTP server, ATS diagnostics
+        run: |
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar xz
+          ./cloudflared --version
+          python3 -m http.server 8080 >http.log 2>&1 &
+          ./cloudflared tunnel --no-autoupdate --url http://localhost:8080 >tunnel.log 2>&1 &
+          url=""
+          for _ in $(seq 60); do
+            url="$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' tunnel.log | head -1 || true)"
+            [ -n "$url" ] && break
+            sleep 2
+          done
+          [ -n "$url" ] || { cat tunnel.log; exit 1; }
+          echo "Tunnel: $url"
+          for _ in $(seq 60); do curl -sf "$url/" >/dev/null && break; sleep 3; done
+          nscurl --ats-diagnostics "$url/" | tee ats.txt
+          # The first block is the default ATS configuration, i.e. a Release build without exceptions.
+          awk '/^Default ATS Secure Connection/,/^---$/ {print} /Result :/ && ++n == 1 {print; exit}' ats.txt | tee first.txt
+          grep -q "Result : PASS" first.txt
