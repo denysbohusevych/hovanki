@@ -24,11 +24,15 @@ import org.springframework.web.bind.annotation.RestController
 /** Thin HTTP adapter: routes and DTOs come from `:shared`, all logic lives in [GameService]. */
 @RestController
 class GameController(private val games: GameService) {
+    // Create and join take an optional account token: without one, the caller plays as a guest (and as before).
+
     @PostMapping(ApiRoutes.GAMES)
-    fun create(@RequestBody request: CreateGameRequest): SessionResponse = games.create(request)
+    fun create(user: AuthenticatedUser?, @RequestBody request: CreateGameRequest): SessionResponse =
+        games.create(request, user)
 
     @PostMapping(ApiRoutes.JOIN)
-    fun join(@RequestBody request: JoinGameRequest): SessionResponse = games.join(request)
+    fun join(user: AuthenticatedUser?, @RequestBody request: JoinGameRequest): SessionResponse =
+        games.join(request, user)
 
     @PostMapping(ApiRoutes.START)
     fun start(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: StartGameRequest): GameSnapshot =

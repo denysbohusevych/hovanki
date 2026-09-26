@@ -1,5 +1,7 @@
 package app.hovanki.server.game
 
+import app.hovanki.server.account.UserRepository
+import app.hovanki.server.api.AuthenticatedUser
 import app.hovanki.server.buildings.BuildingLoader
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
@@ -7,6 +9,7 @@ import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.ConfirmCatchRequest
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.ErrorCode
+import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
@@ -28,9 +31,14 @@ class GameService(
     private val ids: IdGenerator,
     private val clock: Clock,
     private val buildingLoader: BuildingLoader,
+    private val users: UserRepository,
 ) {
-    fun create(request: CreateGameRequest): SessionResponse {
-        val name = validName(request.playerName)
+    /**
+     * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
+     * player's name; [CreateGameRequest.playerName] only names guests.
+     */
+    fun create(request: CreateGameRequest, user: AuthenticatedUser? = null): SessionResponse {
+        val name = playerName(request.playerName, user)
         validate(request.settings)
         val now = clock.millis()
         val hostId = ids.playerId()
@@ -39,7 +47,7 @@ class GameService(
             game = Game(ids.gameId(), ids.joinCode(), hostId, request.settings, now)
         } while (!registry.add(game))
         return synchronized(game) {
-            game.addPlayer(hostId, name, now)
+            game.addPlayer(hostId, name, now, user?.userId)
             loadBuildings(game)
             newSession(game, hostId, now)
         }
@@ -51,15 +59,26 @@ class GameService(
         return synchronized(game) { game.buildingsFor(caller.playerId, clock.millis()) }
     }
 
-    fun join(request: JoinGameRequest): SessionResponse {
-        val name = validName(request.playerName)
+    /**
+     * Joins the game of [JoinGameRequest.joinCode] as a new player, in the lobby only. [user]: the caller's account
+     * (null: a guest). An account that already has a player in the game gets that player back instead, in any phase (a
+     * reinstalled app, a second phone): a new token, and the player's old tokens stop working.
+     */
+    fun join(request: JoinGameRequest, user: AuthenticatedUser? = null): SessionResponse {
+        // The nickname comes from the database, outside the game's lock: the game's other requests never wait for it.
+        val name = playerName(request.playerName, user)
         val game = registry.findByJoinCode(request.joinCode.trim())
             ?: throw GameException(ErrorCode.NOT_FOUND, "No game with this code")
         return synchronized(game) {
             val now = clock.millis()
             game.advance(now)
-            val playerId = ids.playerId()
-            game.addPlayer(playerId, name, now)
+            val returning = user?.let { game.playerOf(it.userId) }
+            val playerId = if (returning != null) {
+                registry.revokeTokens(game.id, returning)
+                returning
+            } else {
+                ids.playerId().also { game.addPlayer(it, name, now, user?.userId) }
+            }
             newSession(game, playerId, now)
         }
     }
@@ -120,6 +139,14 @@ class GameService(
         val token = ids.token()
         registry.registerToken(token, PlayerRef(game.id, playerId))
         return SessionResponse(PlayerSession(game.id, playerId, token), game.snapshotFor(playerId, now))
+    }
+
+    /** The account's nickname for a logged-in player, else the name the guest typed. */
+    private fun playerName(typed: String, user: AuthenticatedUser?): String {
+        if (user == null) return validName(typed)
+        // Deleted since its token was checked: as if the token was unknown.
+        return users.findById(user.userId)?.nickname
+            ?: throw GameException(ErrorCode.UNAUTHORIZED, "Log in again", ErrorReason.SESSION_EXPIRED)
     }
 
     private fun validName(name: String): String {

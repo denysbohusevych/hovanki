@@ -13,6 +13,7 @@ import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
+import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.rules.shrinkingZone
 import app.hovanki.shared.totp.catchCodeTotp
@@ -412,5 +413,38 @@ class GameTest {
             ErrorCode.NOT_FOUND,
             assertFailsWith<GameException> { game.buildingsFor(PlayerId("x"), now) }.code,
         )
+    }
+
+    // ---- Accounts (docs/adr/0004-accounts-friends-chat.md) ----
+
+    private val alice = UserId("alice")
+
+    @Test
+    fun playersWithAndWithoutAccounts() {
+        game.addPlayer(host, "alice", now, alice)
+        game.addPlayer(hider, "Guest", now)
+
+        assertEquals(host, game.playerOf(alice))
+        assertNull(game.playerOf(UserId("bob")))
+        assertEquals(alice, game.userIdOf(host))
+        assertNull(game.userIdOf(hider))
+        assertEquals(ErrorCode.NOT_FOUND, assertFailsWith<GameException> { game.userIdOf(seeker) }.code)
+
+        val players = game.snapshotFor(hider, now).players
+        assertEquals(alice, players.single { it.id == host }.userId)
+        assertNull(players.single { it.id == hider }.userId)
+        assertEquals(alice, game.debugState(now).players.single { it.id == host }.userId)
+    }
+
+    @Test
+    fun anAccountHasOnePlayerPerGame() {
+        game.addPlayer(host, "alice", now, alice)
+
+        val error = assertFailsWith<GameException> { game.addPlayer(seeker, "alice", now, alice) }
+        assertEquals(ErrorCode.WRONG_STATE, error.code)
+        assertEquals(listOf(host), game.snapshotFor(host, now).players.map { it.id })
+        // Guests can't be told apart: any number of them.
+        game.addPlayer(seeker, "Guest", now)
+        game.addPlayer(hider, "Guest", now)
     }
 }

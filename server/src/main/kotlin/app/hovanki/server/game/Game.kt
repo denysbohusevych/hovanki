@@ -23,6 +23,7 @@ import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.VisibleLocation
 import app.hovanki.shared.rules.BuildingMap
@@ -85,12 +86,22 @@ class Game(
         return buildings.copy(state = buildingsState)
     }
 
-    fun addPlayer(id: PlayerId, name: String, nowMillis: Long) {
+    /** A new player, only in the lobby; [userId] is their account (null: a guest), at most one player per account. */
+    fun addPlayer(id: PlayerId, name: String, nowMillis: Long, userId: UserId? = null) {
         requirePhase(GamePhase.LOBBY)
         if (players.size >= MAX_PLAYERS) throw GameException(ErrorCode.WRONG_STATE, "The game is full")
-        players[id] = Player(id, name, LocationTrack(rules))
+        if (userId != null && playerOf(userId) != null) {
+            throw GameException(ErrorCode.WRONG_STATE, "This account already plays in this game")
+        }
+        players[id] = Player(id, name, LocationTrack(rules), userId)
         lastActivityMillis = nowMillis
     }
+
+    /** The player of the account [userId] in this game, if it has one. */
+    fun playerOf(userId: UserId): PlayerId? = players.values.firstOrNull { it.userId == userId }?.id
+
+    /** The account of [playerId]; null for a guest. */
+    fun userIdOf(playerId: PlayerId): UserId? = player(playerId).userId
 
     fun start(by: PlayerId, seekers: Set<PlayerId>, newCatchCodeSecret: () -> String, nowMillis: Long) {
         requirePhase(GamePhase.LOBBY)
@@ -243,6 +254,7 @@ class Game(
                     player.role,
                     player.status,
                     visibleLocation(viewer, player, nowMillis),
+                    player.userId,
                 )
             },
             me = MyState(
@@ -309,6 +321,7 @@ class Game(
                         outOfOrder = player.fixResults[LocationTrack.Result.OUT_OF_ORDER] ?: 0,
                         implausible = player.fixResults[LocationTrack.Result.IMPLAUSIBLE] ?: 0,
                     ),
+                    userId = player.userId,
                 )
             },
             catches = catches.values.map { claim ->
@@ -487,7 +500,7 @@ class Game(
         if (phase != expected) throw GameException(ErrorCode.WRONG_STATE, "Not possible in phase $phase")
     }
 
-    private class Player(val id: PlayerId, val name: String, val track: LocationTrack) {
+    private class Player(val id: PlayerId, val name: String, val track: LocationTrack, val userId: UserId?) {
         var role: Role = Role.HIDER
         var status: PlayerStatus = PlayerStatus.ACTIVE
         var catchCodeSecret: String? = null
