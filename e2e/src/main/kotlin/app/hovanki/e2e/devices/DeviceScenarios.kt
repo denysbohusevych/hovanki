@@ -266,7 +266,8 @@ private suspend fun DeviceRun.awaitBuildings(bots: List<BotPlayer>): Unit = with
         return
     }
     val bot = bots.firstOrNull() ?: return note("⚠ no bot to read the buildings from: hiding spots may be indoors")
-    val response = eventually("${bot.name}'s app loaded the zone's buildings", 30.seconds) { bot.state.buildings }
+    // The app fetches them with the next snapshot; on the busy macOS runner syncs once took up to 38 s for a minute.
+    val response = eventually("${bot.name}'s app loaded the zone's buildings", 90.seconds) { bot.state.buildings }
     buildings = BuildingSearch(response, origin)
     note("the zone has ${response.buildings.size} buildings and ${response.passages.size} passages")
 }
