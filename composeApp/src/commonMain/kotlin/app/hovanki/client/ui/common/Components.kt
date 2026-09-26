@@ -5,28 +5,39 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.location.rememberLocationPermissionRequester
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_allow
+import app.hovanki.client.resources.action_back
 import app.hovanki.client.resources.action_dismiss
 import app.hovanki.client.resources.action_leave_game
 import app.hovanki.client.resources.connection_reconnecting
@@ -37,11 +48,20 @@ import app.hovanki.client.resources.error_saved_game_finished
 import app.hovanki.client.resources.error_saved_game_gone
 import app.hovanki.client.resources.error_session_lost
 import app.hovanki.client.resources.error_too_far
+import app.hovanki.client.resources.home_connecting
+import app.hovanki.client.resources.home_locating
+import app.hovanki.client.resources.ic_back
 import app.hovanki.client.resources.location_not_shared
+import app.hovanki.client.resources.problem_code_missing
+import app.hovanki.client.resources.problem_location_denied
+import app.hovanki.client.resources.problem_name_missing
+import app.hovanki.client.resources.problem_no_location_fix
 import app.hovanki.client.resources.resuming_game
+import app.hovanki.client.resources.working
 import app.hovanki.client.session.ConnectionStatus
 import app.hovanki.client.session.SessionError
 import app.hovanki.shared.protocol.ErrorCode
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
 /** Scrollable screen body with the app's standard paddings. */
@@ -132,6 +152,58 @@ fun Banner(
     }
 }
 
+/** A highlighted [notice] with an OK button; nothing without one. */
+@Composable
+fun NoticeBanner(notice: Notice?, onDismiss: () -> Unit, modifier: Modifier = Modifier, isError: Boolean = true) {
+    if (notice == null) return
+    Banner(
+        text = notice.text(),
+        modifier = modifier,
+        isError = isError,
+        actionLabel = stringResource(Res.string.action_dismiss),
+        onAction = onDismiss,
+    )
+}
+
+/**
+ * An account or social command under way ([isBusy], [TestTags.ACCOUNT_BUSY]) and how it went ([message]: an error is
+ * tagged [errorTag], news [infoTag]).
+ */
+@Composable
+fun CommandStatus(
+    isBusy: Boolean,
+    message: FormMessage?,
+    onDismiss: () -> Unit,
+    errorTag: String = TestTags.ACCOUNT_ERROR,
+    infoTag: String? = null,
+) {
+    if (isBusy) {
+        BusyRow(text = stringResource(Res.string.working), modifier = Modifier.testTag(TestTags.ACCOUNT_BUSY))
+    }
+    if (message != null) {
+        val tag = if (message.isError) errorTag else infoTag
+        NoticeBanner(
+            notice = message.notice,
+            onDismiss = onDismiss,
+            modifier = if (tag != null) Modifier.testTag(tag) else Modifier,
+            isError = message.isError,
+        )
+    }
+}
+
+/** A small spinner next to what is under way. */
+@Composable
+fun BusyRow(text: String, modifier: Modifier = Modifier) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier,
+    ) {
+        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        Text(text = text)
+    }
+}
+
 /** Connection, location and error notices shared by the lobby and the game screens. */
 @Composable
 fun SessionBanners(
@@ -170,9 +242,53 @@ fun SessionBanners(
     }
 }
 
+/**
+ * Creating or joining a game: what is under way, a problem found on the phone, and the server's refusal
+ * ([sessionError]), with the tags the device orchestrator watches.
+ */
+@Composable
+fun StartStatusBanners(status: StartStatus, sessionError: SessionError?, onDismiss: () -> Unit) {
+    status.activity?.let { activity ->
+        BusyRow(
+            text = when (activity) {
+                StartActivity.LOCATING -> stringResource(Res.string.home_locating)
+                StartActivity.CONNECTING -> stringResource(Res.string.home_connecting)
+            },
+            modifier = Modifier.testTag(TestTags.HOME_BUSY),
+        )
+    }
+    status.problem?.let { problem ->
+        Banner(
+            text = problem.describe(),
+            modifier = Modifier.testTag(TestTags.HOME_PROBLEM),
+            isError = true,
+            actionLabel = stringResource(Res.string.action_dismiss),
+            onAction = onDismiss,
+        )
+    }
+    sessionError?.let { error ->
+        Banner(
+            text = error.describe(),
+            modifier = Modifier.testTag(TestTags.BANNER_ERROR),
+            isError = true,
+            actionLabel = stringResource(Res.string.action_dismiss),
+            onAction = onDismiss,
+        )
+    }
+}
+
+@Composable
+fun StartProblem.describe(): String = when (this) {
+    StartProblem.NAME_MISSING -> stringResource(Res.string.problem_name_missing)
+    StartProblem.CODE_MISSING -> stringResource(Res.string.problem_code_missing)
+    StartProblem.LOCATION_DENIED -> stringResource(Res.string.problem_location_denied)
+    StartProblem.NO_LOCATION_FIX -> stringResource(Res.string.problem_no_location_fix)
+}
+
 @Composable
 fun SessionError.describe(): String = when (this) {
-    is SessionError.Rejected -> when (code) {
+    // The exact cause when the server sent one (rate limit, logged out, not friends...).
+    is SessionError.Rejected -> reason?.let { reasonNotice(it, retryAfterSeconds).text() } ?: when (code) {
         ErrorCode.NOT_FOUND -> stringResource(Res.string.error_not_found)
 
         ErrorCode.TOO_FAR -> stringResource(Res.string.error_too_far)
@@ -190,6 +306,73 @@ fun SessionError.describe(): String = when (this) {
     SessionError.SavedGameFinished -> stringResource(Res.string.error_saved_game_finished)
 
     SessionError.SavedGameGone -> stringResource(Res.string.error_saved_game_gone)
+}
+
+/** A password: hidden, one line; the keyboard's action key runs [onImeAction]. */
+@Composable
+fun PasswordField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    isError: Boolean = false,
+    supportingText: String? = null,
+    onImeAction: () -> Unit = {},
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        supportingText = if (supportingText != null) {
+            { Text(supportingText) }
+        } else {
+            null
+        },
+        isError = isError,
+        singleLine = true,
+        enabled = enabled,
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { onImeAction() }),
+        modifier = modifier.fillMaxWidth(),
+    )
+}
+
+/** Back to the previous step of a form, like the system back action. */
+@Composable
+fun BackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    TextButton(onClick = onClick, modifier = modifier) {
+        Icon(
+            painter = painterResource(Res.drawable.ic_back),
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(stringResource(Res.string.action_back))
+    }
+}
+
+/** Version, build number and commit, small, so testers can name the build. */
+@Composable
+fun BuildLabel(label: String) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.testTag(TestTags.HOME_BUILD),
+    )
+}
+
+/** A secondary text under a title, a field or a button. */
+@Composable
+fun SecondaryText(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier,
+    )
 }
 
 /** "m:ss", rounded up so a countdown shows 0:00 only when the time is really over. */

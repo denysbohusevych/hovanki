@@ -8,9 +8,12 @@
   <string name="action_confirm">Confirm</string>
   <string name="action_dismiss">OK</string>
   <string name="action_leave">Leave</string>
+  <string name="action_back">Back</string>
+  <string name="action_log_out">Log out</string>
+  <string name="working">One moment…</string>
   <string name="connection_reconnecting">No connection to the server. Reconnecting…</string>
   <string name="location_not_shared">Your location is not shared. The game does not work without it.</string>
-  <string name="error_network">Cannot reach the server. Check your internet connection and the server address.</string>
+  <string name="error_network">Cannot reach the server. Check your internet connection.</string>
   <string name="error_not_found">Game not found. Check the code.</string>
   <string name="error_too_far">GPS says you are too far away from this player.</string>
   <string name="error_no_location">No accurate GPS fix yet. Step into the open and try again.</string>
@@ -19,8 +22,94 @@
   <string name="error_saved_game_gone">Could not return to your game: the server no longer has it (it ended or the server was restarted).</string>
   <string name="resuming_game">Returning to your game…</string>
 
-  <!-- Start screen -->
+  <!-- Accounts, friends and groups: what went wrong -->
+  <string name="error_wrong_login">Wrong nickname, email or password.</string>
+  <string name="error_wrong_password">Wrong password.</string>
+  <string name="error_nickname_taken">This nickname is taken. Try another one.</string>
+  <string name="error_email_taken">This email already has an account. Log in, or reset the password if you forgot it.</string>
+  <string name="error_invalid_nickname">A nickname has 3 to 20 letters or digits (also _ . -) and starts with a letter or a digit.</string>
+  <string name="error_invalid_email">Check the email address.</string>
+  <string name="error_invalid_password">A password has 8 to 64 characters.</string>
+  <string name="error_email_not_verified">Confirm your email first.</string>
+  <string name="error_wrong_code">Wrong code. Check the email and try again.</string>
+  <string name="error_code_expired">This code is no longer valid. Ask for a new one.</string>
+  <string name="error_session_expired">You were logged out. Log in again.</string>
+  <string name="error_account_required">Log in to do this.</string>
+  <string name="error_user_not_found">There is no player with this nickname.</string>
+  <string name="error_not_friends">You can only do this with your friends.</string>
+  <string name="error_blocked_by_you">You blocked this player. Unblock them first.</string>
+  <string name="error_not_group_owner">Only the owner of the group can do this.</string>
+  <string name="error_not_group_member">You are not in this group.</string>
+  <string name="error_invalid_group_name">A group name has 1 to 40 characters.</string>
+  <string name="error_limit_reached">That is the limit: too many friends, requests, groups or members.</string>
+  <string name="error_invalid_message">A message has 1 to 300 characters.</string>
+  <string name="error_too_many_requests">Too many attempts. Try again later.</string>
+  <string name="error_too_many_requests_wait">Too many attempts. Try again in %1$s.</string>
+
+  <!-- Welcome screen: logged out -->
   <string name="home_tagline">Hide and seek in the streets, inside a shrinking zone.</string>
+  <string name="welcome_log_in">Log in</string>
+  <string name="welcome_register">Create an account</string>
+  <string name="welcome_account_hint">With an account you create games, add friends and play with your groups.</string>
+  <string name="welcome_guest_title">Join a game as a guest</string>
+  <string name="welcome_guest_hint">No account needed: enter your name and the code a friend gives you.</string>
+  <string name="login_title">Log in</string>
+  <string name="login_login_label">Nickname or email</string>
+  <string name="password_label">Password</string>
+  <string name="login_submit">Log in</string>
+  <string name="login_forgot">Forgot your password?</string>
+  <string name="login_missing">Enter your nickname or email and your password.</string>
+  <string name="register_title">New account</string>
+  <string name="register_nickname_label">Nickname</string>
+  <string name="register_nickname_hint">3 to 20 letters or digits, also _ . -. Other players see it.</string>
+  <string name="register_email_label">Email</string>
+  <string name="register_email_hint">We send a code there to confirm it. Other players never see it.</string>
+  <string name="register_password_hint">8 to 64 characters.</string>
+  <string name="register_submit">Create the account</string>
+  <string name="form_check_fields">Check the highlighted fields.</string>
+  <string name="reset_title">Reset the password</string>
+  <string name="reset_text">Enter the email of your account. We will send a code there.</string>
+  <string name="reset_send_code">Send the code</string>
+  <string name="reset_code_sent">If %1$s belongs to an account, a code is on its way. Enter it with a new password.</string>
+  <string name="code_label">Code from the email</string>
+  <string name="new_password_label">New password</string>
+  <string name="reset_submit">Save and log in</string>
+  <string name="resend_code">Send the code again</string>
+  <string name="resend_code_in">Send again in %1$s</string>
+  <string name="code_sent">A new code is on its way.</string>
+  <string name="code_format">Enter the 6 digits from the email.</string>
+
+  <!-- Email confirmation -->
+  <string name="verify_title">Confirm your email</string>
+  <string name="verify_text">We sent a 6-digit code to %1$s. Enter it here.</string>
+  <string name="verify_spam_hint">No email? Check the spam folder, or send the code again in a minute.</string>
+  <string name="verify_submit">Confirm</string>
+  <string name="verify_change_email">Wrong address? Change the email</string>
+  <string name="verify_new_email_label">New email</string>
+  <string name="verify_save_email">Send the code there</string>
+
+  <!-- Main screen: logged in -->
+  <string name="tab_play">Play</string>
+  <string name="tab_friends">Friends</string>
+  <string name="tab_groups">Groups</string>
+  <string name="tab_profile">Profile</string>
+  <string name="play_hello">Hi, %1$s!</string>
+  <string name="invites_title">Invitations</string>
+  <string name="invite_from">%1$s invites you to a game</string>
+  <string name="invite_from_group">%1$s invites your group “%2$s” to a game</string>
+  <string name="invite_accept">Join</string>
+  <string name="invite_dismiss">Dismiss</string>
+  <string name="profile_nickname">Nickname</string>
+  <string name="profile_email">Email</string>
+  <string name="profile_change_password">Change the password</string>
+  <string name="profile_current_password">Current password</string>
+  <string name="profile_save_password">Save the password</string>
+  <string name="profile_password_changed">Password changed. Your other devices were logged out.</string>
+  <string name="profile_delete">Delete the account</string>
+  <string name="profile_delete_warning">This deletes your account for good: nickname, email, friends and groups. You cannot undo it.</string>
+  <string name="profile_delete_confirm">Delete for good</string>
+
+  <!-- Creating and joining games -->
   <string name="home_name_label">Your name</string>
   <string name="home_create">Create a game here</string>
   <string name="home_create_hint">The game zone is centered on your current location.</string>
@@ -30,11 +119,8 @@
   <string name="home_locating">Getting your location…</string>
   <string name="home_connecting">Connecting to the server…</string>
   <string name="home_location_note">During a round the game server receives your precise location, also while the screen is locked. It is deleted when the game ends.</string>
-  <string name="home_server_label">Server address</string>
-  <string name="home_server_hint">Game server, e.g. https://name.trycloudflare.com</string>
   <string name="problem_name_missing">Enter your name.</string>
   <string name="problem_code_missing">Enter the join code.</string>
-  <string name="problem_server_missing">Enter the server address at the bottom of the screen.</string>
   <string name="problem_location_denied">The game needs your precise location. Allow it in the system settings.</string>
   <string name="problem_no_location_fix">Could not get an accurate location. Step into the open and try again.</string>
 
@@ -97,6 +183,7 @@
   <string name="action_leave_game">Leave the game</string>
   <string name="leave_title">Leave the game?</string>
   <string name="leave_text">You cannot come back to this round. Your last position will be revealed to the seekers.</string>
+  <string name="leave_text_account">While you are away, the seekers see your last position. To come back into this round, join it again with the code %1$s.</string>
 
   <!-- Results -->
   <string name="results_title">Game over</string>

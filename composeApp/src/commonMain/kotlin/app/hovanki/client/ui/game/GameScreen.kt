@@ -56,6 +56,7 @@ import app.hovanki.client.resources.hint_seeker_hiding
 import app.hovanki.client.resources.in_building_revealed
 import app.hovanki.client.resources.in_building_warning
 import app.hovanki.client.resources.leave_text
+import app.hovanki.client.resources.leave_text_account
 import app.hovanki.client.resources.leave_title
 import app.hovanki.client.resources.map_legend
 import app.hovanki.client.resources.no_hiders_to_claim
@@ -190,7 +191,15 @@ fun GameScreen(viewModel: GameViewModel = koinViewModel()) {
         AlertDialog(
             onDismissRequest = { showLeaveDialog = false },
             title = { Text(stringResource(Res.string.leave_title)) },
-            text = { Text(stringResource(Res.string.leave_text)) },
+            text = {
+                Text(
+                    if (state.hasAccount) {
+                        stringResource(Res.string.leave_text_account, state.joinCode)
+                    } else {
+                        stringResource(Res.string.leave_text)
+                    },
+                )
+            },
             confirmButton = {
                 TextButton(onClick = viewModel::leave) { Text(stringResource(Res.string.action_leave)) }
             },

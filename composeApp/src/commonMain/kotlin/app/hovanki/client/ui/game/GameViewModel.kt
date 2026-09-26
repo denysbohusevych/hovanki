@@ -159,6 +159,8 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             isSharingLocation = state.isSharingLocation,
             error = state.lastError,
             isBusy = busy,
+            joinCode = snapshot.joinCode,
+            hasAccount = snapshot.players.any { it.id == me.playerId && it.userId != null },
         )
     }
 
@@ -205,6 +207,9 @@ data class GameUiState(
     val isSharingLocation: Boolean,
     val error: SessionError?,
     val isBusy: Boolean,
+    val joinCode: String,
+    /** Playing with an account: joining again with [joinCode] gives the player back (e.g. after leaving). */
+    val hasAccount: Boolean,
 )
 
 data class ClaimUi(
