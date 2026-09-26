@@ -54,9 +54,19 @@ class AndroidDevice(override val id: String, override val label: String, private
         adb("shell", "cmd", "location", "set-location-enabled", "true")
     }
 
-    /** `adb install -r -g`: the runtime permissions (location, notifications) are granted up front. */
+    /**
+     * `adb install -r -g`: the runtime permissions (location, notifications) are granted up front. A build signed with
+     * another key (a release build, a debug build from another machine) can't be updated in place: it is uninstalled
+     * first. That loses only its saved game, which the scenarios forget anyway.
+     */
     fun install(apk: File) {
-        shell.run(listOf("adb", "-s", id, "install", "-r", "-g", apk.absolutePath), timeout = 3.minutes).orThrow()
+        val command = listOf("adb", "-s", id, "install", "-r", "-g", apk.absolutePath)
+        val result = shell.run(command, timeout = 3.minutes)
+        if (result.ok) return
+        if (SIGNATURE_MISMATCH !in result.stdout + result.stderr) result.orThrow()
+        println("[devices] $id: the installed $appId is signed with another key, uninstalling it")
+        adb("uninstall", appId).orThrow()
+        shell.run(command, timeout = 3.minutes).orThrow()
     }
 
     /** Sets global [settings] (`settings put global`) and returns their previous values ("null" when unset). */
@@ -122,6 +132,8 @@ class AndroidDevice(override val id: String, override val label: String, private
     private fun adb(args: List<String>) = shell.run(listOf("adb", "-s", id) + args, timeout = 30.seconds)
 
     private companion object {
+        const val SIGNATURE_MISMATCH = "INSTALL_FAILED_UPDATE_INCOMPATIBLE"
+
         val PERMISSIONS = listOf(
             "android.permission.ACCESS_FINE_LOCATION",
             "android.permission.ACCESS_COARSE_LOCATION",
