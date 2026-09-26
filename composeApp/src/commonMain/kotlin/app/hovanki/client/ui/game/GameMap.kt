@@ -260,7 +260,7 @@ internal object MapStyle {
 private val MapMarker.isTeammate: Boolean get() = reason == VisibilityReason.TEAMMATE
 
 private fun List<GeoPoint>.toRing(): List<Position> = map { it.toPosition() }.let { ring ->
-    if (ring.first() == ring.last()) ring else ring + ring.first()
+    if (ring.first() == ring.last()) ring else ring + listOf(ring.first())
 }
 
 private fun BuildingArea.toPolygon() = Polygon(
