@@ -16,6 +16,7 @@ import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.totp.catchCodeTotp
 import kotlinx.coroutines.delay
+import java.util.Locale
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.PI
 import kotlin.math.cos
@@ -181,11 +182,13 @@ private suspend fun DeviceRun.setUpGame(seekerOnDevice: Boolean): Lineup = with(
     }
     useGame(game.gameId, game.joinCode)
     origin = state().settings.zone.initial.center
+    // To the kilometer: enough to tell where the map is, not where somebody's emulator really sits.
+    val around = "%.2f, %.2f".format(Locale.ROOT, origin.lat, origin.lon)
     note(
         when {
-            location != null -> "the game is at the given location (--location)"
+            location != null -> "the game is at the given location (--location), around $around"
             host.isPlaced -> "⚠ ${host.name} has no location of its own: the game is at the fallback location"
-            else -> "the game is where ${host.name} is: centered on its own location"
+            else -> "the game is where ${host.name} is: its own location, around $around"
         },
     )
     // From here on the scenario moves the devices: the host stays at the zone center, the others come over.
@@ -228,11 +231,11 @@ private suspend fun DeviceRun.createGameOnDevice(host: DevicePlayer) {
     val failure = firstTry.exceptionOrNull() ?: return
     if (failure is CancellationException) throw failure
     val screen = runCatching { maestro.hierarchy(host.device) }.getOrNull() ?: throw failure
-    val problem = screen.textOf(TestTags.HOME_PROBLEM)
     val banner = screen.textOf(TestTags.BANNER_ERROR)
     when {
-        problem != null && !host.isPlaced -> {
-            scenario.note("⚠ ${host.name} got no location fix (\"$problem\"): using the fallback location")
+        // On iOS the problem's text is a sibling of the tagged element, not inside it: only its presence counts.
+        screen.contains(TestTags.HOME_PROBLEM) && !host.isPlaced -> {
+            scenario.note("⚠ ${host.name} got no location fix of its own: using the fallback location")
             placeDevices(DeviceRun.FALLBACK_LOCATION)
         }
 
@@ -253,7 +256,8 @@ private suspend fun DeviceRun.createGameOnDevice(host: DevicePlayer) {
  * there to keep hiding spots in the open. Without data the game runs without the building rule, and the phones say so.
  */
 private suspend fun DeviceRun.awaitBuildings(bots: List<BotPlayer>): Unit = with(scenario) {
-    val loaded = eventually("the server has looked up the zone's buildings", 90.seconds) {
+    // Overpass may take a while: a busy instance, a pause, the next instance, one more attempt.
+    val loaded = eventually("the server has looked up the zone's buildings", 150.seconds) {
         state().buildings?.takeIf { it != BuildingsState.LOADING }
     }
     if (loaded != BuildingsState.READY) {
