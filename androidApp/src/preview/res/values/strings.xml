@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Preview builds install next to the release: tell them apart on the home screen. -->
+<resources>
+  <string name="app_name">Hovanki β</string>
+</resources>
