@@ -1,6 +1,7 @@
 package app.hovanki.client.ui.game
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -15,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -174,9 +176,11 @@ fun GameMap(zone: ZoneState, myLocation: LocationSample?, markers: List<MapMarke
     Box(modifier = modifier.clip(MaterialTheme.shapes.medium).testTag(TestTags.GAME_MAP)) {
         MaplibreMap(
             state = mapState,
-            // Our own attribution line is always visible below; MapLibre's logo and button stay as well.
-            overlay = { include(MapOverlay.AttributionOnly) },
+            // The credit is our own line below: always visible, also over the plain fallback background and for
+            // the building outlines (OpenStreetMap too). MapLibre's expanding one would repeat it.
+            overlay = { include(MapOverlay.None) },
         )
+        val uriHandler = LocalUriHandler.current
         Text(
             text = MapStyle.ATTRIBUTION,
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
@@ -184,6 +188,7 @@ fun GameMap(zone: ZoneState, myLocation: LocationSample?, markers: List<MapMarke
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .background(Color.White.copy(alpha = 0.7f))
+                .clickable { uriHandler.openUri(MapStyle.COPYRIGHT_URL) }
                 .padding(horizontal = 4.dp, vertical = 1.dp)
                 .testTag(TestTags.MAP_ATTRIBUTION),
         )
@@ -197,6 +202,9 @@ internal object MapStyle {
 
     /** The credit the provider and the OpenStreetMap license require, shown on the map at all times. */
     const val ATTRIBUTION = "OpenFreeMap © OpenMapTiles Data from OpenStreetMap"
+
+    /** Where the credit leads: the OpenStreetMap license and contributors. */
+    const val COPYRIGHT_URL = "https://www.openstreetmap.org/copyright"
 
     /** Fonts the provider's glyph server has. */
     val FONTS = listOf("Noto Sans Regular")

@@ -230,7 +230,7 @@ e2e/run-devices.sh --ios 1 --fail-fast                                  # пос
 
 ### Как это устроено
 
-- **UI** — Maestro-флоу в `e2e/maestro/`: `create-game`, `create-game-again`, `join-game`, `allow-location`, `start-game`, `claim-catch`, `enter-code`, `await-visible`, `scroll-edge`.
+- **UI** — Maestro-флоу в `e2e/maestro/`: `create-game`, `create-game-again`, `join-game`, `allow-location`, `start-game`, `claim-catch`, `enter-code`, `await-visible`, `scroll-edge-down`, `scroll-edge-up`.
   - Элементы ищутся по test tags из `TestTags` (`:clientCore`, `app.hovanki.client.automation`). На Android это resource-id в debug-сборке, на iOS — `accessibilityIdentifier`.
   - Переменные передаются через env, `APP_ID` оркестратор ставит сам.
 - **Как вызывается Maestro** (`--maestro-mode`, по умолчанию `auto`):
@@ -302,7 +302,7 @@ e2e/run-devices.sh --ios 1 --fail-fast                                  # пос
 - **Точки симулятора iOS помечены как подменённые** (`isSimulatedBySoftware`). Для игроков на симуляторе оркестратор передаёт debug-параметр `allowSimulatedLocation`, поэтому анти-спуфинг на iOS-симуляторе в e2e выключен. Проверку `MOCK_LOCATION` покрывают боты.
 - **Потерянные тапы на iOS-симуляторе.** Тап Maestro по кнопке Compose иногда не вызывает `onClick`: касание UIKit доставил, следующий тап срабатывает. Флоу повторяют такой тап один раз с «⚠» в отчёте. Бывает ли это у живых пользователей на iPhone, из CI не видно — стоит проверить на устройстве.
 - **Один iOS-симулятор в CI.** Код с экрана прячущегося-телефона проверяется только на Android. Два и больше симуляторов — локально на Mac, через CLI Maestro, это медленнее.
-- **Карта перехватывает свайпы.** Свайп, начатый на карте, двигает карту, а не экран. `scrollUntilVisible` в Maestro свайпает из центра экрана, поэтому до элементов под картой флоу `scroll-edge` прокручивает свайпом по левому краю, по полю отступа экрана.
+- **Карта перехватывает свайпы.** Свайп, начатый на карте, двигает карту, а не экран. `scrollUntilVisible` в Maestro свайпает из центра экрана, поэтому до элементов под картой флоу `scroll-edge-down` / `scroll-edge-up` прокручивают свайпом по левому краю, по полю отступа экрана. Координаты свайпа в флоу — константы: Maestro проверяет их при разборе файла, до подстановки переменных.
 - **Реальное время.**
   - Сценарии не ускоряют часы сервера.
   - Таймеры укорочены: через `GameRules` у ботов и через время пряток на устройствах. Остальные пороги игры, созданной с телефона, — по умолчанию: раскрытие при молчании 45 с, таймаут кода 60 с. Поэтому `restart` идёт несколько минут.
