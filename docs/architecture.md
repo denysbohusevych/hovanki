@@ -1,6 +1,6 @@
 # Архитектура
 
-Решение по стеку и его обоснование — в [ADR 0001](adr/0001-stack.md), хранение сессии на устройстве — в [ADR 0002](adr/0002-session-storage.md), карта и здания как запретная зона — в [ADR 0003](adr/0003-map-and-buildings.md). Здесь — как устроен код.
+Решение по стеку и его обоснование — в [ADR 0001](adr/0001-stack.md), хранение сессии на устройстве — в [ADR 0002](adr/0002-session-storage.md), карта и здания как запретная зона — в [ADR 0003](adr/0003-map-and-buildings.md), аккаунты, друзья, группы и чат — в [ADR 0004](adr/0004-accounts-friends-chat.md). Здесь — как устроен код.
 
 ## Модули
 
@@ -11,6 +11,7 @@ flowchart LR
     composeApp["composeApp<br/>KMP: UI, DI, платформенные сервисы"] --> clientCore
     clientCore["clientCore<br/>KMP: сеть, сессия, ServerClock"] --> shared
     server["server<br/>Spring Boot"] --> shared
+    server -->|"аккаунты, друзья, группы, жалобы"| db[("PostgreSQL")]
     e2e["e2e<br/>JVM: боты и сценарии"] --> clientCore
     e2e -.->|"тесты"| server
     shared["shared<br/>KMP: протокол, TOTP, гео, правила"]
@@ -20,8 +21,8 @@ flowchart LR
 | Модуль | Таргеты | Что внутри |
 |---|---|---|
 | `:shared` | jvm, android, iosArm64, iosSimulatorArm64 | DTO протокола и `ApiRoutes`, `protocolJson`, TOTP-коды находки (свои SHA-1/HMAC на чистом Kotlin), гео-математика, расписание зоны, правила GPS: `LocationTrack`, `ZoneRules`, `CatchRules`. Без платформенных API. |
-| `:server` | JVM 21 | Spring Boot, REST под `/api/v1`, `GameRegistry` в памяти, доменный объект `Game`, `GameJanitor`. |
-| `:clientCore` | jvm, android, iosArm64, iosSimulatorArm64 | Клиентская логика без UI: `GameApi`/`HttpGameApi` (Ktor), `GameConnection`/`PollingGameConnection`, `LocationOutbox`, `ServerClock`, `GameSessionManager`, `ClientStorage`, интерфейсы `LocationProvider`, `BackgroundTracker` и `SecureStore`. Без Compose и платформенного кода; JVM-таргет нужен headless-ботам e2e-тестов, чтобы они ходили через тот же сетевой код, что и приложение. |
+| `:server` | JVM 21 | Spring Boot, REST под `/api/v1`. Игры — в памяти: `GameRegistry`, доменный объект `Game` (с чатом), `GameJanitor`. Аккаунты, друзья, блокировки, группы и жалобы — в PostgreSQL (`JdbcClient`, миграции Flyway). Пакеты: `game/`, `account/`, `mail/`, `social/` (друзья, группы, приглашения в памяти), `moderation/`, `ratelimit/`, `db/`, `api/`, `buildings/`. |
+| `:clientCore` | jvm, android, iosArm64, iosSimulatorArm64 | Клиентская логика без UI: `GameApi`/`HttpGameApi`, `AccountApi`, `SocialApi` (Ktor), `GameConnection`/`PollingGameConnection`, `LocationOutbox`, `ServerClock`, `GameSessionManager` (с чатом), `AccountManager`, `SocialManager`, `ClientStorage`, интерфейсы `LocationProvider`, `BackgroundTracker` и `SecureStore`. Без Compose и платформенного кода; JVM-таргет нужен headless-ботам e2e-тестов, чтобы они ходили через тот же сетевой код, что и приложение. |
 | `:composeApp` | android, iosArm64, iosSimulatorArm64 | KMP-библиотека (`com.android.kotlin.multiplatform.library`): Compose UI, Koin, движки Ktor, реализации платформенных сервисов. На iOS собирается во framework `ComposeApp` (вместе с `:clientCore`). |
 | `:androidApp` | Android | Тонкая точка входа: `Application` + `MainActivity`. AGP 9 со встроенным Kotlin. |
 | `:e2e` | JVM 21 | End-to-end тесты: headless-боты на коде `:clientCore` с имитацией GPS, часов и сети играют целые партии против настоящего сервера (в тестах он поднимается в том же процессе). Там же оркестратор слоя устройств: debug-приложение на эмуляторах и симуляторах, UI через Maestro. См. [e2e.md](e2e.md). |
@@ -34,10 +35,11 @@ flowchart LR
 | Слой | Ответственность | Где |
 |---|---|---|
 | UI | Экраны на Compose, карта `GameMap` (maplibre-compose, тайлы OpenFreeMap, [ADR 0003](adr/0003-map-and-buildings.md)), навигация по состоянию: какой экран показывать, решает состояние сессии, а не стек переходов | `:composeApp`, `commonMain` |
-| Состояние экранов | ViewModel'и / стейт-холдеры: превращают `GameSnapshot` и локальные данные в UI-state, принимают действия пользователя | `:composeApp`, `commonMain` |
-| Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock`, сохранение сессии и возврат в игру после перезапуска, загрузка зданий зоны (один раз, когда снапшот говорит `READY`) | `:clientCore`, `commonMain` |
-| Хранилище | `ClientStorage` поверх `SecureStore`: сохранённая сессия, имя игрока, адрес сервера | `:clientCore`, `commonMain`; реализации `SecureStore` — `:composeApp` `androidMain` / `iosMain` |
-| Сеть | `GameApi` (Ktor, `protocolJson`), `GameConnection` — транспорт за интерфейсом (сейчас HTTP-опрос) | `:clientCore`, `commonMain`; движок Ktor выбирает `:composeApp`: OkHttp (Android), Darwin (iOS) |
+| Состояние экранов | ViewModel'и / стейт-холдеры: превращают `GameSnapshot`, аккаунт, друзей и локальные данные в UI-state, принимают действия пользователя | `:composeApp`, `commonMain` |
+| Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock`, чат (слияние по `seq`, курсор в каждом опросе, непрочитанные), сохранение сессии и возврат в игру после перезапуска, загрузка зданий зоны (один раз, когда снапшот говорит `READY`) | `:clientCore`, `commonMain` |
+| Аккаунт и друзья | `AccountManager`: кто вошёл, команды аккаунта, восстановление после перезапуска, 401 → выход. `SocialManager`: друзья, группы, входящие (опрос раз в 10 с, пока их кто-то слушает) | `:clientCore`, `commonMain` |
+| Хранилище | `ClientStorage` поверх `SecureStore`: сохранённая сессия игры, аккаунт (токен и профиль), имя гостя | `:clientCore`, `commonMain`; реализации `SecureStore` — `:composeApp` `androidMain` / `iosMain` |
+| Сеть | `GameApi`, `AccountApi`, `SocialApi` (Ktor, `protocolJson`, общие хелперы `HttpSupport`), `GameConnection` — транспорт за интерфейсом (сейчас HTTP-опрос) | `:clientCore`, `commonMain`; движок Ktor выбирает `:composeApp`: OkHttp (Android), Darwin (iOS) |
 | Платформенные сервисы | `LocationProvider`, `BackgroundTracker`, `SecureStore`, `ProximityScanner`, `CatchCodeScanner` | интерфейсы в `commonMain` (`LocationProvider`, `BackgroundTracker` и `SecureStore` — в `:clientCore`), реализации в `:composeApp` `androidMain` / `iosMain` |
 | DI | Koin-модули: общий + платформенный | `:composeApp`, `commonMain` + `androidMain` / `iosMain` |
 
@@ -56,22 +58,48 @@ flowchart LR
 Для e2e-тестов на эмуляторах и симуляторах ([e2e.md](e2e.md)); release-сборки это поведение не меняет.
 
 - Ключевые элементы помечены `Modifier.testTag`, константы — `TestTags` в `:clientCore` (пакет `app.hovanki.client.automation`, общий с оркестратором e2e). На Android debug-сборка включает `testTagsAsResourceId` (`AutomationRoot`), и теги становятся resource-id. На iOS Compose отдаёт их как `accessibilityIdentifier`.
-- `LaunchOptions` (там же) — адрес сервера, имя игрока, join-код, время пряток для игры, созданной с устройства. Они предзаполняют главный экран вместо ввода руками. `forgetSavedGame` стирает сохранённую игру вместо возврата в неё: сценарий начинает с главного экрана.
+- `LaunchOptions` (там же) — адрес сервера, имя, пароль, join-код, время пряток для игры, созданной с устройства. `onAppStart` применяет их один раз на процесс, в таком порядке: адрес сервера → `forgetSavedGame` (стереть сохранённую игру) и `logOut` (выйти из аккаунта) → восстановление аккаунта → вход, если заданы `name` и `password` (`name` — ник или email) → возврат в сохранённую игру. Имя и join-код предзаполняют поля вместо ввода руками: имя — у гостевого входа, код — у входа по коду.
   - Android читает их только в source set `debug` (`androidApp/src/debug`): extras `hovanki.*` или deep link `hovanki://join?server=…&name=…&joinCode=…`, объявленный только в debug-манифесте. В `release` лежат no-op-двойники, их же берёт тестовая сборка `preview`.
   - iOS читает `NSUserDefaults` (launch arguments `-hovanki.server …`) только в debug-бинаре (`Platform.isDebugBinary`).
 
 ### Сборки и адрес сервера
 
-| Сборка | Android | iOS | Адрес сервера по умолчанию | HTTP |
-|---|---|---|---|---|
-| debug | build type `debug`, хуки автоматизации | конфигурация Debug | компьютер разработчика: `10.0.2.2:8080` / `localhost:8080` | да (Android — cleartext в debug-манифесте, iOS — `NSAllowsLocalNetworking` из build phase «Debug: local network») |
-| тестовая | build type `preview` (= release, `app.hovanki.preview`) | Release в TestFlight | `hovanki.serverUrl` или пусто | нет, только HTTPS |
-| релиз | build type `release` | Release в App Store | `hovanki.serverUrl` или пусто | нет, только HTTPS |
+Сервер один, поля «Адрес сервера» в приложении нет: аккаунты, друзья и группы живут на одном сервере ([ADR 0004](adr/0004-accounts-friends-chat.md#12-один-сервер)).
 
-- `:composeApp` генерирует `BuildConstants` (задача `generateBuildConstants`): `SERVER_URL` из Gradle-свойства `hovanki.serverUrl` (только `https://`) и `COMMIT` из `git describe`. Одинаково для Android и iOS, потому что Xcode собирает фреймворк тем же Gradle.
-- `BuildInfo` (версия, номер сборки, commit, debug или нет) даёт платформенный Koin-модуль: Android — из `PackageInfo` и `FLAG_DEBUGGABLE`, iOS — из `Info.plist` и `Platform.isDebugBinary`. Главный экран показывает его внизу, `defaultServerUrl(buildInfo)` выбирает адрес по умолчанию.
-- `ServerUrl` дописывает `https://` к адресу без схемы: игроки вводят адрес туннеля руками.
+| Сборка | Android | iOS | Сервер | HTTP |
+|---|---|---|---|---|
+| debug | build type `debug`, хуки автоматизации | конфигурация Debug | компьютер разработчика (`10.0.2.2:8080` / `localhost:8080`) или `LaunchOptions.server` | да (Android — cleartext в debug-манифесте, iOS — `NSAllowsLocalNetworking` из build phase «Debug: local network») |
+| тестовая | build type `preview` (= release, `app.hovanki.preview`) | Release в TestFlight | `hovanki.serverUrl` | нет, только HTTPS |
+| релиз | build type `release` | Release в App Store | `hovanki.serverUrl` | нет, только HTTPS |
+
+- `:composeApp` генерирует `BuildConstants` (задача `generateBuildConstants`): `SERVER_URL` из Gradle-свойства `hovanki.serverUrl` и `COMMIT` из `git describe`. Сборка падает, если адрес пустой или не `https://`. Одинаково для Android и iOS, потому что Xcode собирает фреймворк тем же Gradle.
+- `BuildInfo` (версия, номер сборки, commit, debug или нет) даёт платформенный Koin-модуль: Android — из `PackageInfo` и `FLAG_DEBUGGABLE`, iOS — из `Info.plist` и `Platform.isDebugBinary`. Приложение показывает его внизу экрана входа и профиля, `defaultServerUrl(buildInfo)` выбирает сервер.
+- Сохранённая игра или аккаунт с другого сервера (debug-сборки его меняют) при запуске отбрасываются.
 - Как собираются и публикуются тестовые сборки — [ci-cd.md](ci-cd.md#тестовые-сборки-previewyml).
+
+## Навигация
+
+Навигационной библиотеки нет: экран — функция состояния игры и аккаунта (`App.kt`).
+
+```mermaid
+stateDiagram-v2
+    [*] --> Loading: аккаунт восстанавливается
+    Loading --> Welcome: не вошёл
+    Loading --> VerifyEmail: email не подтверждён
+    Loading --> Main: вошёл
+    Welcome --> VerifyEmail: регистрация
+    Welcome --> Main: вход, сброс пароля
+    Welcome --> Game: гостевой вход по коду
+    VerifyEmail --> Main: код из письма
+    Main --> Game: создать игру, войти по коду или по приглашению
+    Game --> Main: «Назад» с итогов, выход из игры
+```
+
+- **Игра** (есть сессия) — экраны фаз: лобби, прятки/поиск, итоги. Они показываются поверх всего остального, в том числе гостю.
+- **`WelcomeScreen`** — вход (email или ник + пароль), регистрация, «Забыли пароль?» и гостевой вход по коду.
+- **`VerifyEmailScreen`** — код из письма, повторная отправка с таймером, смена email (опечатка при регистрации), выход.
+- **`MainScreen`** — вкладки «Играть» (создать игру, войти по коду, входящие приглашения), «Друзья», «Группы», «Профиль».
+- Чат, приглашение друзей в лобби и карточка группы — полноэкранные панели в том же окне, а не `BottomSheet` или `Dialog`: Maestro на Android не видит теги в отдельных окнах. Кнопка «Назад» на Android закрывает панель (`SystemBackHandler`).
 
 ## Раунд: поток данных
 
@@ -91,10 +119,11 @@ flowchart LR
 - **Outbox.** Точки копятся в очереди и уходят пачкой (`SyncRequest.samples`, не больше 100 за запрос). Если запрос не прошёл (нет сети), точки остаются в очереди и уйдут со следующим — сервер сортирует их по времени и отбрасывает дубли и невозможные скачки (`LocationTrack`).
 - **Фон.** `BackgroundTracker` держит геолокацию и цикл синхронизации живыми при заблокированном экране. HTTP-опрос выбран в том числе потому, что он надёжнее WebSocket в фоне на iOS.
 - **Замена транспорта.** Остальной код знает только `GameConnection`. Для WebSocket/SSE достаточно новой реализации интерфейса и смены биндинга в Koin.
+- **Чат** едет тем же опросом. Клиент присылает `SyncRequest.chatAfter` — последний известный `seq` (0, если сообщений нет), сервер кладёт в `GameSnapshot.chat` новые сообщения, которые этот игрок может видеть (не больше 100). Каналы: `ALL` — всем, `SEEKERS` и `HIDERS` — только своей команде; в лобби только `ALL` (`ChatRules`). `GameSessionManager` сливает сообщения из всех ответов по `seq`, отправка сразу возвращает снимок с новыми сообщениями. Сообщения заблокированных пользователей скрывает приложение, по `PlayerView.userId`. Старые клиенты курсор не шлют и чат не получают.
 
 ## Перезапуск приложения
 
-Сессия (`gameId`, `playerId`, токен) и адрес сервера сохраняются на устройстве при создании игры или входе, поэтому убитое приложение возвращается в свою игру. Решение и выбор хранилища — [ADR 0002](adr/0002-session-storage.md).
+Сессия (`gameId`, `playerId`, токен) и адрес сервера сохраняются на устройстве при создании игры или входе, поэтому убитое приложение возвращается в свою игру. Аккаунт (токен и профиль) сохраняется при входе и восстанавливается раньше игры. Решение и выбор хранилища — [ADR 0002](adr/0002-session-storage.md).
 
 ```mermaid
 stateDiagram-v2
@@ -109,7 +138,9 @@ stateDiagram-v2
 
 - `onAppStart` (`MainActivity.onCreate` на Android, `mainViewController()` на iOS) вызывает `GameSessionManager.resumeSavedGame()` один раз на процесс.
 - Проверка — обычный `POST /sync` с Bearer-токеном. Если игра идёт, заново поднимаются опрос, `LocationOutbox`, геолокация и `BackgroundTracker`; секрет кода прячущийся снова получает в снапшоте.
-- Сохранённая сессия стирается при выходе из игры, в конце игры (`FINISHED`) и когда сервер её больше не знает. Имя игрока и адрес сервера остаются для главного экрана.
+- Сохранённая сессия стирается при выходе из игры, в конце игры (`FINISHED`) и когда сервер её больше не знает. Имя гостя остаётся для гостевого входа.
+- После `FINISHED` опрос продолжается, пока открыт экран итогов (там работает чат), а геолокация и фоновый трекер останавливаются. 401 или 404 после конца игры молча останавливают опрос.
+- Вошедший игрок может вернуться в свою игру и с другого телефона или после переустановки: вход по коду с аккаунтом отдаёт того же игрока в любой фазе, а старые токены отзываются ([ADR 0004](adr/0004-accounts-friends-chat.md#4-гости-и-перезаход)).
 - Серверу для этого ничего не нужно: `sync` принимает вернувшегося игрока в любой фазе, а свежие точки снимают раскрытие `STALE_SIGNAL`.
 
 ## Сервер: время и состояние
@@ -117,9 +148,15 @@ stateDiagram-v2
 - `Game` — чистый доменный объект: без Spring, без потоков, время передаётся параметром. Все правила тестируются юнит-тестами без моков времени.
 - Переходы по времени (конец фазы, дедлайны заявок, выход из зоны) применяются лениво: `GameService` вызывает `game.advance(now)` до и после каждого действия. Фонового тикера нет: игра «догоняет» время при каждом запросе.
 - Доступ к одной игре сериализован (`synchronized(game)`), разные игры не мешают друг другу.
-- `GameRegistry` хранит игры, join-коды и токены в памяти (`ConcurrentHashMap`). Для горизонтального масштабирования его заменяют на Redis/Postgres за теми же методами (см. [roadmap](roadmap.md)). Пока сервер — **один экземпляр**, рестарт теряет идущие игры.
+- `GameRegistry` хранит игры, join-коды и токены в памяти (`ConcurrentHashMap`). Для горизонтального масштабирования его заменяют на Redis/Postgres за теми же методами (см. [roadmap](roadmap.md)). Пока сервер — **один экземпляр**, рестарт теряет идущие игры вместе с их чатом и приглашениями.
+- Аккаунты, сессии аккаунтов, коды из писем, друзья, заявки, блокировки, группы и жалобы — в PostgreSQL. Доступ — `JdbcClient` в репозиториях (`UserRepository`, `FriendRepository`, `GroupRepository`, `ReportRepository`…), транзакции — `TransactionTemplate` в сервисах. Время в базе — `timestamptz`, значения берутся из `Clock`, а не из SQL `now()`, поэтому тесты двигают время. Схема — миграции Flyway в `server/src/main/resources/db/migration`, они только дописываются.
+- Опрос игры (`sync`) и другие игровые запросы в базу не ходят. База нужна для создания игры и входа в неё с аккаунтом, приглашений и жалоб; жалоба пишется после снятия блокировки игры.
+- Приглашения в игру (`InviteRegistry`) живут в памяти: 30 минут или пока игра в лобби. `GameJanitor` вычищает их вместе с играми.
+- `DataRetention` раз в сутки удаляет неиспользуемые сессии, неподтверждённые аккаунты, старые жалобы и заявки, истёкшие коды ([сроки](adr/0004-accounts-friends-chat.md#11-сроки-хранения-и-gdpr)).
 - Здания зоны `GameService` заказывает у `BuildingLoader` при создании игры. Для Overpass загрузка идёт в отдельном пуле потоков, пока игроки в лобби; результат попадает в игру под той же блокировкой (`game.onBuildingsLoaded` / `onBuildingsUnavailable`). Источник — `hovanki.buildings.source`: `overpass` (по умолчанию), `fake` (тестовый квартал `DebugBuildings`, в тестах и профиле `e2e`), `off`.
-- Аутентификация: при создании игры или входе сервер выдаёт `PlayerSession` с токеном; все остальные запросы — с `Authorization: Bearer <token>`. Токен привязан к одной игре и одному игроку.
+- Аутентификация — два вида токенов, оба в `Authorization: Bearer <token>` ([ADR 0004](adr/0004-accounts-friends-chat.md#3-два-вида-токенов)):
+  - **игровой** — при создании игры или входе сервер выдаёт `PlayerSession`. Токен привязан к одной игре и одному игроку, живёт в памяти вместе с игрой; игровые маршруты получают `PlayerRef` через `PlayerRefArgumentResolver`;
+  - **аккаунтный** — при регистрации, входе и сбросе пароля (`AccountSession`). В базе хранится только SHA-256. Маршруты аккаунта получают `AuthenticatedUser` через `UserArgumentResolver`: параметр без `?` — аккаунт обязателен, с `?` — необязателен (создание игры и вход в неё). С неподтверждённым email работают только методы с `@AllowUnverifiedEmail`, остальные отвечают 403 `EMAIL_NOT_VERIFIED`.
 
 ## Модель времени
 
@@ -226,45 +263,89 @@ sequenceDiagram
 
 Геоданные — персональные данные. Принципы из ADR: явное согласие, хранение только на время игры, удаление после.
 
-- Сервер хранит всё **только в памяти**, базы данных нет.
+- Игры — координаты, чат, приглашения — сервер хранит **только в памяти**, в базу они не попадают.
+- В PostgreSQL — аккаунты (ник, email, хэш пароля, язык писем), хэши токенов и кодов, друзья, заявки, блокировки, группы и жалобы на сообщения. Сроки хранения и удаление аккаунта — [ADR 0004](adr/0004-accounts-friends-chat.md#11-сроки-хранения-и-gdpr). Email видит только его владелец, остальные — `UserSummary` (id и ник).
 - `LocationTrack` держит точки игрока за последние 5 минут, старые удаляются по мере поступления новых.
 - `GameJanitor` раз в `cleanup-interval` (1 мин) удаляет игры вместе с треками, игроками и токенами: завершённые — через `finished-retention` (30 мин, запас на разбор после игры), брошенные — после `idle-retention` (6 ч) без запросов. Настройки — `hovanki.games.*` в `server/src/main/resources/application.yaml`.
-- Координаты и токены не пишем в логи.
+- Координаты, токены, пароли, коды из писем, email и текст чата не пишем в логи.
 - Контуры зданий (открытые данные OSM) сервер берёт из Overpass API при создании игры: туда уходит только круг зоны, без данных игроков. В лог попадает только id игры, не круг: центр зоны — позиция хоста. Полигоны живут в памяти игры и удаляются вместе с ней.
 - Карта грузит тайлы с OpenFreeMap: провайдер видит IP устройства и район игры, как любой сайт с картой. Камера показывает зону и не следует за игроком, свои координаты приложение провайдеру не отправляет.
 - Секрет кода находки получает только сам прячущийся (`MyState.catchCodeSecret`).
-- На устройстве хранится только сессия (токен, id игры и игрока) и поля главного экрана — в Keystore/Keychain ([ADR 0002](adr/0002-session-storage.md)). Сессия стирается после игры; координаты на устройстве не хранятся.
+- На устройстве хранятся только сессия игры (токен, id игры и игрока), аккаунт (токен и профиль) и имя гостя — в Keystore/Keychain ([ADR 0002](adr/0002-session-storage.md)). Сессия стирается после игры, аккаунт — при выходе; координаты и чат на устройстве не хранятся.
 - Системный запрос геолокации сопровождается объяснением (на iOS — `NSLocationWhenInUseUsageDescription`: координаты уходят на сервер только на время раунда). Отдельный экран согласия — в [roadmap](roadmap.md).
 
 ## API
 
-Пути — константы в `shared/src/commonMain/kotlin/app/hovanki/shared/protocol/ApiRoutes.kt`, DTO — в том же пакете, контроллер — `server/src/main/kotlin/app/hovanki/server/api/GameController.kt` (тонкий адаптер к `GameService`). Формат — JSON с настройками `protocolJson`. Все запросы, кроме создания и входа, требуют `Authorization: Bearer <token>`.
+Пути — константы в `shared/src/commonMain/kotlin/app/hovanki/shared/protocol/ApiRoutes.kt`, DTO — в том же пакете, контроллеры — `server/src/main/kotlin/app/hovanki/server/api/` (`GameController`, `AccountController`, `SocialController`: тонкие адаптеры к сервисам). Формат — JSON с настройками `protocolJson`. Токен — `Authorization: Bearer <token>`: в колонке «Токен» — какой.
 
-| Метод | Путь | Кто вызывает | Тело запроса | Ответ |
+**Игра.** Все мутирующие запросы отвечают свежим `GameSnapshot`.
+
+| Метод | Путь | Токен | Кто вызывает | Тело запроса | Ответ |
+|---|---|---|---|---|---|
+| POST | `/api/v1/games` | аккаунт, необязательно | любой, становится хостом; с аккаунтом имя — ник | `CreateGameRequest` | `SessionResponse` |
+| POST | `/api/v1/games/join` | аккаунт, необязательно | любой, по join-коду; с аккаунтом — ник, а в своей игре — свой же игрок в любой фазе | `JoinGameRequest` | `SessionResponse` |
+| POST | `/api/v1/games/{gameId}/start` | игровой | хост, в LOBBY | `StartGameRequest` | `GameSnapshot` |
+| POST | `/api/v1/games/{gameId}/sync` | игровой | любой игрок, каждые ~3 с; `chatAfter` — курсор чата | `SyncRequest` | `GameSnapshot` |
+| POST | `/api/v1/games/{gameId}/catches` | игровой | активный ищущий, в SEEKING | `ClaimCatchRequest` | `GameSnapshot` |
+| POST | `/api/v1/games/{gameId}/catches/{catchId}/confirm` | игровой | ищущий из заявки | `ConfirmCatchRequest` | `GameSnapshot` |
+| POST | `/api/v1/games/{gameId}/catches/{catchId}/dispute` | игровой | прячущийся из заявки | — | `GameSnapshot` |
+| POST | `/api/v1/games/{gameId}/catches/{catchId}/vote` | игровой | игрок вне спора | `VoteRequest` | `GameSnapshot` |
+| GET | `/api/v1/games/{gameId}/buildings` | игровой | любой игрок, один раз, когда `GameSnapshot.buildings = READY` | — | `BuildingsResponse`: контуры зданий и проходы, по которым судит сервер (сотни КБ, gzip) |
+| POST | `/api/v1/games/{gameId}/chat` | игровой | любой игрок, в любой фазе | `SendChatRequest` | `GameSnapshot` с новыми сообщениями |
+| POST | `/api/v1/games/{gameId}/chat/{seq}/report` | игровой | любой игрок, на чужое сообщение, которое он видит | — | `GameSnapshot` |
+| POST | `/api/v1/games/{gameId}/invites` | игровой | игрок с аккаунтом, в LOBBY: своих друзей или свою группу | `InviteRequest` | `GameSnapshot` |
+
+**Аккаунт.** С неподтверждённым email работают только маршруты, отмеченные «можно без подтверждения».
+
+| Метод | Путь | Токен | Тело запроса | Ответ |
 |---|---|---|---|---|
-| POST | `/api/v1/games` | любой, становится хостом | `CreateGameRequest` | `SessionResponse` |
-| POST | `/api/v1/games/join` | любой, по join-коду | `JoinGameRequest` | `SessionResponse` |
-| POST | `/api/v1/games/{gameId}/start` | хост, в LOBBY | `StartGameRequest` | `GameSnapshot` |
-| POST | `/api/v1/games/{gameId}/sync` | любой игрок, каждые ~3 с | `SyncRequest` | `GameSnapshot` |
-| POST | `/api/v1/games/{gameId}/catches` | активный ищущий, в SEEKING | `ClaimCatchRequest` | `GameSnapshot` |
-| POST | `/api/v1/games/{gameId}/catches/{catchId}/confirm` | ищущий из заявки | `ConfirmCatchRequest` | `GameSnapshot` |
-| POST | `/api/v1/games/{gameId}/catches/{catchId}/dispute` | прячущийся из заявки | — | `GameSnapshot` |
-| POST | `/api/v1/games/{gameId}/catches/{catchId}/vote` | игрок вне спора | `VoteRequest` | `GameSnapshot` |
-| GET | `/api/v1/games/{gameId}/buildings` | любой игрок, один раз, когда `GameSnapshot.buildings = READY` | — | `BuildingsResponse`: контуры зданий и проходы, по которым судит сервер (сотни КБ, gzip) |
-| GET | `/actuator/health` (+ `/liveness`, `/readiness`) | мониторинг | — | статус Spring Boot |
-| GET | `/api/v1/debug/games`, `/api/v1/debug/games/{gameId}` | только e2e-тесты, **только Spring-профиль `e2e`** | — | `DebugGameList`, `DebugGameState` (`app.hovanki.shared.debug`): полное состояние без фильтрации — все позиции, заявки, причины раскрытий. В обычном профиле маршрутов нет (404), это закреплено тестом `DebugEndpointAbsentTest` |
+| POST | `/api/v1/accounts` | — | `RegisterRequest` | `AccountSession`, email не подтверждён, код уходит письмом |
+| POST | `/api/v1/accounts/login` | — | `LoginRequest` (email или ник) | `AccountSession` |
+| POST | `/api/v1/accounts/logout` | аккаунт, можно без подтверждения | — | 204 |
+| POST | `/api/v1/accounts/password-reset` | — | `PasswordResetRequest` | 204 всегда |
+| POST | `/api/v1/accounts/password-reset/confirm` | — | `PasswordResetConfirmRequest` | `AccountSession`; остальные сессии отозваны, email подтверждён |
+| GET | `/api/v1/me` | аккаунт, можно без подтверждения | — | `UserProfile` |
+| POST | `/api/v1/me/email/verify` | аккаунт, можно без подтверждения | `VerifyEmailRequest` | `UserProfile` |
+| POST | `/api/v1/me/email/resend` | аккаунт, можно без подтверждения | — | 204 |
+| POST | `/api/v1/me/email` | аккаунт, только пока email не подтверждён | `ChangeEmailRequest` | `UserProfile` |
+| POST | `/api/v1/me/password` | аккаунт, можно без подтверждения | `ChangePasswordRequest` | 204; остальные сессии отозваны |
+| POST | `/api/v1/me/delete` | аккаунт, можно без подтверждения | `DeleteAccountRequest` | 204 |
 
-Любая ошибка приходит телом `ApiError(code, message)` (`ApiExceptionHandler`); клиент ориентируется на `code`, HTTP-статус — для прокси и логов:
+**Друзья, группы, входящие.** Токен — аккаунт с подтверждённым email.
 
-| `ErrorCode` | HTTP | Когда |
-|---|---|---|
-| `BAD_REQUEST` | 400 | Некорректное тело или настройки, неверное имя, больше 100 точек в `sync` |
-| `UNAUTHORIZED` | 401 | Нет токена, или игра уже удалена вместе с токенами |
-| `FORBIDDEN` | 403 | Действие не для этой роли / игрока, токен от другой игры |
-| `NOT_FOUND` | 404 | Нет игры, игрока или заявки |
-| `WRONG_STATE` | 409 | Не та фаза, заявка закрыта, игра заполнена |
-| `NO_LOCATION`, `TOO_FAR`, `INVALID_CODE` | 422 | Правила находки: нет точной точки, GPS доказывает, что далеко, неверный код |
-| `INTERNAL` | 500 | Непредвиденная ошибка (подробности только в логе сервера) |
+| Метод | Путь | Тело запроса | Ответ |
+|---|---|---|---|
+| GET | `/api/v1/me/inbox` | — | `Inbox`: приглашения в игры и входящие заявки в друзья |
+| POST | `/api/v1/me/invites/{inviteId}/dismiss` | — | `Inbox` |
+| GET | `/api/v1/friends` | — | `FriendsResponse` |
+| POST | `/api/v1/friends/requests` | `SendFriendRequest` (точный ник или `userId`) | `FriendsResponse`; встречная заявка — сразу дружба |
+| POST | `/api/v1/friends/requests/{userId}/accept`, `/decline` | — | `FriendsResponse`; `decline` отклоняет входящую или отзывает свою |
+| POST | `/api/v1/friends/{userId}/remove` | — | `FriendsResponse` |
+| POST | `/api/v1/users/{userId}/block`, `/unblock` | — | `FriendsResponse` |
+| GET, POST | `/api/v1/groups` | создание: `CreateGroupRequest` | `GroupsResponse` |
+| POST | `/api/v1/groups/{groupId}/members` | `AddGroupMembersRequest` (владелец) | `GroupsResponse` |
+| POST | `/api/v1/groups/{groupId}/members/{userId}/remove` | — (владелец убирает, участник выходит сам) | `GroupsResponse` |
+| POST | `/api/v1/groups/{groupId}/rename`, `/delete` | `RenameGroupRequest` / — (владелец) | `GroupsResponse` |
+
+**Служебное.**
+
+| Метод | Путь | Кто вызывает | Ответ |
+|---|---|---|---|
+| GET | `/actuator/health` (+ `/liveness`, `/readiness`) | мониторинг | статус Spring Boot |
+| GET | `/api/v1/debug/games`, `/api/v1/debug/games/{gameId}`, `/api/v1/debug/emails/{email}`, `/api/v1/debug/reports` | только e2e-тесты, **только Spring-профиль `e2e`** | `DebugGameList`, `DebugGameState`, `DebugEmails`, `DebugReportList` (`app.hovanki.shared.debug`): полное состояние игр без фильтрации (все позиции, заявки, причины раскрытий, весь чат), отправленные письма с кодами, жалобы. В обычном профиле маршрутов нет (404), это закреплено тестом `DebugEndpointAbsentTest` |
+
+Любая ошибка приходит телом `ApiError(code, message, reason)` (`ApiExceptionHandler`). Клиент ориентируется на `code` и, если есть, на более точный `reason` ([ADR 0004](adr/0004-accounts-friends-chat.md#8-ошибки-apierrorreason)); HTTP-статус — для прокси и логов:
+
+| `ErrorCode` | HTTP | Когда | `reason` |
+|---|---|---|---|
+| `BAD_REQUEST` | 400 | Некорректное тело, путь или настройки, неверное имя, больше 100 точек в `sync` | `INVALID_NICKNAME`, `INVALID_EMAIL`, `INVALID_PASSWORD`, `INVALID_GROUP_NAME`, `INVALID_MESSAGE` |
+| `UNAUTHORIZED` | 401 | Нет токена, игра уже удалена вместе с токенами, аккаунт-токен отозван или истёк | `SESSION_EXPIRED` |
+| `FORBIDDEN` | 403 | Действие не для этой роли / игрока, токен от другой игры, неверный логин или пароль, email не подтверждён | `WRONG_CREDENTIALS`, `EMAIL_NOT_VERIFIED`, `ACCOUNT_REQUIRED`, `NOT_FRIENDS`, `NOT_GROUP_OWNER`, `NOT_GROUP_MEMBER` |
+| `NOT_FOUND` | 404 | Нет игры, игрока, заявки, пользователя, группы | `USER_NOT_FOUND` |
+| `WRONG_STATE` | 409 | Не та фаза, заявка закрыта, игра заполнена, ник или email заняты, лимит | `NICKNAME_TAKEN`, `EMAIL_TAKEN`, `LIMIT_REACHED`, `BLOCKED_BY_YOU` |
+| `WRONG_STATE` | 429 | Слишком много запросов; `Retry-After` — через сколько секунд повторить | `TOO_MANY_REQUESTS` |
+| `NO_LOCATION`, `TOO_FAR`, `INVALID_CODE` | 422 | Правила находки: нет точной точки, GPS доказывает, что далеко, неверный код; неверный или истёкший код из письма | `CODE_EXPIRED` |
+| `INTERNAL` | 500 | Непредвиденная ошибка (подробности только в логе сервера) | — |
 
 ### Совместимость протокола
 
@@ -279,9 +360,16 @@ sequenceDiagram
 ### Новый эндпоинт
 
 1. `:shared` — путь в `ApiRoutes` (шаблон + функция-построитель), DTO запроса в `Messages.kt` (`@Serializable`, новые поля с дефолтами). Тест сериализации в `commonTest`, если формат нетривиальный.
-2. `:server` — метод доменного объекта `Game` (время параметром, ошибки через `GameException(ErrorCode, ...)`) и юнит-тест на него; метод `GameService` через `update(caller, gameId) { game, now -> ... }`, чтобы получить блокировку, `advance(now)` и снапшот; маппинг в контроллере.
+2. `:server` — метод доменного объекта `Game` (время параметром, ошибки через `GameException(ErrorCode, ...)`, точная причина — `reason`) и юнит-тест на него; метод `GameService` через `update(caller, gameId) { game, now -> ... }`, чтобы получить блокировку, `advance(now)` и снапшот; маппинг в контроллере. Маршрут аккаунта — параметр `AuthenticatedUser` в контроллере (`@AllowUnverifiedEmail`, если он нужен до подтверждения email), логика — в сервисе пакета `account/` или `social/`, тест — MockMvc (`AccountApiTest`, `SocialApiTest`).
 3. `:clientCore` — метод в `GameApi`/`HttpGameApi` и команда в `GameSessionManager` (ответ-снапшот — в ту же точку, куда приходят снапшоты синхронизации); `:composeApp` — вызов из состояния экрана.
 4. Обновить таблицу API выше.
+
+### Новая таблица
+
+1. Новая миграция `server/src/main/resources/db/migration/V<n>__<что>.sql`. Применённые миграции не правятся никогда, только дописываются новые. Внешние ключи на `users` — `ON DELETE CASCADE`, чтобы удаление аккаунта стирало всё его.
+2. Репозиторий на `JdbcClient` рядом с сервисом; время — параметром из `Clock`.
+3. Если данные персональные — срок хранения в `DataRetention` и строка в таблице сроков [ADR 0004](adr/0004-accounts-friends-chat.md#11-сроки-хранения-и-gdpr).
+4. Тесты получают свежую базу сами: `TestPostgres` (встроенный PostgreSQL или `HOVANKI_TEST_DATABASE_URL`) подключается через JUnit `LauncherSessionListener`.
 
 ### Новый платформенный сервис
 

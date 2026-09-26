@@ -1,10 +1,10 @@
 #!/bin/bash
-# SessionStart hook for Claude Code on the web (.claude/settings.json). The cloud container runs as root, where the
-# embedded PostgreSQL of the server and e2e tests can't start (initdb refuses root). So this starts the container's own
-# PostgreSQL, if one is installed, makes sure role `hovanki` (password `hovanki`, CREATEDB: the tests create a fresh
-# database per run) and database `hovanki` exist, and points the tests at it with HOVANKI_TEST_DATABASE_URL.
-# Elsewhere it does nothing: locally and in CI the tests use the embedded PostgreSQL. Idempotent, takes a few seconds,
-# and never fails the session: without PostgreSQL it only says so.
+# SessionStart hook for Claude Code on the web (.claude/settings.json). If the cloud container has its own PostgreSQL,
+# this starts it, makes sure role `hovanki` (password `hovanki`, CREATEDB: the tests create a fresh database per run)
+# and database `hovanki` exist, and points the server and e2e tests at it with HOVANKI_TEST_DATABASE_URL: no download
+# of the embedded PostgreSQL binaries and no extra server per test run. Without it the tests use the embedded
+# PostgreSQL, as locally and in CI. Elsewhere it does nothing. Idempotent, takes a few seconds, and never fails the
+# session: without PostgreSQL it only says so.
 set -uo pipefail
 
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
@@ -12,7 +12,7 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
 fi
 
 skip() {
-  echo "session-start: $1; the server and e2e tests fall back to the embedded PostgreSQL, which can't start as root"
+  echo "session-start: $1; the server and e2e tests use the embedded PostgreSQL"
   exit 0
 }
 

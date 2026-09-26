@@ -71,7 +71,7 @@
    ```
    Если `docker` отвечает «permission denied», переподключиться по SSH: группа `docker` применяется при новом входе.
 8. **Проверка.** На машине: `docker compose ps` — у `postgres` статус `healthy`, `server` и `caddy` — `running`; `sudo systemctl start hovanki-backup && ls -l backups/` — первый дамп. С компьютера: `curl https://hovanki.duckdns.org/actuator/health` → `{"status":"UP",…}`. Если нет, смотреть `docker compose logs caddy` и `docker compose logs server`. Обычно причина одна из трёх: закрыт порт 80, имя указывает не на Elastic IP или в `.env` не хватает переменной. Затем зарегистрироваться в приложении: письмо с кодом приходит за минуту.
-9. **Адрес в сборках.** Строка `hovanki.serverUrl=https://hovanki.duckdns.org` в `gradle.properties` (уже вписана). Тестовые сборки из `main` стартуют с этим адресом ([CI/CD](ci-cd.md#адрес-сервера-по-умолчанию)). Другое имя — поменять строку.
+9. **Адрес в сборках.** Строка `hovanki.serverUrl=https://hovanki.duckdns.org` в `gradle.properties` (уже вписана). Тестовые сборки из `main` ходят только на этот адрес ([CI/CD](ci-cd.md#адрес-сервера)). Другое имя — поменять строку.
 
 ## Настройки (`.env`)
 
