@@ -85,6 +85,11 @@ class OverpassParser(private val json: Json, private val maxBuildings: Int, priv
         } catch (e: IllegalArgumentException) {
             throw BuildingsUnavailableException("Unreadable Overpass response", e)
         }
+        // A busy or timed-out instance still answers 200, with the error here and no (or partial) elements. The
+        // remark itself is not logged: it may quote the query, and the query holds the zone center.
+        if (response.remark?.contains("error", ignoreCase = true) == true) {
+            throw BuildingsUnavailableException("Overpass reported an error instead of data")
+        }
         val buildings = ArrayList<BuildingArea>()
         val passages = ArrayList<Passage>()
         for (element in response.elements) {
@@ -144,7 +149,7 @@ class OverpassParser(private val json: Json, private val maxBuildings: Int, priv
     }
 
     @Serializable
-    private data class OverpassResponse(val elements: List<OverpassElement> = emptyList())
+    private data class OverpassResponse(val elements: List<OverpassElement> = emptyList(), val remark: String? = null)
 
     @Serializable
     private data class OverpassElement(
