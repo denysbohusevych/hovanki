@@ -2,6 +2,7 @@ package app.hovanki.server.api
 
 import app.hovanki.server.game.GameService
 import app.hovanki.server.game.PlayerRef
+import app.hovanki.server.social.InviteService
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
@@ -10,6 +11,7 @@ import app.hovanki.shared.protocol.ConfirmCatchRequest
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GameSnapshot
+import app.hovanki.shared.protocol.InviteRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
@@ -22,9 +24,12 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 
-/** Thin HTTP adapter: routes and DTOs come from `:shared`, all logic lives in [GameService]. */
+/**
+ * Thin HTTP adapter: routes and DTOs come from `:shared`, all logic lives in [GameService] (invitations:
+ * [InviteService]).
+ */
 @RestController
-class GameController(private val games: GameService) {
+class GameController(private val games: GameService, private val invites: InviteService) {
     // Create and join take an optional account token: without one, the caller plays as a guest (and as before).
 
     @PostMapping(ApiRoutes.GAMES)
@@ -85,4 +90,9 @@ class GameController(private val games: GameService) {
     @PostMapping(ApiRoutes.CHAT_REPORT)
     fun reportChat(player: PlayerRef, @PathVariable gameId: String, @PathVariable seq: Long): GameSnapshot =
         games.reportChat(player, GameId(gameId), seq)
+
+    /** Invites friends or a group into the game: logged-in players, in the lobby. */
+    @PostMapping(ApiRoutes.GAME_INVITES)
+    fun invite(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: InviteRequest): GameSnapshot =
+        invites.invite(player, GameId(gameId), request)
 }

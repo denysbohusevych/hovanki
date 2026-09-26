@@ -14,6 +14,9 @@ object SocialErrors {
 
     fun notFound(message: String) = GameException(ErrorCode.NOT_FOUND, message)
 
+    /** A guest (a player without an account) tried what needs one, e.g. inviting friends. */
+    fun accountRequired(message: String) = GameException(ErrorCode.FORBIDDEN, message, ErrorReason.ACCOUNT_REQUIRED)
+
     fun limitReached(message: String) = GameException(ErrorCode.WRONG_STATE, message, ErrorReason.LIMIT_REACHED)
 
     fun blockedByYou() =

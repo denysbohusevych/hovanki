@@ -2,12 +2,15 @@ package app.hovanki.server.api
 
 import app.hovanki.server.social.FriendService
 import app.hovanki.server.social.GroupService
+import app.hovanki.server.social.InviteService
 import app.hovanki.shared.protocol.AddGroupMembersRequest
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.CreateGroupRequest
 import app.hovanki.shared.protocol.FriendsResponse
 import app.hovanki.shared.protocol.GroupId
 import app.hovanki.shared.protocol.GroupsResponse
+import app.hovanki.shared.protocol.Inbox
+import app.hovanki.shared.protocol.InviteId
 import app.hovanki.shared.protocol.RenameGroupRequest
 import app.hovanki.shared.protocol.SendFriendRequest
 import app.hovanki.shared.protocol.UserId
@@ -18,11 +21,23 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 
 /**
- * Friends, blocks and groups: account token with a confirmed email on every route. All logic lives in
- * [FriendService] and [GroupService]; each call answers with the caller's fresh list.
+ * Friends, blocks, groups and the inbox: account token with a confirmed email on every route. All logic lives in
+ * [FriendService], [GroupService] and [InviteService]; each call answers with the caller's fresh list.
  */
 @RestController
-class SocialController(private val friends: FriendService, private val groups: GroupService) {
+class SocialController(
+    private val friends: FriendService,
+    private val groups: GroupService,
+    private val invites: InviteService,
+) {
+    /** Polled every 10 s while the app's start screen is open. */
+    @GetMapping(ApiRoutes.INBOX)
+    fun inbox(user: AuthenticatedUser): Inbox = invites.inbox(user.userId)
+
+    @PostMapping(ApiRoutes.INVITE_DISMISS)
+    fun dismissInvite(user: AuthenticatedUser, @PathVariable inviteId: String): Inbox =
+        invites.dismiss(user.userId, InviteId(inviteId))
+
     @GetMapping(ApiRoutes.FRIENDS)
     fun friends(user: AuthenticatedUser): FriendsResponse = friends.friends(user.userId)
 

@@ -7,6 +7,7 @@ import app.hovanki.server.moderation.NewReport
 import app.hovanki.server.moderation.ReportRepository
 import app.hovanki.server.ratelimit.RateLimit
 import app.hovanki.server.ratelimit.RateLimiter
+import app.hovanki.server.social.InviteRegistry
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ClaimCatchRequest
@@ -15,6 +16,7 @@ import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.JoinGameRequest
@@ -24,6 +26,7 @@ import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
+import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VoteRequest
 import app.hovanki.shared.rules.boundingCircle
 import org.springframework.stereotype.Service
@@ -39,6 +42,7 @@ class GameService(
     private val users: UserRepository,
     private val reports: ReportRepository,
     private val rateLimiter: RateLimiter,
+    private val invites: InviteRegistry,
 ) {
     /**
      * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
@@ -69,14 +73,15 @@ class GameService(
     /**
      * Joins the game of [JoinGameRequest.joinCode] as a new player, in the lobby only. [user]: the caller's account
      * (null: a guest). An account that already has a player in the game gets that player back instead, in any phase (a
-     * reinstalled app, a second phone): a new token, and the player's old tokens stop working.
+     * reinstalled app, a second phone): a new token, and the player's old tokens stop working. Either way, the account's
+     * invitation into the game is answered.
      */
     fun join(request: JoinGameRequest, user: AuthenticatedUser? = null): SessionResponse {
         // The nickname comes from the database, outside the game's lock: the game's other requests never wait for it.
         val name = playerName(request.playerName, user)
         val game = registry.findByJoinCode(request.joinCode.trim())
             ?: throw GameException(ErrorCode.NOT_FOUND, "No game with this code")
-        return synchronized(game) {
+        val session = synchronized(game) {
             val now = clock.millis()
             game.advance(now)
             val returning = user?.let { game.playerOf(it.userId) }
@@ -88,6 +93,8 @@ class GameService(
             }
             newSession(game, playerId, now)
         }
+        if (user != null) invites.removeInvitee(game.id, user.userId)
+        return session
     }
 
     fun start(caller: PlayerRef, gameId: GameId, request: StartGameRequest): GameSnapshot =
@@ -148,6 +155,26 @@ class GameService(
     fun vote(caller: PlayerRef, gameId: GameId, catchId: CatchId, request: VoteRequest): GameSnapshot =
         update(caller, gameId) { game, now -> game.vote(catchId, caller.playerId, request.confirm, now) }
 
+    /**
+     * [block] with the caller's game under its lock, on its current state ([Game.advance] first), for the services that
+     * combine a game with the database, like invitations. Never touch the database in [block]: the game's other
+     * requests wait for it.
+     */
+    fun <T> withGame(caller: PlayerRef, gameId: GameId, block: (Game, Long) -> T): T {
+        val game = gameOf(caller, gameId)
+        return synchronized(game) {
+            val now = clock.millis()
+            game.advance(now)
+            block(game, now)
+        }
+    }
+
+    /** Whether [userId] can still join game [gameId] as a new player: it is in its lobby and has no player of theirs. */
+    fun isOpenFor(gameId: GameId, userId: UserId): Boolean {
+        val game = registry.get(gameId) ?: return false
+        return synchronized(game) { game.phase == GamePhase.LOBBY && game.playerOf(userId) == null }
+    }
+
     private fun loadBuildings(game: Game) {
         val area = game.settings.zone.boundingCircle(BUILDINGS_MARGIN_METERS)
         buildingLoader.load(game.id.value, area) { loaded ->
@@ -173,15 +200,10 @@ class GameService(
         gameId: GameId,
         chatAfter: Long? = null,
         action: (Game, Long) -> Unit,
-    ): GameSnapshot {
-        val game = gameOf(caller, gameId)
-        return synchronized(game) {
-            val now = clock.millis()
-            game.advance(now)
-            action(game, now)
-            game.advance(now)
-            game.snapshotFor(caller.playerId, now, chatAfter)
-        }
+    ): GameSnapshot = withGame(caller, gameId) { game, now ->
+        action(game, now)
+        game.advance(now)
+        game.snapshotFor(caller.playerId, now, chatAfter)
     }
 
     private fun newSession(game: Game, playerId: PlayerId, now: Long): SessionResponse {
