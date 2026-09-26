@@ -1,5 +1,7 @@
 package app.hovanki.server.game
 
+import app.hovanki.server.buildings.BuildingLoader
+import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.ConfirmCatchRequest
@@ -15,12 +17,18 @@ import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.VoteRequest
+import app.hovanki.shared.rules.boundingCircle
 import org.springframework.stereotype.Service
 import java.time.Clock
 
 /** Application layer: auth checks, id generation and per-game locking around the [Game] domain object. */
 @Service
-class GameService(private val registry: GameRegistry, private val ids: IdGenerator, private val clock: Clock) {
+class GameService(
+    private val registry: GameRegistry,
+    private val ids: IdGenerator,
+    private val clock: Clock,
+    private val buildingLoader: BuildingLoader,
+) {
     fun create(request: CreateGameRequest): SessionResponse {
         val name = validName(request.playerName)
         validate(request.settings)
@@ -32,8 +40,15 @@ class GameService(private val registry: GameRegistry, private val ids: IdGenerat
         } while (!registry.add(game))
         return synchronized(game) {
             game.addPlayer(hostId, name, now)
+            loadBuildings(game)
             newSession(game, hostId, now)
         }
+    }
+
+    /** Buildings the zone will ever cover, loaded while the players gather (an instant fake one in tests). */
+    fun buildings(caller: PlayerRef, gameId: GameId): BuildingsResponse {
+        val game = gameOf(caller, gameId)
+        return synchronized(game) { game.buildingsFor(caller.playerId) }
     }
 
     fun join(request: JoinGameRequest): SessionResponse {
@@ -71,9 +86,27 @@ class GameService(private val registry: GameRegistry, private val ids: IdGenerat
     fun vote(caller: PlayerRef, gameId: GameId, catchId: CatchId, request: VoteRequest): GameSnapshot =
         update(caller, gameId) { game, now -> game.vote(catchId, caller.playerId, request.confirm, now) }
 
-    private fun update(caller: PlayerRef, gameId: GameId, action: (Game, Long) -> Unit): GameSnapshot {
+    private fun loadBuildings(game: Game) {
+        val area = game.settings.zone.boundingCircle(BUILDINGS_MARGIN_METERS)
+        buildingLoader.load(game.id.value, area) { loaded ->
+            // The game may be gone meanwhile (the janitor, a failed create).
+            val current = registry.get(game.id) ?: return@load
+            synchronized(current) {
+                when (loaded) {
+                    null -> current.onBuildingsUnavailable()
+                    else -> current.onBuildingsLoaded(loaded.buildings, loaded.passages)
+                }
+            }
+        }
+    }
+
+    private fun gameOf(caller: PlayerRef, gameId: GameId): Game {
         if (caller.gameId != gameId) throw GameException(ErrorCode.FORBIDDEN, "The token belongs to another game")
-        val game = registry.get(gameId) ?: throw GameException(ErrorCode.NOT_FOUND, "The game is over or never existed")
+        return registry.get(gameId) ?: throw GameException(ErrorCode.NOT_FOUND, "The game is over or never existed")
+    }
+
+    private fun update(caller: PlayerRef, gameId: GameId, action: (Game, Long) -> Unit): GameSnapshot {
+        val game = gameOf(caller, gameId)
         return synchronized(game) {
             val now = clock.millis()
             game.advance(now)
@@ -108,5 +141,8 @@ class GameService(private val registry: GameRegistry, private val ids: IdGenerat
     private companion object {
         const val MAX_NAME_LENGTH = 32
         const val MAX_SAMPLES_PER_SYNC = 100
+
+        /** Buildings just outside the zone matter too: a player at the border can step into one. */
+        const val BUILDINGS_MARGIN_METERS = 50.0
     }
 }

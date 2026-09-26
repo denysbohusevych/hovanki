@@ -15,6 +15,15 @@ object SnapshotAudit {
         VisibilityReason.OUT_OF_ZONE,
         VisibilityReason.MOCK_LOCATION,
         VisibilityReason.STALE_SIGNAL,
+        VisibilityReason.INSIDE_BUILDING,
+    )
+
+    /** Values the first app versions know in `VisibleLocation.reason`, which has no default. */
+    private val FIRST_VERSION_REASONS = setOf(
+        VisibilityReason.TEAMMATE,
+        VisibilityReason.OUT_OF_ZONE,
+        VisibilityReason.MOCK_LOCATION,
+        VisibilityReason.STALE_SIGNAL,
     )
 
     /** Violations found in [snapshot]; [rawJson] is the response body as it came over the wire. */
@@ -31,7 +40,10 @@ object SnapshotAudit {
         for (player in snapshot.players) {
             val location = player.location ?: continue
             val viewer = "${me.role} ${me.playerId.value}"
-            val where = "$viewer sees ${player.role} ${player.id.value} (${location.reason}) in $phase"
+            val where = "$viewer sees ${player.role} ${player.id.value} (${location.exactReason}) in $phase"
+            if (location.reason !in FIRST_VERSION_REASONS) {
+                problems += "reason ${location.reason} would break the first app versions: $where"
+            }
             when {
                 player.id == me.playerId -> problems += "own position echoed: $where"
 
@@ -39,9 +51,9 @@ object SnapshotAudit {
 
                 phase != GamePhase.HIDING && phase != GamePhase.SEEKING -> problems += where
 
-                player.role == Role.SEEKER && location.reason != VisibilityReason.TEAMMATE -> problems += where
+                player.role == Role.SEEKER && location.exactReason != VisibilityReason.TEAMMATE -> problems += where
 
-                player.role == Role.HIDER && location.reason !in HIDER_REVEALS -> problems += where
+                player.role == Role.HIDER && location.exactReason !in HIDER_REVEALS -> problems += where
 
                 player.role == Role.HIDER && (phase != GamePhase.SEEKING || player.status != PlayerStatus.ACTIVE) ->
                     problems += where

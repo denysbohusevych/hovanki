@@ -4,6 +4,9 @@ import app.hovanki.shared.geo.moveBy
 import app.hovanki.shared.protocol.GameRules
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LocationSample
+import app.hovanki.shared.protocol.ZoneCircle
+import app.hovanki.shared.protocol.ZoneSchedule
+import app.hovanki.shared.protocol.ZoneStage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -76,4 +79,19 @@ class ZonesTest {
 
     private fun fixesAt(point: GeoPoint, accuracy: Double) =
         (0 until 3).map { LocationSample(point, accuracy, timestampMillis = it * 5_000L) }
+
+    @Test
+    fun boundingCircleHoldsTheZoneOverItsWholeSchedule() {
+        val moved = center.moveBy(eastMeters = 300.0, northMeters = 0.0)
+        val schedule = ZoneSchedule(
+            initial = ZoneCircle(center, 500.0),
+            stages = listOf(ZoneStage(60, 60, ZoneCircle(moved, 400.0))),
+        )
+
+        val bounds = schedule.boundingCircle(marginMeters = 50.0)
+
+        assertEquals(center, bounds.center)
+        assertEquals(750.0, bounds.radiusMeters, 1.0)
+        assertEquals(550.0, shrinkingZone(center).boundingCircle(marginMeters = 50.0).radiusMeters, 0.001)
+    }
 }

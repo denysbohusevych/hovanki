@@ -5,6 +5,9 @@ import app.hovanki.shared.debug.DebugFixCounts
 import app.hovanki.shared.debug.DebugGameState
 import app.hovanki.shared.debug.DebugPlayer
 import app.hovanki.shared.debug.DebugVote
+import app.hovanki.shared.protocol.BuildingArea
+import app.hovanki.shared.protocol.BuildingsResponse
+import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.CatchView
@@ -15,12 +18,15 @@ import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.MyState
+import app.hovanki.shared.protocol.Passage
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.VisibleLocation
+import app.hovanki.shared.rules.BuildingMap
+import app.hovanki.shared.rules.BuildingRules
 import app.hovanki.shared.rules.CatchRules
 import app.hovanki.shared.rules.LocationTrack
 import app.hovanki.shared.rules.ZoneRules
@@ -51,6 +57,32 @@ class Game(
     private var zoneStartedAtMillis: Long? = null
     private var finishedAtMillis: Long? = null
     private var lastActivityMillis = createdAtMillis
+
+    /** The "no hiding in buildings" rule (docs/adr/0003-map-and-buildings.md): on once the outlines are loaded. */
+    var buildingsState: BuildingsState = BuildingsState.LOADING
+        private set
+    private var buildings = BuildingsResponse()
+    private var buildingMap: BuildingMap? = null
+
+    /** The zone's buildings arrived (see `BuildingLoader`): the rule is on from now on. */
+    fun onBuildingsLoaded(areas: List<BuildingArea>, passages: List<Passage>) {
+        buildingsState = BuildingsState.READY
+        buildings = BuildingsResponse(BuildingsState.READY, areas, passages)
+        buildingMap = BuildingMap(areas, passages, settings.zone.initial.center)
+    }
+
+    /** The zone's buildings can't be loaded: the game runs without the rule, and the players are told. */
+    fun onBuildingsUnavailable() {
+        buildingsState = BuildingsState.UNAVAILABLE
+        buildings = BuildingsResponse(BuildingsState.UNAVAILABLE)
+        buildingMap = null
+    }
+
+    /** The buildings the rule judges by, for [viewerId] to draw exactly those on the map. */
+    fun buildingsFor(viewerId: PlayerId): BuildingsResponse {
+        player(viewerId)
+        return buildings.copy(state = buildingsState)
+    }
 
     fun addPlayer(id: PlayerId, name: String, nowMillis: Long) {
         requirePhase(GamePhase.LOBBY)
@@ -180,6 +212,7 @@ class Game(
             }
         }
         checkZone(nowMillis)
+        checkBuildings(nowMillis)
         val seekingEnds = phaseStartedAtMillis + settings.seekingSeconds * 1000L
         if (phase == GamePhase.SEEKING && nowMillis >= seekingEnds) finish(seekingEnds)
     }
@@ -217,11 +250,13 @@ class Game(
                 status = viewer.status,
                 catchCodeSecret = viewer.catchCodeSecret,
                 outOfZoneDeadlineMillis = viewer.outOfZoneDeadlineMillis(),
+                insideBuildingRevealAtMillis = viewer.insideBuildingRevealAtMillis(),
             ),
             catches = catches.values
                 .filter { it.seekerId == viewerId || it.hiderId == viewerId || viewerId in eligibleVoters(it) }
                 .takeLast(MAX_CATCHES_IN_SNAPSHOT)
                 .map { it.toView(viewerId) },
+            buildings = buildingsState,
         )
     }
 
@@ -263,6 +298,7 @@ class Game(
                     lastMockAtMillis = player.track.lastMockAtMillis,
                     outOfZoneSinceMillis = player.outOfZoneSinceMillis,
                     outOfZoneDeadlineMillis = player.outOfZoneDeadlineMillis(),
+                    insideBuildingSinceMillis = player.insideBuildingSinceMillis,
                     revealedToSeekers = revealReason(player, nowMillis),
                     catchCodeSecret = player.catchCodeSecret,
                     fixes = DebugFixCounts(
@@ -286,6 +322,7 @@ class Game(
                     estimatedDistanceAtClaimMeters = claim.estimatedDistanceAtClaimMeters,
                 )
             },
+            buildings = buildingsState,
         )
     }
 
@@ -293,7 +330,16 @@ class Game(
         if (viewer.id == target.id || viewer.role != Role.SEEKER) return null
         val fix = target.track.latest ?: return null
         val reason = revealReason(target, nowMillis) ?: return null
-        return VisibleLocation(fix.point, fix.accuracyMeters, fix.timestampMillis, reason)
+        return VisibleLocation(fix.point, fix.accuracyMeters, fix.timestampMillis, reason.forFirstClients(), reason)
+    }
+
+    /**
+     * `VisibleLocation.reason` has no default: the first app versions fail on a value they don't know. A reason added
+     * later goes to `cause` and, in `reason`, becomes the closest one they know.
+     */
+    private fun VisibilityReason.forFirstClients(): VisibilityReason = when (this) {
+        VisibilityReason.INSIDE_BUILDING -> VisibilityReason.OUT_OF_ZONE
+        else -> this
     }
 
     /** Why seekers may see [target] right now, or null when it stays hidden from them. */
@@ -304,6 +350,7 @@ class Game(
         target.outOfZoneSinceMillis != null -> VisibilityReason.OUT_OF_ZONE
         target.recentlyMocked(nowMillis) -> VisibilityReason.MOCK_LOCATION
         target.isStale(nowMillis) -> VisibilityReason.STALE_SIGNAL
+        target.isRevealedInsideBuilding(nowMillis) -> VisibilityReason.INSIDE_BUILDING
         else -> null
     }
 
@@ -343,6 +390,26 @@ class Game(
             }
         }
         if (players.values.none { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) finish(nowMillis)
+    }
+
+    /**
+     * Inside a building: warned as soon as the server is confident (several fixes, each deeper inside than its
+     * accuracy), revealed to the seekers after [GameRules.insideBuildingRevealSeconds]. Never eliminated: GPS near
+     * houses is a hint, not a judge. Out again, also judged on several fixes, lifts the warning and the reveal.
+     */
+    private fun checkBuildings(nowMillis: Long) {
+        val map = buildingMap ?: return
+        for (hider in players.values.filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
+            // Players in an open catch claim or dispute are frozen until it is resolved.
+            if (catches.values.any { it.isOpen && it.hiderId == hider.id }) continue
+            val recent = hider.track.recentUsableFixes(nowMillis)
+            val since = hider.insideBuildingSinceMillis
+            if (since == null && BuildingRules.isConfidentlyInside(recent, map, rules)) {
+                hider.insideBuildingSinceMillis = nowMillis
+            } else if (since != null && BuildingRules.hasLeft(recent, map, rules)) {
+                hider.insideBuildingSinceMillis = null
+            }
+        }
     }
 
     private fun resolveDispute(claim: CatchClaim, atMillis: Long) {
@@ -399,6 +466,13 @@ class Game(
         return nowMillis - lastFix >= rules.staleLocationRevealSeconds * 1000L
     }
 
+    private fun Player.insideBuildingRevealAtMillis(): Long? =
+        insideBuildingSinceMillis?.takeIf { phase == GamePhase.SEEKING && status == PlayerStatus.ACTIVE }
+            ?.let { it + rules.insideBuildingRevealSeconds * 1000L }
+
+    private fun Player.isRevealedInsideBuilding(nowMillis: Long): Boolean =
+        insideBuildingRevealAtMillis()?.let { nowMillis >= it } == true
+
     private fun Player.recentlyMocked(nowMillis: Long): Boolean =
         track.lastMockAtMillis?.let { nowMillis - it <= MOCK_REVEAL_MILLIS } == true
 
@@ -417,6 +491,7 @@ class Game(
         var catchCodeSecret: String? = null
         var lastFixReceivedMillis: Long? = null
         var outOfZoneSinceMillis: Long? = null
+        var insideBuildingSinceMillis: Long? = null
         val fixResults = HashMap<LocationTrack.Result, Int>()
     }
 
