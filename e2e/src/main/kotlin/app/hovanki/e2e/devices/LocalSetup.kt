@@ -77,7 +77,14 @@ class LocalServer private constructor(private val process: Process) : AutoClosea
     }
 
     companion object {
-        fun start(jar: File, port: Int, logDir: File, timeout: Duration = 90.seconds): LocalServer {
+        /** [buildings]: `hovanki.buildings.source` of the server, `overpass` for real buildings around the game. */
+        fun start(
+            jar: File,
+            port: Int,
+            logDir: File,
+            buildings: String = "overpass",
+            timeout: Duration = 90.seconds,
+        ): LocalServer {
             require(jar.isFile) { "No server jar $jar: build it with ./gradlew :server:bootJar" }
             check(portIsFree(port) && !healthy(port)) {
                 "Port $port is busy (a server left from another run, or your own bootRun?). Stop it or pick another " +
@@ -92,6 +99,7 @@ class LocalServer private constructor(private val process: Process) : AutoClosea
                 jar.absolutePath,
                 "--spring.profiles.active=e2e",
                 "--server.port=$port",
+                "--hovanki.buildings.source=$buildings",
                 "--server.tomcat.accesslog.enabled=true",
                 "--server.tomcat.accesslog.directory=${logDir.absolutePath}",
                 "--server.tomcat.accesslog.prefix=access",

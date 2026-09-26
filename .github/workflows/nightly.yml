@@ -21,6 +21,9 @@ on:
       bots:
         description: Headless bots per device game
         default: "3"
+      device_location:
+        description: Where the emulators and the simulator are (LAT,LON); the games are created there
+        default: "52.2320,21.0100"
   schedule:
     # Nightly, off the full hour when GitHub's scheduler is busiest.
     - cron: "17 2 * * *"
@@ -37,6 +40,9 @@ env:
   # A scheduled run has no inputs: everything, with the defaults.
   SCENARIO: ${{ inputs.scenario || 'all' }}
   BOTS: ${{ inputs.bots || '3' }}
+  # Fresh emulators sit in the Californian countryside, fresh simulators nowhere: put them in central Warsaw (Plac
+  # Defilad, next to the Palace of Culture), so the device games have real buildings around them.
+  DEVICE_LOCATION: ${{ inputs.device_location || '52.2320,21.0100' }}
   MAESTRO_CLI_NO_ANALYTICS: "1"
   MAESTRO_CLI_ANALYSIS_NOTIFICATION_DISABLED: "true"
   # The version the device layer was verified with; the installer reads it.
@@ -119,7 +125,7 @@ jobs:
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
       - name: Two emulators, bots, scenarios
-        run: e2e/run-devices.sh --android 2 --bots "$BOTS" --scenario "$SCENARIO"
+        run: e2e/run-devices.sh --android 2 --bots "$BOTS" --scenario "$SCENARIO" --device-location "$DEVICE_LOCATION"
 
       - name: Upload report
         if: always()
@@ -157,7 +163,7 @@ jobs:
       # One simulator: the macOS runner (3 cores, 7 GB) needs ~17 min to boot a second one and then slows down every
       # step. Several simulators are for a local Mac: e2e/run-devices.sh --ios 2.
       - name: A simulator, bots, scenarios
-        run: e2e/run-devices.sh --ios 1 --bots "$BOTS" --scenario "$SCENARIO"
+        run: e2e/run-devices.sh --ios 1 --bots "$BOTS" --scenario "$SCENARIO" --device-location "$DEVICE_LOCATION"
 
       - name: Upload report
         if: always()

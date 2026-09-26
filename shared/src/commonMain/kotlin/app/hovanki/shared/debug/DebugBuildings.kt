@@ -30,6 +30,13 @@ object DebugBuildings {
     const val ARCH_EAST = -104.0
     const val ARCH_WIDTH = 4.0
 
+    /**
+     * The fake source has no building data for zones centered within [NO_DATA_RADIUS_METERS] of this point (Null
+     * Island), so scenarios can play a game with the building rule off.
+     */
+    val NO_DATA_AT = GeoPoint(0.0, 0.0)
+    const val NO_DATA_RADIUS_METERS = 5_000.0
+
     /** Deep inside the block: 14 m to the nearest wall, 18 m to the arch. */
     const val INSIDE_EAST = -84.0
     const val INSIDE_NORTH = 110.0

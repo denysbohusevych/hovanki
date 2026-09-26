@@ -392,6 +392,8 @@ class GameTest {
         stay(hider, insideBlock, settings.rules.insideBuildingRevealSeconds + 9)
 
         assertEquals(BuildingsState.UNAVAILABLE, game.snapshotFor(hider, now).buildings)
+        assertEquals(BuildingsState.UNAVAILABLE, game.buildingsFor(hider, now).state)
+        assertNull(game.debugState(now).players.single { it.id == hider }.buildingsLoadedAtMillis, "nothing to draw")
         assertNull(warning())
         assertNull(hiderAsSeenBySeeker())
     }
@@ -400,10 +402,15 @@ class GameTest {
     fun playersGetTheBuildingsTheRuleJudgesBy() {
         withTestQuarter()
 
-        val buildings = game.buildingsFor(hider)
+        val buildings = game.buildingsFor(hider, now)
         assertEquals(BuildingsState.READY, buildings.state)
         assertEquals(DebugBuildings.around(center).buildings, buildings.buildings)
         assertEquals(1, buildings.passages.size)
-        assertEquals(ErrorCode.NOT_FOUND, assertFailsWith<GameException> { game.buildingsFor(PlayerId("x")) }.code)
+        assertEquals(now, game.debugState(now).players.single { it.id == hider }.buildingsLoadedAtMillis)
+        assertNull(game.debugState(now).players.single { it.id == seeker }.buildingsLoadedAtMillis)
+        assertEquals(
+            ErrorCode.NOT_FOUND,
+            assertFailsWith<GameException> { game.buildingsFor(PlayerId("x"), now) }.code,
+        )
     }
 }

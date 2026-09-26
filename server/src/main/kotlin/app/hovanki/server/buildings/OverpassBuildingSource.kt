@@ -8,6 +8,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import java.io.IOException
+import java.net.URI
 import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -27,8 +28,23 @@ class OverpassBuildingSource(private val properties: BuildingProperties, json: J
         .build()
     private val parser = OverpassParser(json, properties.maxBuildings, properties.maxVertices)
 
+    /** From the first of [BuildingProperties.overpassUrls] that answers with data. */
     override fun load(area: ZoneCircle): Buildings {
-        val request = HttpRequest.newBuilder(properties.overpassUrl)
+        var failure: BuildingsUnavailableException? = null
+        for (url in properties.overpassUrls) {
+            try {
+                return load(url, area)
+            } catch (e: BuildingsUnavailableException) {
+                if (!e.retry) throw e
+                failure?.let(e::addSuppressed)
+                failure = e
+            }
+        }
+        throw failure ?: BuildingsUnavailableException("No Overpass URL configured", retry = false)
+    }
+
+    private fun load(url: URI, area: ZoneCircle): Buildings {
+        val request = HttpRequest.newBuilder(url)
             .timeout(properties.requestTimeout)
             .header("Content-Type", "application/x-www-form-urlencoded")
             .header("User-Agent", USER_AGENT)
@@ -37,15 +53,22 @@ class OverpassBuildingSource(private val properties: BuildingProperties, json: J
         val response = try {
             client.send(request, HttpResponse.BodyHandlers.ofInputStream())
         } catch (e: IOException) {
-            throw BuildingsUnavailableException("Overpass unreachable: ${e.javaClass.simpleName}", e)
+            throw BuildingsUnavailableException("${url.host} unreachable: ${e.javaClass.simpleName}", e)
         }
         val body = response.body().use { it.readNBytes(properties.maxResponseBytes + 1) }
         val status = response.statusCode()
-        if (status != HTTP_OK) throw BuildingsUnavailableException("Overpass answered $status")
+        if (status != HTTP_OK) throw BuildingsUnavailableException("${url.host} answered $status")
         if (body.size > properties.maxResponseBytes) {
-            throw BuildingsUnavailableException("Too much building data (over ${properties.maxResponseBytes} bytes)")
+            throw BuildingsUnavailableException(
+                "Too much building data (over ${properties.maxResponseBytes} bytes)",
+                retry = false,
+            )
         }
-        return parser.parse(body.decodeToString())
+        return try {
+            parser.parse(body.decodeToString())
+        } catch (e: BuildingsUnavailableException) {
+            throw BuildingsUnavailableException("${url.host}: ${e.message}", e, e.retry)
+        }
     }
 
     private fun query(area: ZoneCircle): String {
@@ -85,6 +108,11 @@ class OverpassParser(private val json: Json, private val maxBuildings: Int, priv
         } catch (e: IllegalArgumentException) {
             throw BuildingsUnavailableException("Unreadable Overpass response", e)
         }
+        // A busy or timed-out instance still answers 200, with the error here and no (or partial) elements. The
+        // remark itself is not logged: it may quote the query, and the query holds the zone center.
+        if (response.remark?.contains("error", ignoreCase = true) == true) {
+            throw BuildingsUnavailableException("Overpass reported an error instead of data")
+        }
         val buildings = ArrayList<BuildingArea>()
         val passages = ArrayList<Passage>()
         for (element in response.elements) {
@@ -102,10 +130,14 @@ class OverpassParser(private val json: Json, private val maxBuildings: Int, priv
                     if (path.size >= 2) passages += Passage(path, passageWidth(tags))
                 }
             }
-            if (buildings.size > maxBuildings) throw BuildingsUnavailableException("More than $maxBuildings buildings")
+            if (buildings.size > maxBuildings) {
+                throw BuildingsUnavailableException("More than $maxBuildings buildings", retry = false)
+            }
         }
         val vertices = buildings.sumOf { area -> area.outline.size + area.holes.sumOf { it.size } }
-        if (vertices > maxVertices) throw BuildingsUnavailableException("More than $maxVertices building vertices")
+        if (vertices > maxVertices) {
+            throw BuildingsUnavailableException("More than $maxVertices building vertices", retry = false)
+        }
         return Buildings(buildings, passages)
     }
 
@@ -144,7 +176,7 @@ class OverpassParser(private val json: Json, private val maxBuildings: Int, priv
     }
 
     @Serializable
-    private data class OverpassResponse(val elements: List<OverpassElement> = emptyList())
+    private data class OverpassResponse(val elements: List<OverpassElement> = emptyList(), val remark: String? = null)
 
     @Serializable
     private data class OverpassElement(

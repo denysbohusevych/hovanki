@@ -20,6 +20,9 @@ KEEP=0
 FAIL_FAST=0
 SKIP_BUILD=0
 REPORT=e2e/build/reports/devices
+LOCATION=
+DEVICE_LOCATION=
+BUILDINGS=overpass
 ANDROID_SERIALS=()
 IOS_UDIDS=()
 # Automated Test Device image: made for headless CI, without SystemUI, Settings and bundled apps, with the Google APIs
@@ -39,6 +42,11 @@ Options:
   --bots K                 headless bots in the game (default 3)
   --scenario NAME          full-round | restart | all (default full-round)
   --port P                 server port on this machine (default 8080)
+  --location LAT,LON       play there (default: where the first device is, its own location)
+  --device-location LAT,LON  put the devices there before the run, as Extended Controls → Location would: the
+                           scenarios still take the host's own location (CI: fresh devices have none worth playing at)
+  --buildings SOURCE       overpass: real OpenStreetMap buildings around the game (default); fake: the test
+                           quarter next to the zone center; off: no building rule
   --skip-build             reuse the server jar, APK/app and e2e CLI from the last build
   --keep                   leave emulators/simulators running
   --fail-fast              skip the remaining scenarios after a failed one
@@ -54,6 +62,9 @@ while (($#)); do
     --bots) BOTS=$2; shift 2 ;;
     --scenario) SCENARIO=$2; shift 2 ;;
     --port) PORT=$2; shift 2 ;;
+    --location) LOCATION=$2; shift 2 ;;
+    --device-location) DEVICE_LOCATION=$2; shift 2 ;;
+    --buildings) BUILDINGS=$2; shift 2 ;;
     --skip-build) SKIP_BUILD=1; shift ;;
     --keep) KEEP=1; shift ;;
     --fail-fast) FAIL_FAST=1; shift ;;
@@ -149,9 +160,10 @@ export E2E_OPTS=${E2E_OPTS:--Xmx768m}
 export MAESTRO_OPTS=${MAESTRO_OPTS:--Xmx1g}
 
 # ---- Server ----
-log "starting the server on :$PORT (profile e2e)"
+log "starting the server on :$PORT (profile e2e, buildings: $BUILDINGS)"
 # The access log (request line, status, time; no headers, so no tokens) shows which device requests reached the server.
 java -Xmx512m -jar server/build/libs/hovanki-server.jar --spring.profiles.active=e2e --server.port="$PORT" \
+  --hovanki.buildings.source="$BUILDINGS" \
   --server.tomcat.accesslog.enabled=true --server.tomcat.accesslog.directory="$PWD/$REPORT/logs" \
   --server.tomcat.accesslog.prefix=access --server.tomcat.accesslog.suffix=.log \
   --server.tomcat.accesslog.pattern='%t %a "%r" %s %{ms}Tms' >"$REPORT/logs/server.log" 2>&1 &
@@ -235,6 +247,8 @@ for serial in ${ANDROID_SERIALS[@]+"${ANDROID_SERIALS[@]}"}; do
   # "... isn't responding" dialogs of a busy emulator must not cover the app under test.
   adb -s "$serial" shell settings put global hide_error_dialogs 1
   adb -s "$serial" shell cmd location set-location-enabled true || true
+  # The emulator console takes longitude first.
+  [[ -n $DEVICE_LOCATION ]] && adb -s "$serial" emu geo fix "${DEVICE_LOCATION#*,}" "${DEVICE_LOCATION%%,*}" >/dev/null
   log "installing the debug app on $serial"
   # -g grants the runtime permissions (location, notifications) up front.
   adb -s "$serial" install -r -g androidApp/build/outputs/apk/debug/androidApp-debug.apk >/dev/null
@@ -262,6 +276,7 @@ for udid in ${IOS_UDIDS[@]+"${IOS_UDIDS[@]}"}; do
   log "booting simulator $udid"
   xcrun simctl boot "$udid" 2>/dev/null || true # already booted when passed with --ios-udids
   xcrun simctl bootstatus "$udid" -b >/dev/null
+  [[ -n $DEVICE_LOCATION ]] && xcrun simctl location "$udid" set "$DEVICE_LOCATION"
   log "installing the debug app on $udid"
   xcrun simctl install "$udid" "$IOS_APP"
   # The first launch on a fresh simulator is by far the slowest: take it here, not inside a scenario.
@@ -274,6 +289,7 @@ done
 # ---- Scenarios ----
 args=(devices --port "$PORT" --bots "$BOTS" --scenario "$SCENARIO" --report "$REPORT" --flows e2e/maestro)
 ((FAIL_FAST)) && args+=(--fail-fast true)
+[[ -n $LOCATION ]] && args+=(--location "$LOCATION")
 ((${#ANDROID_SERIALS[@]})) && args+=(--android "$(IFS=,; echo "${ANDROID_SERIALS[*]}")")
 ((${#IOS_UDIDS[@]})) && args+=(--ios "$(IFS=,; echo "${IOS_UDIDS[*]}")")
 log "running: e2e ${args[*]}"

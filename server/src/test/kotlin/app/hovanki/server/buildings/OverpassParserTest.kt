@@ -93,4 +93,27 @@ class OverpassParserTest {
         assertFailsWith<BuildingsUnavailableException> { parser.parse(response(*many.toTypedArray())) }
         assertFailsWith<BuildingsUnavailableException> { parser.parse("<html>rate limited</html>") }
     }
+
+    /**
+     * A busy or timed-out Overpass still answers 200, with no elements and the error in `remark`. Taken for an empty
+     * zone, the game would run with the rule on and nothing forbidden.
+     */
+    @Test
+    fun anErrorRemarkIsUnavailableNotAnEmptyZone() {
+        for (remark in listOf(
+            "runtime error: Query timed out in \"query\" at line 3 after 26 seconds.",
+            "runtime error: open64: 0 Success /osm3s_osm_base Dispatcher_Client::request_read_and_idx::timeout. " +
+                "The server is probably too busy to handle your request.",
+            "runtime error: Query run out of memory using about 2048 MB of RAM.",
+        )) {
+            val quoted = protocolJson.encodeToString(remark)
+            val body = """{"version":0.6,"generator":"Overpass API","elements":[],"remark":$quoted}"""
+            assertFailsWith<BuildingsUnavailableException>(remark) { parser.parse(body) }
+        }
+    }
+
+    @Test
+    fun anEmptyZoneWithoutARemarkIsJustEmpty() {
+        assertEquals(0, parser.parse(response()).buildings.size)
+    }
 }
