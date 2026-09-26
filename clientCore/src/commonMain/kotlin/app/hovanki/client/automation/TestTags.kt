@@ -22,6 +22,7 @@ object TestTags {
     const val HOME_SERVER = "home_server"
     const val HOME_BUSY = "home_busy"
     const val HOME_PROBLEM = "home_problem"
+    const val HOME_BUILD = "home_build"
 
     const val LOBBY_SCREEN = "lobby_screen"
     const val LOBBY_JOIN_CODE = "lobby_join_code"

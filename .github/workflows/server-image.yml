@@ -1,0 +1,69 @@
+name: Server image
+
+# Builds the server jar and pushes the Docker image to GHCR. Called by ci.yml (every push to main: tag `main`,
+# which the server in AWS pulls by itself) and release.yml (version tags). See docs/ci-cd.md and docs/deploy.md.
+on:
+  workflow_call:
+    inputs:
+      tags:
+        description: Tag rules for docker/metadata-action, one per line
+        required: true
+        type: string
+    outputs:
+      image:
+        description: Image name without a tag
+        value: ${{ jobs.image.outputs.image }}
+      version:
+        description: Main tag of the pushed image
+        value: ${{ jobs.image.outputs.version }}
+
+permissions: {}
+
+jobs:
+  image:
+    name: Build and push
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Build server jar
+        run: ./gradlew :server:bootJar
+
+      # Registry paths must be lowercase, the owner name may not be.
+      - name: Image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/hovanki-server" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: ${{ inputs.tags }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: server
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

@@ -25,7 +25,7 @@ android {
         applicationId = "app.hovanki"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        // CI passes -Phovanki.versionCode=<run number> -Phovanki.versionName=<tag>.
+        // CI passes -Phovanki.versionCode=<run number> and, for a release, -Phovanki.versionName=<tag>.
         versionCode = providers.gradleProperty("hovanki.versionCode").map { it.toInt() }.getOrElse(1)
         versionName = providers.gradleProperty("hovanki.versionName").getOrElse("0.1.0")
     }
@@ -47,6 +47,20 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
         }
+        // Tester builds from main (preview.yml, docs/ci-cd.md): the release build (R8, same key, HTTPS only, no UI
+        // automation hooks) as a separate app. It installs next to a store release, which Google Play re-signs
+        // with its own key, and its version codes (preview run numbers) never clash with the release ones.
+        create("preview") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-preview"
+            matchingFallbacks += "release"
+        }
+    }
+
+    sourceSets {
+        // No UI automation hooks, like release (src/release has the no-op twins of src/debug).
+        named("preview") { kotlin.directories += "src/release/kotlin" }
     }
 
     compileOptions {

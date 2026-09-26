@@ -1,0 +1,16 @@
+# Pulls the server image of HOVANKI_TAG (.env; `main` follows every push to main) and restarts the server when the
+# image changed. Only the server: Caddy is updated by hand. Started by hovanki-update.timer; see docs/deploy.md.
+[Unit]
+Description=Update the Hovanki server to the newest image of its tag
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+# The docker group and the GHCR login from `docker login` (~/.docker/config.json) belong to this user.
+User=ubuntu
+WorkingDirectory=/opt/hovanki
+ExecStart=/usr/bin/docker compose pull --quiet server
+ExecStart=/usr/bin/docker compose up --detach server
+# Old server images, left without a tag after the update.
+ExecStart=/usr/bin/docker image prune --force

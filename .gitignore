@@ -19,6 +19,8 @@ xcuserdata/
 DerivedData/
 *.xcuserstate
 iosApp/build/
+# Per-machine overrides of Config.xcconfig (team of a free Apple ID etc.), see iosApp/README.md
+iosApp/Configuration/Local.xcconfig
 
 # OS
 .DS_Store

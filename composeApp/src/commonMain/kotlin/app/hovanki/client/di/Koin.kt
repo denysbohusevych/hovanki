@@ -36,8 +36,8 @@ fun initKoin(appDeclaration: KoinAppDeclaration = {}) {
 
 val commonModule: Module = module {
     single { ClientStorage(get()) }
-    // The address that worked last time; the platform default on the first launch.
-    single { ServerUrl(get<ClientStorage>().serverUrl ?: defaultServerUrl()) }
+    // The address that worked last time; the build's default on the first launch.
+    single { ServerUrl(get<ClientStorage>().serverUrl ?: defaultServerUrl(get())) }
     single { LaunchOptionsHolder() }
     single { createHttpClient(get()) }
     single<GameApi> { HttpGameApi(get(), get()) }
@@ -69,7 +69,7 @@ fun onAppStart(options: LaunchOptions?) {
 }
 
 /**
- * Platform services: HTTP engine, [app.hovanki.client.storage.SecureStore],
+ * Platform services: [app.hovanki.client.BuildInfo], HTTP engine, [app.hovanki.client.storage.SecureStore],
  * [app.hovanki.client.location.LocationProvider], background tracking, BLE.
  */
 expect val platformModule: Module

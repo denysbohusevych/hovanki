@@ -5,9 +5,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Base URL of the game server. Editable on the start screen, because a real phone can't reach
- * the emulator/simulator default and has to use the development machine's LAN address.
- * The app starts with its platform default (`defaultServerUrl()` in :composeApp).
+ * Base URL of the game server. Editable on the start screen: a real phone reaches a development machine through
+ * its LAN address or an HTTPS tunnel. The app starts with its default (`defaultServerUrl()` in :composeApp),
+ * which is empty in non-debug builds until a server is deployed.
  */
 class ServerUrl(initial: String) {
     private val url = MutableStateFlow(normalize(initial))
@@ -20,5 +20,17 @@ class ServerUrl(initial: String) {
             url.value = normalize(value)
         }
 
-    private fun normalize(value: String): String = value.trim().trimEnd('/')
+    val isBlank: Boolean
+        get() = url.value.isEmpty()
+
+    companion object {
+        /**
+         * Trims spaces and trailing slashes. An address typed without a scheme (`name.trycloudflare.com`) gets
+         * `https://`: non-debug builds only talk HTTPS, plain HTTP needs the scheme spelled out.
+         */
+        fun normalize(value: String): String {
+            val url = value.trim().trimEnd('/')
+            return if (url.isEmpty() || "://" in url) url else "https://$url"
+        }
+    }
 }

@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.hovanki.client.BuildInfo
 import app.hovanki.client.automation.LaunchOptions
 import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.network.ServerUrl
@@ -28,6 +29,7 @@ class HomeViewModel(
     private val serverUrl: ServerUrl,
     private val launchOptions: LaunchOptionsHolder,
     private val storage: ClientStorage,
+    buildInfo: BuildInfo,
 ) : ViewModel() {
     // Text field values are Compose state rather than StateFlow: text fields need synchronous updates,
     // otherwise fast typing can lose characters. The ViewModel keeps them when the player returns from a game;
@@ -38,6 +40,9 @@ class HomeViewModel(
         private set
     var serverAddress by mutableStateOf(serverUrl.value)
         private set
+
+    /** Version, build number and commit, shown small at the bottom so testers can name the build. */
+    val buildLabel: String = buildInfo.label
 
     private val mutableStatus = MutableStateFlow(HomeStatus())
     val status: StateFlow<HomeStatus> = mutableStatus.asStateFlow()
@@ -66,9 +71,10 @@ class HomeViewModel(
     }
 
     /** Checks the form before the location permission is requested; shows what is missing. */
-    fun canCreateGame(): Boolean = requireName()
+    fun canCreateGame(): Boolean = requireName() && requireServer()
 
-    fun canJoinGame(): Boolean = requireName() && validate(joinCode.isNotBlank(), HomeProblem.CODE_MISSING)
+    fun canJoinGame(): Boolean =
+        requireName() && validate(joinCode.isNotBlank(), HomeProblem.CODE_MISSING) && requireServer()
 
     /** The zone is centered on the host, so a game can only be created with a GPS fix. */
     fun createGame(locationGranted: Boolean) {
@@ -114,6 +120,9 @@ class HomeViewModel(
 
     private fun requireName(): Boolean = validate(playerName.isNotBlank(), HomeProblem.NAME_MISSING)
 
+    /** Non-debug builds start without a server until one is deployed (`hovanki.serverUrl`). */
+    private fun requireServer(): Boolean = validate(!serverUrl.isBlank, HomeProblem.SERVER_MISSING)
+
     private fun validate(condition: Boolean, problem: HomeProblem): Boolean {
         mutableStatus.update { it.copy(problem = if (condition) null else problem) }
         return condition
@@ -149,4 +158,4 @@ data class HomeStatus(
 
 enum class HomeActivity { LOCATING, CONNECTING }
 
-enum class HomeProblem { NAME_MISSING, CODE_MISSING, LOCATION_DENIED, NO_LOCATION_FIX }
+enum class HomeProblem { NAME_MISSING, CODE_MISSING, SERVER_MISSING, LOCATION_DENIED, NO_LOCATION_FIX }

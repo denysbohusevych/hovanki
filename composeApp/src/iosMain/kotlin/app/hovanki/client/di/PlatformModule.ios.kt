@@ -1,6 +1,8 @@
 package app.hovanki.client.di
 
+import app.hovanki.client.BuildInfo
 import app.hovanki.client.automation.LaunchOptionsHolder
+import app.hovanki.client.iosBuildInfo
 import app.hovanki.client.location.IosLocationProvider
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.proximity.NoopProximityScanner
@@ -15,6 +17,7 @@ import org.koin.core.module.Module
 import org.koin.dsl.module
 
 actual val platformModule: Module = module {
+    single<BuildInfo> { iosBuildInfo() }
     single<HttpClientEngine> { Darwin.create() }
     single<SecureStore> { KeychainSecureStore() }
     single<LocationProvider> {

@@ -57,8 +57,21 @@ flowchart LR
 
 - Ключевые элементы помечены `Modifier.testTag`, константы — `TestTags` в `:clientCore` (пакет `app.hovanki.client.automation`, общий с оркестратором e2e). На Android debug-сборка включает `testTagsAsResourceId` (`AutomationRoot`), и теги становятся resource-id. На iOS Compose отдаёт их как `accessibilityIdentifier`.
 - `LaunchOptions` (там же) — адрес сервера, имя игрока, join-код, время пряток для игры, созданной с устройства. Они предзаполняют главный экран вместо ввода руками. `forgetSavedGame` стирает сохранённую игру вместо возврата в неё: сценарий начинает с главного экрана.
-  - Android читает их только в source set `debug` (`androidApp/src/debug`): extras `hovanki.*` или deep link `hovanki://join?server=…&name=…&joinCode=…`, объявленный только в debug-манифесте. В `release` лежат no-op-двойники.
+  - Android читает их только в source set `debug` (`androidApp/src/debug`): extras `hovanki.*` или deep link `hovanki://join?server=…&name=…&joinCode=…`, объявленный только в debug-манифесте. В `release` лежат no-op-двойники, их же берёт тестовая сборка `preview`.
   - iOS читает `NSUserDefaults` (launch arguments `-hovanki.server …`) только в debug-бинаре (`Platform.isDebugBinary`).
+
+### Сборки и адрес сервера
+
+| Сборка | Android | iOS | Адрес сервера по умолчанию | HTTP |
+|---|---|---|---|---|
+| debug | build type `debug`, хуки автоматизации | конфигурация Debug | компьютер разработчика: `10.0.2.2:8080` / `localhost:8080` | да (Android — cleartext в debug-манифесте, iOS — `NSAllowsLocalNetworking` из build phase «Debug: local network») |
+| тестовая | build type `preview` (= release, `app.hovanki.preview`) | Release в TestFlight | `hovanki.serverUrl` или пусто | нет, только HTTPS |
+| релиз | build type `release` | Release в App Store | `hovanki.serverUrl` или пусто | нет, только HTTPS |
+
+- `:composeApp` генерирует `BuildConstants` (задача `generateBuildConstants`): `SERVER_URL` из Gradle-свойства `hovanki.serverUrl` (только `https://`) и `COMMIT` из `git describe`. Одинаково для Android и iOS, потому что Xcode собирает фреймворк тем же Gradle.
+- `BuildInfo` (версия, номер сборки, commit, debug или нет) даёт платформенный Koin-модуль: Android — из `PackageInfo` и `FLAG_DEBUGGABLE`, iOS — из `Info.plist` и `Platform.isDebugBinary`. Главный экран показывает его внизу, `defaultServerUrl(buildInfo)` выбирает адрес по умолчанию.
+- `ServerUrl` дописывает `https://` к адресу без схемы: игроки вводят адрес туннеля руками.
+- Как собираются и публикуются тестовые сборки — [ci-cd.md](ci-cd.md#тестовые-сборки-previewyml).
 
 ## Раунд: поток данных
 

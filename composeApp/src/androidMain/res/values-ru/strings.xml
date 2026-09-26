@@ -2,5 +2,5 @@
 <resources>
   <string name="tracking_channel_name">Игра идёт</string>
   <string name="tracking_notification_title">Hovanki: идёт раунд</string>
-  <string name="tracking_notification_text">Ваше местоположение передаётся игре до конца раунда.</string>
+  <string name="tracking_notification_text">Ваше местоположение передаётся игровому серверу до конца раунда, в том числе при выключенном экране.</string>
 </resources>

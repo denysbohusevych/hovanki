@@ -29,10 +29,12 @@
   <string name="home_join">Приєднатися</string>
   <string name="home_locating">Визначаємо ваше місцезнаходження…</string>
   <string name="home_connecting">Підключаємося до сервера…</string>
+  <string name="home_location_note">Під час раунду ігровий сервер отримує ваше точне місцезнаходження, зокрема коли екран заблоковано. Після гри воно видаляється.</string>
   <string name="home_server_label">Адреса сервера</string>
-  <string name="home_server_hint">Ігровий сервер, наприклад http://192.168.1.10:8080</string>
+  <string name="home_server_hint">Ігровий сервер, наприклад https://name.trycloudflare.com</string>
   <string name="problem_name_missing">Введіть ім’я.</string>
   <string name="problem_code_missing">Введіть код гри.</string>
+  <string name="problem_server_missing">Введіть адресу сервера внизу екрана.</string>
   <string name="problem_location_denied">Грі потрібне ваше точне місцезнаходження. Дозвольте його в налаштуваннях системи.</string>
   <string name="problem_no_location_fix">Не вдалося точно визначити місцезнаходження. Вийдіть на відкрите місце й спробуйте знову.</string>
 
