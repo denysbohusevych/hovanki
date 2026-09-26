@@ -4,11 +4,19 @@ import app.hovanki.server.account.uniqueName
 import app.hovanki.shared.protocol.AccountSession
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
+import app.hovanki.shared.protocol.GameSettings
+import app.hovanki.shared.protocol.GameSnapshot
+import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LoginRequest
 import app.hovanki.shared.protocol.RegisterRequest
+import app.hovanki.shared.protocol.SendChatRequest
+import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.protocolJson
+import app.hovanki.shared.rules.shrinkingZone
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
@@ -29,6 +37,7 @@ import kotlin.test.assertTrue
         "hovanki.rate-limits.enabled=true",
         "hovanki.rate-limits.login-per-login.count=3",
         "hovanki.rate-limits.login-per-login.window=15m",
+        "hovanki.rate-limits.reports.count=2",
     ],
 )
 @AutoConfigureMockMvc
@@ -57,6 +66,29 @@ class RateLimitApiTest(@Autowired private val mvc: MockMvc) {
         assertTrue(assertTooManyRequests(resend) in 1..60)
     }
 
+    @Test
+    fun chatReports() {
+        val settings = GameSettings(zone = shrinkingZone(GeoPoint(50.4501, 30.5234)))
+        val host = post(ApiRoutes.GAMES, protocolJson.encodeToString(CreateGameRequest("Host", settings)))
+            .decode<SessionResponse>()
+        val guest = post(ApiRoutes.JOIN, protocolJson.encodeToString(JoinGameRequest(host.snapshot.joinCode, "Guest")))
+            .decode<SessionResponse>().session
+        val messages = (1..3).map {
+            val request = protocolJson.encodeToString(SendChatRequest("message $it", chatAfter = 0))
+            post(ApiRoutes.chat(host.session.gameId), request, host.session.token).decode<GameSnapshot>().chat.last()
+        }
+        fun report(seq: Long) = post(ApiRoutes.chatReport(guest.gameId, seq), json = null, guest.token)
+
+        // Two an hour in this context: the guest's third report is one too many.
+        repeat(2) { assertEquals(200, report(messages[it].seq).status) }
+        assertTrue(assertTooManyRequests(report(messages[2].seq)) in 1..60 * 60)
+    }
+
+    private inline fun <reified T> MockHttpServletResponse.decode(): T {
+        assertEquals(200, status, contentAsString)
+        return protocolJson.decodeFromString(contentAsString)
+    }
+
     private fun assertTooManyRequests(response: MockHttpServletResponse): Int {
         assertEquals(429, response.status, response.contentAsString)
         val error = protocolJson.decodeFromString<ApiError>(response.contentAsString)
@@ -77,9 +109,12 @@ class RateLimitApiTest(@Autowired private val mvc: MockMvc) {
     private fun login(login: String, password: String) =
         post(ApiRoutes.LOGIN, protocolJson.encodeToString(LoginRequest(login, password)))
 
-    private fun post(path: String, json: String): MockHttpServletResponse = mvc.post(path) {
-        contentType = MediaType.APPLICATION_JSON
-        content = json
+    private fun post(path: String, json: String?, token: String? = null): MockHttpServletResponse = mvc.post(path) {
+        if (json != null) {
+            contentType = MediaType.APPLICATION_JSON
+            content = json
+        }
+        if (token != null) header("Authorization", "${ApiRoutes.AUTH_SCHEME} $token")
     }.andReturn().response
 
     private companion object {

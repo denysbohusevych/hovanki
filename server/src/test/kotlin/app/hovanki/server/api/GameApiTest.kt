@@ -4,12 +4,14 @@ import app.hovanki.server.account.awaitCode
 import app.hovanki.server.account.uniqueName
 import app.hovanki.server.mail.EmailSender
 import app.hovanki.server.mail.RecordingEmailSender
+import app.hovanki.server.moderation.ReportRepository
 import app.hovanki.shared.debug.DebugBuildings
 import app.hovanki.shared.protocol.AccountSession
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
+import app.hovanki.shared.protocol.ChatChannel
 import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.ConfirmCatchRequest
 import app.hovanki.shared.protocol.CreateGameRequest
@@ -26,17 +28,20 @@ import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.RegisterRequest
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.VerifyEmailRequest
 import app.hovanki.shared.protocol.protocolJson
+import app.hovanki.shared.rules.ChatRules
 import app.hovanki.shared.rules.shrinkingZone
 import app.hovanki.shared.totp.catchCodeTotp
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
+import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
@@ -51,7 +56,11 @@ import kotlin.test.assertTrue
 /** Full HTTP round trips with the shared DTOs and the shared JSON settings, exactly as the app talks to the server. */
 @SpringBootTest
 @AutoConfigureMockMvc
-class GameApiTest(@Autowired private val mvc: MockMvc, @Autowired emailSender: EmailSender) {
+class GameApiTest(
+    @Autowired private val mvc: MockMvc,
+    @Autowired emailSender: EmailSender,
+    @Autowired private val reports: ReportRepository,
+) {
     private val emails = emailSender as RecordingEmailSender
     private val park = GeoPoint(50.4501, 30.5234)
     private val settings = GameSettings(zone = shrinkingZone(park), hidingSeconds = 0)
@@ -214,6 +223,94 @@ class GameApiTest(@Autowired private val mvc: MockMvc, @Autowired emailSender: E
         }
     }
 
+    // ---- Chat ----
+
+    @Test
+    fun chatOverHttp() {
+        val created = createGame()
+        val host = created.session
+        val guest = join(created.snapshot.joinCode, accountToken = null, name = "Guest").session
+
+        val hello = sendChat(host, SendChatRequest(" hello\n", chatAfter = 0)).chat.single()
+        assertEquals(Triple(host.playerId, "hello", ChatChannel.ALL), Triple(hello.playerId, hello.text, hello.channel))
+
+        // The others get it with their next sync; the cursor says what they have already.
+        assertEquals(listOf(hello), sync(guest, chatAfter = 0).chat)
+        assertEquals(emptyList(), sync(guest, chatAfter = hello.seq).chat)
+        val reply = sendChat(guest, SendChatRequest("hi", team = true, chatAfter = hello.seq)).chat.single()
+        assertEquals("hi" to ChatChannel.ALL, reply.text to reply.channel)
+        assertEquals(listOf(hello, reply), sync(host, chatAfter = 0).chat)
+
+        // An app without chat sends no cursor, and gets no chat.
+        val oldApp = postRaw(ApiRoutes.sync(host.gameId), """{"samples":[]}""", host, expectedStatus = 200)
+        assertTrue(""""chat":[]""" in oldApp && "hello" !in oldApp, oldApp)
+
+        val empty = postRaw(ApiRoutes.chat(host.gameId), SendChatRequest(" \n ").toJson(), host, expectedStatus = 400)
+        assertError(empty, ErrorCode.BAD_REQUEST, ErrorReason.INVALID_MESSAGE)
+        postRaw(ApiRoutes.chat(host.gameId), SendChatRequest("hi").toJson(), session = null, expectedStatus = 401)
+    }
+
+    @Test
+    fun fiveMessagesInTenSecondsOverHttp() {
+        val host = createGame().session
+        repeat(ChatRules.RATE_LIMIT_MESSAGES) { sendChat(host, SendChatRequest("message $it")) }
+
+        val response = mvc.post(ApiRoutes.chat(host.gameId)) {
+            contentType = MediaType.APPLICATION_JSON
+            content = SendChatRequest("one more").toJson()
+            header("Authorization", "${ApiRoutes.AUTH_SCHEME} ${host.token}")
+        }.andReturn().response
+        assertEquals(429, response.status)
+        assertError(response.contentAsString, ErrorCode.WRONG_STATE, ErrorReason.TOO_MANY_REQUESTS)
+        assertTrue(assertNotNull(response.getHeader(HttpHeaders.RETRY_AFTER)).toLong() in 1..10)
+    }
+
+    @Test
+    fun reportingChatMessages() {
+        val alice = registerVerified()
+        val created = createGame(alice.token)
+        val host = created.session
+        val guest = join(created.snapshot.joinCode, accountToken = null, name = "Guest").session
+        val rude = sendChat(host, SendChatRequest("rude words", chatAfter = 0)).chat.single()
+
+        // A guest reports alice's message; twice is still one report.
+        repeat(2) {
+            val snapshot = protocolJson.decodeFromString<GameSnapshot>(report(guest, rude.seq))
+            assertEquals(guest.playerId, snapshot.me.playerId)
+        }
+        val stored = reportsOf(host).single()
+        assertEquals(rude.seq, stored.messageSeq)
+        assertEquals(guest.playerId.value to null, stored.reporterPlayerId to stored.reporterUserId)
+        assertEquals(alice.user.id.value to alice.user.nickname, stored.reportedUserId to stored.reportedName)
+        assertEquals("rude words", stored.text)
+
+        assertError(report(host, rude.seq, expectedStatus = 403), ErrorCode.FORBIDDEN, reason = null)
+        assertError(report(guest, rude.seq + 100, expectedStatus = 404), ErrorCode.NOT_FOUND, reason = null)
+        assertError(report(guest, "abc", expectedStatus = 400), ErrorCode.BAD_REQUEST, reason = null)
+
+        // Alice reports the guest's answer.
+        val answer = sendChat(guest, SendChatRequest("no u", chatAfter = rude.seq)).chat.single()
+        report(host, answer.seq)
+        val byAlice = reportsOf(host).single { it.messageSeq == answer.seq }
+        assertEquals(host.playerId.value to alice.user.id.value, byAlice.reporterPlayerId to byAlice.reporterUserId)
+        assertEquals(null to "Guest", byAlice.reportedUserId to byAlice.reportedName)
+        assertEquals(2, reportsOf(host).size)
+    }
+
+    private fun sendChat(session: PlayerSession, request: SendChatRequest): GameSnapshot =
+        post(ApiRoutes.chat(session.gameId), request.toJson(), session)
+
+    /** Reports message [seq] (a number, or not) as the app does: a POST without a body. */
+    private fun report(session: PlayerSession, seq: Any, expectedStatus: Int = 200): String =
+        mvc.post("${ApiRoutes.chat(session.gameId)}/$seq/report") {
+            header("Authorization", "${ApiRoutes.AUTH_SCHEME} ${session.token}")
+        }.andExpect {
+            status { isEqualTo(expectedStatus) }
+        }.andReturn().response.getContentAsString(Charsets.UTF_8)
+
+    private fun reportsOf(session: PlayerSession) =
+        reports.latest(Int.MAX_VALUE).filter { it.gameId == session.gameId.value }
+
     /** Starts the lobby with [seeker] as the only seeker, who then catches the host, the only hider. */
     private fun playUntilTheHostIsCaught(host: PlayerSession, seeker: PlayerSession): GameSnapshot {
         post<GameSnapshot>(ApiRoutes.start(host.gameId), StartGameRequest(listOf(seeker.playerId)).toJson(), host)
@@ -258,9 +355,9 @@ class GameApiTest(@Autowired private val mvc: MockMvc, @Autowired emailSender: E
         return session.copy(user = profile)
     }
 
-    private fun sync(session: PlayerSession): GameSnapshot {
+    private fun sync(session: PlayerSession, chatAfter: Long? = null): GameSnapshot {
         val fix = LocationSample(park, accuracyMeters = 5.0, timestampMillis = System.currentTimeMillis())
-        return post(ApiRoutes.sync(session.gameId), SyncRequest(listOf(fix)).toJson(), session)
+        return post(ApiRoutes.sync(session.gameId), SyncRequest(listOf(fix), chatAfter).toJson(), session)
     }
 
     private inline fun <reified T> T.toJson(): String = protocolJson.encodeToString(this)

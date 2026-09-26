@@ -3,6 +3,10 @@ package app.hovanki.server.game
 import app.hovanki.server.account.UserRepository
 import app.hovanki.server.api.AuthenticatedUser
 import app.hovanki.server.buildings.BuildingLoader
+import app.hovanki.server.moderation.NewReport
+import app.hovanki.server.moderation.ReportRepository
+import app.hovanki.server.ratelimit.RateLimit
+import app.hovanki.server.ratelimit.RateLimiter
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ClaimCatchRequest
@@ -16,6 +20,7 @@ import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
@@ -32,6 +37,8 @@ class GameService(
     private val clock: Clock,
     private val buildingLoader: BuildingLoader,
     private val users: UserRepository,
+    private val reports: ReportRepository,
+    private val rateLimiter: RateLimiter,
 ) {
     /**
      * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
@@ -90,7 +97,43 @@ class GameService(
 
     fun sync(caller: PlayerRef, gameId: GameId, request: SyncRequest): GameSnapshot {
         if (request.samples.size > MAX_SAMPLES_PER_SYNC) throw GameException(ErrorCode.BAD_REQUEST, "Too many samples")
-        return update(caller, gameId) { game, now -> game.recordLocations(caller.playerId, request.samples, now) }
+        return update(caller, gameId, request.chatAfter) { game, now ->
+            game.recordLocations(caller.playerId, request.samples, now)
+        }
+    }
+
+    /** A chat message; the snapshot brings the messages after the request's cursor, this one included. */
+    fun sendChat(caller: PlayerRef, gameId: GameId, request: SendChatRequest): GameSnapshot =
+        update(caller, gameId, request.chatAfter) { game, now ->
+            game.sendChat(caller.playerId, request.text, request.team, now)
+        }
+
+    /**
+     * Reports chat message [seq] to the moderators ([Game.reportedMessage] says which ones can be). The message is
+     * copied under the game's lock, the report is written after it is released: the game's other requests never wait
+     * for the database. Reporting a message again changes nothing.
+     */
+    fun reportChat(caller: PlayerRef, gameId: GameId, seq: Long): GameSnapshot {
+        val game = gameOf(caller, gameId)
+        val (reported, snapshot) = synchronized(game) {
+            val now = clock.millis()
+            game.advance(now)
+            game.reportedMessage(caller.playerId, seq) to game.snapshotFor(caller.playerId, now)
+        }
+        // Per account; guests have none, so per player.
+        val reporter = reported.reporterUserId?.value ?: "${gameId.value}/${caller.playerId.value}"
+        rateLimiter.acquire(RateLimit.REPORTS, reporter)
+        val report = NewReport(
+            gameId = gameId,
+            messageSeq = seq,
+            reporterPlayerId = caller.playerId,
+            reporterUserId = reported.reporterUserId,
+            reportedUserId = reported.senderUserId,
+            reportedName = reported.senderName,
+            text = reported.message.text,
+        )
+        reports.insert(report, clock.instant())
+        return snapshot
     }
 
     fun claimCatch(caller: PlayerRef, gameId: GameId, request: ClaimCatchRequest): GameSnapshot =
@@ -124,14 +167,20 @@ class GameService(
         return registry.get(gameId) ?: throw GameException(ErrorCode.NOT_FOUND, "The game is over or never existed")
     }
 
-    private fun update(caller: PlayerRef, gameId: GameId, action: (Game, Long) -> Unit): GameSnapshot {
+    /** [action] under the game's lock, on the current state; the caller's snapshot with chat after [chatAfter]. */
+    private fun update(
+        caller: PlayerRef,
+        gameId: GameId,
+        chatAfter: Long? = null,
+        action: (Game, Long) -> Unit,
+    ): GameSnapshot {
         val game = gameOf(caller, gameId)
         return synchronized(game) {
             val now = clock.millis()
             game.advance(now)
             action(game, now)
             game.advance(now)
-            game.snapshotFor(caller.playerId, now)
+            game.snapshotFor(caller.playerId, now, chatAfter)
         }
     }
 

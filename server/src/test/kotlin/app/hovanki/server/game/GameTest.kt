@@ -5,7 +5,10 @@ import app.hovanki.shared.geo.moveBy
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
+import app.hovanki.shared.protocol.ChatChannel
+import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.ErrorCode
+import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
@@ -15,11 +18,13 @@ import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VisibilityReason
+import app.hovanki.shared.rules.ChatRules
 import app.hovanki.shared.rules.shrinkingZone
 import app.hovanki.shared.totp.catchCodeTotp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
@@ -446,5 +451,152 @@ class GameTest {
         // Guests can't be told apart: any number of them.
         game.addPlayer(seeker, "Guest", now)
         game.addPlayer(hider, "Guest", now)
+    }
+
+    // ---- Chat ----
+
+    /** [player] says [text], 2 s after the previous message: never too fast. */
+    private fun say(player: PlayerId, text: String = "hi", team: Boolean = false): ChatMessage {
+        now += 2_000
+        return game.sendChat(player, text, team, now)
+    }
+
+    private fun chatOf(viewer: PlayerId, after: Long = 0) = game.snapshotFor(viewer, now, chatAfter = after).chat
+
+    private fun lobby() {
+        game.addPlayer(host, "Host", now)
+        game.addPlayer(seeker, "Seeker", now)
+    }
+
+    @Test
+    fun teamMessagesStayInTheTeam() {
+        startedGame()
+        val all = say(seeker, "hello all")
+        val seekers = say(seeker, "for seekers", team = true)
+        val hiders = say(hider, "for hiders", team = true)
+
+        assertEquals(
+            listOf(ChatChannel.ALL, ChatChannel.SEEKERS, ChatChannel.HIDERS),
+            listOf(all, seekers, hiders).map { it.channel },
+        )
+        assertEquals(listOf(all, seekers), chatOf(seeker))
+        assertEquals(listOf(all, hiders), chatOf(hider))
+        assertEquals(listOf(all, hiders), chatOf(host))
+        assertEquals(listOf(all, seekers, hiders), game.debugState(now).chat)
+    }
+
+    @Test
+    fun theLobbyHasOnlyTheCommonChannel() {
+        lobby()
+        val message = say(seeker, "my team?", team = true)
+        assertEquals(ChatChannel.ALL, message.channel)
+
+        // Roles handed out: the lobby's messages stay everybody's.
+        game.start(host, setOf(seeker), { secret }, now)
+        assertEquals(listOf(message), chatOf(seeker))
+        assertEquals(listOf(message), chatOf(host))
+    }
+
+    @Test
+    fun theResultsScreenHasAChatToo() {
+        startedGame()
+        tick(settings.seekingSeconds)
+        assertEquals(GamePhase.FINISHED, game.phase)
+
+        val all = say(seeker, "gg")
+        val hiders = say(hider, "we won", team = true)
+        assertEquals(listOf(all), chatOf(seeker))
+        assertEquals(listOf(all, hiders), chatOf(host))
+    }
+
+    @Test
+    fun theCursorBringsOnlyNewerMessages() {
+        lobby()
+        val one = say(host, "one")
+        val two = say(seeker, "two")
+        val three = say(host, "three")
+
+        assertEquals(listOf(1L, 2L, 3L), listOf(one, two, three).map { it.seq })
+        assertEquals(listOf(one, two, three), chatOf(seeker, after = 0))
+        assertEquals(listOf(three), chatOf(seeker, after = two.seq))
+        assertEquals(emptyList(), chatOf(seeker, after = three.seq))
+        // No cursor: an app without chat gets none.
+        assertEquals(emptyList(), game.snapshotFor(seeker, now).chat)
+    }
+
+    @Test
+    fun theNewestMessagesWithinLimits() {
+        lobby()
+        repeat(250) { say(if (it % 2 == 0) host else seeker, "message $it") }
+
+        // The game keeps the last 200, a response brings the newest 100 of them.
+        assertEquals((51L..250L).toList(), game.debugState(now).chat.map { it.seq })
+        assertEquals((151L..250L).toList(), chatOf(host).map { it.seq })
+        assertEquals((201L..250L).toList(), chatOf(host, after = 200).map { it.seq })
+        assertEquals(ErrorCode.NOT_FOUND, assertFailsWith<GameException> { game.reportedMessage(host, 2) }.code)
+    }
+
+    @Test
+    fun fiveMessagesInTenSeconds() {
+        lobby()
+        repeat(5) { game.sendChat(host, "spam $it", false, now + it * 1000L) }
+
+        val tooFast = assertFailsWith<GameException> { game.sendChat(host, "more", false, now + 5_000) }
+        assertEquals(ErrorReason.TOO_MANY_REQUESTS, tooFast.reason)
+        // The first one leaves the window at +10 s.
+        assertEquals(5, tooFast.retryAfterSeconds)
+        // The others can still talk.
+        game.sendChat(seeker, "calm down", false, now + 5_000)
+        game.sendChat(host, "again", false, now + 10_000)
+        assertFailsWith<GameException> { game.sendChat(host, "and again", false, now + 10_500) }
+        assertEquals(7, game.debugState(now).chat.size)
+    }
+
+    @Test
+    fun messagesAreCleanedAndChecked() {
+        lobby()
+        assertEquals("hello world", say(host, "  hello\nworld‮\u0007 ").text)
+        assertEquals(ChatRules.MAX_LENGTH, say(host, "x".repeat(ChatRules.MAX_LENGTH)).text.length)
+
+        for (text in listOf("", " \n\t ", "‮\u0000", "x".repeat(ChatRules.MAX_LENGTH + 1))) {
+            val error = assertFailsWith<GameException> { say(host, text) }
+            assertEquals(ErrorCode.BAD_REQUEST to ErrorReason.INVALID_MESSAGE, error.code to error.reason)
+        }
+        assertEquals(2, game.debugState(now).chat.size)
+    }
+
+    @Test
+    fun chattingKeepsTheGameAlive() {
+        lobby()
+        val idleMillis = 60_000L
+        now += idleMillis - 1
+        game.sendChat(host, "anyone?", false, now)
+        now += idleMillis - 1
+        assertFalse(game.isExpired(now, finishedRetentionMillis = idleMillis, idleRetentionMillis = idleMillis))
+    }
+
+    @Test
+    fun whatCanBeReported() {
+        game.addPlayer(host, "alice", now, alice)
+        game.addPlayer(seeker, "Seeker", now)
+        game.addPlayer(hider, "Hider", now)
+        game.start(host, setOf(seeker), { secret }, now)
+
+        val rude = say(host, "rude")
+        val reported = game.reportedMessage(seeker, rude.seq)
+        assertEquals(rude, reported.message)
+        assertEquals("alice", reported.senderName)
+        assertEquals(alice, reported.senderUserId)
+        assertNull(reported.reporterUserId)
+        assertEquals(ErrorCode.FORBIDDEN, assertFailsWith<GameException> { game.reportedMessage(host, rude.seq) }.code)
+
+        // The other team's messages don't exist for the seeker, like unknown ones.
+        val plan = say(hider, "hide behind the church", team = true)
+        for (seq in listOf(plan.seq, 99L)) {
+            assertEquals(ErrorCode.NOT_FOUND, assertFailsWith<GameException> { game.reportedMessage(seeker, seq) }.code)
+        }
+        val byTeammate = game.reportedMessage(host, plan.seq)
+        assertEquals(alice, byTeammate.reporterUserId)
+        assertNull(byTeammate.senderUserId)
     }
 }

@@ -11,6 +11,7 @@ import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.JoinGameRequest
+import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
@@ -74,4 +75,14 @@ class GameController(private val games: GameService) {
         @PathVariable catchId: String,
         @RequestBody request: VoteRequest,
     ): GameSnapshot = games.vote(player, GameId(gameId), CatchId(catchId), request)
+
+    /** The response brings the new messages after the request's chat cursor, this one included. */
+    @PostMapping(ApiRoutes.CHAT)
+    fun sendChat(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: SendChatRequest): GameSnapshot =
+        games.sendChat(player, GameId(gameId), request)
+
+    /** Reports chat message [seq] to the moderators; a seq that is not a number is a 400. */
+    @PostMapping(ApiRoutes.CHAT_REPORT)
+    fun reportChat(player: PlayerRef, @PathVariable gameId: String, @PathVariable seq: Long): GameSnapshot =
+        games.reportChat(player, GameId(gameId), seq)
 }

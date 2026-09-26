@@ -11,10 +11,13 @@ import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GameSettings
+import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.RegisterRequest
+import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.UserId
@@ -128,12 +131,44 @@ class DebugEndpointTest(@Autowired private val mvc: MockMvc, @Autowired private 
     }
 
     @Test
+    fun theChatAndItsReports() {
+        val host = createGame(mvc)
+        val gameId = host.session.gameId
+        val guest: SessionResponse =
+            post(ApiRoutes.JOIN, JoinGameRequest(host.snapshot.joinCode, "Guest"), token = null)
+        val sent: GameSnapshot =
+            post(ApiRoutes.chat(gameId), SendChatRequest("rude", chatAfter = 0), host.session.token)
+        val message = sent.chat.single()
+        mvc.post(ApiRoutes.chatReport(gameId, message.seq)) {
+            header("Authorization", "${ApiRoutes.AUTH_SCHEME} ${guest.session.token}")
+        }.andExpect { status { isOk() } }
+
+        val state = protocolJson.decodeFromString<DebugGameState>(getOk(DebugRoutes.game(gameId)))
+        assertEquals(listOf(message), state.chat)
+        val list = protocolJson.decodeFromString<DebugReportList>(getOk(DebugRoutes.REPORTS))
+        val report = list.reports.single { it.gameId == gameId }
+        assertEquals(message.seq, report.messageSeq)
+        assertEquals(guest.session.playerId, report.reporterPlayerId)
+        assertEquals("Host" to "rude", report.reportedName to report.text)
+        assertNull(report.reportedUserId)
+    }
+
+    @Test
     fun unknownGame() {
         mvc.get(DebugRoutes.game(GameId("nope"))).andExpect { status { isNotFound() } }
     }
 
     private fun getOk(path: String): String =
         mvc.get(path).andExpect { status { isOk() } }.andReturn().response.contentAsString
+
+    private inline fun <reified B, reified T> post(path: String, body: B, token: String?): T {
+        val response = mvc.post(path) {
+            contentType = MediaType.APPLICATION_JSON
+            content = protocolJson.encodeToString(body)
+            if (token != null) header("Authorization", "${ApiRoutes.AUTH_SCHEME} $token")
+        }.andExpect { status { isOk() } }.andReturn().response
+        return protocolJson.decodeFromString(response.contentAsString)
+    }
 }
 
 /** A new account; returns its email. */
