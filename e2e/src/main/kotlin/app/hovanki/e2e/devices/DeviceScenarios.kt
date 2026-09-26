@@ -4,6 +4,7 @@ import app.hovanki.client.automation.TestTags
 import app.hovanki.e2e.bot.BotPlayer
 import app.hovanki.e2e.route.offset
 import app.hovanki.e2e.scenario.GameSetups
+import app.hovanki.shared.debug.DebugBuildings
 import app.hovanki.shared.debug.DebugPlayer
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.CatchStatus
@@ -66,6 +67,7 @@ private suspend fun DeviceRun.fullRound() = with(scenario) {
     checkMap()
 
     checkBackgroundTracking(lineup.deviceHiders.firstOrNull() ?: seeker)
+    lineup.deviceHiders.firstOrNull()?.let { checkBuildingWarning(it) }
 
     for (bot in lineup.botHiders) {
         seeker.catchesUpWith(bot.gps.truePosition)
@@ -247,6 +249,27 @@ private suspend fun DeviceRun.checkBackgroundTracking(player: DevicePlayer) = wi
     )
     player.device.bringAppToFront()
     player.awaitVisible(TestTags.GAME_SCREEN)
+}
+
+/**
+ * The hider walks into the block of the server's test quarter (DebugBuildings, `e2e` profile): the app warns them
+ * before the seekers see them, and the warning goes once they are out again.
+ */
+private suspend fun DeviceRun.checkBuildingWarning(hider: DevicePlayer) = with(scenario) {
+    val spot = hider.truePosition
+    hider.walkToAndArrive(PARK.offset(DebugBuildings.INSIDE_EAST, DebugBuildings.INSIDE_NORTH), speed = 4.0)
+    // Clearly inside takes a fix deeper than its accuracy + 5 m: the block's middle is 14 m from the walls.
+    note("${hider.name}'s fixes: ± ${playerOnServer(hider.id).latestUsableFix?.accuracyMeters} m")
+    eventually("the server is sure ${hider.name} is inside", 60.seconds) {
+        playerOnServer(hider.id).insideBuildingSinceMillis
+    }
+    hider.awaitVisible(TestTags.GAME_IN_BUILDING)
+    screenshot("warned inside a building", listOf(hider))
+    hider.walkToAndArrive(spot, speed = 4.0)
+    eventually("${hider.name} is out of the building again", 60.seconds) {
+        playerOnServer(hider.id).takeIf { it.insideBuildingSinceMillis == null }
+    }
+    check(playerOnServer(hider.id).revealedToSeekers == null, "${hider.name} left before the seekers saw them")
 }
 
 /** The map with its OpenStreetMap credit (tiles come from the network), then back to the top of the screen. */

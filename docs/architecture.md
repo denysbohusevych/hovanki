@@ -35,7 +35,7 @@ flowchart LR
 |---|---|---|
 | UI | Экраны на Compose, карта `GameMap` (maplibre-compose, тайлы OpenFreeMap, [ADR 0003](adr/0003-map-and-buildings.md)), навигация по состоянию: какой экран показывать, решает состояние сессии, а не стек переходов | `:composeApp`, `commonMain` |
 | Состояние экранов | ViewModel'и / стейт-холдеры: превращают `GameSnapshot` и локальные данные в UI-state, принимают действия пользователя | `:composeApp`, `commonMain` |
-| Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock`, сохранение сессии и возврат в игру после перезапуска | `:clientCore`, `commonMain` |
+| Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock`, сохранение сессии и возврат в игру после перезапуска, загрузка зданий зоны (один раз, когда снапшот говорит `READY`) | `:clientCore`, `commonMain` |
 | Хранилище | `ClientStorage` поверх `SecureStore`: сохранённая сессия, имя игрока, адрес сервера | `:clientCore`, `commonMain`; реализации `SecureStore` — `:composeApp` `androidMain` / `iosMain` |
 | Сеть | `GameApi` (Ktor, `protocolJson`), `GameConnection` — транспорт за интерфейсом (сейчас HTTP-опрос) | `:clientCore`, `commonMain`; движок Ktor выбирает `:composeApp`: OkHttp (Android), Darwin (iOS) |
 | Платформенные сервисы | `LocationProvider`, `BackgroundTracker`, `SecureStore`, `ProximityScanner`, `CatchCodeScanner` | интерфейсы в `commonMain` (`LocationProvider`, `BackgroundTracker` и `SecureStore` — в `:clientCore`), реализации в `:composeApp` `androidMain` / `iosMain` |

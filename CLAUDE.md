@@ -2,14 +2,14 @@
 
 Hovanki: street hide-and-seek for Android + iOS. Kotlin Multiplatform + Compose Multiplatform client, Spring Boot server, shared Kotlin module for protocol and rules. Docs are in Russian (`docs/`), code and comments in English.
 
-Read first: `docs/architecture.md` (how it works), `docs/adr/` (why: 0001 stack and game rules, 0002 session storage), `docs/roadmap.md` (what is missing).
+Read first: `docs/architecture.md` (how it works), `docs/adr/` (why: 0001 stack and game rules, 0002 session storage, 0003 map and buildings), `docs/roadmap.md` (what is missing).
 
 ## Layout
 
-- `shared/` — KMP (jvm, android, iosArm64, iosSimulatorArm64). `protocol/` DTOs + `ApiRoutes` + `protocolJson`, `totp/` catch codes (pure-Kotlin SHA-1/HMAC), `geo/`, `rules/` (`LocationTrack`, `ZoneRules`, `CatchRules`, zone schedule).
-- `server/` — Spring Boot. `api/` thin controller + error mapping + bearer auth, `game/` domain (`Game`), `GameService` (locking), `GameRegistry` (in memory), `GameJanitor` (deletes old games).
+- `shared/` — KMP (jvm, android, iosArm64, iosSimulatorArm64). `protocol/` DTOs + `ApiRoutes` + `protocolJson`, `totp/` catch codes (pure-Kotlin SHA-1/HMAC), `geo/`, `rules/` (`LocationTrack`, `ZoneRules`, `CatchRules`, `BuildingMap`/`BuildingRules`, zone schedule).
+- `server/` — Spring Boot. `api/` thin controller + error mapping + bearer auth, `game/` domain (`Game`), `GameService` (locking), `GameRegistry` (in memory), `GameJanitor` (deletes old games), `buildings/` (`BuildingLoader`: the zone's building outlines from Overpass at game creation; `hovanki.buildings.source` = overpass / fake / off).
 - `clientCore/` — KMP (jvm, android, iosArm64, iosSimulatorArm64), client logic without UI: Ktor `GameApi`/`HttpGameApi`, `GameConnection`/`PollingGameConnection`, `LocationOutbox`, `ServerClock`, `GameSessionManager` (saves the session and resumes it after a restart, `ClientStorage`), `LocationProvider`/`BackgroundTracker`/`SecureStore` interfaces. No Compose, no platform code; the JVM target is for headless e2e bots.
-- `composeApp/` — KMP library (`com.android.kotlin.multiplatform.library`): Compose UI, Koin, Ktor engines, platform services (`LocationProvider`, `BackgroundTracker`, `SecureStore` — Android Keystore / iOS Keychain, `ProximityScanner`, `CatchCodeScanner`).
+- `composeApp/` — KMP library (`com.android.kotlin.multiplatform.library`): Compose UI (map: `GameMap`, maplibre-compose + OpenFreeMap tiles), Koin, Ktor engines, platform services (`LocationProvider`, `BackgroundTracker`, `SecureStore` — Android Keystore / iOS Keychain, `ProximityScanner`, `CatchCodeScanner`).
 - `androidApp/` — thin Android entry point (`Application`, `MainActivity`).
 - `e2e/` — JVM end-to-end tests: `BotPlayer` runs `:clientCore` (Ktor/OkHttp) on a simulated phone (`FakeGps` + `Route`/`GpsNoise`, `DeviceClock`, `FakeNetwork`); `Scenario` DSL; `Observer` reads the server's debug endpoint (Spring profile `e2e` only). Tests start the server in-process on a random port; `HOVANKI_E2E_SERVER_URL` targets an external one. Device layer: `e2e/run-devices.sh` builds and starts the server, emulators/simulators and the debug app, then `e2e devices` (`src/main/.../devices/`) drives them with Maestro flows (`e2e/maestro/`) mixed with bots. `./gradlew :e2e:devices` (and the `.run/` configurations in Android Studio) does the same on the emulators already running, without bash. See `docs/e2e.md`; step-by-step local runs and troubleshooting in `docs/e2e-local.md`.
 - `iosApp/` — Xcode project, SwiftUI shell around `MainViewControllerKt.mainViewController()`; see `iosApp/README.md`.

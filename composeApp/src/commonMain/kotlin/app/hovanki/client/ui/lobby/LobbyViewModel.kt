@@ -6,6 +6,7 @@ import app.hovanki.client.session.ConnectionStatus
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
+import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.PlayerId
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -78,6 +79,7 @@ class LobbyViewModel(private val sessionManager: GameSessionManager) : ViewModel
             connectionStatus = state.connectionStatus,
             isSharingLocation = state.isSharingLocation,
             error = state.lastError,
+            isBuildingRuleOff = snapshot.buildings == BuildingsState.UNAVAILABLE,
         )
     }
 }
@@ -91,6 +93,8 @@ data class LobbyUiState(
     val connectionStatus: ConnectionStatus,
     val isSharingLocation: Boolean,
     val error: SessionError?,
+    /** The server could not load the zone's buildings: the game will run without that rule. */
+    val isBuildingRuleOff: Boolean,
 )
 
 data class LobbyPlayer(

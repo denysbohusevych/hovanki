@@ -1,6 +1,5 @@
 package app.hovanki.client.session
 
-import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.FakeGameApi
 import app.hovanki.client.network.GameApi
@@ -11,17 +10,12 @@ import app.hovanki.client.network.testSnapshot
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.storage.FakeSecureStore
 import app.hovanki.client.storage.SavedSession
-import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.GamePhase
-import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.SessionResponse
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -35,33 +29,6 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionResumeTest {
     private class Offline : Exception("offline")
-
-    private class FakeLocationProvider : LocationProvider {
-        var collectors = 0
-
-        override fun hasPermission() = true
-
-        override fun locationUpdates(intervalMillis: Long): Flow<LocationSample> = flow {
-            collectors++
-            try {
-                awaitCancellation()
-            } finally {
-                collectors--
-            }
-        }
-    }
-
-    private class FakeBackgroundTracker : BackgroundTracker {
-        var running = false
-
-        override fun start() {
-            running = true
-        }
-
-        override fun stop() {
-            running = false
-        }
-    }
 
     private val storage = ClientStorage(FakeSecureStore())
     private val serverUrl = ServerUrl("http://10.0.2.2:8080")

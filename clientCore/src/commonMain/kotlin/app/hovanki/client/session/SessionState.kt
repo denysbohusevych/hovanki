@@ -1,5 +1,6 @@
 package app.hovanki.client.session
 
+import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.PlayerSession
@@ -17,6 +18,8 @@ data class SessionState(
     val isSharingLocation: Boolean = false,
     /** Result of the last failed command or of a lost session, until the next command succeeds or it is dismissed. */
     val lastError: SessionError? = null,
+    /** The buildings where hiding is not allowed, once loaded; the map draws exactly these. */
+    val buildings: BuildingsResponse? = null,
 )
 
 enum class ConnectionStatus { ONLINE, RECONNECTING }
