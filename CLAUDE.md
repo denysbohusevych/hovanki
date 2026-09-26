@@ -19,7 +19,7 @@ Read first: `docs/architecture.md` (how it works), `docs/adr/0001-stack.md` (why
 
 ```bash
 ./gradlew spotlessApply                    # format (ktlint); CI runs spotlessCheck
-./gradlew check                            # all tests + checks available on this OS
+./gradlew check                            # all tests + checks available on this OS, without the e2e scenarios
 ./gradlew :shared:jvmTest :clientCore:jvmTest :server:test   # fast feedback loop
 ./gradlew :e2e:test                        # e2e scenarios: bots play whole games (~3 min); reports in e2e/build/reports/e2e/
 e2e/run-devices.sh --android 2 --bots 3    # app on 2 emulators + bots (needs KVM + Maestro; --ios 1 on macOS); ~15 min in CI
@@ -27,6 +27,8 @@ e2e/run-devices.sh --android 2 --bots 3    # app on 2 emulators + bots (needs KV
 ./gradlew :androidApp:installDebug         # Android debug build
 ./gradlew :shared:iosSimulatorArm64Test    # macOS only
 ```
+
+CI on push (`ci.yml`) is fast: spotlessCheck, `check`, Android and iOS builds. `check` does not depend on `:e2e:test`; the e2e bots and the device layer run only nightly and on demand (`.github/workflows/nightly.yml`, Actions → Nightly → Run workflow on any branch, `suite` = all / bots / devices). A failed scheduled run opens an issue labelled `nightly-failure`.
 
 iOS (framework, app, simulator tests) builds only on macOS with Xcode 26.4+; on Linux iOS targets are skipped (`kotlin.native.ignoreDisabledTargets=true`). Don't try to fix iOS-only failures blind — say so.
 
@@ -40,6 +42,7 @@ iOS (framework, app, simulator tests) builds only on macOS with Xcode 26.4+; on 
 - **No platform code in `commonMain`.** Platform services are interfaces in `commonMain`, implemented in `androidMain`/`iosMain`, bound via Koin. `expect`/`actual` only for small glue.
 - **GDPR:** location data stays in memory and is deleted with the game; never log coordinates or tokens.
 - **Debug/test hooks never reach production:** the observer endpoint exists only with the Spring profile `e2e`; keep `DebugEndpointAbsentTest` green. Test tags (`TestTags`) and `LaunchOptions` must not change release behavior: launch parameters are read only in debug builds.
+- **Run the long tests yourself before a PR** (CI on push doesn't): changed rules, protocol or client–server behavior → `./gradlew :e2e:test` (~3 min, works in a cloud container without KVM); changed UI or platform code (`:composeApp`, `androidApp`, `iosApp`, Maestro flows) → trigger `nightly.yml` manually on your branch (`suite=devices`, only the scenario you need). Say in the PR what you ran. See `docs/ci-cd.md`.
 - **Tests next to the code:** `shared/src/commonTest` and `clientCore/src/commonTest` (run on JVM and iOS), `shared/src/jvmTest` for JDK cross-checks, `server/src/test` (`GameTest` for rules with an explicit `now`, `GameApiTest` for HTTP round trips with MockMvc). New rule → unit test in `GameTest` or `commonTest`, and an e2e scenario in `e2e/src/test` when it spans client and server. A bug found by an e2e scenario is fixed in the game or server with a test, never worked around in the scenario.
 - **Style:** ktlint `intellij_idea`, max line 120, trailing commas (see `.editorconfig`). Run `./gradlew spotlessApply` before committing.
 - **Gradle:** configuration cache is on — no configuration-time side effects; no hardcoded versions in build scripts.

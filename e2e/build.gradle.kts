@@ -1,7 +1,7 @@
 // End-to-end tests (docs/e2e.md): headless bots run the app's client code (:clientCore over Ktor/OkHttp, as on
 // Android) with simulated GPS, clock and network, and play whole games against a real server.
 // `./gradlew :e2e:test` starts the server in-process on a random port; HOVANKI_E2E_SERVER_URL points the same
-// scenarios at an external server started with the Spring profile `e2e`.
+// scenarios at an external server started with the Spring profile `e2e`. Not part of `check` (see `unitTest`).
 plugins {
     alias(libs.plugins.kotlinJvm)
     // `e2e` command line: device scenarios (e2e/run-devices.sh) and routes for devices.
@@ -39,6 +39,22 @@ tasks.register<JavaExec>("route") {
 }
 
 val externalServerUrl = providers.environmentVariable("HOVANKI_E2E_SERVER_URL").orElse("")
+
+// `test` plays whole games (~3 min): it runs only when asked for, `./gradlew :e2e:test`, and nightly
+// (.github/workflows/nightly.yml), never as part of `check`. `check` runs this module's own unit tests instead.
+val unitTest = tasks.register<Test>("unitTest") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Unit tests of the e2e tooling (routes, GPS noise, UI tree) without the game scenarios."
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform()
+    filter { excludeTestsMatching("app.hovanki.e2e.scenarios.*") }
+}
+
+tasks.check {
+    setDependsOn(dependsOn.filterNot { it is Named && it.name == JavaPlugin.TEST_TASK_NAME })
+    dependsOn(unitTest)
+}
 
 tasks.test {
     useJUnitPlatform()

@@ -1,5 +1,8 @@
 # Hovanki
 
+[![CI](https://github.com/denysbohusevych/hovanki/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/denysbohusevych/hovanki/actions/workflows/ci.yml?query=branch%3Amain)
+[![Nightly](https://github.com/denysbohusevych/hovanki/actions/workflows/nightly.yml/badge.svg?event=schedule)](https://github.com/denysbohusevych/hovanki/actions/workflows/nightly.yml?query=event%3Aschedule)
+
 Уличные прятки для Android и iOS: сужающаяся зона, геолокация игроков через сервер, находка подтверждается одноразовым кодом с телефона прячущегося (QR или 4 цифры). Сервер решает, кто кого видит, и раскрывает подозрительных игроков вместо наказаний.
 
 ## Стек
@@ -75,11 +78,11 @@ open iosApp/iosApp.xcodeproj
 |---|---|
 | `./gradlew :server:bootRun` | Сервер на `:8080` |
 | `./gradlew :androidApp:installDebug` | Собрать и поставить debug-сборку Android |
-| `./gradlew check` | Все тесты и проверки (то же, что в CI на Linux) |
+| `./gradlew check` | Все тесты и проверки, кроме e2e-сценариев (то же, что в CI на Linux) |
 | `./gradlew :shared:jvmTest` | Быстрые тесты общего кода |
 | `./gradlew :clientCore:jvmTest` | Тесты клиентской логики (API, синхронизация, `ServerClock`) на JVM |
 | `./gradlew :server:test` | Тесты сервера |
-| `./gradlew :e2e:test` | End-to-end сценарии: боты играют целые партии против сервера (~3 мин), отчёты — `e2e/build/reports/e2e/` |
+| `./gradlew :e2e:test` | End-to-end сценарии: боты играют целые партии против сервера (~3 мин), отчёты — `e2e/build/reports/e2e/`. Только явно: в `check` и CI на push не входят, идут ночью |
 | `e2e/run-devices.sh --android 2 --bots 3` | Приложение на двух эмуляторах вместе с ботами, UI через Maestro (`--ios 1` — симулятор на Mac); отчёт — `e2e/build/reports/devices/`. Подробности — [docs/e2e.md](docs/e2e.md) |
 | `./gradlew :e2e:route --args="--to 50.4481,30.5402 --adb emulator-5554"` | Провести эмулятор (`--simctl <udid>` — симулятор) по маршруту пешком |
 | `./gradlew :shared:iosSimulatorArm64Test` | Тесты общего кода на iOS-симуляторе (только macOS); то же для `:clientCore` |
@@ -90,7 +93,7 @@ open iosApp/iosApp.xcodeproj
 
 - [Архитектура](docs/architecture.md): модули, поток данных раунда, видимость, время, фазы, находка, API, рецепты.
 - [E2E-тесты](docs/e2e.md): боты, приложение на эмуляторах и симуляторах, как написать сценарий и читать отчёт.
-- [CI/CD](docs/ci-cd.md): проверки, релиз по тегу, секреты подписи, образ сервера, защита веток.
+- [CI/CD](docs/ci-cd.md): быстрые проверки на push, ночные e2e, что запускать перед PR, релиз по тегу, секреты подписи, образ сервера, защита веток.
 - [Roadmap](docs/roadmap.md): что уже сделано и что дальше.
 - [ADR 0001: выбор стека](docs/adr/0001-stack.md).
 - [CLAUDE.md](CLAUDE.md): правила для AI-агентов (и людей) при работе с кодом.
