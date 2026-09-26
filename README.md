@@ -22,7 +22,7 @@
 | `androidApp/` | Android-приложение: точка входа (`Application`, `MainActivity`) |
 | `e2e/` | End-to-end тесты: headless-боты на клиентском коде играют партии против настоящего сервера; оркестратор приложения на эмуляторах и симуляторах (Maestro) |
 | `iosApp/` | Xcode-проект: SwiftUI-оболочка вокруг Compose UI |
-| `docs/` | [архитектура](docs/architecture.md), [e2e-тесты](docs/e2e.md), [CI/CD](docs/ci-cd.md), [roadmap](docs/roadmap.md), [ADR](docs/adr/) |
+| `docs/` | [архитектура](docs/architecture.md), [e2e-тесты](docs/e2e.md), [CI/CD](docs/ci-cd.md), [деплой сервера](docs/deploy.md), [roadmap](docs/roadmap.md), [ADR](docs/adr/) |
 | `gradle/libs.versions.toml` | версии зависимостей и плагинов |
 
 ## Что нужно
@@ -98,6 +98,7 @@ open iosApp/iosApp.xcodeproj
 - [Архитектура](docs/architecture.md): модули, поток данных раунда, видимость, время, фазы, находка, API, рецепты.
 - [E2E-тесты](docs/e2e.md): боты, приложение на эмуляторах и симуляторах, как написать сценарий и читать отчёт.
 - [CI/CD](docs/ci-cd.md): как поставить сборку на телефон (туннель к серверу, Android pre-release, TestFlight, Xcode по кабелю), проверки, тестовые сборки, релиз по тегу, секреты подписи, образ сервера, защита веток.
+- [Деплой сервера](docs/deploy.md): одна машина в AWS (EC2, Франкфурт), Docker Compose, Caddy с Let's Encrypt, обновление и откат.
 - [Roadmap](docs/roadmap.md): что уже сделано и что дальше.
 - [ADR 0001: выбор стека](docs/adr/0001-stack.md).
 - [CLAUDE.md](CLAUDE.md): правила для AI-агентов (и людей) при работе с кодом.

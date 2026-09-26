@@ -244,6 +244,8 @@ gh secret set ANDROID_KEY_PASSWORD
 
 Образ публикуется в GitHub Container Registry: `ghcr.io/denysbohusevych/hovanki-server`.
 
+Как поднять сервер из этого образа на машине в AWS с HTTPS — [deploy.md](deploy.md).
+
 | Тег образа | Откуда |
 |---|---|
 | `0.1.0`, `0.1` | тег `v0.1.0` |

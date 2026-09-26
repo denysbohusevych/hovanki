@@ -13,6 +13,7 @@ Read first: `docs/architecture.md` (how it works), `docs/adr/0001-stack.md` (why
 - `androidApp/` — thin Android entry point (`Application`, `MainActivity`).
 - `e2e/` — JVM end-to-end tests: `BotPlayer` runs `:clientCore` (Ktor/OkHttp) on a simulated phone (`FakeGps` + `Route`/`GpsNoise`, `DeviceClock`, `FakeNetwork`); `Scenario` DSL; `Observer` reads the server's debug endpoint (Spring profile `e2e` only). Tests start the server in-process on a random port; `HOVANKI_E2E_SERVER_URL` targets an external one. Device layer: `e2e/run-devices.sh` builds and starts the server, emulators/simulators and the debug app, then `e2e devices` (`src/main/.../devices/`) drives them with Maestro flows (`e2e/maestro/`) mixed with bots. See `docs/e2e.md`.
 - `iosApp/` — Xcode project, SwiftUI shell around `MainViewControllerKt.mainViewController()`; see `iosApp/README.md`. Settings in `Configuration/Config.xcconfig` (fixed bundle id `app.hovanki.ios`), per-machine overrides in git-ignored `Local.xcconfig`.
+- `deploy/` — server deployment: `compose.yaml` (server + Caddy for TLS) and `aws-user-data.sh` for one EC2 VM; see `docs/deploy.md`.
 - Versions: only in `gradle/libs.versions.toml`. Modules reference each other via typesafe accessors (`projects.shared`).
 
 ## Commands
