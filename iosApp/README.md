@@ -22,6 +22,17 @@ xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug 
   -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
+Такая сборка без подписи годится только чтобы проверить компиляцию. Приложение хранит сессию игры в Keychain
+([ADR 0002](../docs/adr/0002-session-storage.md)), а у неподписанного приложения нет entitlements, и Keychain
+отказывает (`errSecMissingEntitlement`): после перезапуска оно не вернётся в игру. Для запуска на симуляторе
+подписывайте «to run locally», как это делает Xcode (так собирает `e2e/run-devices.sh`):
+
+```sh
+xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug \
+  -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build
+```
+
 Kotlin-фреймворк собирается только для `iosArm64` и `iosSimulatorArm64`, поэтому x86_64 для симулятора
 исключён (`EXCLUDED_ARCHS`). Если IDE уже собрала фреймворк сама, она выставляет
 `OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES`, и скрипт пропускает Gradle.
