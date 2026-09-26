@@ -223,7 +223,7 @@ class Scenario(val name: String, val serverUrl: String) {
     /** [seeker]'s own snapshot shows [hider] with [reason]. */
     suspend fun awaitReveal(hider: BotPlayer, reason: VisibilityReason, to: BotPlayer, within: Duration = 30.seconds) =
         eventually("${to.name} sees ${hider.name} ($reason)", within) {
-            to.snapshot?.players?.single { it.id == hider.id }?.location?.takeIf { it.reason == reason }
+            to.snapshot?.players?.single { it.id == hider.id }?.location?.takeIf { it.exactReason == reason }
         }
 
     /** Polls [probe] until it returns non-null; fails after [within]. Logs the check to the timeline. */

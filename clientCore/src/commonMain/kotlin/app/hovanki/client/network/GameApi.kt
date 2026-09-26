@@ -1,6 +1,7 @@
 package app.hovanki.client.network
 
 import app.hovanki.shared.protocol.ApiError
+import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.GameSnapshot
@@ -34,6 +35,9 @@ interface GameApi {
     suspend fun disputeCatch(session: PlayerSession, catchId: CatchId): GameSnapshot
 
     suspend fun vote(session: PlayerSession, catchId: CatchId, confirm: Boolean): GameSnapshot
+
+    /** The buildings the rule judges by; once per game, when the snapshot says they are ready. */
+    suspend fun buildings(session: PlayerSession): BuildingsResponse
 }
 
 /** The server answered with a non-2xx status; [error] is its [ApiError] body when it could be read. */

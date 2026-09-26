@@ -41,6 +41,13 @@ fun ZoneSchedule.stateAt(elapsedMillis: Long): ZoneState {
 
 fun ZoneSchedule.circleAt(elapsedMillis: Long): ZoneCircle = stateAt(elapsedMillis).current
 
+/** A circle around the initial center that holds the zone during its whole schedule, plus [marginMeters]. */
+fun ZoneSchedule.boundingCircle(marginMeters: Double = 0.0): ZoneCircle {
+    val center = initial.center
+    val radius = (listOf(initial) + stages.map { it.target }).maxOf { it.center.distanceTo(center) + it.radiusMeters }
+    return ZoneCircle(center, radius + marginMeters)
+}
+
 private fun interpolate(from: ZoneCircle, to: ZoneCircle, fraction: Double): ZoneCircle = ZoneCircle(
     center = GeoPoint(
         lat = from.center.lat + (to.center.lat - from.center.lat) * fraction,

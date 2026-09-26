@@ -4,3 +4,6 @@ hovanki:
   games:
     # Tests create many short games; keep finished ones around a little for the report, then free the memory.
     finished-retention: 10m
+  # The fixed test quarter next to every zone center (DebugBuildings): no external service in tests.
+  buildings:
+    source: fake

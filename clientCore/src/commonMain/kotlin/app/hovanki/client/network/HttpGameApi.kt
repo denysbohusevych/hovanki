@@ -2,6 +2,7 @@ package app.hovanki.client.network
 
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.ConfirmCatchRequest
@@ -18,6 +19,7 @@ import app.hovanki.shared.protocol.protocolJson
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -54,13 +56,23 @@ class HttpGameApi(private val client: HttpClient, private val serverUrl: ServerU
     override suspend fun vote(session: PlayerSession, catchId: CatchId, confirm: Boolean): GameSnapshot =
         post(ApiRoutes.catchVote(session.gameId, catchId), session) { jsonBody(VoteRequest(confirm)) }
 
+    override suspend fun buildings(session: PlayerSession): BuildingsResponse {
+        val response = client.get(serverUrl.value + ApiRoutes.buildings(session.gameId)) { authorize(session) }
+        if (!response.status.isSuccess()) throw response.toApiException()
+        return response.body()
+    }
+
+    private fun HttpRequestBuilder.authorize(session: PlayerSession) {
+        header(HttpHeaders.Authorization, "${ApiRoutes.AUTH_SCHEME} ${session.token}")
+    }
+
     private suspend inline fun <reified T> post(
         path: String,
         session: PlayerSession?,
         crossinline configure: HttpRequestBuilder.() -> Unit = {},
     ): T {
         val response = client.post(serverUrl.value + path) {
-            if (session != null) header(HttpHeaders.Authorization, "${ApiRoutes.AUTH_SCHEME} ${session.token}")
+            if (session != null) authorize(session)
             configure()
         }
         if (!response.status.isSuccess()) throw response.toApiException()

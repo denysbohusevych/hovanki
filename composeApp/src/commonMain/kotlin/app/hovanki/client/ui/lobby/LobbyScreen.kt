@@ -25,6 +25,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_leave
+import app.hovanki.client.resources.building_rule_off
 import app.hovanki.client.resources.lobby_code_hint
 import app.hovanki.client.resources.lobby_code_title
 import app.hovanki.client.resources.lobby_host
@@ -34,6 +35,7 @@ import app.hovanki.client.resources.lobby_seeker
 import app.hovanki.client.resources.lobby_start
 import app.hovanki.client.resources.lobby_waiting
 import app.hovanki.client.resources.lobby_you
+import app.hovanki.client.ui.common.Banner
 import app.hovanki.client.ui.common.LoadingScreen
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SessionBanners
@@ -58,6 +60,12 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel()) {
             onDismissError = viewModel::dismissError,
             onLocationPermissionGranted = viewModel::onLocationPermissionGranted,
         )
+        if (state.isBuildingRuleOff) {
+            Banner(
+                text = stringResource(Res.string.building_rule_off),
+                modifier = Modifier.testTag(TestTags.BUILDING_RULE_OFF),
+            )
+        }
 
         Text(
             text = stringResource(Res.string.lobby_players, state.players.size),

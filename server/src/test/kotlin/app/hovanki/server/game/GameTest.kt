@@ -1,6 +1,8 @@
 package app.hovanki.server.game
 
+import app.hovanki.shared.debug.DebugBuildings
 import app.hovanki.shared.geo.moveBy
+import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.ErrorCode
@@ -268,5 +270,140 @@ class GameTest {
         assertEquals(GamePhase.FINISHED, game.phase)
         assertEquals(deadline, game.debugState(now).finishedAtMillis)
         assertEquals(deadline, game.debugState(now).phaseStartedAtMillis)
+    }
+
+    // ---- Buildings (docs/adr/0003-map-and-buildings.md) ----
+
+    private val insideBlock = center.moveBy(DebugBuildings.INSIDE_EAST, DebugBuildings.INSIDE_NORTH)
+    private val nextToBlock = center.moveBy(DebugBuildings.INSIDE_EAST, DebugBuildings.SOUTH - 20)
+    private val inTheArch = center.moveBy(DebugBuildings.ARCH_EAST, DebugBuildings.INSIDE_NORTH)
+    private val revealMillis = settings.rules.insideBuildingRevealSeconds * 1000L
+
+    private fun withTestQuarter(): Game {
+        val quarter = DebugBuildings.around(center)
+        game.onBuildingsLoaded(quarter.buildings, quarter.passages)
+        return startedGame()
+    }
+
+    /** [player] keeps reporting [point] every 3 s for [seconds], the seeker stays put. */
+    private fun stay(player: PlayerId, point: GeoPoint, seconds: Int) {
+        repeat(seconds / 3) {
+            now += 3_000
+            report(seeker, center)
+            report(player, point)
+        }
+    }
+
+    private fun warning(): Long? = game.snapshotFor(hider, now).me.insideBuildingRevealAtMillis
+
+    private fun hiderAsSeenBySeeker() = game.snapshotFor(seeker, now).players.single { it.id == hider }.location
+
+    @Test
+    fun insideABuildingForLongerThanAllowedIsRevealedNeverEliminated() {
+        withTestQuarter()
+        stay(hider, insideBlock, 9)
+
+        val revealAt = assertNotNull(warning(), "warned as soon as the server is confident")
+        assertEquals(now + revealMillis, revealAt)
+        assertNull(hiderAsSeenBySeeker(), "not revealed before the time is up")
+
+        stay(hider, insideBlock, settings.rules.insideBuildingRevealSeconds)
+
+        val seen = assertNotNull(hiderAsSeenBySeeker())
+        assertEquals(VisibilityReason.INSIDE_BUILDING, seen.cause)
+        assertEquals(VisibilityReason.OUT_OF_ZONE, seen.reason, "the closest reason the first app versions know")
+        assertEquals(
+            VisibilityReason.INSIDE_BUILDING,
+            game.debugState(now).players.single {
+                it.id == hider
+            }.revealedToSeekers,
+        )
+        assertEquals(PlayerStatus.ACTIVE, statusOf(hider), "GPS near houses is a hint, not a judge")
+    }
+
+    @Test
+    fun timeInsideDuringTheHidingPhaseDoesNotCount() {
+        val quarter = DebugBuildings.around(center)
+        game.onBuildingsLoaded(quarter.buildings, quarter.passages)
+        game.addPlayer(host, "Host", now)
+        game.addPlayer(seeker, "Seeker", now)
+        game.addPlayer(hider, "Hider", now)
+        game.start(host, setOf(seeker), { secret }, now)
+
+        stay(hider, insideBlock, settings.hidingSeconds)
+
+        assertEquals(GamePhase.SEEKING, game.phase)
+        val seekingStarted = game.debugState(now).phaseStartedAtMillis
+        assertEquals(seekingStarted + revealMillis, warning(), "the full time to get out, counted from the seeking")
+        stay(hider, insideBlock, settings.rules.insideBuildingRevealSeconds - 3)
+        assertNull(hiderAsSeenBySeeker())
+    }
+
+    @Test
+    fun oneFixThatJumpsIntoTheBuildingDecidesNothing() {
+        withTestQuarter()
+        stay(hider, nextToBlock, 9)
+        stay(hider, insideBlock, 3)
+        stay(hider, nextToBlock, settings.rules.insideBuildingRevealSeconds + 9)
+
+        assertNull(warning())
+        assertNull(hiderAsSeenBySeeker())
+    }
+
+    @Test
+    fun leavingBeforeTheRevealLiftsTheWarning() {
+        withTestQuarter()
+        stay(hider, insideBlock, 9)
+        assertNotNull(warning())
+
+        stay(hider, nextToBlock, 9)
+        assertNull(warning(), "out again, judged on several fixes")
+
+        stay(hider, nextToBlock, settings.rules.insideBuildingRevealSeconds)
+        assertNull(hiderAsSeenBySeeker())
+    }
+
+    @Test
+    fun oneFixOutsideDoesNotResetTheTimer() {
+        withTestQuarter()
+        stay(hider, insideBlock, 9)
+        val revealAt = assertNotNull(warning())
+
+        stay(hider, nextToBlock, 3)
+        stay(hider, insideBlock, 6)
+        assertEquals(revealAt, warning())
+    }
+
+    @Test
+    fun anArchThroughTheBuildingIsOutdoors() {
+        withTestQuarter()
+        stay(hider, inTheArch, settings.rules.insideBuildingRevealSeconds + 9)
+
+        assertNull(warning())
+        assertNull(hiderAsSeenBySeeker())
+    }
+
+    @Test
+    fun withoutBuildingDataTheRuleIsOffAndThePlayersKnow() {
+        assertEquals(BuildingsState.LOADING, game.debugState(now).buildings, "until the source answers")
+        game.onBuildingsUnavailable()
+        startedGame()
+
+        stay(hider, insideBlock, settings.rules.insideBuildingRevealSeconds + 9)
+
+        assertEquals(BuildingsState.UNAVAILABLE, game.snapshotFor(hider, now).buildings)
+        assertNull(warning())
+        assertNull(hiderAsSeenBySeeker())
+    }
+
+    @Test
+    fun playersGetTheBuildingsTheRuleJudgesBy() {
+        withTestQuarter()
+
+        val buildings = game.buildingsFor(hider)
+        assertEquals(BuildingsState.READY, buildings.state)
+        assertEquals(DebugBuildings.around(center).buildings, buildings.buildings)
+        assertEquals(1, buildings.passages.size)
+        assertEquals(ErrorCode.NOT_FOUND, assertFailsWith<GameException> { game.buildingsFor(PlayerId("x")) }.code)
     }
 }

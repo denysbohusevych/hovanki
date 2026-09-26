@@ -1,0 +1,5 @@
+# Test overrides on top of src/main/resources/application.yaml (Spring Boot reads classpath:/config/ last).
+hovanki:
+  buildings:
+    # The fixed test quarter (DebugBuildings) instead of the Overpass API: tests never go to the network.
+    source: fake

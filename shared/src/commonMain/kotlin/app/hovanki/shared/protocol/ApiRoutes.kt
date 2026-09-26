@@ -14,6 +14,9 @@ object ApiRoutes {
     const val CATCH_DISPUTE = "$CATCHES/{catchId}/dispute"
     const val CATCH_VOTE = "$CATCHES/{catchId}/vote"
 
+    /** GET: the buildings of the game's zone where hiding is not allowed ([BuildingsResponse]). */
+    const val BUILDINGS = "$GAMES/{gameId}/buildings"
+
     const val AUTH_SCHEME = "Bearer"
 
     fun start(gameId: GameId): String = START.fill(gameId)
@@ -27,6 +30,8 @@ object ApiRoutes {
     fun catchDispute(gameId: GameId, catchId: CatchId): String = CATCH_DISPUTE.fill(gameId, catchId)
 
     fun catchVote(gameId: GameId, catchId: CatchId): String = CATCH_VOTE.fill(gameId, catchId)
+
+    fun buildings(gameId: GameId): String = BUILDINGS.fill(gameId)
 
     private fun String.fill(gameId: GameId, catchId: CatchId? = null): String {
         val withGame = replace("{gameId}", gameId.value)

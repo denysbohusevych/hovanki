@@ -33,9 +33,9 @@ flowchart LR
 
 | Слой | Ответственность | Где |
 |---|---|---|
-| UI | Экраны на Compose, `ZoneRadar` (Canvas-заглушка вместо карты), навигация по состоянию: какой экран показывать, решает состояние сессии, а не стек переходов | `:composeApp`, `commonMain` |
+| UI | Экраны на Compose, карта `GameMap` (maplibre-compose, тайлы OpenFreeMap, [ADR 0003](adr/0003-map-and-buildings.md)), навигация по состоянию: какой экран показывать, решает состояние сессии, а не стек переходов | `:composeApp`, `commonMain` |
 | Состояние экранов | ViewModel'и / стейт-холдеры: превращают `GameSnapshot` и локальные данные в UI-state, принимают действия пользователя | `:composeApp`, `commonMain` |
-| Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock`, сохранение сессии и возврат в игру после перезапуска | `:clientCore`, `commonMain` |
+| Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock`, сохранение сессии и возврат в игру после перезапуска, загрузка зданий зоны (один раз, когда снапшот говорит `READY`) | `:clientCore`, `commonMain` |
 | Хранилище | `ClientStorage` поверх `SecureStore`: сохранённая сессия, имя игрока, адрес сервера | `:clientCore`, `commonMain`; реализации `SecureStore` — `:composeApp` `androidMain` / `iosMain` |
 | Сеть | `GameApi` (Ktor, `protocolJson`), `GameConnection` — транспорт за интерфейсом (сейчас HTTP-опрос) | `:clientCore`, `commonMain`; движок Ktor выбирает `:composeApp`: OkHttp (Android), Darwin (iOS) |
 | Платформенные сервисы | `LocationProvider`, `BackgroundTracker`, `SecureStore`, `ProximityScanner`, `CatchCodeScanner` | интерфейсы в `commonMain` (`LocationProvider`, `BackgroundTracker` и `SecureStore` — в `:clientCore`), реализации в `:composeApp` `androidMain` / `iosMain` |
@@ -118,6 +118,7 @@ stateDiagram-v2
 - Переходы по времени (конец фазы, дедлайны заявок, выход из зоны) применяются лениво: `GameService` вызывает `game.advance(now)` до и после каждого действия. Фонового тикера нет: игра «догоняет» время при каждом запросе.
 - Доступ к одной игре сериализован (`synchronized(game)`), разные игры не мешают друг другу.
 - `GameRegistry` хранит игры, join-коды и токены в памяти (`ConcurrentHashMap`). Для горизонтального масштабирования его заменяют на Redis/Postgres за теми же методами (см. [roadmap](roadmap.md)). Пока сервер — **один экземпляр**, рестарт теряет идущие игры.
+- Здания зоны `GameService` заказывает у `BuildingLoader` при создании игры. Для Overpass загрузка идёт в отдельном пуле потоков, пока игроки в лобби; результат попадает в игру под той же блокировкой (`game.onBuildingsLoaded` / `onBuildingsUnavailable`). Источник — `hovanki.buildings.source`: `overpass` (по умолчанию), `fake` (тестовый квартал `DebugBuildings`, в тестах и профиле `e2e`), `off`.
 - Аутентификация: при создании игры или входе сервер выдаёт `PlayerSession` с токеном; все остальные запросы — с `Authorization: Bearer <token>`. Токен привязан к одной игре и одному игроку.
 
 ## Модель времени
@@ -160,8 +161,9 @@ stateDiagram-v2
 | Ищущий | активного прячущегося | SEEKING, уверенно за зоной | `OUT_OF_ZONE` |
 | Ищущий | активного прячущегося | SEEKING, была подменённая точка за последние 60 с | `MOCK_LOCATION` |
 | Ищущий | активного прячущегося | SEEKING, нет новых точек GPS дольше `staleLocationRevealSeconds` (45 с), даже если приложение продолжает слать sync | `STALE_SIGNAL` |
+| Ищущий | активного прячущегося | SEEKING, уверенно внутри здания дольше `insideBuildingRevealSeconds` (60 с) | `INSIDE_BUILDING` — только в `cause`; в `reason` старые клиенты получают `OUT_OF_ZONE` |
 
-Показывается последняя принятая точка игрока с её accuracy и временем. В LOBBY и FINISHED позиции не отдаются никому.
+Показывается последняя принятая точка игрока с её accuracy и временем. В LOBBY и FINISHED позиции не отдаются никому. Если причин несколько, берётся первая по порядку таблицы. Точная причина — `VisibleLocation.cause` (клиенты читают `exactReason`), `reason` остаётся в наборе первой версии протокола.
 
 ## Честная игра: GPS — подсказка, а не судья
 
@@ -170,6 +172,7 @@ stateDiagram-v2
 - **Фильтр точек** (`LocationTrack`): подменённые точки (`isMock`) не попадают в трек, но запоминается время последней подмены; точки не по порядку и скачки быстрее `maxPlausibleSpeedMetersPerSecond` (12 м/с с учётом accuracy) отбрасываются.
 - **Пригодные точки**: accuracy не хуже `maxUsableAccuracyMeters` (20 м). Только они участвуют в решениях.
 - **Зона** (`ZoneRules`): игрок «уверенно за зоной», только если в окне `decisionWindowSeconds` (20 с) есть минимум `minFixesForDecision` (3) пригодных точек и все они за границей с запасом `accuracy + zoneBorderMarginMeters` (10 м). Тогда он раскрывается (`OUT_OF_ZONE`) и получает `outOfZoneDeadlineMillis`; не вернулся за `outOfZoneGraceSeconds` (60 с) — `ELIMINATED`. Возврат тоже решается не по одной точке: предупреждение снимается, когда последние `minFixesForDecision` пригодных точек не за границей (`ZoneRules.isConfidentlyBack`); одна точка, «прыгнувшая» внутрь, таймер не сбрасывает.
+- **Здания** (`BuildingRules`, `BuildingMap`; [ADR 0003](adr/0003-map-and-buildings.md)): точка «явно внутри», если она пригодная и глубже ближайшей стены (или двора, или прохода) больше чем на `accuracy + buildingWallMarginMeters` (5 м). Игрок «уверенно внутри», если в окне решений не меньше `minFixesForDecision` пригодных точек и все явно внутри. Тогда прячущийся получает `MyState.insideBuildingRevealAtMillis`, через `insideBuildingRevealSeconds` (60 с) ищущие видят его с причиной `INSIDE_BUILDING`. Игрок не выбывает. Вышел — последние `minFixesForDecision` точек не явно внутри — предупреждение и раскрытие сняты. Правило действует в SEEKING, пока у игры статус зданий `READY`, для прячущихся без открытой заявки.
 - **Дистанция находки** (`CatchRules`): минимально возможное расстояние = расстояние между точками минус оба радиуса accuracy, берётся лучшая пара из всех пригодных точек обоих игроков за окно решений (не одна точка). Заявка отклоняется, только если GPS *доказывает*, что игроки дальше `catchMaxDistanceMeters` (40 м). Для правила по умолчанию в споре запоминается и наиболее вероятное расстояние (ближайшая пара точек без учёта accuracy).
 
 ## Находка
@@ -227,6 +230,8 @@ sequenceDiagram
 - `LocationTrack` держит точки игрока за последние 5 минут, старые удаляются по мере поступления новых.
 - `GameJanitor` раз в `cleanup-interval` (1 мин) удаляет игры вместе с треками, игроками и токенами: завершённые — через `finished-retention` (30 мин, запас на разбор после игры), брошенные — после `idle-retention` (6 ч) без запросов. Настройки — `hovanki.games.*` в `server/src/main/resources/application.yaml`.
 - Координаты и токены не пишем в логи.
+- Контуры зданий (открытые данные OSM) сервер берёт из Overpass API при создании игры: туда уходит только круг зоны, без данных игроков. В лог попадает только id игры, не круг: центр зоны — позиция хоста. Полигоны живут в памяти игры и удаляются вместе с ней.
+- Карта грузит тайлы с OpenFreeMap: провайдер видит IP устройства и район игры, как любой сайт с картой. Камера показывает зону и не следует за игроком, свои координаты приложение провайдеру не отправляет.
 - Секрет кода находки получает только сам прячущийся (`MyState.catchCodeSecret`).
 - На устройстве хранится только сессия (токен, id игры и игрока) и поля главного экрана — в Keystore/Keychain ([ADR 0002](adr/0002-session-storage.md)). Сессия стирается после игры; координаты на устройстве не хранятся.
 - Системный запрос геолокации сопровождается объяснением (на iOS — `NSLocationWhenInUseUsageDescription`: координаты уходят на сервер только на время раунда). Отдельный экран согласия — в [roadmap](roadmap.md).
@@ -245,6 +250,7 @@ sequenceDiagram
 | POST | `/api/v1/games/{gameId}/catches/{catchId}/confirm` | ищущий из заявки | `ConfirmCatchRequest` | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/catches/{catchId}/dispute` | прячущийся из заявки | — | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/catches/{catchId}/vote` | игрок вне спора | `VoteRequest` | `GameSnapshot` |
+| GET | `/api/v1/games/{gameId}/buildings` | любой игрок, один раз, когда `GameSnapshot.buildings = READY` | — | `BuildingsResponse`: контуры зданий и проходы, по которым судит сервер (сотни КБ, gzip) |
 | GET | `/actuator/health` (+ `/liveness`, `/readiness`) | мониторинг | — | статус Spring Boot |
 | GET | `/api/v1/debug/games`, `/api/v1/debug/games/{gameId}` | только e2e-тесты, **только Spring-профиль `e2e`** | — | `DebugGameList`, `DebugGameState` (`app.hovanki.shared.debug`): полное состояние без фильтрации — все позиции, заявки, причины раскрытий. В обычном профиле маршрутов нет (404), это закреплено тестом `DebugEndpointAbsentTest` |
 

@@ -1,5 +1,7 @@
 package app.hovanki.client.network
 
+import app.hovanki.shared.protocol.BuildingsResponse
+import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.GameId
@@ -29,26 +31,34 @@ fun testSample(timestampMillis: Long) = LocationSample(
     timestampMillis = timestampMillis,
 )
 
-fun testSnapshot(serverTimeMillis: Long = 1_000L, syncIntervalSeconds: Int = 3, phase: GamePhase = GamePhase.LOBBY) =
-    GameSnapshot(
-        gameId = testSession.gameId,
-        joinCode = "ABC234",
-        hostId = testSession.playerId,
-        phase = phase,
-        settings = GameSettings(
-            zone = shrinkingZone(GeoPoint(50.4501, 30.5234)),
-            rules = GameRules(syncIntervalSeconds = syncIntervalSeconds),
-        ),
-        serverTimeMillis = serverTimeMillis,
-        players = listOf(PlayerView(testSession.playerId, "Anna", Role.HIDER, PlayerStatus.ACTIVE)),
-        me = MyState(testSession.playerId, Role.HIDER, PlayerStatus.ACTIVE),
-    )
+fun testSnapshot(
+    serverTimeMillis: Long = 1_000L,
+    syncIntervalSeconds: Int = 3,
+    phase: GamePhase = GamePhase.LOBBY,
+    buildings: BuildingsState? = null,
+) = GameSnapshot(
+    gameId = testSession.gameId,
+    joinCode = "ABC234",
+    hostId = testSession.playerId,
+    phase = phase,
+    settings = GameSettings(
+        zone = shrinkingZone(GeoPoint(50.4501, 30.5234)),
+        rules = GameRules(syncIntervalSeconds = syncIntervalSeconds),
+    ),
+    serverTimeMillis = serverTimeMillis,
+    players = listOf(PlayerView(testSession.playerId, "Anna", Role.HIDER, PlayerStatus.ACTIVE)),
+    me = MyState(testSession.playerId, Role.HIDER, PlayerStatus.ACTIVE),
+    buildings = buildings,
+)
 
 /** [GameApi] whose `sync` (and `join`) is scripted by the test; everything else is unused by the connection. */
 class FakeGameApi(
     private val onJoin: suspend (JoinGameRequest) -> SessionResponse = { unused() },
+    private val onBuildings: suspend () -> BuildingsResponse = { unused() },
     private val onSync: suspend (SyncRequest) -> GameSnapshot,
 ) : GameApi {
+    var buildingsRequests = 0
+
     val syncRequests = mutableListOf<SyncRequest>()
 
     /** Sessions the syncs were sent with (the token goes into the Authorization header). */
@@ -73,6 +83,11 @@ class FakeGameApi(
     override suspend fun disputeCatch(session: PlayerSession, catchId: CatchId): GameSnapshot = unused()
 
     override suspend fun vote(session: PlayerSession, catchId: CatchId, confirm: Boolean): GameSnapshot = unused()
+
+    override suspend fun buildings(session: PlayerSession): BuildingsResponse {
+        buildingsRequests++
+        return onBuildings()
+    }
 }
 
 private fun unused(): Nothing = error("Not used by the connection")

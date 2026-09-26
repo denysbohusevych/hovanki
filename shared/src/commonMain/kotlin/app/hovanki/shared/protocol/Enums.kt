@@ -56,6 +56,12 @@ enum class VisibilityReason {
 
     /** The device reported a mocked location. */
     MOCK_LOCATION,
+
+    /**
+     * Confidently inside a building for longer than allowed (docs/adr/0003-map-and-buildings.md). Only ever sent in
+     * [VisibleLocation.cause], never in [VisibleLocation.reason]: older clients would fail to read it there.
+     */
+    INSIDE_BUILDING,
 }
 
 @Serializable

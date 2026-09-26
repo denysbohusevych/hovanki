@@ -40,6 +40,7 @@ import app.hovanki.client.resources.action_dispute
 import app.hovanki.client.resources.action_found
 import app.hovanki.client.resources.action_leave
 import app.hovanki.client.resources.action_leave_game
+import app.hovanki.client.resources.building_rule_off
 import app.hovanki.client.resources.claim_code_label
 import app.hovanki.client.resources.claim_disputed_mine
 import app.hovanki.client.resources.claim_enter_code
@@ -52,13 +53,15 @@ import app.hovanki.client.resources.hiders_left
 import app.hovanki.client.resources.hint_hider_hiding
 import app.hovanki.client.resources.hint_hider_seeking
 import app.hovanki.client.resources.hint_seeker_hiding
+import app.hovanki.client.resources.in_building_revealed
+import app.hovanki.client.resources.in_building_warning
 import app.hovanki.client.resources.leave_text
 import app.hovanki.client.resources.leave_title
+import app.hovanki.client.resources.map_legend
 import app.hovanki.client.resources.no_hiders_to_claim
 import app.hovanki.client.resources.out_of_zone_warning
 import app.hovanki.client.resources.phase_hiding
 import app.hovanki.client.resources.phase_seeking
-import app.hovanki.client.resources.radar_legend
 import app.hovanki.client.resources.role_hider
 import app.hovanki.client.resources.role_seeker
 import app.hovanki.client.resources.seeker_found_hint
@@ -119,6 +122,23 @@ fun GameScreen(viewModel: GameViewModel = koinViewModel()) {
                 isError = true,
             )
         }
+        state.insideBuildingMillisLeft?.let { millisLeft ->
+            Banner(
+                text = if (millisLeft > 0) {
+                    stringResource(Res.string.in_building_warning, formatCountdown(millisLeft))
+                } else {
+                    stringResource(Res.string.in_building_revealed)
+                },
+                modifier = Modifier.testTag(TestTags.GAME_IN_BUILDING),
+                isError = true,
+            )
+        }
+        if (state.isBuildingRuleOff) {
+            Banner(
+                text = stringResource(Res.string.building_rule_off),
+                modifier = Modifier.testTag(TestTags.BUILDING_RULE_OFF),
+            )
+        }
         when (state.myStatus) {
             PlayerStatus.ACTIVE -> Unit
 
@@ -147,14 +167,15 @@ fun GameScreen(viewModel: GameViewModel = koinViewModel()) {
             VoteCard(claim, isBusy = state.isBusy, onVote = { confirm -> viewModel.vote(claim.id, confirm) })
         }
 
-        ZoneRadar(
+        GameMap(
             zone = state.zone,
             myLocation = state.myLocation,
             markers = state.markers,
+            buildings = state.buildings,
             modifier = Modifier.fillMaxWidth().aspectRatio(1f),
         )
         Text(
-            text = stringResource(Res.string.radar_legend),
+            text = stringResource(Res.string.map_legend),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

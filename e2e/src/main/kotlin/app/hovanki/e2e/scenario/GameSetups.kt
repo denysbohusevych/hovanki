@@ -17,6 +17,7 @@ object GameSetups {
         disputeVoteSeconds = 8,
         staleLocationRevealSeconds = 15,
         syncIntervalSeconds = 1,
+        insideBuildingRevealSeconds = 20,
     )
 
     /**

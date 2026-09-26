@@ -3,6 +3,7 @@ package app.hovanki.server.api
 import app.hovanki.server.game.GameService
 import app.hovanki.server.game.PlayerRef
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.ConfirmCatchRequest
@@ -14,6 +15,7 @@ import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.VoteRequest
+import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -55,6 +57,11 @@ class GameController(private val games: GameService) {
     @PostMapping(ApiRoutes.CATCH_DISPUTE)
     fun disputeCatch(player: PlayerRef, @PathVariable gameId: String, @PathVariable catchId: String): GameSnapshot =
         games.disputeCatch(player, GameId(gameId), CatchId(catchId))
+
+    /** Once per game, when the snapshot says the buildings are READY: what the map shows as forbidden. */
+    @GetMapping(ApiRoutes.BUILDINGS)
+    fun buildings(player: PlayerRef, @PathVariable gameId: String): BuildingsResponse =
+        games.buildings(player, GameId(gameId))
 
     @PostMapping(ApiRoutes.CATCH_VOTE)
     fun vote(

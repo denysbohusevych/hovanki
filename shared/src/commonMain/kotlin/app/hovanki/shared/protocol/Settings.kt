@@ -56,4 +56,8 @@ data class GameRules(
     val maxPlausibleSpeedMetersPerSecond: Double = 12.0,
     /** How often clients send their position and poll the state. */
     val syncIntervalSeconds: Int = 3,
+    /** A hider confidently inside a building for this long is revealed to seekers; they are warned right away. */
+    val insideBuildingRevealSeconds: Int = 60,
+    /** A fix counts as inside a building only when it is this far from every wall, on top of its accuracy. */
+    val buildingWallMarginMeters: Double = 5.0,
 )
