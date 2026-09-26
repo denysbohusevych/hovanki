@@ -1,10 +1,24 @@
 spring:
   application:
     name: hovanki-server
+  # Accounts, friends, groups and reports live in PostgreSQL (docs/adr/0004-accounts-friends-chat.md); games stay in
+  # memory. Local development: deploy/compose.dev.yaml. Production sets SPRING_DATASOURCE_URL, _USERNAME, _PASSWORD.
+  datasource:
+    url: jdbc:postgresql://localhost:5432/hovanki
+    username: hovanki
+    password: hovanki
+    hikari:
+      maximum-pool-size: 5
+  # Migrations in db/migration (classpath), applied at startup; only ever appended.
+  flyway:
+    enabled: true
 
 server:
   port: ${PORT:8080}
   shutdown: graceful
+  # Behind Caddy: the client's address from X-Forwarded-For (rate limits per IP), only from a proxy on a private
+  # network.
+  forward-headers-strategy: native
   # The buildings of a zone can be hundreds of KB of JSON; OkHttp and NSURLSession unpack gzip themselves.
   compression:
     enabled: true
@@ -22,6 +36,18 @@ management:
         enabled: true
 
 hovanki:
+  accounts:
+    # Logged-in devices unused for this long are logged out.
+    session-idle-retention: 180d
+    # Accounts whose email was never confirmed are deleted after this, freeing the nickname and the email.
+    unverified-retention: 7d
+    # Unanswered friend requests.
+    request-retention: 90d
+  moderation:
+    report-retention: 90d
+  # DataRetention: deletes what the retention periods above allow, once a day (server time is UTC).
+  retention:
+    cron: "0 17 3 * * *"
   games:
     # Game data (including location history) is kept in memory only and deleted after the game (GDPR).
     finished-retention: 30m

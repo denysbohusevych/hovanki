@@ -27,6 +27,9 @@ koin = "4.2.2"
 maplibre-compose = "0.18.0"
 
 spring-boot = "4.1.1"
+# Embedded PostgreSQL for server and e2e tests (TestPostgres); the binaries' version is the server's major version.
+embedded-postgres = "2.2.2"
+embedded-postgres-binaries = "17.11.0"
 
 turbine = "1.2.1"
 
@@ -82,7 +85,19 @@ spring-boot-starter-webmvc = { module = "org.springframework.boot:spring-boot-st
 spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
 spring-boot-starter-kotlinx-serialization-json = { module = "org.springframework.boot:spring-boot-starter-kotlinx-serialization-json" }
 spring-boot-starter-webmvc-test = { module = "org.springframework.boot:spring-boot-starter-webmvc-test" }
+spring-boot-starter-jdbc = { module = "org.springframework.boot:spring-boot-starter-jdbc" }
+spring-boot-starter-flyway = { module = "org.springframework.boot:spring-boot-starter-flyway" }
+spring-boot-starter-mail = { module = "org.springframework.boot:spring-boot-starter-mail" }
+flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
+postgresql = { module = "org.postgresql:postgresql" }
+# BCrypt only: no Spring Security filter chain.
+spring-security-crypto = { module = "org.springframework.security:spring-security-crypto" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+embedded-postgres = { module = "io.zonky.test:embedded-postgres", version.ref = "embedded-postgres" }
+embedded-postgres-binaries-bom = { module = "io.zonky.test.postgres:embedded-postgres-binaries-bom", version.ref = "embedded-postgres-binaries" }
+# embedded-postgres itself brings the amd64 binaries only.
+embedded-postgres-binaries-darwin-arm64v8 = { module = "io.zonky.test.postgres:embedded-postgres-binaries-darwin-arm64v8" }
+embedded-postgres-binaries-linux-arm64v8 = { module = "io.zonky.test.postgres:embedded-postgres-binaries-linux-arm64v8" }
 
 # Testing
 turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
