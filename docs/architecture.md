@@ -1,6 +1,6 @@
 # Архитектура
 
-Решение по стеку и его обоснование — в [ADR 0001](adr/0001-stack.md). Здесь — как устроен код.
+Решение по стеку и его обоснование — в [ADR 0001](adr/0001-stack.md), хранение сессии на устройстве — в [ADR 0002](adr/0002-session-storage.md). Здесь — как устроен код.
 
 ## Модули
 
@@ -21,7 +21,7 @@ flowchart LR
 |---|---|---|
 | `:shared` | jvm, android, iosArm64, iosSimulatorArm64 | DTO протокола и `ApiRoutes`, `protocolJson`, TOTP-коды находки (свои SHA-1/HMAC на чистом Kotlin), гео-математика, расписание зоны, правила GPS: `LocationTrack`, `ZoneRules`, `CatchRules`. Без платформенных API. |
 | `:server` | JVM 21 | Spring Boot, REST под `/api/v1`, `GameRegistry` в памяти, доменный объект `Game`, `GameJanitor`. |
-| `:clientCore` | jvm, android, iosArm64, iosSimulatorArm64 | Клиентская логика без UI: `GameApi`/`HttpGameApi` (Ktor), `GameConnection`/`PollingGameConnection`, `LocationOutbox`, `ServerClock`, `GameSessionManager`, интерфейсы `LocationProvider` и `BackgroundTracker`. Без Compose и платформенного кода; JVM-таргет нужен headless-ботам e2e-тестов, чтобы они ходили через тот же сетевой код, что и приложение. |
+| `:clientCore` | jvm, android, iosArm64, iosSimulatorArm64 | Клиентская логика без UI: `GameApi`/`HttpGameApi` (Ktor), `GameConnection`/`PollingGameConnection`, `LocationOutbox`, `ServerClock`, `GameSessionManager`, `ClientStorage`, интерфейсы `LocationProvider`, `BackgroundTracker` и `SecureStore`. Без Compose и платформенного кода; JVM-таргет нужен headless-ботам e2e-тестов, чтобы они ходили через тот же сетевой код, что и приложение. |
 | `:composeApp` | android, iosArm64, iosSimulatorArm64 | KMP-библиотека (`com.android.kotlin.multiplatform.library`): Compose UI, Koin, движки Ktor, реализации платформенных сервисов. На iOS собирается во framework `ComposeApp` (вместе с `:clientCore`). |
 | `:androidApp` | Android | Тонкая точка входа: `Application` + `MainActivity`. AGP 9 со встроенным Kotlin. |
 | `:e2e` | JVM 21 | End-to-end тесты: headless-боты на коде `:clientCore` с имитацией GPS, часов и сети играют целые партии против настоящего сервера (в тестах он поднимается в том же процессе). Там же оркестратор слоя устройств: debug-приложение на эмуляторах и симуляторах, UI через Maestro. См. [e2e.md](e2e.md). |
@@ -35,9 +35,10 @@ flowchart LR
 |---|---|---|
 | UI | Экраны на Compose, `ZoneRadar` (Canvas-заглушка вместо карты), навигация по состоянию: какой экран показывать, решает состояние сессии, а не стек переходов | `:composeApp`, `commonMain` |
 | Состояние экранов | ViewModel'и / стейт-холдеры: превращают `GameSnapshot` и локальные данные в UI-state, принимают действия пользователя | `:composeApp`, `commonMain` |
-| Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock` | `:clientCore`, `commonMain` |
+| Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock`, сохранение сессии и возврат в игру после перезапуска | `:clientCore`, `commonMain` |
+| Хранилище | `ClientStorage` поверх `SecureStore`: сохранённая сессия, имя игрока, адрес сервера | `:clientCore`, `commonMain`; реализации `SecureStore` — `:composeApp` `androidMain` / `iosMain` |
 | Сеть | `GameApi` (Ktor, `protocolJson`), `GameConnection` — транспорт за интерфейсом (сейчас HTTP-опрос) | `:clientCore`, `commonMain`; движок Ktor выбирает `:composeApp`: OkHttp (Android), Darwin (iOS) |
-| Платформенные сервисы | `LocationProvider`, `BackgroundTracker`, `ProximityScanner`, `CatchCodeScanner` | интерфейсы в `commonMain` (`LocationProvider` и `BackgroundTracker` — в `:clientCore`), реализации в `:composeApp` `androidMain` / `iosMain` |
+| Платформенные сервисы | `LocationProvider`, `BackgroundTracker`, `SecureStore`, `ProximityScanner`, `CatchCodeScanner` | интерфейсы в `commonMain` (`LocationProvider`, `BackgroundTracker` и `SecureStore` — в `:clientCore`), реализации в `:composeApp` `androidMain` / `iosMain` |
 | DI | Koin-модули: общий + платформенный | `:composeApp`, `commonMain` + `androidMain` / `iosMain` |
 
 Платформенные реализации:
@@ -46,6 +47,7 @@ flowchart LR
 |---|---|---|---|
 | `LocationProvider` | FusedLocationProvider (play-services-location) | `CLLocationManager` | работает |
 | `BackgroundTracker` | foreground service с типом `location` | фоновый режим `location` | работает |
+| `SecureStore` | AES-GCM, ключ в Android Keystore, шифротекст в приватных `SharedPreferences` | Keychain, `AfterFirstUnlockThisDeviceOnly` | работает, [ADR 0002](adr/0002-session-storage.md) |
 | `ProximityScanner` | — | — | no-op, BLE через Kable после MVP |
 | `CatchCodeScanner` | CameraX + ML Kit (план) | AVFoundation (план) | expect/actual-заглушка, ручной ввод кода работает |
 
@@ -54,7 +56,7 @@ flowchart LR
 Для e2e-тестов на эмуляторах и симуляторах ([e2e.md](e2e.md)); release-сборки это поведение не меняет.
 
 - Ключевые элементы помечены `Modifier.testTag`, константы — `TestTags` в `:clientCore` (пакет `app.hovanki.client.automation`, общий с оркестратором e2e). На Android debug-сборка включает `testTagsAsResourceId` (`AutomationRoot`), и теги становятся resource-id. На iOS Compose отдаёт их как `accessibilityIdentifier`.
-- `LaunchOptions` (там же) — адрес сервера, имя игрока, join-код, время пряток для игры, созданной с устройства. Они предзаполняют главный экран вместо ввода руками.
+- `LaunchOptions` (там же) — адрес сервера, имя игрока, join-код, время пряток для игры, созданной с устройства. Они предзаполняют главный экран вместо ввода руками. `forgetSavedGame` стирает сохранённую игру вместо возврата в неё: сценарий начинает с главного экрана.
   - Android читает их только в source set `debug` (`androidApp/src/debug`): extras `hovanki.*` или deep link `hovanki://join?server=…&name=…&joinCode=…`, объявленный только в debug-манифесте. В `release` лежат no-op-двойники.
   - iOS читает `NSUserDefaults` (launch arguments `-hovanki.server …`) только в debug-бинаре (`Platform.isDebugBinary`).
 
@@ -76,6 +78,26 @@ flowchart LR
 - **Outbox.** Точки копятся в очереди и уходят пачкой (`SyncRequest.samples`, не больше 100 за запрос). Если запрос не прошёл (нет сети), точки остаются в очереди и уйдут со следующим — сервер сортирует их по времени и отбрасывает дубли и невозможные скачки (`LocationTrack`).
 - **Фон.** `BackgroundTracker` держит геолокацию и цикл синхронизации живыми при заблокированном экране. HTTP-опрос выбран в том числе потому, что он надёжнее WebSocket в фоне на iOS.
 - **Замена транспорта.** Остальной код знает только `GameConnection`. Для WebSocket/SSE достаточно новой реализации интерфейса и смены биндинга в Koin.
+
+## Перезапуск приложения
+
+Сессия (`gameId`, `playerId`, токен) и адрес сервера сохраняются на устройстве при создании игры или входе, поэтому убитое приложение возвращается в свою игру. Решение и выбор хранилища — [ADR 0002](adr/0002-session-storage.md).
+
+```mermaid
+stateDiagram-v2
+    [*] --> Resuming: запуск, есть сохранённая сессия
+    [*] --> Home: сохранённой сессии нет
+    Resuming --> Game: sync — LOBBY / HIDING / SEEKING
+    Resuming --> Home: sync — FINISHED (стереть, «игра закончилась»)
+    Resuming --> Home: 401 / 404 (стереть, «на сервере её больше нет»)
+    Resuming --> Resuming: нет сети — повтор с backoff
+    Resuming --> Home: «Выйти из игры» (стереть)
+```
+
+- `onAppStart` (`MainActivity.onCreate` на Android, `mainViewController()` на iOS) вызывает `GameSessionManager.resumeSavedGame()` один раз на процесс.
+- Проверка — обычный `POST /sync` с Bearer-токеном. Если игра идёт, заново поднимаются опрос, `LocationOutbox`, геолокация и `BackgroundTracker`; секрет кода прячущийся снова получает в снапшоте.
+- Сохранённая сессия стирается при выходе из игры, в конце игры (`FINISHED`) и когда сервер её больше не знает. Имя игрока и адрес сервера остаются для главного экрана.
+- Серверу для этого ничего не нужно: `sync` принимает вернувшегося игрока в любой фазе, а свежие точки снимают раскрытие `STALE_SIGNAL`.
 
 ## Сервер: время и состояние
 
@@ -193,6 +215,7 @@ sequenceDiagram
 - `GameJanitor` раз в `cleanup-interval` (1 мин) удаляет игры вместе с треками, игроками и токенами: завершённые — через `finished-retention` (30 мин, запас на разбор после игры), брошенные — после `idle-retention` (6 ч) без запросов. Настройки — `hovanki.games.*` в `server/src/main/resources/application.yaml`.
 - Координаты и токены не пишем в логи.
 - Секрет кода находки получает только сам прячущийся (`MyState.catchCodeSecret`).
+- На устройстве хранится только сессия (токен, id игры и игрока) и поля главного экрана — в Keystore/Keychain ([ADR 0002](adr/0002-session-storage.md)). Сессия стирается после игры; координаты на устройстве не хранятся.
 - Системный запрос геолокации сопровождается объяснением (на iOS — `NSLocationWhenInUseUsageDescription`: координаты уходят на сервер только на время раунда). Отдельный экран согласия — в [roadmap](roadmap.md).
 
 ## API
