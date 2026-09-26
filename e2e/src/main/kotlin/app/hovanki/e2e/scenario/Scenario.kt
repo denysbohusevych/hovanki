@@ -1,18 +1,22 @@
 package app.hovanki.e2e.scenario
 
+import app.hovanki.e2e.bot.BotAccount
 import app.hovanki.e2e.bot.BotBehavior
 import app.hovanki.e2e.bot.BotPlayer
 import app.hovanki.e2e.bot.CommandResult
 import app.hovanki.e2e.bot.SyncMetrics
+import app.hovanki.e2e.observer.EmailPurpose
 import app.hovanki.e2e.observer.Observer
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.route.Route
 import app.hovanki.shared.debug.DebugCatch
+import app.hovanki.shared.debug.DebugEmail
 import app.hovanki.shared.debug.DebugGameState
 import app.hovanki.shared.debug.DebugPlayer
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.ErrorCode
+import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
@@ -94,6 +98,10 @@ class Scenario(val name: String, val serverUrl: String) {
         return bot
     }
 
+    /** The same person on another phone: the app freshly installed there, nothing saved; they log in by hand. */
+    fun BotPlayer.newPhone(phoneName: String = "$name (new phone)"): BotPlayer =
+        player(phoneName, at = gps.truePosition, behavior = behavior)
+
     fun note(text: String) = timeline.log("scenario", text)
 
     /** A game created elsewhere (on a device), found through the observer. */
@@ -119,6 +127,42 @@ class Scenario(val name: String, val serverUrl: String) {
 
     suspend fun BotPlayer.startsGame(seekers: List<BotPlayer>) {
         requireOk(startGame(seekers), "$name starts the game")
+    }
+
+    // ---- Accounts ----
+
+    /** A new account for a person called [name], with a nickname and an email nobody else has ([BotAccount.unique]). */
+    fun newAccount(name: String): BotAccount = BotAccount.unique(name)
+
+    /**
+     * The code in the next [purpose] email to [email], read like a person reads their inbox: the first email that is
+     * not among [known] (the inbox before the action that sends it). Waits for it: the server sends asynchronously.
+     */
+    suspend fun emailedCode(email: String, purpose: EmailPurpose, known: List<DebugEmail> = emptyList()): String {
+        val sent = observer.awaitEmail(email, purpose, known)
+        note("✓ $purpose email to $email with code ${sent.code}")
+        return checkNotNull(sent.code)
+    }
+
+    /** Registers [account] and confirms the email with the emailed code: logged in with a confirmed email. */
+    suspend fun BotPlayer.signsUp(account: BotAccount = newAccount(name)): BotAccount {
+        requireOk(register(account), "$name registers")
+        requireOk(verifyEmail(emailedCode(account.email, EmailPurpose.VERIFY_EMAIL)), "$name confirms the email")
+        return account
+    }
+
+    /** Logs in with [account]'s password, by its nickname or by [login] (e.g. the email). */
+    suspend fun BotPlayer.logsIn(account: BotAccount, login: String = account.nickname) {
+        requireOk(logIn(login, account.password), "$name logs in as $login")
+    }
+
+    /** "Forgot password?" on this phone: a code by email, then the new password; logged in with it afterwards. */
+    suspend fun BotPlayer.resetsPassword(account: BotAccount, newPassword: String): BotAccount {
+        val known = observer.emails(account.email)
+        requireOk(requestPasswordReset(account.email), "$name asks for a reset code")
+        val code = emailedCode(account.email, EmailPurpose.RESET_PASSWORD, known)
+        requireOk(resetPassword(account.email, code, newPassword), "$name sets a new password")
+        return account.withPassword(newPassword)
     }
 
     // ---- Movement and the phone ----
@@ -266,6 +310,10 @@ class Scenario(val name: String, val serverUrl: String) {
 
     fun expectRejected(result: CommandResult, code: ErrorCode, what: String) {
         check(result is CommandResult.Rejected && result.code == code, "$what: rejected with $code (got $result)")
+    }
+
+    fun expectRejected(result: CommandResult, reason: ErrorReason, what: String) {
+        check(result is CommandResult.Rejected && result.reason == reason, "$what: rejected with $reason (got $result)")
     }
 
     /** No bot received anything it may not see. Runs at the end of every scenario. */

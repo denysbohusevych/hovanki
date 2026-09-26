@@ -1,15 +1,25 @@
 package app.hovanki.e2e.bot
 
+import app.hovanki.client.account.AccountManager
+import app.hovanki.client.account.AccountState
+import app.hovanki.client.network.ApiResult
+import app.hovanki.client.network.HttpAccountApi
 import app.hovanki.client.network.HttpGameApi
+import app.hovanki.client.network.HttpSocialApi
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.createHttpClient
 import app.hovanki.client.session.CatchCode
+import app.hovanki.client.session.ChatLine
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
 import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
 import app.hovanki.client.session.catchCodeToShow
+import app.hovanki.client.session.chatLines
+import app.hovanki.client.session.unreadChatCount
+import app.hovanki.client.social.SocialManager
+import app.hovanki.client.social.UserRelation
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.scenario.Timeline
@@ -17,11 +27,19 @@ import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.ErrorCode
+import app.hovanki.shared.protocol.ErrorReason
+import app.hovanki.shared.protocol.FriendsResponse
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.GroupId
+import app.hovanki.shared.protocol.GroupView
+import app.hovanki.shared.protocol.Inbox
+import app.hovanki.shared.protocol.InviteId
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.protocolJson
 import io.ktor.client.engine.okhttp.OkHttp
@@ -38,13 +56,16 @@ import java.util.Collections
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * A headless player: the app's real client stack ([GameSessionManager], [HttpGameApi] over Ktor/OkHttp,
- * [PollingGameConnection], [ServerClock]) on a simulated phone ([FakeGps], [FakeNetwork], [DeviceClock]).
+ * A headless player: the app's real client stack ([GameSessionManager], [AccountManager], [SocialManager], the HTTP
+ * APIs over Ktor/OkHttp, [PollingGameConnection], [ServerClock]) on a simulated phone ([FakeGps], [FakeNetwork],
+ * [DeviceClock], [PhoneStorage]), wired like the app does it.
  *
- * Scenarios steer it like a person: walk, press buttons ([claimCatch], [dispute], [vote]), read another phone's
- * screen ([shownCode]), switch GPS or network off, kill the app. [behavior] covers the reactions a person
- * has without being told (show the code, vote). Every response it receives is checked by [SnapshotAudit].
- * The app keeps its session in [storage], so after [killApp] and [launchApp] it resumes the game, like on a phone.
+ * Scenarios steer it like a person: walk, press buttons ([claimCatch], [dispute], [vote], [sendChat]), fill in forms
+ * ([register], [logIn], [resetPassword]), read another phone's screen ([shownCode]), switch GPS or network off, kill
+ * the app. [behavior] covers the reactions a person has without being told (show the code, vote). Every game response
+ * it receives is checked by [SnapshotAudit]. The app keeps its session and account in [storage], so after [killApp]
+ * and [launchApp] it is logged in again and resumes the game, like on a phone. What the person knows (nickname, email,
+ * password) is not on the phone: the scenario keeps it ([BotAccount]).
  */
 class BotPlayer(
     val name: String,
@@ -91,11 +112,14 @@ class BotPlayer(
     /** "Now" as the app believes the server clock is; null while the app is not running. */
     fun serverNow(): Long? = app?.serverClock?.now()
 
-    suspend fun createGame(settings: GameSettings): CommandResult =
-        command("creates a game") { it.create(name, settings) }.also { rememberPlayer() }
+    // ---- Game ----
 
+    suspend fun createGame(settings: GameSettings): CommandResult =
+        command("creates a game") { it.create(name, settings) }.also(::onEntered)
+
+    /** Also how an invite is accepted: its join code, while logged in. */
     suspend fun join(joinCode: String): CommandResult =
-        command("joins with code $joinCode") { it.join(joinCode, name) }.also { rememberPlayer() }
+        command("joins with code $joinCode") { it.join(joinCode, name) }.also(::onEntered)
 
     suspend fun startGame(seekers: Collection<BotPlayer>): CommandResult =
         command("starts the game, seekers: ${seekers.joinToString { it.name }}") { session ->
@@ -134,6 +158,173 @@ class BotPlayer(
         return snapshot.catchCodeToShow(running.serverClock.now())
     }
 
+    /** Invites friends and/or everyone in a group into this game's lobby. */
+    suspend fun invite(userIds: List<UserId> = emptyList(), groupId: GroupId? = null): CommandResult {
+        val whom = (userIds.map(::nameOf) + listOfNotNull(groupId?.let { "group ${groupName(it)}" })).joinToString()
+        return command("invites $whom") { it.invite(userIds, groupId) }
+    }
+
+    /** Leaves the game, or closes the results screen: the app stops polling and forgets the game. */
+    suspend fun leave(): CommandResult {
+        val running = app ?: return notRunning("leaves the game")
+        withContext(running.mainThread) { running.session.leave() }
+        log("leaves the game")
+        return CommandResult.Ok
+    }
+
+    // ---- Chat ----
+
+    /** The chat panel: this game's messages this player may see, minus those of users they blocked. */
+    val chat: List<ChatLine> get() = state.chatLines(blockedIds)
+
+    /** The number on the chat button. */
+    val unreadChatCount: Int get() = state.unreadChatCount(blockedIds)
+
+    /** Sends [text] to everyone, or to the own team ([team]). */
+    suspend fun sendChat(text: String, team: Boolean = false): CommandResult =
+        command(if (team) "says to the team: $text" else "says: $text") { it.sendChat(text, team) }
+
+    /** Reports the chat message [seq] to the moderators. */
+    suspend fun reportChat(seq: Long): CommandResult {
+        val line = chat.firstOrNull { it.seq == seq }
+        return command("reports message $seq${line?.let { " of ${it.senderName}: ${it.text}" }.orEmpty()}") {
+            it.reportChat(seq)
+        }
+    }
+
+    /** Opens the chat panel: everything in it counts as read. */
+    suspend fun readChat() {
+        val running = app ?: return
+        withContext(running.mainThread) { running.session.markChatRead() }
+    }
+
+    // ---- Account ----
+
+    val accountState: AccountState get() = app?.account?.state?.value ?: AccountState()
+
+    /** The logged-in account; null for a guest (or while the app is not running). */
+    val user: UserProfile? get() = accountState.user
+
+    val userId: UserId? get() = user?.id
+
+    /** Signs up; logged in right away with an unconfirmed email, the code goes to [BotAccount.email]. */
+    suspend fun register(account: BotAccount, language: String = "en"): CommandResult =
+        accountCommand("registers as $account") {
+            it.account.register(account.nickname, account.email, account.password, language)
+        }
+
+    /** Types the emailed code into the verification screen. */
+    suspend fun verifyEmail(code: String): CommandResult =
+        accountCommand("enters the email code $code") { it.account.verifyEmail(code) }
+
+    /** "Send the code again". */
+    suspend fun resendCode(): CommandResult = accountCommand("asks for a new email code") { it.account.resendCode() }
+
+    /** Fixes a mistyped email on the verification screen. */
+    suspend fun changeEmail(email: String): CommandResult =
+        accountCommand("changes the email to $email") { it.account.changeEmail(email) }
+
+    /** [login]: the nickname or the email. */
+    suspend fun logIn(login: String, password: String): CommandResult =
+        accountCommand("logs in as $login") { it.account.logIn(login, password) }
+
+    /** "Forgot password?": a code to [email]. */
+    suspend fun requestPasswordReset(email: String): CommandResult =
+        accountCommand("asks for a password reset code for $email") { it.account.requestPasswordReset(email) }
+
+    /** A new password with the emailed code; logged in afterwards. */
+    suspend fun resetPassword(email: String, code: String, newPassword: String): CommandResult =
+        accountCommand("sets a new password with the code $code") { it.account.resetPassword(email, code, newPassword) }
+
+    suspend fun changePassword(currentPassword: String, newPassword: String): CommandResult =
+        accountCommand("changes the password") { it.account.changePassword(currentPassword, newPassword) }
+
+    suspend fun deleteAccount(password: String): CommandResult =
+        accountCommand("deletes the account") { it.account.deleteAccount(password) }
+
+    /** Reloads the profile (`GET /me`), like the app does at start: a revoked session logs the phone out. */
+    suspend fun refreshAccount(): CommandResult = accountCommand("reloads the profile") { it.account.refresh() }
+
+    /** Logs out at once; the server hears about it in the background. */
+    suspend fun logOut(): CommandResult {
+        val running = app ?: return notRunning("logs out")
+        withContext(running.mainThread) { running.account.logOut() }
+        log("logs out")
+        return CommandResult.Ok
+    }
+
+    // ---- Friends, groups, invites ----
+
+    /** Friends, requests both ways and blocked users as the app last loaded them; null until loaded. */
+    val friends: FriendsResponse? get() = app?.social?.friends?.value
+
+    /** The groups this player is in, as last loaded ([refreshGroups]). */
+    val groups: List<GroupView> get() = app?.social?.groups?.value?.groups.orEmpty()
+
+    /** Game invites and incoming friend requests, as last loaded ([refreshInbox]). */
+    val inbox: Inbox get() = app?.social?.inbox?.value ?: Inbox()
+
+    val blockedIds: Set<UserId> get() = app?.social?.blockedIds?.value.orEmpty()
+
+    fun relationTo(userId: UserId): UserRelation = app?.social?.relationTo(userId) ?: UserRelation.NONE
+
+    suspend fun refreshFriends(): CommandResult = socialCommand("opens the friends list") { it.refreshFriends() }
+
+    suspend fun refreshGroups(): CommandResult = socialCommand("opens the groups") { it.refreshGroups() }
+
+    suspend fun refreshInbox(): CommandResult = socialCommand("checks the inbox") { it.refreshInbox() }
+
+    /** By the exact nickname, as typed into the friends screen. */
+    suspend fun sendFriendRequest(nickname: String): CommandResult =
+        socialCommand("asks $nickname to be friends") { it.sendFriendRequest(nickname) }
+
+    /** To a player seen in a game ([app.hovanki.shared.protocol.PlayerView.userId]). */
+    suspend fun sendFriendRequest(userId: UserId): CommandResult =
+        socialCommand("asks ${nameOf(userId)} to be friends") { it.sendFriendRequest(userId) }
+
+    suspend fun acceptFriendRequest(from: UserId): CommandResult =
+        socialCommand("accepts the friend request of ${nameOf(from)}") { it.acceptFriendRequest(from) }
+
+    /** Declines [userId]'s request, or withdraws the own request to them. */
+    suspend fun declineFriendRequest(userId: UserId): CommandResult =
+        socialCommand("declines the friend request of ${nameOf(userId)}") { it.declineFriendRequest(userId) }
+
+    suspend fun removeFriend(userId: UserId): CommandResult =
+        socialCommand("removes ${nameOf(userId)} from friends") { it.removeFriend(userId) }
+
+    suspend fun block(userId: UserId): CommandResult = socialCommand("blocks ${nameOf(userId)}") { it.block(userId) }
+
+    suspend fun unblock(userId: UserId): CommandResult =
+        socialCommand("unblocks ${nameOf(userId)}") { it.unblock(userId) }
+
+    /** A new group owned by this player; it is in [groups] afterwards. */
+    suspend fun createGroup(groupName: String, memberIds: List<UserId> = emptyList()): CommandResult =
+        socialCommand("creates the group $groupName with ${memberIds.joinToString { nameOf(it) }}") {
+            it.createGroup(groupName, memberIds)
+        }
+
+    suspend fun addGroupMembers(groupId: GroupId, userIds: List<UserId>): CommandResult =
+        socialCommand("adds ${userIds.joinToString { nameOf(it) }} to ${groupName(groupId)}") {
+            it.addGroupMembers(groupId, userIds)
+        }
+
+    suspend fun removeGroupMember(groupId: GroupId, userId: UserId): CommandResult =
+        socialCommand("removes ${nameOf(userId)} from ${groupName(groupId)}") { it.removeGroupMember(groupId, userId) }
+
+    suspend fun leaveGroup(groupId: GroupId): CommandResult =
+        socialCommand("leaves ${groupName(groupId)}") { it.leaveGroup(groupId) }
+
+    suspend fun renameGroup(groupId: GroupId, newName: String): CommandResult =
+        socialCommand("renames ${groupName(groupId)} to $newName") { it.renameGroup(groupId, newName) }
+
+    suspend fun deleteGroup(groupId: GroupId): CommandResult =
+        socialCommand("deletes ${groupName(groupId)}") { it.deleteGroup(groupId) }
+
+    suspend fun dismissInvite(inviteId: InviteId): CommandResult =
+        socialCommand("dismisses an invite") { it.dismissInvite(inviteId) }
+
+    // ---- The phone ----
+
     /** Swipes the app away: the process with its outbox and connection is gone; GPS, network, clock and storage stay. */
     fun killApp() {
         val running = app ?: return
@@ -142,7 +333,10 @@ class BotPlayer(
         log("app killed")
     }
 
-    /** Starts the app again, like tapping its icon: a fresh process that resumes the game saved in [storage]. */
+    /**
+     * Starts the app again, like tapping its icon: a fresh process that restores the account and resumes the game
+     * saved in [storage].
+     */
     fun launchApp() {
         if (app != null) return
         app = App()
@@ -156,19 +350,36 @@ class BotPlayer(
         app = null
     }
 
-    private fun rememberPlayer() {
-        state.session?.let { playerId = it.playerId }
+    private fun onEntered(result: CommandResult) {
+        val running = app ?: return
+        val session = running.session.state.value.session ?: return
+        playerId = session.playerId
+        // What the start screen does once a name worked; a logged-in player plays under the nickname instead.
+        if (result == CommandResult.Ok && !running.account.state.value.isLoggedIn) {
+            running.clientStorage.rememberPlayer(name)
+        }
     }
 
+    /** Someone's name as this player's screen shows it: from the friends list or the current game. */
+    private fun nameOf(userId: UserId): String {
+        val friends = friends
+        val known = friends?.let { it.friends + it.incoming + it.outgoing + it.blocked }.orEmpty()
+        return known.firstOrNull { it.id == userId }?.nickname
+            ?: snapshot?.players?.firstOrNull { it.userId == userId }?.name
+            ?: groups.flatMap { it.members }.firstOrNull { it.id == userId }?.nickname
+            ?: userId.value
+    }
+
+    private fun groupName(groupId: GroupId): String = groups.firstOrNull { it.id == groupId }?.name ?: groupId.value
+
     private suspend fun command(description: String, call: suspend (GameSessionManager) -> Boolean): CommandResult {
-        val running =
-            app ?: return CommandResult.Failed("the app is not running").also { log("$description: app not running") }
+        val running = app ?: return notRunning(description)
         val result = withContext(running.mainThread) {
             if (call(running.session)) {
                 CommandResult.Ok
             } else {
                 when (val error = running.session.state.value.lastError) {
-                    is SessionError.Rejected -> CommandResult.Rejected(error.code, error.message)
+                    is SessionError.Rejected -> CommandResult.Rejected(error.code, error.message, error.reason)
                     is SessionError.Network -> CommandResult.Failed(error.details)
                     SessionError.SessionLost -> CommandResult.Failed("session lost")
                     SessionError.SavedGameFinished -> CommandResult.Failed("saved game finished")
@@ -179,6 +390,31 @@ class BotPlayer(
         }
         log(if (result == CommandResult.Ok) description else "$description: $result")
         return result
+    }
+
+    private suspend fun accountCommand(description: String, call: suspend (App) -> ApiResult<*>): CommandResult =
+        apiCommand(description, call)
+
+    private suspend fun socialCommand(
+        description: String,
+        call: suspend (SocialManager) -> ApiResult<*>,
+    ): CommandResult = apiCommand(description) { call(it.social) }
+
+    /** An [AccountManager] or [SocialManager] command, on the app's main thread like a tap. */
+    private suspend fun apiCommand(description: String, call: suspend (App) -> ApiResult<*>): CommandResult {
+        val running = app ?: return notRunning(description)
+        val result = when (val outcome = withContext(running.mainThread) { call(running) }) {
+            is ApiResult.Success -> CommandResult.Ok
+            is ApiResult.Rejected -> CommandResult.Rejected(outcome.code, outcome.message, outcome.reason)
+            is ApiResult.Network -> CommandResult.Failed(outcome.details)
+        }
+        log(if (result == CommandResult.Ok) description else "$description: $result")
+        return result
+    }
+
+    private fun notRunning(description: String): CommandResult {
+        log("$description: app not running")
+        return CommandResult.Failed("the app is not running")
     }
 
     private fun onExchange(exchange: Exchange) {
@@ -201,16 +437,19 @@ class BotPlayer(
         snapshot.players.forEach { player -> player.location?.let { reveals += player.id to it.exactReason } }
     }
 
-    /** One run of the app process. */
+    /** One run of the app process, wired like the app's DI (composeApp `Koin.kt`) and started like `onAppStart`. */
     @OptIn(ExperimentalCoroutinesApi::class)
     private inner class App {
-        /** The app's "main thread": GameSessionManager is confined to it, as on the phone. */
+        /** The app's "main thread": the managers are confined to it, as on the phone. */
         val mainThread = Dispatchers.Default.limitedParallelism(1)
         val scope = CoroutineScope(SupervisorJob() + mainThread)
         private val httpClient = createHttpClient(OkHttp.create { addInterceptor(network) }, logRequests = false)
         val serverClock = ServerClock(clock::now)
         private val url = ServerUrl(serverUrl)
         private val api = HttpGameApi(httpClient, url)
+        val clientStorage = ClientStorage(storage)
+        val account = AccountManager(HttpAccountApi(httpClient, url), clientStorage, url, scope)
+        val social = SocialManager(HttpSocialApi(httpClient, url), account, scope)
         val session = GameSessionManager(
             api,
             PollingGameConnection(api),
@@ -218,14 +457,16 @@ class BotPlayer(
             gps,
             backgroundTracker,
             url,
-            ClientStorage(storage),
+            clientStorage,
             scope,
+            account = account,
         )
 
         @Volatile var showingCodeFor: CatchId? = null
         private val handledClaims = HashSet<CatchId>()
         private val handledVotes = HashSet<CatchId>()
         private var previous = SessionState()
+        private var previousAccount = AccountState()
 
         init {
             scope.launch {
@@ -235,8 +476,17 @@ class BotPlayer(
                     previous = state
                 }
             }
-            // What the app does at start (MainActivity / mainViewController): back into a saved game.
-            scope.launch { session.resumeSavedGame() }
+            scope.launch {
+                account.state.collect { state ->
+                    if (logChanges) logAccountChanges(previousAccount, state)
+                    previousAccount = state
+                }
+            }
+            // What the app does at start: back into the saved account, then into a saved game.
+            scope.launch {
+                account.restore()
+                session.resumeSavedGame()
+            }
         }
 
         fun close() {
@@ -271,6 +521,19 @@ class BotPlayer(
                     delay(reaction.after)
                     vote(dispute.id, reaction.confirm)
                 }
+            }
+        }
+
+        private fun logAccountChanges(before: AccountState, after: AccountState) {
+            val user = after.user
+            when {
+                before.user?.id != user?.id && user != null ->
+                    log("is logged in as ${user.nickname}" + if (user.emailVerified) "" else " (email not confirmed)")
+
+                before.user != null && user == null ->
+                    log(if (after.sessionExpired) "is logged out: the server ended the session" else "is logged out")
+
+                before.user?.emailVerified == false && user?.emailVerified == true -> log("email confirmed")
             }
         }
 
@@ -309,6 +572,11 @@ class BotPlayer(
             val newVisible = new.players.mapNotNull { p -> p.location?.let { p.id to it.exactReason } }.toMap()
             for ((id, reason) in newVisible) if (oldVisible[id] != reason) log("sees ${names[id]} ($reason)")
             for (id in oldVisible.keys - newVisible.keys) log("no longer sees ${names[id]}")
+            val seen = before.chat.lastOrNull()?.seq ?: 0L
+            val arrived = after.chat.filter { it.seq > seen }
+            for (line in chatLines(arrived, new.players, new.me.playerId, social.blockedIds.value)) {
+                if (!line.isMine) log("reads ${line.senderName} (${line.channel}): ${line.text}")
+            }
         }
     }
 }
@@ -316,8 +584,8 @@ class BotPlayer(
 sealed interface CommandResult {
     data object Ok : CommandResult
 
-    /** The server refused; [code] is its [ErrorCode]. */
-    data class Rejected(val code: ErrorCode?, val message: String) : CommandResult
+    /** The server refused; [code] is its [ErrorCode], [reason] the exact cause when it sent one. */
+    data class Rejected(val code: ErrorCode?, val message: String, val reason: ErrorReason? = null) : CommandResult
 
     /** Network or local failure. */
     data class Failed(val details: String?) : CommandResult

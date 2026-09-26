@@ -77,7 +77,7 @@ adb devices                        # запущенные эмуляторы: em
 
 Когда нужно смотреть логи сервера или отлаживать его отдельно от ботов:
 
-1. Сервер с профилем `e2e`: `SPRING_PROFILES_ACTIVE=e2e ./gradlew :server:bootRun`. В Android Studio — Gradle-конфигурация `:server:bootRun` с переменной окружения `SPRING_PROFILES_ACTIVE=e2e`; её можно запустить через Debug.
+1. Сервер с профилем `e2e`: `SPRING_PROFILES_ACTIVE=e2e ./gradlew :server:bootRun`. Ему нужен локальный PostgreSQL, как при обычном запуске (`deploy/compose.dev.yaml`, см. [README](../README.md)); встроенную базу, как `:e2e:test` в своём процессе, он не поднимает. В Android Studio — Gradle-конфигурация `:server:bootRun` с переменной окружения `SPRING_PROFILES_ACTIVE=e2e`; её можно запустить через Debug.
 2. Сценарии против него: `HOVANKI_E2E_SERVER_URL=http://localhost:8080 ./gradlew :e2e:test`. В Android Studio — скопируйте конфигурацию `E2E bots (no emulators)` и добавьте ту же переменную в Environment variables.
 
 Без профиля `e2e` у сервера нет эндпоинта наблюдателя, и сценарии падают с понятной ошибкой.

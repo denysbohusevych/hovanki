@@ -1,7 +1,8 @@
 // End-to-end tests (docs/e2e.md): headless bots run the app's client code (:clientCore over Ktor/OkHttp, as on
 // Android) with simulated GPS, clock and network, and play whole games against a real server.
-// `./gradlew :e2e:test` starts the server in-process on a random port; HOVANKI_E2E_SERVER_URL points the same
-// scenarios at an external server started with the Spring profile `e2e`. Not part of `check` (see `unitTest`).
+// `./gradlew :e2e:test` starts the server in-process on a random port, on a fresh PostgreSQL database (TestPostgres
+// from the server's test fixtures: HOVANKI_TEST_DATABASE_URL or an embedded server); HOVANKI_E2E_SERVER_URL points the
+// same scenarios at an external server started with the Spring profile `e2e`. Not part of `check` (see `unitTest`).
 import java.util.Properties
 
 plugins {
@@ -26,6 +27,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(projects.server)
+    // TestPostgres: the in-process server's database (E2eServer).
+    testImplementation(testFixtures(projects.server))
     testImplementation(platform(libs.spring.boot.bom))
     testImplementation(libs.spring.boot)
     testImplementation(libs.kotlin.test)

@@ -39,9 +39,9 @@ flowchart LR
 ./gradlew :e2e:test --tests '*NetworkTest.networkOutageOf30Seconds'
 ```
 
-`:e2e:test` не входит в `check`, его запускают только явно. В `check` идёт `:e2e:unitTest` — юнит-тесты самих инструментов (маршруты, шум GPS, разбор дерева UI) без партий.
+`:e2e:test` не входит в `check`, его запускают только явно. В `check` идёт `:e2e:unitTest` — юнит-тесты самих инструментов (маршруты, шум GPS, разбор дерева UI, аудит снапшотов, уникальные аккаунты) без партий.
 
-Тесты сами поднимают настоящий Spring Boot сервер в том же процессе на случайном порту с профилем `e2e`. Сценарии идут в реальном времени и в основном ждут игровые таймеры, поэтому JUnit гоняет их параллельно (`e2e/src/test/resources/junit-platform.properties`). Нагрузочный тест помечен `@Isolated` и идёт один.
+Тесты сами поднимают настоящий Spring Boot сервер в том же процессе на случайном порту с профилем `e2e` и на свежей базе PostgreSQL: `TestPostgres` из test fixtures сервера создаёт базу `hovanki_test_<random>` на сервере из `HOVANKI_TEST_DATABASE_URL` (например, `jdbc:postgresql://localhost:5432/hovanki?user=hovanki&password=hovanki`, пользователю нужен CREATEDB) или, без переменной, поднимает встроенный PostgreSQL; в конце прогона база удаляется. Сценарии идут в реальном времени и в основном ждут игровые таймеры, поэтому JUnit гоняет их параллельно (`e2e/src/test/resources/junit-platform.properties`). Нагрузочный тест помечен `@Isolated` и идёт один.
 
 Те же сценарии против внешнего сервера — например, чтобы смотреть его логи или профилировать:
 
@@ -50,7 +50,7 @@ SPRING_PROFILES_ACTIVE=e2e ./gradlew :server:bootRun
 HOVANKI_E2E_SERVER_URL=http://localhost:8080 ./gradlew :e2e:test
 ```
 
-Сервер обязательно с профилем `e2e`, иначе наблюдателю не к чему обращаться, и сценарии падают с понятной ошибкой.
+Сервер обязательно с профилем `e2e`, иначе наблюдателю не к чему обращаться, и сценарии падают с понятной ошибкой. Ему нужна своя база PostgreSQL (`deploy/compose.dev.yaml`, см. README); аккаунты прошлых прогонов в ней остаются, поэтому ники и email у ботов каждый раз новые (`BotAccount.unique`).
 
 ### Как устроен бот
 
@@ -58,14 +58,15 @@ HOVANKI_E2E_SERVER_URL=http://localhost:8080 ./gradlew :e2e:test
 
 | Часть приложения | В боте |
 |---|---|
-| `GameSessionManager`, `HttpGameApi` (Ktor), `PollingGameConnection`, `LocationOutbox`, `ServerClock`, `catchCodeToShow` | те же классы из `:clientCore` |
+| `GameSessionManager`, `AccountManager`, `SocialManager`, `HttpGameApi` / `HttpAccountApi` / `HttpSocialApi` (Ktor), `PollingGameConnection`, `LocationOutbox`, `ServerClock`, `catchCodeToShow`, `chatLines` | те же классы из `:clientCore`, связанные как в приложении: один `ClientStorage` и `ServerUrl`, аккаунт передаётся в `GameSessionManager` |
 | Движок Ktor | OkHttp — тот же, что на Android |
 | `LocationProvider` (Fused / CLLocationManager) | `FakeGps`: позиция на маршруте `Route` плюс шум `GpsNoise`, метки времени — по часам устройства |
 | Часы телефона | `DeviceClock` со сдвигом (`clockSkew`) |
 | Сеть | `FakeNetwork` — OkHttp-интерцептор: «роняет» сеть (`IOException`, как в тоннеле) и видит каждый ответ |
 | `BackgroundTracker` | `FakeBackgroundTracker` — только запоминает, просило ли приложение фоновый режим |
-| `SecureStore` (Keystore / Keychain) | `PhoneStorage` — в памяти «телефона», переживает `killApp()` |
-| Процесс приложения | `killApp()` / `launchApp()`: процесс с outbox и соединением пропадает; GPS, сеть, часы и хранилище остаются. Новый процесс, как приложение на телефоне, возвращается в сохранённую игру (`resumeSavedGame`) |
+| `SecureStore` (Keystore / Keychain) | `PhoneStorage` — в памяти «телефона» (сессия игры и аккаунт), переживает `killApp()` |
+| Процесс приложения | `killApp()` / `launchApp()`: процесс с outbox и соединением пропадает; GPS, сеть, часы и хранилище остаются. Новый процесс, как приложение на телефоне, восстанавливает аккаунт (`restore`) и возвращается в сохранённую игру (`resumeSavedGame`) |
+| Человек с телефоном | Ник, email и пароль (`BotAccount`) знает сценарий, а не телефон: `newPhone()` — тот же человек с новым телефоном, где ничего не сохранено |
 
 Что бот делает сам, как человек с телефоном, задаёт `BotBehavior`:
 - `onClaim` — реакция прячущегося на заявку: показать код (`ShowCode`), оспорить (`Dispute`) или молчать (`Ignore`);
@@ -82,11 +83,12 @@ HOVANKI_E2E_SERVER_URL=http://localhost:8080 ./gradlew :e2e:test
 Пресеты: `GpsNoise.NONE` (точные позиции, accuracy 5 м), `openSky(seed)`, `city(seed)`. Для геометрии, которая должна сходиться до метра, есть `GpsNoise(..., exact = true)`.
 
 **Приватность проверяется всегда.** Каждый ответ, который получил любой бот в любом сценарии, проходит `SnapshotAudit`:
-- прячущийся не получает ни одной позиции (в JSON нет `"location"`);
+- прячущийся не получает ни одной позиции (в JSON ответа нет ключа `location`; ищутся именно ключи, так что текст чата или имя «location» не мешают);
 - ищущий видит ищущих только как `TEAMMATE`, а прячущихся — только с причиной раскрытия и только в SEEKING;
 - в LOBBY и FINISHED позиций нет;
 - секрет кода получает только прячущийся;
-- в `VisibleLocation.reason` приходят только причины первой версии протокола; новые, как `INSIDE_BUILDING`, — только в `cause`.
+- в `VisibleLocation.reason` приходят только причины первой версии протокола; новые, как `INSIDE_BUILDING`, — только в `cause`;
+- каждое сообщение чата — из канала, который зритель может видеть с его ролью в этом снапшоте (`ChatRules.canSee`); в LOBBY — только `ALL`.
 
 Нарушение валит сценарий.
 
@@ -101,6 +103,10 @@ HOVANKI_E2E_SERVER_URL=http://localhost:8080 ./gradlew :e2e:test
 - статус зданий игры (`LOADING` / `READY` / `UNAVAILABLE`);
 - заявки с голосами и оценкой расстояния.
 
+Ещё два debug-маршрута:
+- `GET /api/v1/debug/emails/{email}` — письма, которые сервер отправил на адрес (`hovanki.mail.sender: recording` в профиле `e2e`). Отсюда боты читают коды, как человек в своей почте: `observer.awaitEmail(email, purpose, known)` ждёт новое письмо — сервер отправляет асинхронно, после коммита транзакции;
+- `GET /api/v1/debug/reports` — жалобы на сообщения чата (`observer.reports()`).
+
 **Здания в профиле `e2e` — тестовый квартал.** Вместо Overpass сервер берёт `FakeBuildingSource`: один квартал `DebugBuildings` с аркой, в ~150 м к северо-западу от центра зоны. Координаты квартала знают и сервер, и сценарии, внешний сервис не нужен. Для зон около Null Island (`DebugBuildings.NO_DATA_AT`, 0°, 0°) данных нет — так сценарий проверяет игру с выключенным правилом. Слой устройств по умолчанию берёт настоящие здания (см. [«Где идёт игра»](#где-идёт-игра-и-какие-здания)).
 
 **Эндпоинт существует только в Spring-профиле `e2e`.** В обычном профиле бина нет и маршруты отвечают 404 — это закреплено тестом `DebugEndpointAbsentTest`. При старте с профилем `e2e` сервер пишет WARN. В проде профиль не включать.
@@ -111,7 +117,12 @@ HOVANKI_E2E_SERVER_URL=http://localhost:8080 ./gradlew :e2e:test
 
 | Класс | Сценарий | Что проверяет |
 |---|---|---|
-| `FullRoundTest` | Full round | Лобби по коду, старт с одним ищущим, прячущиеся расходятся (один с «городским» шумом), зона сужается, три находки по коду, игра заканчивается, когда пойманы все; фоновый трекинг включается и выключается |
+| `FullRoundTest` | Full round | Лобби по коду, старт с одним ищущим, прячущиеся расходятся (один с «городским» шумом), зона сужается, три находки по коду, игра заканчивается, когда пойманы все; фоновый трекинг включается и выключается. Итоги остаются на экране и продолжают обновляться (ради чата), пока игрок их не закроет (`leave`); сохранённой сессии уже нет |
+| `AccountTest` | Sign up with an emailed code | Регистрация: вход сразу, email не подтверждён; письмо на языке приложения; ник и email заняты без учёта регистра; неверный код → `INVALID_CODE` без `reason`; повторная отправка — новый код заменяет старый; подтверждение |
+| | Log in by nickname and by email | Новые телефоны: неверный пароль и неизвестный ник — одинаковый `WRONG_CREDENTIALS`; вход по нику и по email без учёта регистра; перезапущенное приложение снова в аккаунте; выход на одном телефоне не трогает другие |
+| | Password reset | Код сброса на email (на адрес без аккаунта — тот же ответ и ни одного письма), неверный код, новый пароль: старый не работает, старые телефоны разлогинены при следующем запросе (`SESSION_EXPIRED`) или запуске |
+| | Delete the account | Неверный пароль — ничего не удалено; удаление: выход, другой телефон разлогинен, входа нет ни по нику, ни по email, ник и email снова свободны |
+| | A logged-in player and a guest in one game | Вошедший создаёт игру и играет под ником (`PlayerView.userId`), гость — с `userId = null`. **Пока `@Disabled`**: ждёт на сервере аккаунтов в играх (шаг 4 плана) |
 | `CatchTest` | Hider stays silent | Нет реакции → `CONFIRMED` ровно по таймауту кода, конец игры — в тот же момент |
 | | Dispute rejected by votes | Спор, оба голоса против → `REJECTED` сразу, не дожидаясь дедлайна |
 | | Dispute without votes, far apart | 65 м при accuracy 16 м: заявку принять можно, но наиболее вероятное расстояние > 40 м → `REJECTED` по дедлайну |
@@ -163,10 +174,12 @@ class MyTest {
 
 - `scenario(name) { ... }` (в `e2e/src/test`) запускает партию против `E2eServer`, пишет отчёт и проверяет приватность.
 - Игроки: `player(name, at, noise, behavior, clockSkew)`.
-- Действия бота: `walksTo`, `arrives`, `follows(route)`, `teleportsTo`, `turnsGpsOff/On`, `startsMockingLocation`, `losesNetwork/regainsNetwork`, `claimsCatch`, `entersCodeShownBy`, `catches`, `killApp/launchApp`, `vote`, `dispute`.
+- Действия бота: `walksTo`, `arrives`, `follows(route)`, `teleportsTo`, `turnsGpsOff/On`, `startsMockingLocation`, `losesNetwork/regainsNetwork`, `claimsCatch`, `entersCodeShownBy`, `catches`, `killApp/launchApp`, `vote`, `dispute`, `leave`.
+- Аккаунты: `newAccount(name)` — уникальные ник и email (сценарии идут параллельно на одном сервере), `bot.signsUp()` — регистрация и код из письма, `bot.logsIn(account, login)`, `bot.resetsPassword(account, newPassword)`, `bot.newPhone()`, `emailedCode(email, purpose, known)`. Кнопки по отдельности — у `BotPlayer`: `register`, `verifyEmail`, `resendCode`, `logIn`, `logOut`, `requestPasswordReset`, `resetPassword`, `changePassword`, `deleteAccount`, `refreshAccount`; состояние — `accountState`, `userId`.
+- Друзья, группы, приглашения и чат (`BotPlayer`, через `SocialManager` и `GameSessionManager`): `sendFriendRequest(nickname | userId)`, `acceptFriendRequest`, `block`, `createGroup`, `addGroupMembers`, `refreshInbox` / `inbox`, `invite(userIds, groupId)`, `sendChat(text, team)`, `reportChat(seq)`, `chat` (строки, как в панели чата).
 - Правда сервера: `state()`, `bot.onServer()`, `lastClaimOn(hider)`.
 - Ожидания: `awaitPhase`, `awaitCatch`, `awaitStatus`, `awaitReveal(hider, reason, to = seeker)`, общее `eventually { ... }` / `awaitThat { ... }`, `holdsFor(period) { ... }` — «всё это время».
-- Проверки: `check(condition, what)`, `requireOk(result, what)`, `expectRejected(result, ErrorCode.X, what)`. Каждая успешная проверка попадает в таймлайн с «✓».
+- Проверки: `check(condition, what)`, `requireOk(result, what)`, `expectRejected(result, ErrorCode.X, what)` или `expectRejected(result, ErrorReason.X, what)`. Каждая успешная проверка попадает в таймлайн с «✓».
 
 Советы:
 - Геометрия, которая должна сходиться до метра (порог 40 м, граница зоны), — через `GpsNoise(..., exact = true)`: иначе шум иногда будет «прав».
