@@ -4,8 +4,14 @@
 
 | Слой | Кто играет | Где запускается | Команда |
 |---|---|---|---|
-| Быстрый | headless-боты на клиентском коде приложения | локально и в CI на каждый push (`ci.yml`) | `./gradlew :e2e:test` |
-| Медленный | приложение на Android-эмуляторах и iOS-симуляторах + боты | локально и nightly (`e2e-devices.yml`) | `e2e/run-devices.sh --android 2 --bots 3` |
+| Быстрый | headless-боты на клиентском коде приложения | локально перед PR и nightly (`nightly.yml`, job `E2E bots`) | `./gradlew :e2e:test` |
+| Медленный | приложение на Android-эмуляторах и iOS-симуляторах + боты | локально и nightly (`nightly.yml`, job'ы `Android emulators`, `iOS simulator`) | `e2e/run-devices.sh --android 2 --bots 3` |
+
+Оба слоя на push не запускаются: `ci.yml` остаётся быстрым, а `./gradlew check` не зависит от `:e2e:test`. Поэтому:
+- меняете правила, протокол или поведение клиент–сервер — перед PR сами запустите `./gradlew :e2e:test` (~3 мин, работает и в облачном контейнере без KVM);
+- меняете UI или платформенный код — запустите ночной workflow вручную на своей ветке (`suite=devices`, [ниже](#ci)).
+
+Подробности и таблица «что запускать» — [ci-cd.md](ci-cd.md#что-запускать-перед-pr).
 
 ```mermaid
 flowchart LR
@@ -32,6 +38,8 @@ flowchart LR
 ./gradlew :e2e:test --tests '*ZoneTest*'          # один класс
 ./gradlew :e2e:test --tests '*NetworkTest.networkOutageOf30Seconds'
 ```
+
+`:e2e:test` не входит в `check`, его запускают только явно. В `check` идёт `:e2e:unitTest` — юнит-тесты самих инструментов (маршруты, шум GPS, разбор дерева UI) без партий.
 
 Тесты сами поднимают настоящий Spring Boot сервер в том же процессе на случайном порту с профилем `e2e`. Сценарии идут в реальном времени и в основном ждут игровые таймеры, поэтому JUnit гоняет их параллельно (`e2e/src/test/resources/junit-platform.properties`). Нагрузочный тест помечен `@Isolated` и идёт один.
 
@@ -155,7 +163,7 @@ class MyTest {
 
 ### Как читать отчёт
 
-Каждый сценарий пишет `e2e/build/reports/e2e/<scenario>.md`. В CI это артефакт `e2e-reports` каждого запуска `ci.yml`. В отчёте:
+Каждый сценарий пишет `e2e/build/reports/e2e/<scenario>.md`. В CI это артефакт `e2e-reports` запуска `nightly.yml` (job `E2E bots`). В отчёте:
 - **Result** — passed или причина падения;
 - **Final state (observer)** — игроки с ролями и статусами, счётчики точек (accepted / mock / out of order / implausible), текущая причина раскрытия, заявки с голосами и оценкой расстояния;
 - **Sync** — число запросов, p50/p95/p99/max `/sync`, неудачные запросы (ожидаемые 4xx вроде `TOO_FAR` тоже считаются);
@@ -268,7 +276,7 @@ e2e/run-devices.sh --ios 1 --fail-fast                                  # пос
 
 ### CI
 
-`.github/workflows/e2e-devices.yml` — запуск вручную (Actions → E2E devices → Run workflow, можно выбрать сценарий и число ботов) и nightly в 02:17 UTC:
+`.github/workflows/nightly.yml` — nightly в 02:17 UTC и вручную на любой ветке: Actions → Nightly → Run workflow, `suite=devices` (или `all` вместе с ботами), сценарий и число ботов. Из командной строки: `gh workflow run nightly.yml --ref <ветка> -f suite=devices -f scenario=restart`. Если ночной прогон упал, открывается issue с меткой `nightly-failure` ([ci-cd.md](ci-cd.md#если-ночной-прогон-упал)).
 - **`Android emulators`** (`ubuntu-latest`, ~15 мин):
   - KVM включается udev-правилом;
   - два эмулятора поднимает `e2e/run-devices.sh` (`reactivecircus/android-emulator-runner` рассчитан на один);
@@ -280,7 +288,7 @@ e2e/run-devices.sh --ios 1 --fail-fast                                  # пос
 ## Известные ограничения
 
 - **iOS — только на Mac** с Xcode. На Linux работают боты и Android.
-- **Эмуляторам нужно аппаратное ускорение** (KVM / Hypervisor.framework). В облачных контейнерах без KVM работает только быстрый слой (`:e2e:test`), слой устройств — через GitHub Actions.
+- **Эмуляторам нужно аппаратное ускорение** (KVM / Hypervisor.framework). В облачных контейнерах без KVM работает только быстрый слой (`:e2e:test`), слой устройств — через ночной workflow, запущенный вручную на своей ветке.
 - **Мок-геолокация — не настоящий GPS.**
   - `geo fix` и `simctl location` дают точку с постоянной accuracy, без шума, прыжков и потери сигнала. Реалистичный шум есть только у ботов.
   - Фоновые ограничения реальных телефонов они тоже не эмулируют. iOS может приостановить приложение, «энергосбережение» Android-производителей — остановить foreground service.

@@ -14,7 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  # Everything that builds on Linux: formatting, shared + server tests, Android app.
+  # Everything that builds on Linux: formatting, shared + server tests, Android app. Long checks (e2e bots and
+  # devices) are in nightly.yml.
   jvm:
     name: Lint, tests, Android
     # Same-repo PRs are already covered by the push run on the same commit; run pull_request only for forks.
@@ -32,12 +33,9 @@ jobs:
       - name: Formatting (ktlint via Spotless)
         run: ./gradlew spotlessCheck
 
+      # Without the e2e scenarios: `check` doesn't depend on :e2e:test, the bots run in nightly.yml.
       - name: Tests and checks
-        run: ./gradlew check --continue -x :e2e:test
-
-      # Headless bots on the app's client code play whole games against the real server (docs/e2e.md).
-      - name: End-to-end scenarios
-        run: ./gradlew :e2e:test
+        run: ./gradlew check --continue
 
       - name: Build Android app
         run: ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease
@@ -47,15 +45,6 @@ jobs:
         with:
           name: hovanki-debug-apk
           path: androidApp/build/outputs/apk/debug/*.apk
-          retention-days: 14
-
-      - name: Upload e2e scenario reports
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: e2e-reports
-          path: e2e/build/reports/e2e/
-          if-no-files-found: ignore
           retention-days: 14
 
       - name: Upload test reports
