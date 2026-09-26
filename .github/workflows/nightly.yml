@@ -110,8 +110,8 @@ jobs:
       - name: Cache the emulator system image
         uses: actions/cache@v6
         with:
-          path: /usr/local/lib/android/sdk/system-images/android-34/google_apis/x86_64
-          key: android-system-image-34-google_apis-x86_64
+          path: /usr/local/lib/android/sdk/system-images/android-33/google_atd/x86_64
+          key: android-system-image-33-google_atd-x86_64
 
       - name: Install Maestro
         run: |

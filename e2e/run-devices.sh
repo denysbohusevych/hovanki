@@ -22,7 +22,10 @@ SKIP_BUILD=0
 REPORT=e2e/build/reports/devices
 ANDROID_SERIALS=()
 IOS_UDIDS=()
-API_LEVEL=${HOVANKI_E2E_API_LEVEL:-34}
+# Automated Test Device image: made for headless CI, without SystemUI, Settings and bundled apps, with the Google APIs
+# (Play services for FusedLocationProvider). ATD images exist for API 30-33.
+API_LEVEL=${HOVANKI_E2E_API_LEVEL:-33}
+IMAGE_TAG=${HOVANKI_E2E_IMAGE_TAG:-google_atd}
 EMULATOR_GPU=${HOVANKI_E2E_EMULATOR_GPU:-swiftshader_indirect}
 
 usage() {
@@ -167,8 +170,8 @@ if ((ANDROID > 0)); then
   export ANDROID_AVD_HOME=${ANDROID_AVD_HOME:-$HOME/.android/avd}
   mkdir -p "$ANDROID_AVD_HOME"
   case "$(uname -m)" in arm64 | aarch64) ABI=arm64-v8a ;; *) ABI=x86_64 ;; esac
-  IMAGE="system-images;android-$API_LEVEL;google_apis;$ABI"
-  if [[ ! -d "$SDK/system-images/android-$API_LEVEL/google_apis/$ABI" || ! -x "$SDK/emulator/emulator" ]]; then
+  IMAGE="system-images;android-$API_LEVEL;$IMAGE_TAG;$ABI"
+  if [[ ! -d "$SDK/system-images/android-$API_LEVEL/$IMAGE_TAG/$ABI" || ! -x "$SDK/emulator/emulator" ]]; then
     log "installing $IMAGE"
     # Licenses are confirmed through process substitution: with pipefail, `yes | ...` fails on SIGPIPE.
     sdkmanager --install "$IMAGE" emulator platform-tools < <(yes) >/dev/null
@@ -189,7 +192,7 @@ if ((ANDROID > 0)); then
     port=$((5552 + 2 * i))
     log "starting $avd as emulator-$port"
     emulator -avd "$avd" -port "$port" -no-window -no-audio -no-boot-anim -no-snapshot -gpu "$EMULATOR_GPU" \
-      -memory "${HOVANKI_E2E_EMULATOR_MEMORY:-3072}" -cores 2 >"$REPORT/logs/emulator-$i.log" 2>&1 &
+      -memory "${HOVANKI_E2E_EMULATOR_MEMORY:-2048}" -cores 2 >"$REPORT/logs/emulator-$i.log" 2>&1 &
     eval "EMULATOR_PID_$port=$!"
     STARTED_EMULATORS+=("emulator-$port")
     ANDROID_SERIALS+=("emulator-$port")
