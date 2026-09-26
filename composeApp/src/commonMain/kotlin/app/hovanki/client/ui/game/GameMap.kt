@@ -22,13 +22,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.reason_inside_building
 import app.hovanki.client.resources.reason_mock_location
 import app.hovanki.client.resources.reason_out_of_zone
 import app.hovanki.client.resources.reason_stale_signal
 import app.hovanki.client.resources.reason_teammate
 import app.hovanki.shared.geo.moveBy
+import app.hovanki.shared.geo.offsetFrom
+import app.hovanki.shared.protocol.BuildingArea
+import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LocationSample
+import app.hovanki.shared.protocol.Passage
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.ZoneCircle
 import app.hovanki.shared.rules.ZoneState
@@ -67,21 +72,29 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.ln
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * The game map (docs/adr/0003-map-and-buildings.md): OpenStreetMap vector tiles as the background, and on top of
- * them only what the game knows: the zone, the next zone (dashed), our own position with its accuracy and the players
- * the server lets us see. The background is decoration; without it (no network, provider down) the game layers are
+ * them only what the game knows: the zone, the next zone (dashed), the buildings the server judges by (red, with the
+ * passages through them cut out), our own position with its accuracy and the players the server lets us see. The background is decoration; without it (no network, provider down) the game layers are
  * drawn on a plain background.
  */
 @Composable
-fun GameMap(zone: ZoneState, myLocation: LocationSample?, markers: List<MapMarker>, modifier: Modifier = Modifier) {
+fun GameMap(
+    zone: ZoneState,
+    myLocation: LocationSample?,
+    markers: List<MapMarker>,
+    buildings: BuildingsResponse?,
+    modifier: Modifier = Modifier,
+) {
     val colors = MaterialTheme.colorScheme
     val reasonLabels = mapOf(
         VisibilityReason.TEAMMATE to stringResource(Res.string.reason_teammate),
         VisibilityReason.STALE_SIGNAL to stringResource(Res.string.reason_stale_signal),
         VisibilityReason.OUT_OF_ZONE to stringResource(Res.string.reason_out_of_zone),
         VisibilityReason.MOCK_LOCATION to stringResource(Res.string.reason_mock_location),
+        VisibilityReason.INSIDE_BUILDING to stringResource(Res.string.reason_inside_building),
     )
     var styleFailed by remember { mutableStateOf(false) }
 
@@ -94,6 +107,22 @@ fun GameMap(zone: ZoneState, myLocation: LocationSample?, markers: List<MapMarke
     ) {
         val zoneSource = rememberGeoJsonSource(GeoJsonData.Features(features(Polygon(circle(zone.current)))))
         FillLayer(id = "zone-fill", source = zoneSource, color = const(colors.primary), opacity = const(0.10f))
+
+        // Where hiding is not allowed: the server's own outlines, not the base map's buildings.
+        if (buildings != null) {
+            val forbidden = rememberGeoJsonSource(
+                GeoJsonData.Features(FeatureCollection(buildings.buildings.map { Feature(it.toPolygon(), null) })),
+            )
+            FillLayer(id = "buildings-fill", source = forbidden, color = const(colors.error), opacity = const(0.35f))
+            LineLayer(id = "buildings-border", source = forbidden, color = const(colors.error), width = const(1.dp))
+            // Passages are outdoors: drawn over the buildings in the light color of the base map.
+            val passages = rememberGeoJsonSource(
+                GeoJsonData.Features(
+                    FeatureCollection(buildings.passages.flatMap(::corridor).map { Feature(Polygon(it), null) }),
+                ),
+            )
+            FillLayer(id = "buildings-passages", source = passages, color = const(Color.White), opacity = const(0.9f))
+        }
         LineLayer(id = "zone-border", source = zoneSource, color = const(colors.primary), width = const(3.dp))
 
         val next = zone.next
@@ -229,6 +258,29 @@ internal object MapStyle {
 }
 
 private val MapMarker.isTeammate: Boolean get() = reason == VisibilityReason.TEAMMATE
+
+private fun List<GeoPoint>.toRing(): List<Position> = map { it.toPosition() }.let { ring ->
+    if (ring.first() == ring.last()) ring else ring + ring.first()
+}
+
+private fun BuildingArea.toPolygon() = Polygon(
+    listOf(outline.toRing()) + holes.filter {
+        it.size >= 3
+    }.map { it.toRing() },
+)
+
+/** A passage as rectangles along its segments, [Passage.widthMeters] wide. */
+private fun corridor(passage: Passage): List<List<Position>> = passage.path.zipWithNext { from, to ->
+    val along = to.offsetFrom(from)
+    val length = sqrt(along.eastMeters * along.eastMeters + along.northMeters * along.northMeters)
+    if (length == 0.0) return@zipWithNext null
+    val half = passage.widthMeters / 2
+    val east = -along.northMeters / length * half
+    val north = along.eastMeters / length * half
+    val corners =
+        listOf(from.moveBy(east, north), to.moveBy(east, north), to.moveBy(-east, -north), from.moveBy(-east, -north))
+    (corners + corners.first()).map { it.toPosition() }
+}.filterNotNull()
 
 private fun GeoPoint.toPosition() = Position(longitude = lon, latitude = lat)
 

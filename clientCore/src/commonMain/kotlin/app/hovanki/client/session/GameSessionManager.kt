@@ -10,6 +10,7 @@ import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.storage.SavedSession
 import app.hovanki.client.tracking.BackgroundTracker
+import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.GamePhase
@@ -70,6 +71,7 @@ class GameSessionManager(
     private var locationJob: Job? = null
     private var isTracking = false
     private var resumeAttempted = false
+    private var buildingsJob: Job? = null
 
     /** New game with the default settings: a shrinking zone around [center] (the host's position). */
     suspend fun create(playerName: String, center: GeoPoint): Boolean = create(playerName, defaultSettings(center))
@@ -211,6 +213,7 @@ class GameSessionManager(
 
         clock.onServerTime(snapshot.serverTimeMillis)
         mutableState.update { it.copy(snapshot = snapshot) }
+        if (snapshot.buildings == BuildingsState.READY) loadBuildings()
         when (snapshot.phase) {
             GamePhase.LOBBY -> Unit
 
@@ -252,6 +255,23 @@ class GameSessionManager(
         }
     }
 
+    /** Once per session; a failed attempt is retried with a later snapshot. */
+    private fun loadBuildings() {
+        val current = mutableState.value
+        val session = current.session ?: return
+        if (current.buildings != null || buildingsJob?.isActive == true) return
+        buildingsJob = scope.launch {
+            val buildings = try {
+                api.buildings(session)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return@launch
+            }
+            mutableState.update { if (it.session == session) it.copy(buildings = buildings) else it }
+        }
+    }
+
     private fun startTracking() {
         if (isTracking) return
         isTracking = true
@@ -261,6 +281,8 @@ class GameSessionManager(
     private fun stopBackgroundWork() {
         connectionJob?.cancel()
         connectionJob = null
+        buildingsJob?.cancel()
+        buildingsJob = null
         locationJob?.cancel()
         locationJob = null
         outbox.clear()

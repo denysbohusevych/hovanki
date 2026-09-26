@@ -10,6 +10,8 @@ import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
 import app.hovanki.client.session.catchCodeToShow
 import app.hovanki.shared.geo.distanceTo
+import app.hovanki.shared.protocol.BuildingsResponse
+import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.CatchView
@@ -132,7 +134,7 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
                 zone.current.radiusMeters - it.point.distanceTo(zone.current.center)
             },
             markers = snapshot.players.mapNotNull { player ->
-                player.location?.let { MapMarker(player.name, it.point, it.accuracyMeters, it.reason) }
+                player.location?.let { MapMarker(player.name, it.point, it.accuracyMeters, it.exactReason) }
             },
             hidersLeft = hiders.count { it.status == PlayerStatus.ACTIVE },
             hidersTotal = hiders.size,
@@ -150,6 +152,9 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
                 .filter { it.status == CatchStatus.DISPUTED && (it.canVote || it.myVote != null) }
                 .map { it.toUi() },
             outOfZoneMillisLeft = me.outOfZoneDeadlineMillis?.let { it - now },
+            insideBuildingMillisLeft = me.insideBuildingRevealAtMillis?.let { it - now },
+            buildings = state.buildings?.takeIf { snapshot.buildings == BuildingsState.READY },
+            isBuildingRuleOff = snapshot.buildings == BuildingsState.UNAVAILABLE,
             connectionStatus = state.connectionStatus,
             isSharingLocation = state.isSharingLocation,
             error = state.lastError,
@@ -190,6 +195,12 @@ data class GameUiState(
     /** Disputes of other players I vote (or voted) on. */
     val votes: List<ClaimUi>,
     val outOfZoneMillisLeft: Long?,
+    /** Hider inside a building: time until the seekers see them; zero or less once they do. */
+    val insideBuildingMillisLeft: Long?,
+    /** Where hiding is not allowed, exactly as the server judges; null while not loaded. */
+    val buildings: BuildingsResponse?,
+    /** The server could not load the buildings: the game runs without that rule. */
+    val isBuildingRuleOff: Boolean,
     val connectionStatus: ConnectionStatus,
     val isSharingLocation: Boolean,
     val error: SessionError?,

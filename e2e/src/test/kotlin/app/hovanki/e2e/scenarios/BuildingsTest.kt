@@ -36,6 +36,7 @@ class BuildingsTest {
 
         sam.createsGame(GameSetups.fast())
         check(sam.snapshot?.buildings == BuildingsState.READY, "the zone's buildings came with the game")
+        eventually("Sam's app loaded the buildings its map draws") { sam.state.buildings?.buildings?.singleOrNull() }
         join(anna)
         sam.startsGame(seekers = listOf(sam))
         anna.walksTo(insideBlock, speed = 4.0)

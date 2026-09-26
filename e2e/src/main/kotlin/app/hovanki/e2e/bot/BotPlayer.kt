@@ -185,6 +185,8 @@ class BotPlayer(
         metrics?.record(exchange)
         val body = exchange.body ?: return
         if (exchange.status != 200 || !exchange.path.startsWith(ApiRoutes.GAMES)) return
+        // Building outlines are public map data, not a snapshot.
+        if (exchange.path.endsWith("/buildings")) return
         val snapshot = try {
             if (exchange.path == ApiRoutes.GAMES || exchange.path == ApiRoutes.JOIN) {
                 protocolJson.decodeFromString<SessionResponse>(body).snapshot
