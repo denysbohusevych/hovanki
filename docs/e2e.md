@@ -182,7 +182,10 @@ class MyTest {
 - Android:
   - Android SDK с `cmdline-tools` (`ANDROID_HOME`);
   - аппаратное ускорение: KVM на Linux, Hypervisor.framework на Mac.
-  - Системный образ `system-images;android-34;google_apis;<x86_64|arm64-v8a>` и эмулятор скрипт поставит сам через `sdkmanager`. Нужен образ `google_apis`: в нём есть Google Play services для FusedLocationProvider.
+  - Системный образ `system-images;android-33;google_atd;<x86_64|arm64-v8a>` и эмулятор скрипт поставит сам через `sdkmanager`.
+    - ATD (Automated Test Device) — образ Google для автотестов: без SystemUI, Settings и встроенных приложений, с меньшей нагрузкой на CPU и память. В CI два эмулятора работают на раннере с 2 ядрами и 7 ГБ.
+    - Вариант `google_atd` нужен ради Google Play services для FusedLocationProvider. ATD есть для API 30–33.
+    - Другой образ: `HOVANKI_E2E_API_LEVEL=34 HOVANKI_E2E_IMAGE_TAG=google_apis`, память эмулятора — `HOVANKI_E2E_EMULATOR_MEMORY` (по умолчанию 2048 МБ).
 - iOS: Mac на Apple Silicon с Xcode 26.4+.
 
 ### Запуск
@@ -201,7 +204,8 @@ e2e/run-devices.sh --ios 1 --fail-fast                                  # пос
    - Логи — в `e2e/build/reports/devices/logs/`: `server.log`, `access*.log`.
    - В access log пишутся строка запроса, статус и время; заголовков там нет, так что нет и токенов.
 3. Создаёт AVD `hovanki-e2e-N` через `avdmanager`, если их нет, и запускает эмуляторы без окна на портах 5554, 5556…
-   - Экран Pixel 6 в 720×1600, чтобы программный GPU меньше грузил CPU. Анимации выключены, геолокация включена.
+   - Экран Pixel 6 в 720×1600, чтобы программный GPU меньше грузил CPU. Анимации выключены, геолокация включена, 2 ГБ памяти.
+   - Сворачивание (`KEYCODE_HOME`) проверяется: если приложение осталось на экране (образ без лаунчера), сценарий падает с понятной ошибкой, а не проверяет «фон» на открытом приложении.
    - Приложение ставится с `adb install -g`: разрешения на геолокацию и уведомления выданы заранее.
 4. Создаёт симуляторы `hovanki-e2e-N` на свежем iOS runtime и грузит их по одному, ставит приложение и один раз запускает его вхолостую.
    - Разрешение на геолокацию заранее не выдаётся: флоу отвечают на системный запрос, как игрок (`allow-location.yaml`).

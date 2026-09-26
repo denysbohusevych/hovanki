@@ -73,6 +73,15 @@ class AndroidDevice(override val id: String, override val label: String, private
 
     override fun sendAppToBackground() {
         adb("shell", "input", "keyevent", "KEYCODE_HOME").orThrow()
+        // A system image without a launcher (some CI images) would leave the app in front and turn every background
+        // check into a foreground one: fail loudly instead.
+        val resumed = adb("shell", "dumpsys", "activity", "activities").orThrow().stdout.lines()
+            .filter { "ResumedActivity" in it }
+        check(resumed.none { appId in it }) {
+            "$label: the app is still in the foreground after HOME (no launcher?): ${resumed.joinToString {
+                it.trim()
+            }}"
+        }
     }
 
     override fun setLocation(point: GeoPoint) {
