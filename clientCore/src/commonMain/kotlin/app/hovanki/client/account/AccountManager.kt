@@ -37,6 +37,9 @@ import kotlinx.coroutines.launch
  * start. Whenever the server answers 401 to a call with the token (session revoked or expired), the account is
  * forgotten locally and [AccountState.sessionExpired] is set: the player logs in again.
  *
+ * An account works as soon as it is registered. Confirming the email with the emailed code ([verifyEmail]) is optional:
+ * it only shows that the address reaches the player, who can then reset a forgotten password.
+ *
  * Commands never throw; they return an [ApiResult] for the UI to map to a message, and update [state] on success.
  */
 class AccountManager(
@@ -54,11 +57,13 @@ class AccountManager(
     private var runningCommands = 0
 
     override val accountToken: String?
-        get() = current.value?.takeIf { it.user.emailVerified }?.token
+        get() = current.value?.token
 
-    /** [accountToken] as it changes (login, email confirmed, logout); for the social state that depends on it. */
-    internal val verifiedTokens: Flow<String?> = current.map { it?.takeIf { a -> a.user.emailVerified }?.token }
-        .distinctUntilChanged()
+    /**
+     * [accountToken] as it changes (login, logout, another account; not when the email is confirmed): for the social
+     * state that depends on it.
+     */
+    internal val tokens: Flow<String?> = current.map { it?.token }.distinctUntilChanged()
 
     /**
      * Comes back logged in as the account saved by an earlier run, if any, then refreshes its profile with `GET /me`
@@ -90,7 +95,10 @@ class AccountManager(
     /** Reloads the profile (e.g. the email was confirmed meanwhile). */
     suspend fun refresh(): ApiResult<Unit> = withToken(busy = false) { token -> updateUser(token, api.me(token)) }
 
-    /** New account, logged in right away with an unconfirmed email: the code goes to [email]. */
+    /**
+     * New account, logged in and usable right away. The code to confirm the email (optional, [verifyEmail]) goes to
+     * [email].
+     */
     suspend fun register(nickname: String, email: String, password: String, language: String): ApiResult<Unit> =
         command {
             val request = RegisterRequest(
@@ -102,16 +110,20 @@ class AccountManager(
             logInWith(api.register(request))
         }
 
-    /** Confirms the email with the emailed code. */
+    /** Confirms the email with the emailed code (whenever the player likes: the account works either way). */
     suspend fun verifyEmail(code: String): ApiResult<Unit> =
         withToken { token -> updateUser(token, api.verifyEmail(token, AccountRules.normalizeCode(code))) }
 
     /** Emails a new verification code (rate limited: [ErrorReason.TOO_MANY_REQUESTS]). */
     suspend fun resendCode(): ApiResult<Unit> = withToken { token -> api.resendCode(token) }
 
-    /** Fixes a mistyped email before it is confirmed; a new code goes there. */
-    suspend fun changeEmail(email: String): ApiResult<Unit> =
-        withToken { token -> updateUser(token, api.changeEmail(token, AccountRules.normalizeEmail(email))) }
+    /**
+     * Fixes a mistyped email before it is confirmed; a new code goes there. Needs the current [password]
+     * ([ErrorReason.WRONG_CREDENTIALS] when wrong): whoever controls the email can reset the password.
+     */
+    suspend fun changeEmail(email: String, password: String): ApiResult<Unit> = withToken { token ->
+        updateUser(token, api.changeEmail(token, AccountRules.normalizeEmail(email), password))
+    }
 
     /** [login] is the email or the nickname. */
     suspend fun logIn(login: String, password: String): ApiResult<Unit> =
@@ -157,21 +169,8 @@ class AccountManager(
         if (current.value?.token == token) forget(sessionExpired = true)
     }
 
-    /**
-     * Why a command that needs a confirmed account can't run right now (logged out or email not confirmed), as the
-     * server would put it; null when it can.
-     */
-    internal fun missingAccount(): ApiResult.Rejected? {
-        val user = current.value?.user
-        return when {
-            user == null -> NOT_LOGGED_IN
-
-            !user.emailVerified ->
-                ApiResult.Rejected(ErrorCode.FORBIDDEN, ErrorReason.EMAIL_NOT_VERIFIED, "Email not confirmed")
-
-            else -> null
-        }
-    }
+    /** Why a command that needs an account can't run right now (logged out), as the server would put it; null: it can. */
+    internal fun missingAccount(): ApiResult.Rejected? = NOT_LOGGED_IN.takeIf { current.value == null }
 
     private fun logInWith(session: AccountSession) {
         val saved = SavedAccount(serverUrl.value, session.token, session.user)
@@ -252,11 +251,12 @@ data class AccountState(
      */
     val sessionExpired: Boolean = false,
 ) {
+    /** Logged in: games under the nickname, friends, groups, invites. The email need not be confirmed for any of it. */
     val isLoggedIn: Boolean get() = user != null
 
-    /** Logged in, but the email is not confirmed yet: only the verification screen (and logout, delete) works. */
-    val needsEmailVerification: Boolean get() = user?.emailVerified == false
+    /** Logged in with an email that is not confirmed yet; confirming it is optional (the app offers it). */
+    val hasUnconfirmedEmail: Boolean get() = user?.emailVerified == false
 
-    /** Logged in with a confirmed email: games, friends and groups. */
-    val isVerified: Boolean get() = user?.emailVerified == true
+    /** Logged in with a confirmed email: it is known to reach the player (password resets). */
+    val hasConfirmedEmail: Boolean get() = user?.emailVerified == true
 }

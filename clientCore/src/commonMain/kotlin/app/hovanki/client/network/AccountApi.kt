@@ -20,7 +20,7 @@ import io.ktor.client.HttpClient
  * Throws [ApiException] when the server rejects a call, and I/O or serialization exceptions on network problems.
  */
 interface AccountApi {
-    /** Creates the account with an unconfirmed email and emails the code; logged in right away. */
+    /** Creates the account, usable right away, and emails the code to confirm its email (optional). */
     suspend fun register(request: RegisterRequest): AccountSession
 
     suspend fun logIn(request: LoginRequest): AccountSession
@@ -41,8 +41,8 @@ interface AccountApi {
     /** Emails a new verification code. */
     suspend fun resendCode(token: String)
 
-    /** Fixes a mistyped, not yet confirmed email; a new code goes there. */
-    suspend fun changeEmail(token: String, email: String): UserProfile
+    /** Fixes a mistyped, not yet confirmed email, with the current [password]; a new code goes there. */
+    suspend fun changeEmail(token: String, email: String, password: String): UserProfile
 
     /** Ends every other session of the account. */
     suspend fun changePassword(token: String, currentPassword: String, newPassword: String)
@@ -80,8 +80,8 @@ class HttpAccountApi(client: HttpClient, serverUrl: ServerUrl) : AccountApi {
         http.post<Unit>(ApiRoutes.ME_EMAIL_RESEND, token)
     }
 
-    override suspend fun changeEmail(token: String, email: String): UserProfile =
-        http.post(ApiRoutes.ME_EMAIL, token, ChangeEmailRequest(email))
+    override suspend fun changeEmail(token: String, email: String, password: String): UserProfile =
+        http.post(ApiRoutes.ME_EMAIL, token, ChangeEmailRequest(email, password))
 
     override suspend fun changePassword(token: String, currentPassword: String, newPassword: String) {
         http.post<ChangePasswordRequest, Unit>(

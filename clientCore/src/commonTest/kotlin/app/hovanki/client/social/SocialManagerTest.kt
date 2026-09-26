@@ -71,16 +71,13 @@ class SocialManagerTest {
     }
 
     @Test
-    fun everythingNeedsAConfirmedAccount() = runTest {
-        val cases = listOf(null to ErrorReason.ACCOUNT_REQUIRED, unconfirmed to ErrorReason.EMAIL_NOT_VERIFIED)
-        for ((user, reason) in cases) {
-            val social = social(user)
+    fun everythingNeedsAnAccount() = runTest {
+        val social = social(user = null)
 
-            val result = assertIs<ApiResult.Rejected>(social.refreshFriends())
+        val result = assertIs<ApiResult.Rejected>(social.refreshFriends())
 
-            assertEquals(reason, result.reason)
-            assertTrue(api.calls.isEmpty())
-        }
+        assertEquals(ErrorReason.ACCOUNT_REQUIRED, result.reason)
+        assertTrue(api.calls.isEmpty())
     }
 
     @Test
@@ -95,14 +92,20 @@ class SocialManagerTest {
     }
 
     @Test
-    fun friendsLoadOnceTheEmailIsConfirmed() = runTest {
-        val social = social(unconfirmed)
+    fun anUnconfirmedEmailIsNoObstacle() = runTest {
         api.friends = FriendsResponse(blocked = listOf(eve))
+        val social = social(unconfirmed)
+        assertEquals(setOf(eve.id), social.blockedIds.value, "loaded at the start")
 
+        assertEquals(ApiResult.Success(Unit), social.sendFriendRequest("dee"))
         account.verifyEmail("123456")
         runCurrent()
 
-        assertEquals(listOf("friends $TEST_ACCOUNT_TOKEN"), api.calls)
+        assertEquals(
+            listOf("sendFriendRequest $TEST_ACCOUNT_TOKEN dee null"),
+            api.calls,
+            "confirming the email later reloads nothing: the same session",
+        )
         assertEquals(setOf(eve.id), social.blockedIds.value)
     }
 
@@ -227,13 +230,25 @@ class SocialManagerTest {
     }
 
     @Test
-    fun theInboxIsNotPolledWithoutAConfirmedAccount() = runTest {
-        val social = social(unconfirmed)
+    fun theInboxIsNotPolledLoggedOut() = runTest {
+        val social = social(user = null)
 
         backgroundScope.launch { social.inbox.collect {} }
         advanceTimeBy(60_000)
 
         assertEquals(0, api.inboxCalls)
+    }
+
+    @Test
+    fun theInboxIsPolledWithAnUnconfirmedEmailToo() = runTest {
+        val social = social(unconfirmed)
+        api.inbox = Inbox(invites = listOf(invite))
+
+        backgroundScope.launch { social.inbox.collect {} }
+        runCurrent()
+
+        assertEquals(1, api.inboxCalls)
+        assertEquals(Inbox(invites = listOf(invite)), social.inbox.value)
     }
 
     @Test

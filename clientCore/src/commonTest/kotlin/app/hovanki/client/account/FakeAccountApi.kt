@@ -67,8 +67,8 @@ class FakeAccountApi(var user: UserProfile = testUser, var token: String = TEST_
 
     override suspend fun resendCode(token: String) = call("resendCode", token) {}
 
-    override suspend fun changeEmail(token: String, email: String): UserProfile =
-        call("changeEmail", token, ChangeEmailRequest(email)) {
+    override suspend fun changeEmail(token: String, email: String, password: String): UserProfile =
+        call("changeEmail", token, ChangeEmailRequest(email, password)) {
             user = user.copy(email = email)
             user
         }

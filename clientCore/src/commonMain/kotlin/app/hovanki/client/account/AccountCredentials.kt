@@ -5,7 +5,7 @@ package app.hovanki.client.account
  * that the server no longer accepts it. [AccountManager] implements it; [None] is a guest.
  */
 interface AccountCredentials {
-    /** Account token of a logged-in user with a confirmed email; null for a guest or an unconfirmed account. */
+    /** Account token of the logged-in user (confirmed email or not); null for a guest. */
     val accountToken: String?
 
     /** The server answered 401 to a call made with [token]: the account session is gone, log out locally. */

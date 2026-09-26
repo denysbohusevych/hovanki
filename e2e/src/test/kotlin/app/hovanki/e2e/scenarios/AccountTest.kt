@@ -24,7 +24,7 @@ class AccountTest {
         val account = newAccount("Anna")
 
         requireOk(anna.register(account, language = "uk-UA"), "Anna registers")
-        check(anna.accountState.needsEmailVerification, "Anna is logged in, her email not confirmed yet")
+        check(anna.accountState.hasUnconfirmedEmail, "Anna is logged in, her email not confirmed yet")
         check(anna.user?.nickname == account.nickname && anna.user?.email == account.email, "her nickname and email")
         val email = observer.awaitEmail(account.email, EmailPurpose.VERIFY_EMAIL)
         check(email.language == "uk", "the email is in the app's language (${email.language})")
@@ -46,7 +46,7 @@ class AccountTest {
         val wrong = anna.verifyEmail(wrongCode(firstCode))
         expectRejected(wrong, ErrorCode.INVALID_CODE, "a mistyped code")
         check((wrong as CommandResult.Rejected).reason == null, "wrong, not expired")
-        check(anna.accountState.needsEmailVerification, "the email is still not confirmed")
+        check(anna.accountState.hasUnconfirmedEmail, "the email is still not confirmed")
 
         val inbox = observer.emails(account.email)
         requireOk(anna.resendCode(), "Anna asks for the code again")
@@ -55,7 +55,7 @@ class AccountTest {
             expectRejected(anna.verifyEmail(firstCode), ErrorCode.INVALID_CODE, "the new code replaced the first one")
         }
         requireOk(anna.verifyEmail(secondCode), "Anna enters the new code")
-        check(anna.accountState.isVerified, "Anna's email is confirmed")
+        check(anna.accountState.hasConfirmedEmail, "Anna's email is confirmed")
         requireOk(anna.refreshAccount(), "Anna's app reloads the profile")
         check(anna.user?.emailVerified == true, "the server has it confirmed too")
     }
@@ -80,14 +80,20 @@ class AccountTest {
         check(!tablet.accountState.isLoggedIn, "the tablet is still logged out")
 
         tablet.logsIn(account, login = account.nickname.lowercase())
-        check(tablet.userId == anna.userId && tablet.accountState.isVerified, "by nickname: Anna's confirmed account")
+        check(
+            tablet.userId == anna.userId && tablet.accountState.hasConfirmedEmail,
+            "by nickname: Anna's confirmed account",
+        )
         laptop.logsIn(account, login = account.email.uppercase())
-        check(laptop.userId == anna.userId && laptop.accountState.isVerified, "by email: Anna's confirmed account")
+        check(
+            laptop.userId == anna.userId && laptop.accountState.hasConfirmedEmail,
+            "by email: Anna's confirmed account",
+        )
 
         laptop.killApp()
         laptop.launchApp()
         awaitThat("the relaunched app is logged in again", 10.seconds) {
-            laptop.accountState.isVerified && laptop.userId == anna.userId
+            laptop.accountState.hasConfirmedEmail && laptop.userId == anna.userId
         }
 
         requireOk(tablet.logOut(), "Anna logs out on the tablet")
@@ -95,7 +101,7 @@ class AccountTest {
         check(tablet.storage.read("account") == null, "no account saved on the tablet")
         requireOk(anna.refreshAccount(), "Anna's phone still works")
         requireOk(laptop.refreshAccount(), "the laptop still works")
-        check(anna.accountState.isVerified && laptop.accountState.isVerified, "both are still logged in")
+        check(anna.accountState.hasConfirmedEmail && laptop.accountState.hasConfirmedEmail, "both are still logged in")
     }
 
     @Test
@@ -121,7 +127,10 @@ class AccountTest {
         )
         check(!newPhone.accountState.isLoggedIn, "not logged in with a wrong code")
         requireOk(newPhone.resetPassword(account.email, code, newPassword), "Anna sets a new password")
-        check(newPhone.userId == anna.userId && newPhone.accountState.isVerified, "logged in with the new password")
+        check(
+            newPhone.userId == anna.userId && newPhone.accountState.hasConfirmedEmail,
+            "logged in with the new password",
+        )
 
         val laptop = anna.newPhone("Anna's laptop")
         expectRejected(
@@ -154,7 +163,7 @@ class AccountTest {
         tablet.logsIn(account)
 
         expectRejected(anna.deleteAccount("not-her-password"), ErrorReason.WRONG_CREDENTIALS, "a wrong password")
-        check(anna.accountState.isVerified, "nothing deleted, Anna is still logged in")
+        check(anna.accountState.hasConfirmedEmail, "nothing deleted, Anna is still logged in")
         requireOk(anna.deleteAccount(account.password), "Anna deletes her account")
         check(!anna.accountState.isLoggedIn, "Anna is logged out")
         check(anna.storage.read("account") == null, "no account saved on her phone")

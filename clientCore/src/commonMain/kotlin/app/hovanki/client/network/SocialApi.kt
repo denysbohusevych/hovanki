@@ -15,7 +15,7 @@ import io.ktor.client.HttpClient
 
 /**
  * Friends, blocks, groups and the inbox (docs/adr/0004-accounts-friends-chat.md). Every call takes the account token
- * of a user with a confirmed email and returns the caller's fresh list, so the UI updates from the response.
+ * of the logged-in user and returns the caller's fresh list, so the UI updates from the response.
  *
  * Throws [ApiException] when the server rejects a call, and I/O or serialization exceptions on network problems.
  */

@@ -88,7 +88,8 @@ class DeviceAccountsTest {
 
         override suspend fun resendCode(token: String) = error("not used")
 
-        override suspend fun changeEmail(token: String, email: String): UserProfile = error("not used")
+        override suspend fun changeEmail(token: String, email: String, password: String): UserProfile =
+            error("not used")
 
         override suspend fun changePassword(token: String, currentPassword: String, newPassword: String) =
             error("not used")

@@ -83,7 +83,7 @@ class HttpAccountApiTest {
         assertEquals(profile, api.me("account-token"))
         assertEquals(profile, api.verifyEmail("account-token", "123456"))
         api.resendCode("account-token")
-        assertEquals(profile, api.changeEmail("account-token", "anna@example.com"))
+        assertEquals(profile, api.changeEmail("account-token", "anna@example.com", "password1"))
         api.changePassword("account-token", "password1", "password2")
         api.deleteAccount("account-token", "password2")
         api.logOut("account-token")
@@ -106,7 +106,7 @@ class HttpAccountApiTest {
                 "",
                 """{"code":"123456"}""",
                 "",
-                """{"email":"anna@example.com"}""",
+                """{"email":"anna@example.com","password":"password1"}""",
                 """{"currentPassword":"password1","newPassword":"password2"}""",
                 """{"password":"password2"}""",
                 "",

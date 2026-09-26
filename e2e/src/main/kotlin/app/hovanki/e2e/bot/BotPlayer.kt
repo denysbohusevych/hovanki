@@ -213,16 +213,16 @@ class BotPlayer(
             it.account.register(account.nickname, account.email, account.password, language)
         }
 
-    /** Types the emailed code into the verification screen. */
+    /** Types the emailed code into the «confirm the email» panel (optional: the account works either way). */
     suspend fun verifyEmail(code: String): CommandResult =
         accountCommand("enters the email code $code") { it.account.verifyEmail(code) }
 
     /** "Send the code again". */
     suspend fun resendCode(): CommandResult = accountCommand("asks for a new email code") { it.account.resendCode() }
 
-    /** Fixes a mistyped email on the verification screen. */
-    suspend fun changeEmail(email: String): CommandResult =
-        accountCommand("changes the email to $email") { it.account.changeEmail(email) }
+    /** Fixes a mistyped, not yet confirmed email; the app asks for the current [password] too. */
+    suspend fun changeEmail(email: String, password: String): CommandResult =
+        accountCommand("changes the email to $email") { it.account.changeEmail(email, password) }
 
     /** [login]: the nickname or the email. */
     suspend fun logIn(login: String, password: String): CommandResult =

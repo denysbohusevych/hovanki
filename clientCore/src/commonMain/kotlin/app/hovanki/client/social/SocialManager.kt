@@ -30,8 +30,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Friends, blocks, groups and the inbox of the logged-in player (docs/adr/0004-accounts-friends-chat.md). App-scoped;
- * runs on the main thread. Everything here needs an account with a confirmed email ([AccountManager]); the state is
- * cleared when the player logs out or another account logs in, and a 401 logs the player out.
+ * runs on the main thread. Everything here needs an account ([AccountManager]; its email need not be confirmed); the
+ * state is cleared when the player logs out or another account logs in, and a 401 logs the player out.
  *
  * [friends] load when the account is there (login, app start) and again when the inbox shows new requests; [groups] on
  * demand ([refreshGroups], [refreshFriends]: when their screen opens). The [inbox] is polled every
@@ -60,7 +60,7 @@ class SocialManager(
 
     /**
      * Game invites and incoming friend requests. Collecting it polls the server every [inboxIntervalMillis] (right
-     * away first), as long as the player is logged in with a confirmed email; nobody collecting, no polling.
+     * away first), as long as the player is logged in; nobody collecting, no polling.
      */
     val inbox: StateFlow<Inbox> = mutableInbox.asStateFlow()
 
@@ -69,7 +69,7 @@ class SocialManager(
 
     init {
         scope.launch {
-            account.verifiedTokens.collect { token ->
+            account.tokens.collect { token ->
                 if (token != loadedFor) clear()
                 // Blocks hide chat messages and the lobby shows who is a friend: no waiting for the friends screen.
                 if (token != null) launch { refreshFriends() }
@@ -77,7 +77,7 @@ class SocialManager(
         }
         scope.launch {
             val watched = mutableInbox.subscriptionCount.map { it > 0 }.distinctUntilChanged()
-            combine(watched, account.verifiedTokens) { isWatched, token -> token.takeIf { isWatched } }
+            combine(watched, account.tokens) { isWatched, token -> token.takeIf { isWatched } }
                 .distinctUntilChanged()
                 .collectLatest { token ->
                     while (token != null) {

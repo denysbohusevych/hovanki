@@ -50,7 +50,7 @@ class AccountRejoinTest {
         }
         check(!anna.backgroundTracker.isRunning, "the old phone stops tracking")
         check(anna.storage.read("session") == null, "the old phone forgets the game")
-        check(anna.accountState.isVerified, "the old phone stays logged in")
+        check(anna.accountState.hasConfirmedEmail, "the old phone stays logged in")
         check(state().players.size == 3, "no new player in the game")
 
         phone.walksToAndArrives(PARK.offset(northMeters = 15.0, eastMeters = 25.0), speed = 4.0)

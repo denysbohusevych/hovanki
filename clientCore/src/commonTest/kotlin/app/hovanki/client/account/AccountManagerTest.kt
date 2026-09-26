@@ -71,12 +71,12 @@ class AccountManagerTest {
 
         manager.restore()
         assertEquals(unverified, manager.state.value.user, "logged in right away, without waiting for the server")
-        assertTrue(manager.state.value.needsEmailVerification)
-        assertNull(manager.accountToken, "no games with an unconfirmed email")
+        assertTrue(manager.state.value.hasUnconfirmedEmail)
+        assertEquals(TEST_ACCOUNT_TOKEN, manager.accountToken, "an unconfirmed email is no obstacle")
 
         runCurrent()
         assertEquals(listOf("me $TEST_ACCOUNT_TOKEN"), api.calls)
-        assertTrue(manager.state.value.isVerified, "confirmed meanwhile (e.g. on another device)")
+        assertTrue(manager.state.value.hasConfirmedEmail, "confirmed meanwhile (e.g. on another device)")
         assertEquals(TEST_ACCOUNT_TOKEN, manager.accountToken)
         assertEquals(testUser, storage.loadAccount()?.user)
     }
@@ -137,7 +137,7 @@ class AccountManagerTest {
     }
 
     @Test
-    fun registerLogsInWithAnUnconfirmedEmail() = runTest {
+    fun registerLogsInRightAwayWithAnUnconfirmedEmail() = runTest {
         val manager = manager()
         manager.restore()
 
@@ -145,21 +145,21 @@ class AccountManagerTest {
 
         assertEquals(ApiResult.Success(Unit), result)
         assertEquals(RegisterRequest("anna", "anna@example.org", "password1", "ru"), api.requests.single())
-        assertTrue(manager.state.value.needsEmailVerification)
-        assertNull(manager.accountToken)
+        assertTrue(manager.state.value.hasUnconfirmedEmail)
+        assertEquals(TEST_ACCOUNT_TOKEN, manager.accountToken, "games, friends and groups work right away")
         assertEquals(SavedAccount(server, TEST_ACCOUNT_TOKEN, unverified), storage.loadAccount())
     }
 
     @Test
-    fun verifyingTheEmailUnlocksTheAccount() = runTest {
+    fun verifyingTheEmailConfirmsIt() = runTest {
         val manager = loggedIn(unverified)
 
         assertEquals(ApiResult.Success(Unit), manager.verifyEmail(" 123 456 "))
 
         assertEquals(VerifyEmailRequest("123456"), api.requests.single())
         assertEquals(listOf("verifyEmail $TEST_ACCOUNT_TOKEN"), api.calls)
-        assertTrue(manager.state.value.isVerified)
-        assertEquals(TEST_ACCOUNT_TOKEN, manager.accountToken)
+        assertTrue(manager.state.value.hasConfirmedEmail)
+        assertEquals(TEST_ACCOUNT_TOKEN, manager.accountToken, "the same session")
         assertTrue(storage.loadAccount()!!.user.emailVerified)
     }
 
@@ -173,7 +173,7 @@ class AccountManagerTest {
 
             assertEquals(ErrorCode.INVALID_CODE, result.code)
             assertEquals(reason, result.reason)
-            assertTrue(manager.state.value.needsEmailVerification)
+            assertTrue(manager.state.value.hasUnconfirmedEmail)
         }
     }
 
@@ -181,13 +181,25 @@ class AccountManagerTest {
     fun changeEmailAndResendCode() = runTest {
         val manager = loggedIn(unverified)
 
-        assertEquals(ApiResult.Success(Unit), manager.changeEmail(" anna@example.com "))
+        assertEquals(ApiResult.Success(Unit), manager.changeEmail(" anna@example.com ", "password1"))
         assertEquals(ApiResult.Success(Unit), manager.resendCode())
 
-        assertEquals(ChangeEmailRequest("anna@example.com"), api.requests.single())
+        assertEquals(ChangeEmailRequest("anna@example.com", "password1"), api.requests.single())
         assertEquals(listOf("changeEmail $TEST_ACCOUNT_TOKEN", "resendCode $TEST_ACCOUNT_TOKEN"), api.calls)
         assertEquals("anna@example.com", manager.state.value.user?.email)
         assertEquals("anna@example.com", storage.loadAccount()?.user?.email)
+    }
+
+    @Test
+    fun changingTheEmailWithAWrongPasswordKeepsIt() = runTest {
+        val manager = loggedIn(unverified)
+        api.failWith = ApiException(403, ApiError(ErrorCode.FORBIDDEN, "Wrong password", ErrorReason.WRONG_CREDENTIALS))
+
+        val result = assertIs<ApiResult.Rejected>(manager.changeEmail("anna@example.com", "wrong"))
+
+        assertEquals(ErrorReason.WRONG_CREDENTIALS, result.reason)
+        assertEquals(unverified, manager.state.value.user, "still logged in, with the old email")
+        assertEquals(unverified, storage.loadAccount()?.user)
     }
 
     @Test
@@ -256,7 +268,7 @@ class AccountManagerTest {
             ),
             api.requests,
         )
-        assertTrue(manager.state.value.isVerified, "the code confirms the email too")
+        assertTrue(manager.state.value.hasConfirmedEmail, "the code confirms the email too")
         assertEquals(TEST_ACCOUNT_TOKEN, storage.loadAccount()?.token)
     }
 
