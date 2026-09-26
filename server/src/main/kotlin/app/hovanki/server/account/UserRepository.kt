@@ -86,6 +86,21 @@ class UserRepository(private val jdbc: JdbcClient) {
             .filterNotNull()
     }
 
+    /**
+     * Inside a transaction: locks the rows of [ids] until it ends and returns the ids that exist. Friends, blocks and
+     * groups lock the users a change reads the relations of, so two changes about one user run one after the other
+     * (two users asking each other at once become friends). All in one call, in id order: two transactions never
+     * wait for each other in a circle. `FOR NO KEY UPDATE` still lets others insert rows that point at the users.
+     */
+    fun lock(ids: Collection<UserId>): Set<UserId> {
+        if (ids.isEmpty()) return emptySet()
+        return jdbc.sql("SELECT id FROM users WHERE id IN (:ids) ORDER BY id FOR NO KEY UPDATE")
+            .param("ids", ids.map { it.value }.distinct())
+            .query(String::class.java)
+            .list()
+            .mapNotNullTo(mutableSetOf()) { it?.let(::UserId) }
+    }
+
     /** False if already confirmed (or no such user). */
     fun markEmailVerified(id: UserId, at: Instant): Boolean =
         jdbc.sql("UPDATE users SET email_verified_at = :at WHERE id = :id AND email_verified_at IS NULL")
