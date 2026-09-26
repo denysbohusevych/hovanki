@@ -1,0 +1,12 @@
+# Dumps the database once a day, at night for players in Europe; see hovanki-backup.service and docs/deploy.md.
+[Unit]
+Description=Back up the Hovanki database daily
+
+[Timer]
+# Somewhere between 03:00 and 03:30 UTC. Persistent: a run missed while the VM was off happens after the next boot.
+OnCalendar=*-*-* 03:00:00 UTC
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

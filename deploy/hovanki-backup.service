@@ -1,0 +1,13 @@
+# Dumps the Hovanki database into /opt/hovanki/backups with hovanki-backup.sh (the 7 newest kept). Started by
+# hovanki-backup.timer once a day; hovanki-update.sh runs the same script before a new server image. See
+# docs/deploy.md.
+[Unit]
+Description=Back up the Hovanki database
+After=docker.service
+
+[Service]
+Type=oneshot
+# The docker group and /opt/hovanki belong to this user; the dumps are readable by it only.
+User=ubuntu
+WorkingDirectory=/opt/hovanki
+ExecStart=/usr/bin/bash /opt/hovanki/hovanki-backup.sh
