@@ -30,8 +30,11 @@ object DeviceScenarios {
     )
 }
 
-/** Hiding phase of the device-created games: long enough for everybody to walk to their spot. */
-private const val HIDING_SECONDS = 30
+/**
+ * Hiding phase of the device-created games: long enough for everybody to walk to their spot, and for every device to
+ * show the hiding screen (one Maestro check per device, ~15 s each on a busy CI emulator; 30 s once lost that race).
+ */
+private const val HIDING_SECONDS = 60
 
 private val PARK = GameSetups.PARK
 
