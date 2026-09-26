@@ -29,10 +29,11 @@ class FairPlayTest {
         check(sam.snapshot?.players?.none { it.id != sam.id && it.location != null } == true, "Sam sees no hider")
 
         anna.turnsGpsOff()
-        val lastFix = checkNotNull(anna.onServer().latestFix)
         holdsFor("Anna stays hidden while her signal is fresh", (rules.staleLocationRevealSeconds - 5).seconds) {
             sam.snapshot?.players?.single { it.id == anna.id }?.location == null
         }
+        // Read only now: fixes taken before the GPS went off may still have been in the outbox a moment ago.
+        val lastFix = checkNotNull(anna.onServer().latestFix)
         val revealed = awaitReveal(anna, VisibilityReason.STALE_SIGNAL, to = sam, within = 10.seconds)
         check(revealed.point == lastFix.point, "Sam sees Anna's last known point")
         check(
