@@ -1,6 +1,5 @@
 package app.hovanki.client.network
 
-import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
@@ -8,89 +7,54 @@ import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.ConfirmCatchRequest
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.GameSnapshot
+import app.hovanki.shared.protocol.InviteRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.VoteRequest
-import app.hovanki.shared.protocol.protocolJson
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.request.HttpRequestBuilder
-import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.contentType
-import io.ktor.http.isSuccess
 
 /** [GameApi] over HTTP/JSON; paths and DTOs are shared with the server. */
-class HttpGameApi(private val client: HttpClient, private val serverUrl: ServerUrl) : GameApi {
-    override suspend fun createGame(request: CreateGameRequest): SessionResponse =
-        post(ApiRoutes.GAMES, session = null) { jsonBody(request) }
+class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
+    private val http = HttpSupport(client, serverUrl)
 
-    override suspend fun joinGame(request: JoinGameRequest): SessionResponse =
-        post(ApiRoutes.JOIN, session = null) { jsonBody(request) }
+    override suspend fun createGame(request: CreateGameRequest, accountToken: String?): SessionResponse =
+        http.post(ApiRoutes.GAMES, accountToken, request)
+
+    override suspend fun joinGame(request: JoinGameRequest, accountToken: String?): SessionResponse =
+        http.post(ApiRoutes.JOIN, accountToken, request)
 
     override suspend fun startGame(session: PlayerSession, request: StartGameRequest): GameSnapshot =
-        post(ApiRoutes.start(session.gameId), session) { jsonBody(request) }
+        http.post(ApiRoutes.start(session.gameId), session.token, request)
 
     override suspend fun sync(session: PlayerSession, request: SyncRequest): GameSnapshot =
-        post(ApiRoutes.sync(session.gameId), session) { jsonBody(request) }
+        http.post(ApiRoutes.sync(session.gameId), session.token, request)
 
     override suspend fun claimCatch(session: PlayerSession, hiderId: PlayerId): GameSnapshot =
-        post(ApiRoutes.catches(session.gameId), session) { jsonBody(ClaimCatchRequest(hiderId)) }
+        http.post(ApiRoutes.catches(session.gameId), session.token, ClaimCatchRequest(hiderId))
 
     override suspend fun confirmCatch(session: PlayerSession, catchId: CatchId, code: String): GameSnapshot =
-        post(ApiRoutes.catchConfirm(session.gameId, catchId), session) { jsonBody(ConfirmCatchRequest(code)) }
+        http.post(ApiRoutes.catchConfirm(session.gameId, catchId), session.token, ConfirmCatchRequest(code))
 
     override suspend fun disputeCatch(session: PlayerSession, catchId: CatchId): GameSnapshot =
-        post(ApiRoutes.catchDispute(session.gameId, catchId), session)
+        http.post(ApiRoutes.catchDispute(session.gameId, catchId), session.token)
 
     override suspend fun vote(session: PlayerSession, catchId: CatchId, confirm: Boolean): GameSnapshot =
-        post(ApiRoutes.catchVote(session.gameId, catchId), session) { jsonBody(VoteRequest(confirm)) }
+        http.post(ApiRoutes.catchVote(session.gameId, catchId), session.token, VoteRequest(confirm))
 
-    override suspend fun buildings(session: PlayerSession): BuildingsResponse {
-        val response = client.get(serverUrl.value + ApiRoutes.buildings(session.gameId)) { authorize(session) }
-        if (!response.status.isSuccess()) throw response.toApiException()
-        return response.body()
-    }
+    override suspend fun buildings(session: PlayerSession): BuildingsResponse =
+        http.get(ApiRoutes.buildings(session.gameId), session.token)
 
-    private fun HttpRequestBuilder.authorize(session: PlayerSession) {
-        header(HttpHeaders.Authorization, "${ApiRoutes.AUTH_SCHEME} ${session.token}")
-    }
+    override suspend fun sendChat(session: PlayerSession, request: SendChatRequest): GameSnapshot =
+        http.post(ApiRoutes.chat(session.gameId), session.token, request)
 
-    private suspend inline fun <reified T> post(
-        path: String,
-        session: PlayerSession?,
-        crossinline configure: HttpRequestBuilder.() -> Unit = {},
-    ): T {
-        val response = client.post(serverUrl.value + path) {
-            if (session != null) authorize(session)
-            configure()
-        }
-        if (!response.status.isSuccess()) throw response.toApiException()
-        return response.body()
-    }
+    override suspend fun reportChat(session: PlayerSession, seq: Long): GameSnapshot =
+        http.post(ApiRoutes.chatReport(session.gameId, seq), session.token)
 
-    private inline fun <reified B> HttpRequestBuilder.jsonBody(body: B) {
-        contentType(ContentType.Application.Json)
-        setBody(body)
-    }
-
-    private suspend fun HttpResponse.toApiException(): ApiException {
-        val error = try {
-            protocolJson.decodeFromString(ApiError.serializer(), bodyAsText())
-        } catch (e: IllegalArgumentException) {
-            // Not our JSON (proxy error page, empty body): the status alone has to do.
-            null
-        }
-        return ApiException(status.value, error)
-    }
+    override suspend fun invite(session: PlayerSession, request: InviteRequest): GameSnapshot =
+        http.post(ApiRoutes.gameInvites(session.gameId), session.token, request)
 }

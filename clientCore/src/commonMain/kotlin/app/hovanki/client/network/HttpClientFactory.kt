@@ -16,7 +16,7 @@ import io.ktor.serialization.kotlinx.json.json
  * [logRequests] = false keeps the output of many headless e2e bots readable.
  */
 fun createHttpClient(engine: HttpClientEngine, logRequests: Boolean = true): HttpClient = HttpClient(engine) {
-    // Non-2xx responses are turned into ApiException by HttpGameApi, with the server's ApiError body.
+    // Non-2xx responses are turned into ApiException by HttpSupport, with the server's ApiError body.
     expectSuccess = false
     install(ContentNegotiation) {
         json(protocolJson)
@@ -30,7 +30,8 @@ fun createHttpClient(engine: HttpClientEngine, logRequests: Boolean = true): Htt
     if (logRequests) {
         install(Logging) {
             logger = Logger.SIMPLE
-            // Method, URL and status only: headers would leak the session token into the logs.
+            // Method, URL and status only: headers would leak the game and account tokens into the logs, bodies
+            // passwords, emails and chat.
             level = LogLevel.INFO
         }
     }
