@@ -192,6 +192,20 @@
   <string name="player_friend">friend</string>
   <string name="player_blocked">blocked</string>
 
+  <!-- Chat -->
+  <string name="chat_title">Chat</string>
+  <string name="chat_open">Chat</string>
+  <string name="chat_to_all">Everyone</string>
+  <string name="chat_to_team">My team</string>
+  <string name="chat_input_label">Message</string>
+  <string name="chat_send">Send</string>
+  <string name="chat_empty">No messages yet. Say hi!</string>
+  <string name="chat_hint">Long-press a message to report it or block the sender.</string>
+  <string name="chat_team">team only</string>
+  <string name="chat_report">Report</string>
+  <string name="chat_block">Block</string>
+  <string name="chat_reported">Thanks. The message was reported to the moderators.</string>
+
   <!-- Game -->
   <string name="phase_hiding">Hiding</string>
   <string name="phase_seeking">Seeking</string>

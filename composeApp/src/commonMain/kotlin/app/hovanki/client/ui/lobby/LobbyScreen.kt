@@ -44,6 +44,9 @@ import app.hovanki.client.resources.lobby_seeker
 import app.hovanki.client.resources.lobby_start
 import app.hovanki.client.resources.lobby_waiting
 import app.hovanki.client.resources.lobby_you
+import app.hovanki.client.ui.chat.ChatButton
+import app.hovanki.client.ui.chat.ChatPanel
+import app.hovanki.client.ui.chat.ChatViewModel
 import app.hovanki.client.ui.common.Banner
 import app.hovanki.client.ui.common.CommandStatus
 import app.hovanki.client.ui.common.LoadingScreen
@@ -55,11 +58,16 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
-fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel()) {
+fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel = koinViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val chatState by chat.uiState.collectAsStateWithLifecycle()
     val state = uiState
     if (state == null) {
         LoadingScreen()
+        return
+    }
+    if (chatState.isOpen) {
+        ChatPanel(chat)
         return
     }
     if (state.canInvite && viewModel.invitePanelIn == state.gameId) {
@@ -84,6 +92,7 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel()) {
                 modifier = Modifier.testTag(TestTags.BUILDING_RULE_OFF),
             )
         }
+        ChatButton(unread = chatState.unread, onClick = chat::open, modifier = Modifier.fillMaxWidth())
         if (state.canInvite) {
             OutlinedButton(
                 onClick = { viewModel.openInvites(state.gameId) },

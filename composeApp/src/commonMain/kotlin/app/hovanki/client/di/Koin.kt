@@ -18,6 +18,7 @@ import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
 import app.hovanki.client.social.SocialManager
 import app.hovanki.client.storage.ClientStorage
+import app.hovanki.client.ui.chat.ChatViewModel
 import app.hovanki.client.ui.friends.FriendsViewModel
 import app.hovanki.client.ui.game.GameViewModel
 import app.hovanki.client.ui.groups.GroupsViewModel
@@ -75,6 +76,7 @@ val commonModule: Module = module {
     viewModelOf(::LobbyViewModel)
     viewModelOf(::GameViewModel)
     viewModelOf(::ResultsViewModel)
+    viewModelOf(::ChatViewModel)
 }
 
 /** Hands debug start parameters (UI automation) to the screens; see [LaunchOptions]. */

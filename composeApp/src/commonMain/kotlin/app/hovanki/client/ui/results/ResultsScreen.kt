@@ -24,6 +24,9 @@ import app.hovanki.client.resources.results_title
 import app.hovanki.client.resources.results_you_caught
 import app.hovanki.client.resources.results_you_eliminated
 import app.hovanki.client.resources.results_you_survived
+import app.hovanki.client.ui.chat.ChatButton
+import app.hovanki.client.ui.chat.ChatPanel
+import app.hovanki.client.ui.chat.ChatViewModel
 import app.hovanki.client.ui.common.CommandStatus
 import app.hovanki.client.ui.common.PlayerAccount
 import app.hovanki.client.ui.common.PlayerAccountBadge
@@ -38,12 +41,24 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
-/** Final standings of the finished game ([snapshot] no longer changes); players to add as friends. */
+/**
+ * Final standings of the finished game ([snapshot] no longer changes), players to add as friends, and the chat: the
+ * game keeps polling for it until the player goes back to the start.
+ */
 @Composable
-fun ResultsScreen(snapshot: GameSnapshot, viewModel: ResultsViewModel = koinViewModel()) {
+fun ResultsScreen(
+    snapshot: GameSnapshot,
+    viewModel: ResultsViewModel = koinViewModel(),
+    chat: ChatViewModel = koinViewModel(),
+) {
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
+    val chatState by chat.uiState.collectAsStateWithLifecycle()
+    if (chatState.isOpen) {
+        ChatPanel(chat)
+        return
+    }
     val me = snapshot.me
     val hiders = snapshot.players.filter { it.role == Role.HIDER }
     val survivors = hiders.filter { it.status == PlayerStatus.ACTIVE }
@@ -58,6 +73,7 @@ fun ResultsScreen(snapshot: GameSnapshot, viewModel: ResultsViewModel = koinView
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.primary,
         )
+        ChatButton(unread = chatState.unread, onClick = chat::open, modifier = Modifier.fillMaxWidth())
         if (me.role == Role.HIDER) {
             val personal = when (me.status) {
                 PlayerStatus.ACTIVE -> Res.string.results_you_survived

@@ -192,6 +192,20 @@
   <string name="player_friend">друг</string>
   <string name="player_blocked">заблокирован</string>
 
+  <!-- Чат -->
+  <string name="chat_title">Чат</string>
+  <string name="chat_open">Чат</string>
+  <string name="chat_to_all">Всем</string>
+  <string name="chat_to_team">Команде</string>
+  <string name="chat_input_label">Сообщение</string>
+  <string name="chat_send">Отправить</string>
+  <string name="chat_empty">Сообщений пока нет. Напишите первым!</string>
+  <string name="chat_hint">Долгое нажатие на сообщение — пожаловаться или заблокировать автора.</string>
+  <string name="chat_team">только команде</string>
+  <string name="chat_report">Пожаловаться</string>
+  <string name="chat_block">Заблокировать</string>
+  <string name="chat_reported">Спасибо, жалоба отправлена модераторам.</string>
+
   <!-- Игра -->
   <string name="phase_hiding">Прячемся</string>
   <string name="phase_seeking">Ищем</string>
