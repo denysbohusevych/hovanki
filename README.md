@@ -60,7 +60,7 @@ open iosApp/iosApp.xcodeproj
 Схема `iosApp`, симулятор, Run. Первая сборка долгая: Xcode вызывает Gradle и собирает Kotlin-фреймворк.
 
 - симулятор: `http://localhost:8080`;
-- реальный iPhone: `http://<имя-мака>.local:8080` (HTTP разрешён только для localhost и `*.local`), Team ID — в `iosApp/Configuration/Config.xcconfig`. Подробности — [iosApp/README.md](iosApp/README.md).
+- реальный iPhone: `http://<имя-мака>.local:8080` (Debug-сборка пускает HTTP только к localhost и `*.local`), Team ID — в `iosApp/Configuration/Local.xcconfig`. Подробности — [iosApp/README.md](iosApp/README.md).
 
 **4. Движение без прогулки**
 
@@ -69,12 +69,19 @@ open iosApp/iosApp.xcodeproj
 
 Для игры нужно минимум два клиента: например, эмулятор и симулятор, или два эмулятора.
 
+## Сборки на реальные телефоны
+
+Играть на улице с друзьями, пока у сервера нет хостинга: сервер на вашем компьютере открывается наружу через HTTPS-туннель (`cloudflared tunnel --url http://localhost:8080`, без аккаунта), Android-сборка ставится с pre-release [`preview`](https://github.com/denysbohusevych/hovanki/releases/tag/preview) (каждый push в `main`, обновления через Obtainium), iPhone — через TestFlight или из Xcode по кабелю. Пошагово — [docs/ci-cd.md, «Как поставить сборку на телефон»](docs/ci-cd.md#как-поставить-сборку-на-телефон).
+
+Тестовые сборки ходят только по HTTPS. Адрес сервера вводится на главном экране; адрес по умолчанию задаёт Gradle-свойство `hovanki.serverUrl` (`gradle.properties`), когда появится хостинг. Версия и commit сборки — мелко внизу главного экрана.
+
 ## Команды
 
 | Команда | Что делает |
 |---|---|
 | `./gradlew :server:bootRun` | Сервер на `:8080` |
 | `./gradlew :androidApp:installDebug` | Собрать и поставить debug-сборку Android |
+| `./gradlew :androidApp:assemblePreview` | Тестовая Android-сборка (release-код, `app.hovanki.preview`); подписывается, если заданы переменные `ANDROID_KEYSTORE_*` ([CI/CD](docs/ci-cd.md#секреты-для-подписи-android)) |
 | `./gradlew check` | Все тесты и проверки (то же, что в CI на Linux) |
 | `./gradlew :shared:jvmTest` | Быстрые тесты общего кода |
 | `./gradlew :clientCore:jvmTest` | Тесты клиентской логики (API, синхронизация, `ServerClock`) на JVM |
@@ -90,7 +97,7 @@ open iosApp/iosApp.xcodeproj
 
 - [Архитектура](docs/architecture.md): модули, поток данных раунда, видимость, время, фазы, находка, API, рецепты.
 - [E2E-тесты](docs/e2e.md): боты, приложение на эмуляторах и симуляторах, как написать сценарий и читать отчёт.
-- [CI/CD](docs/ci-cd.md): проверки, релиз по тегу, секреты подписи, образ сервера, защита веток.
+- [CI/CD](docs/ci-cd.md): как поставить сборку на телефон (туннель к серверу, Android pre-release, TestFlight, Xcode по кабелю), проверки, тестовые сборки, релиз по тегу, секреты подписи, образ сервера, защита веток.
 - [Roadmap](docs/roadmap.md): что уже сделано и что дальше.
 - [ADR 0001: выбор стека](docs/adr/0001-stack.md).
 - [CLAUDE.md](CLAUDE.md): правила для AI-агентов (и людей) при работе с кодом.

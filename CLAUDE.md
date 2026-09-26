@@ -12,7 +12,7 @@ Read first: `docs/architecture.md` (how it works), `docs/adr/0001-stack.md` (why
 - `composeApp/` — KMP library (`com.android.kotlin.multiplatform.library`): Compose UI, Koin, Ktor engines, platform services (`LocationProvider`, `BackgroundTracker`, `ProximityScanner`, `CatchCodeScanner`).
 - `androidApp/` — thin Android entry point (`Application`, `MainActivity`).
 - `e2e/` — JVM end-to-end tests: `BotPlayer` runs `:clientCore` (Ktor/OkHttp) on a simulated phone (`FakeGps` + `Route`/`GpsNoise`, `DeviceClock`, `FakeNetwork`); `Scenario` DSL; `Observer` reads the server's debug endpoint (Spring profile `e2e` only). Tests start the server in-process on a random port; `HOVANKI_E2E_SERVER_URL` targets an external one. Device layer: `e2e/run-devices.sh` builds and starts the server, emulators/simulators and the debug app, then `e2e devices` (`src/main/.../devices/`) drives them with Maestro flows (`e2e/maestro/`) mixed with bots. See `docs/e2e.md`.
-- `iosApp/` — Xcode project, SwiftUI shell around `MainViewControllerKt.mainViewController()`; see `iosApp/README.md`.
+- `iosApp/` — Xcode project, SwiftUI shell around `MainViewControllerKt.mainViewController()`; see `iosApp/README.md`. Settings in `Configuration/Config.xcconfig` (fixed bundle id `app.hovanki.ios`), per-machine overrides in git-ignored `Local.xcconfig`.
 - Versions: only in `gradle/libs.versions.toml`. Modules reference each other via typesafe accessors (`projects.shared`).
 
 ## Commands
@@ -25,6 +25,7 @@ Read first: `docs/architecture.md` (how it works), `docs/adr/0001-stack.md` (why
 e2e/run-devices.sh --android 2 --bots 3    # app on 2 emulators + bots (needs KVM + Maestro; --ios 1 on macOS); ~15 min in CI
 ./gradlew :server:bootRun                  # server on :8080, health at /actuator/health
 ./gradlew :androidApp:installDebug         # Android debug build
+./gradlew :androidApp:assemblePreview      # tester build (release code, app.hovanki.preview); CI: preview.yml
 ./gradlew :shared:iosSimulatorArm64Test    # macOS only
 ```
 
@@ -39,7 +40,8 @@ iOS (framework, app, simulator tests) builds only on macOS with Xcode 26.4+; on 
 - **`Game` is a pure domain object**: no Spring, no threads, time passed in as `nowMillis`. Time-based transitions go into `advance(now)`; no background tickers. Access goes through `GameService.update(...)` (lock + advance + snapshot).
 - **No platform code in `commonMain`.** Platform services are interfaces in `commonMain`, implemented in `androidMain`/`iosMain`, bound via Koin. `expect`/`actual` only for small glue.
 - **GDPR:** location data stays in memory and is deleted with the game; never log coordinates or tokens.
-- **Debug/test hooks never reach production:** the observer endpoint exists only with the Spring profile `e2e`; keep `DebugEndpointAbsentTest` green. Test tags (`TestTags`) and `LaunchOptions` must not change release behavior: launch parameters are read only in debug builds.
+- **Debug/test hooks never reach production:** the observer endpoint exists only with the Spring profile `e2e`; keep `DebugEndpointAbsentTest` green. Test tags (`TestTags`) and `LaunchOptions` must not change release behavior: launch parameters are read only in debug builds. The Android `preview` build type (tester builds, `preview.yml`) is release plus its own application id and shares the no-op twins in `androidApp/src/release`. iOS dev exceptions (local-network ATS) are added to Debug only by `iosApp/Configuration/debug-info-plist.sh`.
+- **Build-time settings** come from Gradle properties via the generated `BuildConstants` in `:composeApp` (`hovanki.serverUrl`: default server of non-debug builds, https only). Don't hardcode server addresses; non-debug builds talk HTTPS only.
 - **Tests next to the code:** `shared/src/commonTest` and `clientCore/src/commonTest` (run on JVM and iOS), `shared/src/jvmTest` for JDK cross-checks, `server/src/test` (`GameTest` for rules with an explicit `now`, `GameApiTest` for HTTP round trips with MockMvc). New rule → unit test in `GameTest` or `commonTest`, and an e2e scenario in `e2e/src/test` when it spans client and server. A bug found by an e2e scenario is fixed in the game or server with a test, never worked around in the scenario.
 - **Style:** ktlint `intellij_idea`, max line 120, trailing commas (see `.editorconfig`). Run `./gradlew spotlessApply` before committing.
 - **Gradle:** configuration cache is on — no configuration-time side effects; no hardcoded versions in build scripts.
