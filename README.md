@@ -31,6 +31,7 @@
 ## Что нужно
 
 - **JDK 21** (сервер собирается toolchain'ом 21; недостающий JDK Gradle скачает сам через foojay).
+- **PostgreSQL** для локального сервера: проще всего Docker (`deploy/compose.dev.yaml`), см. [Быстрый старт](#быстрый-старт). Тестам он не нужен.
 - **Android Studio** с плагином Kotlin Multiplatform или **IntelliJ IDEA** с Android-плагином; Android SDK с платформой 37.
 - Для iOS: **Mac на Apple Silicon** и **Xcode 26.4+** (собираются только таргеты `iosArm64` и `iosSimulatorArm64`).
 
@@ -38,10 +39,17 @@
 
 **1. Сервер**
 
+Аккаунты, друзья и группы сервер хранит в PostgreSQL: база `hovanki` на `localhost:5432`, пользователь и пароль `hovanki`.
+
 ```bash
+docker compose -f deploy/compose.dev.yaml up -d   # PostgreSQL 17 для разработки; остановить — down, стереть данные — down -v
 ./gradlew :server:bootRun
 curl http://localhost:8080/actuator/health   # {"status":"UP",...}
 ```
+
+Подойдёт и любой свой PostgreSQL с такими базой, пользователем и паролем. Письма с кодами (подтверждение email, сброс пароля) локальный сервер не отправляет, а пишет в свой лог.
+
+Тестам (`:server:test`, `:e2e:test`) своя база не нужна: они сами поднимают встроенный PostgreSQL (без Docker). Встроенный не запускается под root; тогда нужен свой сервер PostgreSQL и `HOVANKI_TEST_DATABASE_URL='jdbc:postgresql://localhost:5432/hovanki?user=hovanki&password=hovanki'` (пользователю нужно право `CREATEDB`: тесты создают отдельную базу на каждый запуск и потом удаляют). В облачных сессиях Claude Code это делает SessionStart-хук [`.claude/hooks/session-start.sh`](.claude/hooks/session-start.sh).
 
 **2. Android**
 
@@ -103,7 +111,7 @@ open iosApp/iosApp.xcodeproj
 - [E2E-тесты](docs/e2e.md): боты, приложение на эмуляторах и симуляторах, как написать сценарий и читать отчёт.
 - [Локальный запуск e2e](docs/e2e-local.md): пошагово из Android Studio и терминала — подготовка эмуляторов и Maestro, параметры, отчёты, частые проблемы.
 - [CI/CD](docs/ci-cd.md): как поставить сборку на телефон (Android pre-release, TestFlight, Xcode по кабелю, туннель к своему серверу), быстрые проверки на push, ночные e2e, что запускать перед PR, тестовые сборки, релиз по тегу, секреты подписи, образ сервера, защита веток.
-- [Деплой сервера](docs/deploy.md): одна машина в AWS (EC2, Франкфурт), Docker Compose, Caddy с Let's Encrypt, обновление и откат.
+- [Деплой сервера](docs/deploy.md): одна машина в AWS (EC2, Франкфурт), Docker Compose, PostgreSQL, Caddy с Let's Encrypt, почта, обновление и откат, бэкапы базы.
 - [Roadmap](docs/roadmap.md): что уже сделано и что дальше.
 - [ADR 0001: выбор стека](docs/adr/0001-stack.md).
 - [ADR 0002: сессия на устройстве, возврат в игру после перезапуска](docs/adr/0002-session-storage.md).
