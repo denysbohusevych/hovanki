@@ -215,11 +215,7 @@
   <!-- Game -->
   <string name="phase_hiding">Hiding</string>
   <string name="phase_seeking">Seeking</string>
-  <string name="role_hider">You are hiding</string>
-  <string name="role_seeker">You are seeking</string>
-  <string name="hiders_left">Hiders left: %1$d of %2$d</string>
   <string name="hint_hider_hiding">Hide inside the zone before the seekers set off!</string>
-  <string name="hint_hider_seeking">Stay hidden inside the zone. The seekers are looking for you.</string>
   <string name="hint_seeker_hiding">The hiders are hiding. You start when the timer runs out.</string>
   <string name="status_caught">You were caught. Watch how the round ends.</string>
   <string name="status_eliminated">You stayed out of the zone for too long and are out. Watch how the round ends.</string>
@@ -227,24 +223,14 @@
   <string name="in_building_warning">You are inside a building! Get out, or the seekers will see you in %1$s.</string>
   <string name="in_building_revealed">You are inside a building, and the seekers can see you. Get out into the open.</string>
   <string name="building_rule_off">The building rule is off in this game: the buildings could not be loaded.</string>
-  <string name="zone_radius">Zone: %1$d m</string>
-  <string name="zone_shrinks_in">shrinks in %1$s</string>
-  <string name="zone_shrinking">shrinking, %1$s left</string>
-  <string name="zone_final">final size</string>
-  <string name="zone_inside">You are inside the zone, %1$d m from the border.</string>
-  <string name="zone_outside">You are %1$d m outside the zone!</string>
-  <string name="map_legend">Solid circle: the zone. Dashed: the next zone. Red: buildings, no hiding inside. Blue dot: you.</string>
   <string name="reason_teammate">seeker</string>
   <string name="reason_stale_signal">no signal</string>
   <string name="reason_out_of_zone">out of the zone</string>
   <string name="reason_mock_location">fake GPS</string>
   <string name="reason_inside_building">in a building</string>
   <string name="seeker_found_title">Found someone?</string>
-  <string name="seeker_found_hint">Tap the player you found. They will have to show you their code.</string>
   <string name="no_hiders_to_claim">Nobody to catch right now.</string>
-  <string name="action_found">Found</string>
   <string name="claim_enter_code">Ask %1$s for the code on their screen.</string>
-  <string name="claim_code_label">Code</string>
   <string name="claim_time_left">Time left: %1$s</string>
   <string name="claim_disputed_mine">%1$s disputes the catch. The other players are voting.</string>
   <string name="scanner_placeholder">QR scanning is coming soon. Type the digits instead.</string>
@@ -301,4 +287,5 @@
   <string name="lobby_chip_time">%1$d + %2$d min</string>
   <string name="lobby_hider">Hides</string>
   <string name="lobby_start_hint">Hiders get %1$d min to hide first</string>
+  <string name="home_join_short">Join</string>
 </resources>

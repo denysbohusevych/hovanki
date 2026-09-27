@@ -8,7 +8,9 @@ import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
 import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
+import app.hovanki.client.session.ZoneMoment
 import app.hovanki.client.session.catchCodeToShow
+import app.hovanki.client.session.momentAt
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
@@ -113,6 +115,7 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
         // Before SEEKING the zone has not started yet: show its initial circle.
         val zoneStartedAt = snapshot.zoneStartedAtMillis
         val zone = snapshot.settings.zone.stateAt(if (zoneStartedAt == null) 0L else now - zoneStartedAt)
+        val zoneMoment = snapshot.settings.zone.momentAt(zoneStartedAt?.let { now - it })
         val openClaims = snapshot.catches.filter { it.status in OPEN_CLAIM_STATUSES }
         val myClaim = openClaims.firstOrNull { it.seekerId == me.playerId }
         val claimAgainstMe = openClaims.firstOrNull { it.hiderId == me.playerId }
@@ -128,13 +131,14 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             myStatus = me.status,
             phaseMillisLeft = snapshot.phaseEndsAtMillis?.let { it - now },
             zone = zone,
+            zoneMoment = zoneMoment,
             isZoneRunning = zoneStartedAt != null,
             myLocation = myLocation,
             metersToZoneBorder = myLocation?.let {
                 zone.current.radiusMeters - it.point.distanceTo(zone.current.center)
             },
             markers = snapshot.players.mapNotNull { player ->
-                player.location?.let { MapMarker(player.name, it.point, it.accuracyMeters, it.exactReason) }
+                player.location?.let { MapMarker(player.id, player.name, it.point, it.accuracyMeters, it.exactReason) }
             },
             hidersLeft = hiders.count { it.status == PlayerStatus.ACTIVE },
             hidersTotal = hiders.size,
@@ -148,6 +152,9 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             claimAgainstMe = claimAgainstMe?.toUi(),
             catchCode = catchCode,
             codeDigits = rules.catchCodeDigits,
+            codePeriodMillis = rules.catchCodePeriodSeconds * 1000L,
+            claimTimeoutMillis = rules.catchCodeTimeoutSeconds * 1000L,
+            voteTimeoutMillis = rules.disputeVoteSeconds * 1000L,
             votes = openClaims
                 .filter { it.status == CatchStatus.DISPUTED && (it.canVote || it.myVote != null) }
                 .map { it.toUi() },
@@ -176,6 +183,8 @@ data class GameUiState(
     val myStatus: PlayerStatus,
     val phaseMillisLeft: Long?,
     val zone: ZoneState,
+    /** What the zone is doing, for the animations. */
+    val zoneMoment: ZoneMoment,
     /** False during HIDING: the zone schedule starts with SEEKING. */
     val isZoneRunning: Boolean,
     val myLocation: LocationSample?,
@@ -194,6 +203,10 @@ data class GameUiState(
     /** Hider: the code to show while a claim awaits it. */
     val catchCode: CatchCode?,
     val codeDigits: Int,
+    /** How long a catch code lasts, and how long a hider has to show it: for the countdown rings. */
+    val codePeriodMillis: Long,
+    val claimTimeoutMillis: Long,
+    val voteTimeoutMillis: Long,
     /** Disputes of other players I vote (or voted) on. */
     val votes: List<ClaimUi>,
     val outOfZoneMillisLeft: Long?,
@@ -224,4 +237,10 @@ data class ClaimUi(
 )
 
 /** A player the server lets us see, on the map. */
-data class MapMarker(val name: String, val point: GeoPoint, val accuracyMeters: Double, val reason: VisibilityReason)
+data class MapMarker(
+    val id: PlayerId,
+    val name: String,
+    val point: GeoPoint,
+    val accuracyMeters: Double,
+    val reason: VisibilityReason,
+)

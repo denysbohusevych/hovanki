@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -41,7 +42,7 @@ import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.home_code_label
 import app.hovanki.client.resources.home_create
 import app.hovanki.client.resources.home_create_hint
-import app.hovanki.client.resources.home_join
+import app.hovanki.client.resources.home_join_short
 import app.hovanki.client.resources.home_location_note
 import app.hovanki.client.resources.home_or_join
 import app.hovanki.client.resources.ic_arrow_right
@@ -150,7 +151,7 @@ fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: 
                 modifier = Modifier.weight(1f).testTag(TestTags.HOME_JOIN_CODE),
             )
             PopButton(
-                text = stringResource(Res.string.home_join),
+                text = stringResource(Res.string.home_join_short),
                 onClick = { if (viewModel.canJoinGame()) requestLocationThenJoin() },
                 enabled = !isBusy,
                 style = PopStyle.Hider,
@@ -180,13 +181,13 @@ private fun CreateGameCard(enabled: Boolean, onClick: () -> Unit, modifier: Modi
         onClick = onClick,
         enabled = enabled,
     ) {
-        ZoneRings(modifier = Modifier.align(Alignment.TopEnd).offset(x = 56.dp, y = (-44).dp).size(230.dp))
+        ZoneRings(modifier = Modifier.align(Alignment.TopEnd).offset(x = 84.dp, y = (-72).dp).size(220.dp))
         Row(
             modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(20.dp),
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f).widthIn(max = 240.dp)) {
                 Text(text = stringResource(Res.string.home_create), style = MaterialTheme.typography.headlineMedium)
                 Text(
                     text = stringResource(Res.string.home_create_hint),

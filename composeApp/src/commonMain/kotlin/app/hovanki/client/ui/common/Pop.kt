@@ -179,6 +179,7 @@ fun PopButton(
     content: @Composable RowScope.() -> Unit,
 ) {
     val border = if (enabled) style.border else Palette.Ink3.copy(alpha = 0.4f)
+    val haptics = rememberHaptics()
     PopSurface(
         modifier = modifier.defaultMinSize(minWidth = 48.dp, minHeight = height),
         shape = RoundedCornerShape(if (height >= 52.dp) 18.dp else 14.dp),
@@ -186,7 +187,11 @@ fun PopButton(
         contentColor = if (enabled) style.content else Palette.Ink3,
         border = border,
         shadow = if (enabled && style.shadow) 4.dp else 0.dp,
-        onClick = onClick,
+        onClick = {
+            // The main actions answer with a light tap.
+            if (style.shadow) haptics(Haptic.TAP)
+            onClick()
+        },
         enabled = enabled,
         contentAlignment = Alignment.Center,
     ) {

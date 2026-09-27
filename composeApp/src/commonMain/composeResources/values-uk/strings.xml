@@ -215,11 +215,7 @@
   <!-- Гра -->
   <string name="phase_hiding">Ховаємося</string>
   <string name="phase_seeking">Шукаємо</string>
-  <string name="role_hider">Ви ховаєтеся</string>
-  <string name="role_seeker">Ви шукаєте</string>
-  <string name="hiders_left">Залишилося тих, хто ховається: %1$d з %2$d</string>
   <string name="hint_hider_hiding">Сховайтеся в зоні, поки ті, хто шукає, не вирушили!</string>
-  <string name="hint_hider_seeking">Не виходьте із зони й не видавайте себе. Вас шукають.</string>
   <string name="hint_seeker_hiding">Інші ховаються. Ви почнете, коли закінчиться таймер.</string>
   <string name="status_caught">Вас знайшли. Подивіться, чим закінчиться раунд.</string>
   <string name="status_eliminated">Ви надто довго були поза зоною й вибули. Подивіться, чим закінчиться раунд.</string>
@@ -227,24 +223,14 @@
   <string name="in_building_warning">Ви в будівлі! Вийдіть, інакше шукачі побачать вас через %1$s.</string>
   <string name="in_building_revealed">Ви в будівлі, і шукачі вас бачать. Вийдіть на вулицю.</string>
   <string name="building_rule_off">Правило будівель у цій грі вимкнене: не вдалося завантажити будівлі.</string>
-  <string name="zone_radius">Зона: %1$d м</string>
-  <string name="zone_shrinks_in">звузиться через %1$s</string>
-  <string name="zone_shrinking">звужується, ще %1$s</string>
-  <string name="zone_final">остаточний розмір</string>
-  <string name="zone_inside">Ви в зоні, до межі %1$d м.</string>
-  <string name="zone_outside">Ви поза зоною на %1$d м!</string>
-  <string name="map_legend">Суцільне коло — зона. Пунктир — наступна зона. Червоне — будівлі, ховатися в них не можна. Синя точка — ви.</string>
   <string name="reason_teammate">шукає</string>
   <string name="reason_stale_signal">немає сигналу</string>
   <string name="reason_out_of_zone">поза зоною</string>
   <string name="reason_mock_location">підробка GPS</string>
   <string name="reason_inside_building">у будівлі</string>
   <string name="seeker_found_title">Когось знайшли?</string>
-  <string name="seeker_found_hint">Натисніть на гравця, якого знайшли. Він має показати вам свій код.</string>
   <string name="no_hiders_to_claim">Зараз нікого ловити.</string>
-  <string name="action_found">Знайшов</string>
   <string name="claim_enter_code">Попросіть %1$s показати код на екрані.</string>
-  <string name="claim_code_label">Код</string>
   <string name="claim_time_left">Залишилося: %1$s</string>
   <string name="claim_disputed_mine">%1$s оскаржує знахідку. Інші гравці голосують.</string>
   <string name="scanner_placeholder">Сканування QR-коду з’явиться згодом. Поки введіть цифри вручну.</string>
@@ -301,4 +287,5 @@
   <string name="lobby_chip_time">%1$d + %2$d хв</string>
   <string name="lobby_hider">Ховається</string>
   <string name="lobby_start_hint">Спершу %1$d хв ховаємося — шукачі чекають</string>
+  <string name="home_join_short">Увійти</string>
 </resources>

@@ -215,11 +215,7 @@
   <!-- Игра -->
   <string name="phase_hiding">Прячемся</string>
   <string name="phase_seeking">Ищем</string>
-  <string name="role_hider">Вы прячетесь</string>
-  <string name="role_seeker">Вы ищете</string>
-  <string name="hiders_left">Осталось прячущихся: %1$d из %2$d</string>
   <string name="hint_hider_hiding">Спрячьтесь в зоне, пока ищущие не вышли!</string>
-  <string name="hint_hider_seeking">Не выходите из зоны и не выдавайте себя. Вас ищут.</string>
   <string name="hint_seeker_hiding">Остальные прячутся. Вы начнёте, когда закончится таймер.</string>
   <string name="status_caught">Вас нашли. Посмотрите, чем закончится раунд.</string>
   <string name="status_eliminated">Вы слишком долго были вне зоны и выбыли. Посмотрите, чем закончится раунд.</string>
@@ -227,24 +223,14 @@
   <string name="in_building_warning">Вы в здании! Выйдите, иначе ищущие увидят вас через %1$s.</string>
   <string name="in_building_revealed">Вы в здании, и ищущие вас видят. Выйдите на улицу.</string>
   <string name="building_rule_off">Правило зданий в этой игре выключено: не удалось загрузить здания.</string>
-  <string name="zone_radius">Зона: %1$d м</string>
-  <string name="zone_shrinks_in">сузится через %1$s</string>
-  <string name="zone_shrinking">сужается, ещё %1$s</string>
-  <string name="zone_final">окончательный размер</string>
-  <string name="zone_inside">Вы в зоне, до границы %1$d м.</string>
-  <string name="zone_outside">Вы вне зоны на %1$d м!</string>
-  <string name="map_legend">Сплошной круг — зона. Пунктир — следующая зона. Красное — здания, прятаться в них нельзя. Синяя точка — вы.</string>
   <string name="reason_teammate">ищет</string>
   <string name="reason_stale_signal">нет сигнала</string>
   <string name="reason_out_of_zone">вне зоны</string>
   <string name="reason_mock_location">подмена GPS</string>
   <string name="reason_inside_building">в здании</string>
   <string name="seeker_found_title">Кого-то нашли?</string>
-  <string name="seeker_found_hint">Нажмите на найденного игрока. Он должен будет показать вам свой код.</string>
   <string name="no_hiders_to_claim">Сейчас некого ловить.</string>
-  <string name="action_found">Нашёл</string>
   <string name="claim_enter_code">Попросите %1$s показать код на экране.</string>
-  <string name="claim_code_label">Код</string>
   <string name="claim_time_left">Осталось: %1$s</string>
   <string name="claim_disputed_mine">%1$s оспаривает находку. Остальные игроки голосуют.</string>
   <string name="scanner_placeholder">Сканирование QR-кода появится позже. Пока введите цифры вручную.</string>
@@ -301,4 +287,5 @@
   <string name="lobby_chip_time">%1$d + %2$d мин</string>
   <string name="lobby_hider">Прячется</string>
   <string name="lobby_start_hint">Сначала %1$d мин прячемся — ищущие ждут</string>
+  <string name="home_join_short">Войти</string>
 </resources>
