@@ -222,9 +222,20 @@ class ZoneTest {
         check(state().phase == GamePhase.SEEKING, "the game goes on with Boris")
     }
 
-    /** Milliseconds into [zone] from which a player standing at [at] is clearly outside it. */
+    /**
+     * The first millisecond into [zone] from which a player standing at [at] is clearly outside it, to the millisecond
+     * (the server checks at any moment): a binary search, as the zone only closes in on the player.
+     */
     private fun firstClearlyOutside(zone: ZoneSchedule, at: GeoPoint, accuracyMeters: Double, rules: GameRules): Long {
         val fix = LocationSample(at, accuracyMeters, timestampMillis = 0)
-        return (0L..10 * 60_000L step 50).first { ZoneRules.isClearlyOutside(fix, zone.circleAt(it), rules) }
+        fun outside(millis: Long) = ZoneRules.isClearlyOutside(fix, zone.circleAt(millis), rules)
+        var inside = 0L
+        var out = 10 * 60_000L
+        check(!outside(inside) && outside(out)) { "the zone never passes $at" }
+        while (out - inside > 1) {
+            val middle = (inside + out) / 2
+            if (outside(middle)) out = middle else inside = middle
+        }
+        return out
     }
 }

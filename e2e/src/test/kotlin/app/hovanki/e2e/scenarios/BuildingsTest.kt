@@ -182,4 +182,29 @@ class BuildingsTest {
             sam.snapshot?.players?.single { it.id == anna.id }?.location == null
         }
     }
+
+    /**
+     * The quarter lies outside a 100 m zone: a hider inside it is both out of the zone and in a building. The zone wins
+     * (the reveal says OUT_OF_ZONE, never INSIDE_BUILDING), and the zone's grace period eliminates the hider.
+     */
+    @Test
+    fun aBuildingOutsideTheZone() = scenario("A building outside the zone") {
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK, noise = exact5)
+        val boris = player("Boris", at = PARK.offset(eastMeters = 40.0))
+
+        sam.createsGame(GameSetups.fixedZone(100.0))
+        join(anna, boris)
+        sam.startsGame(seekers = listOf(sam))
+        anna.walksTo(insideBlock, speed = 4.0)
+        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+
+        awaitReveal(anna, VisibilityReason.OUT_OF_ZONE, to = sam, within = 60.seconds)
+        awaitStatus(anna, PlayerStatus.ELIMINATED, within = (rules.outOfZoneGraceSeconds + 30).seconds)
+        check(
+            sam.revealsSeen.none { it == anna.id to VisibilityReason.INSIDE_BUILDING },
+            "Sam never saw Anna as inside a building",
+        )
+        check(boris.onServer().status == PlayerStatus.ACTIVE, "Boris plays on")
+    }
 }
