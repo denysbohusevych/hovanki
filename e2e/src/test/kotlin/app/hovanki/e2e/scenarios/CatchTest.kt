@@ -1,5 +1,6 @@
 package app.hovanki.e2e.scenarios
 
+import app.hovanki.client.session.CatchCode
 import app.hovanki.e2e.bot.BotBehavior
 import app.hovanki.e2e.bot.BotPlayer
 import app.hovanki.e2e.bot.ClaimReaction
@@ -321,6 +322,53 @@ class CatchTest {
         check(state().phase == GamePhase.SEEKING, "the game goes on with Gleb")
     }
 
+    /**
+     * One scan: the hider opens «My code» and the seeker's camera reads it with no claim before, one request finds
+     * them. A photo of an old code opens the claim with a failed attempt, and the hider shows the current one; a code
+     * scanned from far away is refused like any claim.
+     */
+    @Test
+    fun oneScan() = scenario("One scan") {
+        val rules = GameSetups.FAST_RULES.copy(catchCodePeriodSeconds = 10, catchCodeTimeoutSeconds = 60)
+        val period = rules.catchCodePeriodSeconds * 1000L
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK.offset(eastMeters = 15.0))
+        val boris = player("Boris", at = PARK.offset(eastMeters = -15.0))
+        val vera = player("Vera", at = PARK.offset(northMeters = 120.0))
+
+        sam.createsGame(GameSetups.fast(rules = rules))
+        join(anna, boris, vera)
+        sam.startsGame(seekers = listOf(sam))
+        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+
+        check(anna.shownMyCode() == null, "the code shows only once Anna opens it")
+        anna.opensMyCode()
+        requireOk(sam.scansCodeOf(anna), "Sam scans Anna's code")
+        val scanned = checkNotNull(lastClaimOn(anna))
+        check(scanned.status == CatchStatus.CONFIRMED, "confirmed by the scan: $scanned")
+        check(scanned.failedAttempts == 0 && scanned.deadlineMillis == scanned.createdAtMillis, "in one step")
+        val caught = awaitStatus(anna, PlayerStatus.CAUGHT)
+        check(caught.caughtBy == sam.id && caught.outAtMillis == scanned.createdAtMillis, "caught by Sam, then")
+        awaitThat("Anna's phone no longer offers her code") { anna.shownMyCode() == null }
+        awaitThat("Sam's phone shows the catch") {
+            sam.snapshot?.players?.single { it.id == anna.id }?.caughtBy == sam.id
+        }
+
+        boris.opensMyCode()
+        val (photo, photoPeriod) = readMidPeriod(boris, period) { boris.shownMyCode() }
+        awaitServerTime((photoPeriod + 2) * period + period / 2)
+        expectRejected(sam.scanCatch(boris.id, photo, "Boris"), ErrorCode.INVALID_CODE, "a code two periods old")
+        val opened = checkNotNull(lastClaimOn(boris))
+        check(opened.status == CatchStatus.AWAITING_CODE && opened.failedAttempts == 1, "an open claim: $opened")
+        sam.entersCodeShownBy(boris)
+        awaitCatch(boris, CatchStatus.CONFIRMED)
+
+        vera.opensMyCode()
+        expectRejected(sam.scansCodeOf(vera), ErrorCode.TOO_FAR, "Vera's code from 120 m")
+        check(state().catches.none { it.hiderId == vera.id }, "no claim on Vera")
+        check(vera.onServer().status == PlayerStatus.ACTIVE, "Vera plays on")
+    }
+
     /** A code the server does not accept from [hider] now (nor two periods around it). */
     private suspend fun Scenario.wrongCodeFor(hider: BotPlayer, rules: GameRules): String {
         val server = state()
@@ -332,9 +380,13 @@ class CatchTest {
     }
 
     /** The code on [hider]'s screen, read in the middle of a period, and that period's number. */
-    private suspend fun Scenario.readMidPeriod(hider: BotPlayer, period: Long): Pair<String, Long> {
+    private suspend fun Scenario.readMidPeriod(
+        hider: BotPlayer,
+        period: Long,
+        screen: () -> CatchCode? = { hider.shownCode() },
+    ): Pair<String, Long> {
         while (true) {
-            val code = eventually("${hider.name} shows the code") { hider.shownCode() }
+            val code = eventually("${hider.name} shows the code") { screen() }
             val now = checkNotNull(hider.serverNow())
             val into = now % period
             if (into in period / 4..period * 3 / 4) {

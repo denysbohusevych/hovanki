@@ -25,6 +25,7 @@ import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
+import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.rules.shrinkingZone
 
 val testSession = PlayerSession(GameId("game1"), PlayerId("player1"), token = "secret-token")
@@ -76,6 +77,9 @@ class FakeGameApi(
     private val onSendChat: suspend (SendChatRequest) -> GameSnapshot = { unused() },
     private val onReportChat: suspend (Long) -> GameSnapshot = { unused() },
     private val onInvite: suspend (InviteRequest) -> GameSnapshot = { unused() },
+    private val onClaim: suspend (PlayerId, String?) -> GameSnapshot = { _, _ -> unused() },
+    private val onConfirm: suspend (CatchId, String) -> GameSnapshot = { _, _ -> unused() },
+    private val onTracks: suspend () -> TracksResponse = { unused() },
     private val onSync: suspend (SyncRequest) -> GameSnapshot,
 ) : GameApi {
     var buildingsRequests = 0
@@ -112,9 +116,28 @@ class FakeGameApi(
 
     override suspend fun startGame(session: PlayerSession, request: StartGameRequest): GameSnapshot = unused()
 
-    override suspend fun claimCatch(session: PlayerSession, hiderId: PlayerId): GameSnapshot = unused()
+    /** Every claim as (hider, code). */
+    val claims = mutableListOf<Pair<PlayerId, String?>>()
 
-    override suspend fun confirmCatch(session: PlayerSession, catchId: CatchId, code: String): GameSnapshot = unused()
+    /** Every code typed (or sent after a scan) as (claim, code). */
+    val confirms = mutableListOf<Pair<CatchId, String>>()
+
+    var tracksRequests = 0
+
+    override suspend fun claimCatch(session: PlayerSession, hiderId: PlayerId, code: String?): GameSnapshot {
+        claims += hiderId to code
+        return onClaim(hiderId, code)
+    }
+
+    override suspend fun confirmCatch(session: PlayerSession, catchId: CatchId, code: String): GameSnapshot {
+        confirms += catchId to code
+        return onConfirm(catchId, code)
+    }
+
+    override suspend fun tracks(session: PlayerSession): TracksResponse {
+        tracksRequests++
+        return onTracks()
+    }
 
     override suspend fun disputeCatch(session: PlayerSession, catchId: CatchId): GameSnapshot = unused()
 

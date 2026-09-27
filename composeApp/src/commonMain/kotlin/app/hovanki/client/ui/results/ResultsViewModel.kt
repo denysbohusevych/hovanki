@@ -13,13 +13,18 @@ import app.hovanki.client.ui.common.PlayerAccount
 import app.hovanki.client.ui.common.playerAccount
 import app.hovanki.shared.protocol.FriendsResponse
 import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-/** The results screen: who played with an account, and friend requests to them. The standings need no state. */
+/**
+ * The results screen: who played with an account, friend requests to them, and the tracks for the replay. The
+ * standings and awards come from the final snapshot.
+ */
 class ResultsViewModel(
     private val sessionManager: GameSessionManager,
     private val social: SocialManager,
@@ -37,6 +42,10 @@ class ResultsViewModel(
                 SharingStarted.WhileSubscribed(5_000),
                 playerAccounts(sessionManager.state.value, social.friends.value, account.state.value),
             )
+
+    /** Everybody's way through the round for the replay; null until loaded. */
+    val tracks: StateFlow<TracksResponse?> = sessionManager.state.map { it.tracks }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), sessionManager.state.value.tracks)
 
     /** A friend request failed. */
     val message: StateFlow<FormMessage?> = commands.message

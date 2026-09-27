@@ -20,6 +20,9 @@ object ApiRoutes {
     /** GET: the buildings of the game's zone where hiding is not allowed ([BuildingsResponse]). */
     const val BUILDINGS = "$GAMES/{gameId}/buildings"
 
+    /** GET: every player's track of the round ([TracksResponse]), once the game is FINISHED. */
+    const val TRACKS = "$GAMES/{gameId}/tracks"
+
     /** POST [InviteRequest]: invites friends or a group into the game (lobby, logged-in players only). */
     const val GAME_INVITES = "$GAMES/{gameId}/invites"
 
@@ -85,6 +88,8 @@ object ApiRoutes {
         CATCH_VOTE.fill("gameId" to gameId.value, "catchId" to catchId.value)
 
     fun buildings(gameId: GameId): String = BUILDINGS.fill("gameId" to gameId.value)
+
+    fun tracks(gameId: GameId): String = TRACKS.fill("gameId" to gameId.value)
 
     fun gameInvites(gameId: GameId): String = GAME_INVITES.fill("gameId" to gameId.value)
 

@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -34,6 +36,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -59,6 +62,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
@@ -84,10 +88,13 @@ import app.hovanki.client.resources.hud_zone_final
 import app.hovanki.client.resources.hud_zone_shrinking
 import app.hovanki.client.resources.hud_zone_soon
 import app.hovanki.client.resources.ic_building
+import app.hovanki.client.resources.ic_navigation
 import app.hovanki.client.resources.ic_warning
 import app.hovanki.client.resources.phase_hiding
 import app.hovanki.client.resources.phase_seeking
+import app.hovanki.client.resources.zone_arrow
 import app.hovanki.client.session.ZoneCue
+import app.hovanki.client.session.edgeArrow
 import app.hovanki.client.ui.common.CapsText
 import app.hovanki.client.ui.common.CountdownRing
 import app.hovanki.client.ui.common.PopBorder
@@ -331,6 +338,66 @@ fun EdgeVignette(alert: GameAlert, reduceMotion: Boolean, modifier: Modifier = M
         )
     }
 }
+
+/**
+ * The way back into the zone (docs/design.md, «Тревоги прячущегося»): an orange arrow at the edge of the part of the
+ * map between [top] and [bottom] (what the HUD and the controls leave free), pointing [angleDegrees] clockwise from the
+ * top of the screen. Pulses with the alert unless [reduceMotion]. Draws only: taps go through to the map.
+ */
+@Composable
+fun ZoneArrow(angleDegrees: Float, top: Dp, bottom: Dp, reduceMotion: Boolean, modifier: Modifier = Modifier) {
+    val description = stringResource(Res.string.zone_arrow)
+    val scale = if (reduceMotion) {
+        1f
+    } else {
+        val transition = rememberInfiniteTransition()
+        val value by transition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.12f,
+            animationSpec = infiniteRepeatable(
+                tween(ARROW_PULSE_MILLIS / 2, easing = FastOutSlowInEasing),
+                RepeatMode.Reverse,
+            ),
+        )
+        value
+    }
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val half = ARROW_SIZE / 2 + ARROW_MARGIN
+        val arrow = edgeArrow(
+            left = half.value,
+            top = (top + half).value,
+            right = (maxWidth - half).value,
+            bottom = (maxHeight - bottom - half).value.coerceAtLeast((top + half).value),
+            angleDegrees = angleDegrees,
+        )
+        PopSurface(
+            modifier = Modifier
+                .offset(x = arrow.x.dp - ARROW_SIZE / 2, y = arrow.y.dp - ARROW_SIZE / 2)
+                .size(ARROW_SIZE)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .semantics { contentDescription = description }
+                .testTag(TestTags.ZONE_ARROW),
+            shape = CircleShape,
+            color = Palette.Orange,
+            shadow = 3.dp,
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(Res.drawable.ic_navigation),
+                contentDescription = null,
+                tint = Palette.Ink,
+                modifier = Modifier.size(26.dp).graphicsLayer { rotationZ = arrow.angleDegrees },
+            )
+        }
+    }
+}
+
+private val ARROW_SIZE = 52.dp
+private val ARROW_MARGIN = 10.dp
+private const val ARROW_PULSE_MILLIS = 1_000
 
 /** A round control at the bottom of the map with a small label under it. */
 @Composable

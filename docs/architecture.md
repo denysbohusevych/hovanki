@@ -36,11 +36,11 @@ flowchart LR
 |---|---|---|
 | UI | Экраны на Compose, карта `GameMap` (maplibre-compose, тайлы OpenFreeMap, [ADR 0003](adr/0003-map-and-buildings.md)), навигация по состоянию: какой экран показывать, решает состояние сессии, а не стек переходов | `:composeApp`, `commonMain` |
 | Состояние экранов | ViewModel'и / стейт-холдеры: превращают `GameSnapshot`, аккаунт, друзей и локальные данные в UI-state, принимают действия пользователя | `:composeApp`, `commonMain` |
-| Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock`, чат (слияние по `seq`, курсор в каждом опросе, непрочитанные), сохранение сессии и возврат в игру после перезапуска, загрузка зданий зоны (один раз, когда снапшот говорит `READY`) | `:clientCore`, `commonMain` |
+| Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock`, чат (слияние по `seq`, курсор в каждом опросе, непрочитанные), сохранение сессии и возврат в игру после перезапуска, загрузка зданий зоны (один раз, когда снапшот говорит `READY`) и треков для разбора (один раз, когда игра `FINISHED`); итоги и награды считает `session/Results.kt` из последнего снапшота и треков | `:clientCore`, `commonMain` |
 | Аккаунт и друзья | `AccountManager`: кто вошёл, команды аккаунта, восстановление после перезапуска, 401 → выход. `SocialManager`: друзья, группы, входящие (опрос раз в 10 с, пока их кто-то слушает) | `:clientCore`, `commonMain` |
 | Хранилище | `ClientStorage` поверх `SecureStore`: сохранённая сессия игры, аккаунт (токен и профиль), имя гостя | `:clientCore`, `commonMain`; реализации `SecureStore` — `:composeApp` `androidMain` / `iosMain` |
 | Сеть | `GameApi`, `AccountApi`, `SocialApi` (Ktor, `protocolJson`, общие хелперы `HttpSupport`), `GameConnection` — транспорт за интерфейсом (сейчас HTTP-опрос) | `:clientCore`, `commonMain`; движок Ktor выбирает `:composeApp`: OkHttp (Android), Darwin (iOS) |
-| Платформенные сервисы | `LocationProvider`, `BackgroundTracker`, `SecureStore`, `ProximityScanner`, `CatchCodeScanner` | интерфейсы в `commonMain` (`LocationProvider`, `BackgroundTracker` и `SecureStore` — в `:clientCore`), реализации в `:composeApp` `androidMain` / `iosMain` |
+| Платформенные сервисы | `LocationProvider`, `BackgroundTracker`, `SecureStore`, `ProximityScanner`, `CatchCodeScanner`, `ShareSheet` | интерфейсы в `commonMain` (`LocationProvider`, `BackgroundTracker` и `SecureStore` — в `:clientCore`), реализации в `:composeApp` `androidMain` / `iosMain` |
 | DI | Koin-модули: общий + платформенный | `:composeApp`, `commonMain` + `androidMain` / `iosMain` |
 
 Платформенные реализации:
@@ -52,6 +52,7 @@ flowchart LR
 | `SecureStore` | AES-GCM, ключ в Android Keystore, шифротекст в приватных `SharedPreferences` | Keychain, `AfterFirstUnlockThisDeviceOnly` | работает, [ADR 0002](adr/0002-session-storage.md) |
 | `ProximityScanner` | — | — | no-op, BLE через Kable после MVP |
 | `CatchCodeScanner` | CameraX + ZXing | AVFoundation (`AVCaptureMetadataOutput`) | работает; ручной ввод кода — всегда |
+| `ShareSheet` | chooser для `ACTION_SEND` | `UIActivityViewController` (на iPad — поповер из центра экрана) | работает: «Поделиться» кодом в лобби |
 
 ### Автоматизация UI (только debug)
 
@@ -214,6 +215,11 @@ stateDiagram-v2
 
 Статусы заявки: `AWAITING_CODE` → `CONFIRMED` / `REJECTED` / `DISPUTED` → `CONFIRMED` / `REJECTED`.
 
+Два пути к заявке:
+
+- **Одним сканом.** Прячущийся, которого нашли, открывает «Мой код» (код и QR без заявки, только активному прячущемуся в SEEKING), ищущий нажимает «Нашёл!» и сканирует QR. Приложение шлёт заявку сразу с кодом (`ClaimCatchRequest.code`): сервер делает те же проверки, что и для заявки, и тут же проверяет код, как `confirm`. Верный — `CONFIRMED` в том же запросе; неверный (старое фото, код сменился) — заявка остаётся `AWAITING_CODE` с одной неудачной попыткой и ответ `INVALID_CODE`, дальше как обычно: прячущийся показывает свежий код. Сервер без поддержки кода откроет только заявку — приложение увидит её `AWAITING_CODE` в ответе и сразу пошлёт `confirm` с тем же кодом.
+- **По имени.** Камера не читает: ищущий выбирает игрока в списке, прячущемуся приходит экран «Покажи код», дальше — схема ниже.
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -252,10 +258,11 @@ sequenceDiagram
 - Заявка возможна только в SEEKING, от активного ищущего на активного прячущегося, и если ни у одного из них нет другой открытой заявки.
 - Если у прячущегося нет свежих пригодных точек, GPS не может опровергнуть заявку — решает код.
 - Пока заявка или спор открыты, участники «заморожены»: у них не может быть других заявок, а прячущегося не выбивают за выход из зоны.
-- QR содержит `hovanki:1:<gameId>:<playerId>:<code>` (`CatchCodePayload`); те же 4 цифры можно продиктовать и ввести вручную. Код меняется каждые 30 с.
+- QR содержит `hovanki:1:<gameId>:<playerId>:<code>` (`CatchCodePayload`); те же 4 цифры можно продиктовать и ввести вручную. Код меняется каждые 30 с. Сканер ищущего без заявки принимает только QR этой игры и прячущегося, который ещё играет (`catchableScan`), остальное игнорирует.
 - Голосуют все игроки, кроме двух участников спора. Если голосовать некому, спор решается сразу. Спор закрывается, когда проголосовали все, или по дедлайну.
 - Правило по умолчанию (нет голосов или ничья): засчитать, если наиболее вероятное расстояние в момент заявки не больше `catchMaxDistanceMeters` (40 м) или неизвестно (прячущийся не присылал точки). Заявку можно открыть при «возможно, рядом» (с учётом accuracy), а правило по умолчанию требует «вероятно, рядом».
-- Когда активных прячущихся не остаётся, игра переходит в FINISHED.
+- Когда активных прячущихся не остаётся, игра переходит в FINISHED: в момент последней находки или, если последний выбыл за зоной, когда кончилось его время на возврат.
+- Снапшот говорит, когда и как каждый прячущийся вышел из игры: `PlayerView.outAtMillis` (находка или выбывание; для выбывшего — момент, когда кончилось время на возврат, а не когда сервер это заметил) и `caughtBy` (ищущий из подтверждённой заявки), и когда кончился раунд — `GameSnapshot.finishedAtMillis`. По ним экран итогов показывает время находок и награды.
 
 ## Данные и GDPR
 
@@ -263,7 +270,7 @@ sequenceDiagram
 
 - Игры — координаты, чат, приглашения — сервер хранит **только в памяти**, в базу они не попадают.
 - В PostgreSQL — аккаунты (ник, email, хэш пароля, язык писем), хэши токенов и кодов, друзья, заявки, блокировки, группы и жалобы на сообщения. Сроки хранения и удаление аккаунта — [ADR 0004](adr/0004-accounts-friends-chat.md#11-сроки-хранения-и-gdpr). Email видит только его владелец, остальные — `UserSummary` (id и ник).
-- `LocationTrack` держит точки игрока за последние 5 минут, старые удаляются по мере поступления новых.
+- `LocationTrack` держит точки игрока за последние 5 минут, старые удаляются по мере поступления новых. Для разбора после игры (ADR 0001, «Разбор после игры») отдельно копится трек раунда `ReplayTrack`: только пригодные точки, не чаще одной в 5 с (дойдя до 1000 точек, трек прореживается вдвое), от начала пряток до конца раунда, у прячущегося — до момента, когда его нашли или он выбыл. Треки отдаются игрокам этой игры только после конца раунда (`GET /tracks`; раньше — `WRONG_STATE`: они выдали бы прячущихся) и удаляются вместе с игрой. На экране согласия это сказано: после раунда игроки этой игры видят, кто где ходил.
 - `GameJanitor` раз в `cleanup-interval` (1 мин) удаляет игры вместе с треками, игроками и токенами: завершённые — через `finished-retention` (30 мин, запас на разбор после игры), брошенные — после `idle-retention` (6 ч) без запросов. Настройки — `hovanki.games.*` в `server/src/main/resources/application.yaml`.
 - Координаты, токены, пароли, коды из писем, email и текст чата не пишем в логи.
 - Контуры зданий (открытые данные OSM) сервер берёт из Overpass API при создании игры: туда уходит только круг зоны, без данных игроков. В лог попадает только id игры, не круг: центр зоны — позиция хоста. Полигоны живут в памяти игры и удаляются вместе с ней.
@@ -284,11 +291,12 @@ sequenceDiagram
 | POST | `/api/v1/games/join` | аккаунт, необязательно | любой, по join-коду; с аккаунтом — ник, а в своей игре — свой же игрок в любой фазе; повтор с тем же `requestId` — тот же игрок | `JoinGameRequest` | `SessionResponse` |
 | POST | `/api/v1/games/{gameId}/start` | игровой | хост, в LOBBY | `StartGameRequest` | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/sync` | игровой | любой игрок, каждые ~3 с; `chatAfter` — курсор чата | `SyncRequest` | `GameSnapshot` |
-| POST | `/api/v1/games/{gameId}/catches` | игровой | активный ищущий, в SEEKING | `ClaimCatchRequest` | `GameSnapshot` |
+| POST | `/api/v1/games/{gameId}/catches` | игровой | активный ищущий, в SEEKING; с `code` (одним сканом) — заявка и проверка кода в одном запросе | `ClaimCatchRequest` | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/catches/{catchId}/confirm` | игровой | ищущий из заявки | `ConfirmCatchRequest` | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/catches/{catchId}/dispute` | игровой | прячущийся из заявки | — | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/catches/{catchId}/vote` | игровой | игрок вне спора | `VoteRequest` | `GameSnapshot` |
 | GET | `/api/v1/games/{gameId}/buildings` | игровой | любой игрок, один раз, когда `GameSnapshot.buildings = READY` | — | `BuildingsResponse`: контуры зданий и проходы, по которым судит сервер (сотни КБ, gzip) |
+| GET | `/api/v1/games/{gameId}/tracks` | игровой | любой игрок, один раз, когда игра `FINISHED`; раньше — `WRONG_STATE` | — | `TracksResponse`: трек раунда каждого игрока для разбора (до мегабайта, gzip) |
 | POST | `/api/v1/games/{gameId}/chat` | игровой | любой игрок, в любой фазе; повтор с тем же `clientMessageId` сообщение не дублирует | `SendChatRequest` | `GameSnapshot` с новыми сообщениями |
 | POST | `/api/v1/games/{gameId}/chat/{seq}/report` | игровой | любой игрок, на чужое сообщение, которое он видит | — | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/invites` | игровой | игрок с аккаунтом, в LOBBY: своих друзей или свою группу | `InviteRequest` | `GameSnapshot` |

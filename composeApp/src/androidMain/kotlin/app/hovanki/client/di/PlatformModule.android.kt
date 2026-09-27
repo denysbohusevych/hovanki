@@ -6,6 +6,8 @@ import app.hovanki.client.location.AndroidLocationProvider
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.proximity.NoopProximityScanner
 import app.hovanki.client.proximity.ProximityScanner
+import app.hovanki.client.share.AndroidShareSheet
+import app.hovanki.client.share.ShareSheet
 import app.hovanki.client.storage.AndroidSecureStore
 import app.hovanki.client.storage.SecureStore
 import app.hovanki.client.tracking.AndroidBackgroundTracker
@@ -22,6 +24,7 @@ actual val platformModule: Module = module {
     single<SecureStore> { AndroidSecureStore(androidContext()) }
     single<LocationProvider> { AndroidLocationProvider(androidContext()) }
     single<BackgroundTracker> { AndroidBackgroundTracker(androidContext()) }
+    single<ShareSheet> { AndroidShareSheet(androidContext()) }
     // TODO(BLE, after MVP): Kable-based scanner, see docs/adr/0001-stack.md.
     single<ProximityScanner> { NoopProximityScanner() }
 }

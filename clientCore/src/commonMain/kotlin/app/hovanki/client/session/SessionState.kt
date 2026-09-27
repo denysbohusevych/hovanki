@@ -6,6 +6,7 @@ import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.rules.ChatRules
 
 /** Everything the UI needs to know about the current game; the screen shown is derived from it. */
@@ -29,6 +30,8 @@ data class SessionState(
      * the part that came with it.
      */
     val chat: List<ChatMessage> = emptyList(),
+    /** Every player's track of the round, loaded once the game is over: the replay on the results screen. */
+    val tracks: TracksResponse? = null,
     /** The newest seq the player has read (`GameSessionManager.markChatRead`); 0: none. See `unreadChatCount`. */
     val chatReadSeq: Long = 0,
 )

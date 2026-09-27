@@ -17,6 +17,7 @@ import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
+import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.VoteRequest
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -72,6 +73,10 @@ class GameController(private val games: GameService, private val invites: Invite
     @GetMapping(ApiRoutes.BUILDINGS)
     fun buildings(player: PlayerRef, @PathVariable gameId: String): BuildingsResponse =
         games.buildings(player, GameId(gameId))
+
+    /** Once, when the game is over: where everybody went, for the replay on the results screen. */
+    @GetMapping(ApiRoutes.TRACKS)
+    fun tracks(player: PlayerRef, @PathVariable gameId: String): TracksResponse = games.tracks(player, GameId(gameId))
 
     @PostMapping(ApiRoutes.CATCH_VOTE)
     fun vote(

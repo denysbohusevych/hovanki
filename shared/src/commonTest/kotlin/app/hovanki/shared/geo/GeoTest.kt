@@ -22,6 +22,15 @@ class GeoTest {
         assertClose(360.55, kyiv.distanceTo(moved), tolerance = 0.5)
     }
 
+    @Test
+    fun bearingsGoClockwiseFromNorth() {
+        assertClose(0.0, kyiv.bearingTo(kyiv.moveBy(0.0, 100.0)), tolerance = 0.01)
+        assertClose(90.0, kyiv.bearingTo(kyiv.moveBy(100.0, 0.0)), tolerance = 0.01)
+        assertClose(180.0, kyiv.bearingTo(kyiv.moveBy(0.0, -100.0)), tolerance = 0.01)
+        assertClose(225.0, kyiv.bearingTo(kyiv.moveBy(-100.0, -100.0)), tolerance = 0.01)
+        assertClose(0.0, kyiv.bearingTo(kyiv), tolerance = 0.0)
+    }
+
     private fun assertClose(expected: Double, actual: Double, tolerance: Double) {
         assertTrue(abs(expected - actual) <= tolerance, "expected $expected ± $tolerance but was $actual")
     }

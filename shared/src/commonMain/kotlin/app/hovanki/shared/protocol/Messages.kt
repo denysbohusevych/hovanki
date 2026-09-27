@@ -38,8 +38,14 @@ data class SyncRequest(
     val chatAfter: Long? = null,
 )
 
+/**
+ * A seeker says they found [hiderId]. With [code] (the seeker scanned the hider's QR code before any claim, "one
+ * scan"), the claim is opened and the code checked in the same step: the right code confirms the catch at once, a wrong
+ * one leaves the claim open with one failed attempt, as if it was typed. Null (older apps, or picking the hider by
+ * name): the hider shows the code afterwards.
+ */
 @Serializable
-data class ClaimCatchRequest(val hiderId: PlayerId)
+data class ClaimCatchRequest(val hiderId: PlayerId, val code: String? = null)
 
 @Serializable
 data class ConfirmCatchRequest(val code: String)

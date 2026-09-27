@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,15 +13,22 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,23 +36,53 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.award_first_catch
+import app.hovanki.client.resources.award_hunter
+import app.hovanki.client.resources.award_last_standing
+import app.hovanki.client.resources.award_marathon
+import app.hovanki.client.resources.award_survivor
+import app.hovanki.client.resources.award_whole_search
+import app.hovanki.client.resources.awards_title
+import app.hovanki.client.resources.distance_km
+import app.hovanki.client.resources.distance_m
 import app.hovanki.client.resources.ic_home
+import app.hovanki.client.resources.ic_pause
+import app.hovanki.client.resources.ic_play
+import app.hovanki.client.resources.ic_trophy
 import app.hovanki.client.resources.lobby_you
+import app.hovanki.client.resources.phase_hiding
+import app.hovanki.client.resources.phase_seeking
+import app.hovanki.client.resources.replay_loading
+import app.hovanki.client.resources.replay_pause
+import app.hovanki.client.resources.replay_play
+import app.hovanki.client.resources.replay_time
+import app.hovanki.client.resources.replay_title
 import app.hovanki.client.resources.results_back
 import app.hovanki.client.resources.results_caught
 import app.hovanki.client.resources.results_eliminated
+import app.hovanki.client.resources.results_finds
 import app.hovanki.client.resources.results_hiders_win
+import app.hovanki.client.resources.results_into_search
 import app.hovanki.client.resources.results_seekers
 import app.hovanki.client.resources.results_seekers_win
 import app.hovanki.client.resources.results_survived
 import app.hovanki.client.resources.results_title
+import app.hovanki.client.resources.results_to_the_end
 import app.hovanki.client.resources.results_you_caught
 import app.hovanki.client.resources.results_you_eliminated
 import app.hovanki.client.resources.results_you_survived
+import app.hovanki.client.session.Award
+import app.hovanki.client.session.AwardKind
+import app.hovanki.client.session.Replay
+import app.hovanki.client.session.awards
+import app.hovanki.client.session.catchesBy
+import app.hovanki.client.session.searchMillisAt
 import app.hovanki.client.ui.chat.ChatIconButton
 import app.hovanki.client.ui.chat.ChatPanel
 import app.hovanki.client.ui.chat.ChatViewModel
@@ -55,8 +93,12 @@ import app.hovanki.client.ui.common.PlayerAccount
 import app.hovanki.client.ui.common.PlayerAccountBadge
 import app.hovanki.client.ui.common.PopButton
 import app.hovanki.client.ui.common.PopCard
+import app.hovanki.client.ui.common.PopChip
+import app.hovanki.client.ui.common.PopIconButton
 import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.ScreenColumn
+import app.hovanki.client.ui.common.SecondaryText
+import app.hovanki.client.ui.common.formatElapsed
 import app.hovanki.client.ui.common.rememberReduceMotion
 import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Motion
@@ -68,16 +110,19 @@ import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import kotlin.math.roundToInt
 
 /**
- * Final standings of the finished game ([snapshot] no longer changes) on lime (docs/design.md, «Итоги»), players to
- * add as friends, and the chat: the game keeps polling for it until the player goes back to the start.
+ * Final standings of the finished game ([snapshot] no longer changes) on lime (docs/design.md, «Итоги»): when each
+ * hider was out and who found them, awards, the replay of everybody's way once the tracks are loaded, players to add as
+ * friends, and the chat: the game keeps polling for it until the player goes back to the start.
  */
 @Composable
 fun ResultsScreen(
@@ -89,6 +134,7 @@ fun ResultsScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
     val chatState by chat.uiState.collectAsStateWithLifecycle()
+    val tracks by viewModel.tracks.collectAsStateWithLifecycle()
     if (chatState.isOpen) {
         ChatPanel(chat)
         return
@@ -96,7 +142,13 @@ fun ResultsScreen(
     val me = snapshot.me
     val hiders = snapshot.players.filter { it.role == Role.HIDER }
     val survivors = hiders.filter { it.status == PlayerStatus.ACTIVE }
-    val list = PlayerList(myId = me.playerId, accounts = accounts, isBusy = isBusy, onAddFriend = viewModel::addFriend)
+    val list = PlayerList(
+        snapshot = snapshot,
+        myId = me.playerId,
+        accounts = accounts,
+        isBusy = isBusy,
+        onAddFriend = viewModel::addFriend,
+    )
     val reduceMotion = rememberReduceMotion()
     // The title pops in once, when the results open.
     val pop = remember { Animatable(if (reduceMotion) 1f else 0.6f) }
@@ -180,6 +232,10 @@ fun ResultsScreen(
                     }
                 }
             }
+            // The results keep polling for the chat: new snapshots, the same final state.
+            val awards = remember(tracks, snapshot.finishedAtMillis) { snapshot.awards(tracks) }
+            if (awards.isNotEmpty()) Awards(awards, snapshot, reduceMotion)
+            ReplayCard(snapshot, tracks, reduceMotion)
             CommandStatus(
                 isBusy = false,
                 message = message,
@@ -223,8 +279,9 @@ private const val COUNT_UP_MILLIS = 600
 private const val GROUP_DELAY_MILLIS = 80L
 private const val GROUP_DROP_DP = 24
 
-/** How the players are shown in each group: the viewer marked, accounts to add as friends. */
+/** How the players are shown in each group: the viewer marked, when they were out, accounts to add as friends. */
 private class PlayerList(
+    val snapshot: GameSnapshot,
     val myId: PlayerId,
     val accounts: Map<PlayerId, PlayerAccount>,
     val isBusy: Boolean,
@@ -246,6 +303,7 @@ private fun PlayerGroup(title: StringResource, players: List<PlayerView>, list: 
                 Column(modifier = Modifier.weight(1f)) {
                     val name = if (player.id == list.myId) "${player.name} · $youTag" else player.name
                     Text(text = name, style = MaterialTheme.typography.titleSmall)
+                    PlayerOutcome(player, list.snapshot)
                     list.accounts[player.id]?.let { account ->
                         PlayerAccountBadge(
                             playerId = player.id,
@@ -259,3 +317,199 @@ private fun PlayerGroup(title: StringResource, players: List<PlayerView>, list: 
         }
     }
 }
+
+/**
+ * Under a name: a hider's time into the search when they were out (and who found them), «until the end» for the ones
+ * nobody found, how many a seeker found.
+ */
+@Composable
+private fun PlayerOutcome(player: PlayerView, snapshot: GameSnapshot) {
+    val text = when {
+        player.role == Role.SEEKER -> stringResource(Res.string.results_finds, snapshot.catchesBy(player.id))
+
+        player.status == PlayerStatus.ACTIVE -> stringResource(Res.string.results_to_the_end)
+
+        else -> player.outAtMillis?.let(snapshot::searchMillisAt)?.let {
+            stringResource(Res.string.results_into_search, formatElapsed(it))
+        }
+    } ?: return
+    val seeker = player.caughtBy?.let { id -> snapshot.players.firstOrNull { it.id == id } }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        SecondaryText(text)
+        if (seeker != null) {
+            PopChip(text = seeker.name, color = Palette.Orange, contentColor = Palette.Ink, border = Palette.Ink)
+        }
+    }
+}
+
+/** Badges in pink (docs/design.md, «Итоги»): they drop in one after another. */
+@Composable
+private fun Awards(awards: List<Award>, snapshot: GameSnapshot, reduceMotion: Boolean) {
+    val names = snapshot.players.associate { it.id to it.name }
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp).testTag(TestTags.RESULTS_AWARDS),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        CapsText(stringResource(Res.string.awards_title), color = Palette.Ink2)
+        awards.forEachIndexed { index, award ->
+            val drop = remember(award) { Animatable(if (reduceMotion) 1f else 0f) }
+            LaunchedEffect(award) {
+                delay(AWARD_DELAY_MILLIS * index)
+                drop.animateTo(1f, Motion.pop())
+            }
+            PopCard(
+                modifier = Modifier.fillMaxWidth().graphicsLayer {
+                    alpha = drop.value.coerceIn(0f, 1f)
+                    translationY = (1f - drop.value) * -GROUP_DROP_DP.dp.toPx()
+                },
+                color = Palette.Pink,
+                shadow = 3.dp,
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(Res.drawable.ic_trophy),
+                        contentDescription = null,
+                        tint = Palette.Ink,
+                        modifier = Modifier.size(28.dp),
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = stringResource(award.kind.title), style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            text = "${names[award.playerId].orEmpty()} · ${awardDetail(award)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private val AwardKind.title: StringResource
+    get() = when (this) {
+        AwardKind.FIRST_CATCH -> Res.string.award_first_catch
+        AwardKind.HUNTER -> Res.string.award_hunter
+        AwardKind.SURVIVOR -> Res.string.award_survivor
+        AwardKind.LAST_STANDING -> Res.string.award_last_standing
+        AwardKind.MARATHON -> Res.string.award_marathon
+    }
+
+@Composable
+private fun awardDetail(award: Award): String = when (award.kind) {
+    AwardKind.FIRST_CATCH, AwardKind.LAST_STANDING ->
+        stringResource(Res.string.results_into_search, formatElapsed(award.value))
+
+    AwardKind.HUNTER -> stringResource(Res.string.results_finds, award.value.toInt())
+
+    AwardKind.SURVIVOR -> stringResource(Res.string.award_whole_search, formatElapsed(award.value))
+
+    AwardKind.MARATHON -> formatDistance(award.value)
+}
+
+/** 850 m, or 1.2 km from a kilometer on (the decimal separator comes with the language). */
+@Composable
+private fun formatDistance(meters: Long): String = if (meters < 1_000) {
+    stringResource(Res.string.distance_m, meters.toInt())
+} else {
+    val tenths = (meters + 50) / 100
+    stringResource(Res.string.distance_km, (tenths / 10).toInt(), (tenths % 10).toInt())
+}
+
+private const val AWARD_DELAY_MILLIS = 80L
+
+/**
+ * The replay (docs/design.md, «Итоги»): the map with everybody's way and a slider over the round. The ways draw
+ * themselves in for 1.5 s when the tracks arrive, the slider starts at the end; «play» runs the round again.
+ */
+@Composable
+private fun ReplayCard(snapshot: GameSnapshot, tracks: TracksResponse?, reduceMotion: Boolean) {
+    // Keyed on what makes the replay, not on every poll: the slider stays where the player left it.
+    val replay = remember(tracks, snapshot.finishedAtMillis) { Replay.of(snapshot, tracks) }
+    if (tracks != null && replay == null) return
+    PopCard(
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp).testTag(TestTags.REPLAY),
+        contentPadding = PaddingValues(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        CapsText(stringResource(Res.string.replay_title), color = Palette.Ink2)
+        if (replay == null) {
+            SecondaryText(stringResource(Res.string.replay_loading))
+            return@PopCard
+        }
+        var at by remember(replay) { mutableStateOf(replay.endMillis) }
+        var playing by remember(replay) { mutableStateOf(false) }
+        val drawIn = remember(replay) { Animatable(if (reduceMotion) 1f else 0f) }
+        LaunchedEffect(replay) { drawIn.animateTo(1f, tween(DRAW_IN_MILLIS, easing = FastOutSlowInEasing)) }
+        LaunchedEffect(playing) {
+            if (!playing) return@LaunchedEffect
+            if (at >= replay.endMillis) at = replay.startMillis
+            val step = replay.durationMillis * PLAY_FRAME_MILLIS / PLAY_MILLIS
+            while (at < replay.endMillis) {
+                delay(PLAY_FRAME_MILLIS)
+                at = (at + step).coerceAtMost(replay.endMillis)
+            }
+            playing = false
+        }
+        val shownAt = replay.startMillis + ((at - replay.startMillis) * drawIn.value).toLong()
+        ReplayMap(
+            replay = replay,
+            zone = snapshot.settings.zone,
+            zoneStartedAtMillis = snapshot.zoneStartedAtMillis,
+            atMillis = shownAt,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(300.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .border(2.dp, Palette.Ink, RoundedCornerShape(14.dp)),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            PopIconButton(
+                icon = if (playing) Res.drawable.ic_pause else Res.drawable.ic_play,
+                contentDescription = stringResource(if (playing) Res.string.replay_pause else Res.string.replay_play),
+                onClick = { playing = !playing },
+                style = PopStyle.Dark,
+                size = 44.dp,
+                iconSize = 20.dp,
+            )
+            val description = stringResource(Res.string.replay_time)
+            Slider(
+                value = (at - replay.startMillis).toFloat(),
+                onValueChange = {
+                    playing = false
+                    at = replay.startMillis + it.toLong()
+                },
+                valueRange = 0f..replay.durationMillis.coerceAtLeast(1).toFloat(),
+                colors = SliderDefaults.colors(
+                    thumbColor = Palette.Ink,
+                    activeTrackColor = Palette.Ink,
+                    inactiveTrackColor = Palette.Line,
+                ),
+                modifier = Modifier.weight(1f).semantics { contentDescription = description }
+                    .testTag(TestTags.REPLAY_SLIDER),
+            )
+        }
+        CapsText(replayTime(snapshot, shownAt), color = Palette.Ink2)
+    }
+}
+
+/** «Hiding 2:10» before the search, «Seeking 12:34» after it started. */
+@Composable
+private fun replayTime(snapshot: GameSnapshot, atMillis: Long): String {
+    val searchFrom = snapshot.zoneStartedAtMillis
+    return if (searchFrom == null || atMillis < searchFrom) {
+        val hidingFrom = (searchFrom ?: atMillis) - snapshot.settings.hidingSeconds * 1000L
+        "${stringResource(Res.string.phase_hiding)} ${formatElapsed(atMillis - hidingFrom)}"
+    } else {
+        "${stringResource(Res.string.phase_seeking)} ${formatElapsed(atMillis - searchFrom)}"
+    }
+}
+
+private const val DRAW_IN_MILLIS = 1_500
+
+/** «Play» runs the whole round in this long, a frame every [PLAY_FRAME_MILLIS]. */
+private const val PLAY_MILLIS = 12_000L
+private const val PLAY_FRAME_MILLIS = 50L

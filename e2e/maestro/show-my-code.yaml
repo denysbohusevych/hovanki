@@ -1,0 +1,9 @@
+# The hider opens «My code» (one scan: the code without a claim) and waits until the digits are on screen.
+appId: ${APP_ID}
+---
+- tapOn:
+    id: my_code_open
+- extendedWaitUntil:
+    visible:
+      id: my_code_digits
+    timeout: 15000

@@ -24,7 +24,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +59,7 @@ import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.ZoneCircle
 import app.hovanki.shared.rules.ZoneState
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -109,7 +112,8 @@ import kotlin.time.Duration.Companion.milliseconds
  *
  * The zone moves with [cue] (docs/design.md, «Зона — главная анимация»): the part about to go blinks pink before a
  * shrink, the ring turns pink and pulses while it shrinks and snaps back to lime when done. Nothing on the map moves
- * while the zone is calm. [recenterRequests]: each increase moves the camera to our own position.
+ * while the zone is calm. [recenterRequests]: each increase moves the camera to our own position. [onCameraBearing]:
+ * the map's rotation (degrees clockwise from north) whenever the player turns it, for what points somewhere on screen.
  */
 @Composable
 fun GameMap(
@@ -123,6 +127,7 @@ fun GameMap(
     recenterRequests: Int = 0,
     reduceMotion: Boolean = false,
     attributionPadding: PaddingValues = PaddingValues(0.dp),
+    onCameraBearing: (Double) -> Unit = {},
 ) {
     val reasonLabels = mapOf(
         VisibilityReason.TEAMMATE to stringResource(Res.string.reason_teammate),
@@ -312,6 +317,10 @@ fun GameMap(
     LaunchedEffect(mapState) {
         mapState.events.collect { event -> if (event is MapEvent.StyleLoadFailed) styleFailed = true }
     }
+    val bearingListener by rememberUpdatedState(onCameraBearing)
+    LaunchedEffect(mapState) {
+        snapshotFlow { mapState.cameraPosition.bearing }.distinctUntilChanged().collect { bearingListener(it) }
+    }
     LaunchedEffect(recenterRequests) {
         val point = myLocation?.point
         if (recenterRequests > 0 && point != null) mapState.animateCamera(CameraUpdate(target = point.toPosition()))
@@ -324,22 +333,30 @@ fun GameMap(
             // building outlines (OpenStreetMap too). MapLibre's expanding one would repeat it.
             overlay = { include(MapOverlay.None) },
         )
-        val uriHandler = LocalUriHandler.current
-        Text(
-            text = MapStyle.ATTRIBUTION,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-            color = Palette.Ink2,
+        MapCredit(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(attributionPadding)
                 .padding(4.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(Color.White.copy(alpha = 0.8f))
-                .clickable { uriHandler.openUri(MapStyle.COPYRIGHT_URL) }
-                .padding(horizontal = 4.dp, vertical = 1.dp)
                 .testTag(TestTags.MAP_ATTRIBUTION),
         )
     }
+}
+
+/** The credit the tiles and OpenStreetMap require, always visible on a map; leads to the license. */
+@Composable
+internal fun MapCredit(modifier: Modifier = Modifier) {
+    val uriHandler = LocalUriHandler.current
+    Text(
+        text = MapStyle.ATTRIBUTION,
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+        color = Palette.Ink2,
+        modifier = modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color.White.copy(alpha = 0.8f))
+            .clickable { uriHandler.openUri(MapStyle.COPYRIGHT_URL) }
+            .padding(horizontal = 4.dp, vertical = 1.dp),
+    )
 }
 
 /** How the zone looks at the moment: what blinks, pulses and pops. */
@@ -457,7 +474,7 @@ private fun interpolate(from: GeoPoint, to: GeoPoint, fraction: Float): GeoPoint
     GeoPoint(from.lat + (to.lat - from.lat) * fraction, from.lon + (to.lon - from.lon) * fraction)
 }
 
-private const val SHADE_OPACITY = 0.18f
+internal const val SHADE_OPACITY = 0.18f
 private const val BAND_MIN = 0.14f
 private const val BAND_MAX = 0.5f
 private const val BAND_SHRINKING = 0.3f
@@ -530,9 +547,9 @@ private fun corridor(passage: Passage): List<List<Position>> = passage.path.zipW
     (corners + corners.first()).map { it.toPosition() }
 }.filterNotNull()
 
-private fun GeoPoint.toPosition() = Position(longitude = lon, latitude = lat)
+internal fun GeoPoint.toPosition() = Position(longitude = lon, latitude = lat)
 
-private fun features(geometry: Geometry): FeatureCollection<Geometry, JsonObject?> =
+internal fun features(geometry: Geometry): FeatureCollection<Geometry, JsonObject?> =
     FeatureCollection(listOf(Feature(geometry, null)))
 
 private fun points(
@@ -545,17 +562,17 @@ private fun points(
     },
 )
 
-private fun circle(zone: ZoneCircle): List<Position> = circle(zone.center, zone.radiusMeters)
+internal fun circle(zone: ZoneCircle): List<Position> = circle(zone.center, zone.radiusMeters)
 
 /** A closed ring approximating a circle of [radiusMeters] around [center], counterclockwise. */
-private fun circle(center: GeoPoint, radiusMeters: Double, segments: Int = 64): List<Position> =
+internal fun circle(center: GeoPoint, radiusMeters: Double, segments: Int = 64): List<Position> =
     (0..segments).map { step ->
         val angle = 2 * PI * (step % segments) / segments
         center.moveBy(eastMeters = radiusMeters * cos(angle), northMeters = radiusMeters * sin(angle)).toPosition()
     }
 
 /** A counterclockwise square far around [zone]: «the world» that the shade outside the zone covers. */
-private fun around(zone: ZoneCircle): List<Position> {
+internal fun around(zone: ZoneCircle): List<Position> {
     val c = zone.center
     return listOf(
         GeoPoint(c.lat - WORLD_DEGREES, c.lon - WORLD_DEGREES),
@@ -569,7 +586,7 @@ private fun around(zone: ZoneCircle): List<Position> {
 private const val WORLD_DEGREES = 0.5
 
 /** Zoom at which [zone] fills a phone-sized map (~360 dp wide) with a small margin. */
-private fun zoomToFit(zone: ZoneCircle): Double {
+internal fun zoomToFit(zone: ZoneCircle): Double {
     val metersPerDp = 2.4 * zone.radiusMeters / 360
     // At zoom 0 a 512 dp tile covers the equator (40 075 km); meters per dp shrink by cos(latitude).
     val metersPerDpAtZoom0 = 40_075_016.7 / 512 * cos(zone.center.lat * PI / 180)

@@ -209,8 +209,24 @@ object TestTags {
     const val SCANNER_OPEN = "scanner_open"
     const val SCANNER = "scanner"
 
+    /** One scan: the seeker's «Found!» opens the camera with no claim; the hider's «My code» shows it without one. */
+    const val FOUND_OPEN = "found_open"
+    const val MY_CODE_OPEN = "my_code_open"
+    const val MY_CODE = "my_code"
+    const val MY_CODE_DIGITS = "my_code_digits"
+    const val MY_CODE_CLOSE = "my_code_close"
+
+    /** The arrow back into the zone at the edge of the map. */
+    const val ZONE_ARROW = "zone_arrow"
+    const val LOBBY_SHARE = "lobby_share"
+
     const val RESULTS_SCREEN = "results_screen"
     const val RESULTS_BACK = "results_back"
+    const val RESULTS_AWARDS = "results_awards"
+
+    /** The replay on the results screen: the map with everybody's way, and its time slider. */
+    const val REPLAY = "replay"
+    const val REPLAY_SLIDER = "replay_slider"
 
     const val BANNER_RECONNECTING = "banner_reconnecting"
     const val BANNER_ERROR = "banner_error"

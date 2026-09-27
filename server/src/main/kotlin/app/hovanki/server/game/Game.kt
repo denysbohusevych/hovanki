@@ -23,8 +23,10 @@ import app.hovanki.shared.protocol.MyState
 import app.hovanki.shared.protocol.Passage
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
+import app.hovanki.shared.protocol.PlayerTrack
 import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.VisibleLocation
@@ -35,6 +37,7 @@ import app.hovanki.shared.rules.ChatRules
 import app.hovanki.shared.rules.LocationTrack
 import app.hovanki.shared.rules.ZoneRules
 import app.hovanki.shared.rules.circleAt
+import app.hovanki.shared.rules.isUsable
 import app.hovanki.shared.totp.catchCodeTotp
 import java.time.Duration
 
@@ -67,6 +70,9 @@ class Game(
         private set
     private var phaseStartedAtMillis = createdAtMillis
     private var zoneStartedAtMillis: Long? = null
+
+    /** Start of HIDING: the replay tracks begin here. */
+    private var roundStartedAtMillis: Long? = null
     private var finishedAtMillis: Long? = null
     private var lastActivityMillis = createdAtMillis
 
@@ -137,6 +143,7 @@ class Game(
             if (player.role == Role.HIDER) player.catchCodeSecret = newCatchCodeSecret()
         }
         enterPhase(GamePhase.HIDING, nowMillis)
+        roundStartedAtMillis = nowMillis
         lastActivityMillis = nowMillis
     }
 
@@ -144,15 +151,24 @@ class Game(
         val player = player(playerId)
         for (sample in samples.sortedBy { it.timestampMillis }) {
             // Never trust a timestamp from the future.
-            val result = player.track.add(sample.copy(timestampMillis = minOf(sample.timestampMillis, nowMillis)))
+            val fix = sample.copy(timestampMillis = minOf(sample.timestampMillis, nowMillis))
+            val result = player.track.add(fix)
             player.fixResults[result] = (player.fixResults[result] ?: 0) + 1
+            if (result != LocationTrack.Result.ACCEPTED) continue
             // Staleness is about location updates, not requests: an app with GPS off still syncs.
-            if (result == LocationTrack.Result.ACCEPTED) player.lastFixReceivedMillis = nowMillis
+            player.lastFixReceivedMillis = nowMillis
+            if (fix.isUsable(rules) && isInRound(player, fix.timestampMillis)) player.replay.add(fix)
         }
         lastActivityMillis = nowMillis
     }
 
-    fun claimCatch(seekerId: PlayerId, hiderId: PlayerId, catchId: CatchId, nowMillis: Long) {
+    /**
+     * [seekerId] says they found [hiderId]. GPS can refuse the claim ([ErrorCode.TOO_FAR], [ErrorCode.NO_LOCATION]);
+     * otherwise it is open and waits for the hider's code. With [code] (one scan of the hider's QR code), the code is
+     * checked right away, as [confirmCatch] does: the right one confirms the catch, a wrong one counts as a failed
+     * attempt ([ErrorCode.INVALID_CODE]) and leaves the claim open for the hider to show the current code.
+     */
+    fun claimCatch(seekerId: PlayerId, hiderId: PlayerId, catchId: CatchId, nowMillis: Long, code: String? = null) {
         requirePhase(GamePhase.SEEKING)
         val seeker = player(seekerId)
         val hider = player(hiderId)
@@ -186,6 +202,7 @@ class Game(
             estimatedDistanceAtClaimMeters = CatchRules.estimatedDistanceMeters(seekerFixes, hiderFixes),
         )
         lastActivityMillis = nowMillis
+        if (!code.isNullOrBlank()) confirmCatch(catchId, seekerId, code, nowMillis)
     }
 
     fun confirmCatch(catchId: CatchId, by: PlayerId, code: String, nowMillis: Long) {
@@ -291,6 +308,15 @@ class Game(
         return ReportedMessage(message, sender.name, sender.userId, reporter.userId)
     }
 
+    /**
+     * Every player's way through the round, for the replay: only once the game is over, when nothing is hidden any more
+     * ([ErrorCode.WRONG_STATE] before, the tracks would give the hiders away).
+     */
+    fun tracks(): TracksResponse {
+        requirePhase(GamePhase.FINISHED)
+        return TracksResponse(players.values.map { PlayerTrack(it.id, it.replay.points()) })
+    }
+
     /** Applies everything that happens by itself as time passes. */
     fun advance(nowMillis: Long) {
         if (phase == GamePhase.HIDING) {
@@ -345,6 +371,8 @@ class Game(
                     player.status,
                     visibleLocation(viewer, player, nowMillis),
                     player.userId,
+                    player.outAtMillis,
+                    player.caughtBy,
                 )
             },
             me = MyState(
@@ -360,6 +388,7 @@ class Game(
                 .takeLast(MAX_CATCHES_IN_SNAPSHOT)
                 .map { it.toView(viewerId) },
             buildings = buildingsState,
+            finishedAtMillis = finishedAtMillis,
             chat = chatAfter?.let { after ->
                 chat.filter { it.seq > after && ChatRules.canSee(it.channel, viewer.role) }
                     .takeLast(ChatRules.MAX_PER_RESPONSE)
@@ -416,6 +445,9 @@ class Game(
                         implausible = player.fixResults[LocationTrack.Result.IMPLAUSIBLE] ?: 0,
                     ),
                     userId = player.userId,
+                    outAtMillis = player.outAtMillis,
+                    caughtBy = player.caughtBy,
+                    replayPoints = player.replay.size,
                 )
             },
             catches = catches.values.map { claim ->
@@ -478,6 +510,7 @@ class Game(
     private fun checkZone(nowMillis: Long) {
         val zoneStart = zoneStartedAtMillis ?: return
         val zone = settings.zone.circleAt(nowMillis - zoneStart)
+        var lastOutMillis: Long? = null
         for (hider in players.values.filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
             // Players in an open catch claim or dispute are frozen until it is resolved.
             if (catches.values.any { it.isOpen && it.hiderId == hider.id }) continue
@@ -489,7 +522,11 @@ class Game(
                         hider.outOfZoneSinceMillis = nowMillis
                     } else if (nowMillis - since >= rules.outOfZoneGraceSeconds * 1000L) {
                         hider.status = PlayerStatus.ELIMINATED
+                        // Out when the time to return ran out, however long it took anybody to ask.
+                        val outAt = since + rules.outOfZoneGraceSeconds * 1000L
+                        hider.outAtMillis = outAt
                         hider.outOfZoneSinceMillis = null
+                        lastOutMillis = maxOf(lastOutMillis ?: outAt, outAt)
                     }
                 }
 
@@ -499,7 +536,10 @@ class Game(
                 }
             }
         }
-        if (players.values.none { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) finish(nowMillis)
+        // The last hider out of the zone ends the round when their time ran out.
+        if (players.values.none { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
+            finish(lastOutMillis ?: nowMillis)
+        }
     }
 
     /**
@@ -539,7 +579,10 @@ class Game(
         claim.status = if (confirmed) CatchStatus.CONFIRMED else CatchStatus.REJECTED
         claim.deadlineMillis = atMillis
         if (confirmed) {
-            player(claim.hiderId).status = PlayerStatus.CAUGHT
+            val hider = player(claim.hiderId)
+            hider.status = PlayerStatus.CAUGHT
+            hider.outAtMillis = atMillis
+            hider.caughtBy = claim.seekerId
             if (players.values.none { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) finish(atMillis)
         }
     }
@@ -556,6 +599,16 @@ class Game(
     private fun enterPhase(next: GamePhase, atMillis: Long) {
         phase = next
         phaseStartedAtMillis = atMillis
+    }
+
+    /**
+     * Whether a fix at [atMillis] belongs to [player]'s replay: from the start of hiding until the end of the round, for
+     * a hider until they were out. Late fixes (sent after the moment) count by their own time.
+     */
+    private fun isInRound(player: Player, atMillis: Long): Boolean {
+        val start = roundStartedAtMillis ?: return false
+        val end = minOf(finishedAtMillis ?: Long.MAX_VALUE, player.outAtMillis ?: Long.MAX_VALUE)
+        return atMillis in start..<end
     }
 
     private fun eligibleVoters(claim: CatchClaim): Set<PlayerId> = players.keys - setOf(claim.seekerId, claim.hiderId)
@@ -602,6 +655,13 @@ class Game(
         var lastFixReceivedMillis: Long? = null
         var outOfZoneSinceMillis: Long? = null
         var insideBuildingSinceMillis: Long? = null
+
+        /** When a hider was caught or eliminated, and by whom they were caught. */
+        var outAtMillis: Long? = null
+        var caughtBy: PlayerId? = null
+
+        /** The whole round, thinned, for the replay after it. */
+        val replay = ReplayTrack()
 
         /** When the player's app last fetched the READY buildings (for the e2e observer). */
         var buildingsLoadedAtMillis: Long? = null

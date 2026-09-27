@@ -29,6 +29,7 @@ import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
+import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.ChatRules
 import app.hovanki.shared.rules.shrinkingZone
@@ -82,6 +83,36 @@ class GameApiTest(@Autowired private val mvc: MockMvc, @Autowired private val re
 
         assertEquals(PlayerStatus.CAUGHT, after.players.single { it.id == host.playerId }.status)
         assertEquals(GamePhase.FINISHED, after.phase)
+    }
+
+    @Test
+    fun oneScanAndTheReplayOverHttp() {
+        val created = post<SessionResponse>(ApiRoutes.GAMES, CreateGameRequest("Host", settings).toJson())
+        val host = created.session
+        val seeker =
+            post<SessionResponse>(ApiRoutes.JOIN, JoinGameRequest(created.snapshot.joinCode, "Seeker").toJson()).session
+        post<GameSnapshot>(ApiRoutes.start(host.gameId), StartGameRequest(listOf(seeker.playerId)).toJson(), host)
+        val secret = assertNotNull(sync(host).me.catchCodeSecret)
+        sync(seeker)
+        val tracksPath = ApiRoutes.tracks(host.gameId)
+        val secretTracks = get(tracksPath, seeker, expectedStatus = 409)
+        assertEquals(ErrorCode.WRONG_STATE, protocolJson.decodeFromString<ApiError>(secretTracks).code)
+
+        // The seeker scanned the host's QR code: claim and code in one request.
+        val code = catchCodeTotp(secret, settings.rules).codeAt(System.currentTimeMillis())
+        val after = post<GameSnapshot>(
+            ApiRoutes.catches(host.gameId),
+            ClaimCatchRequest(host.playerId, code).toJson(),
+            seeker,
+        )
+
+        val caught = after.players.single { it.id == host.playerId }
+        assertEquals(PlayerStatus.CAUGHT, caught.status)
+        assertEquals(seeker.playerId, caught.caughtBy)
+        assertEquals(GamePhase.FINISHED, after.phase)
+        assertEquals(caught.outAtMillis, after.finishedAtMillis)
+        val tracks = protocolJson.decodeFromString<TracksResponse>(get(tracksPath, host, expectedStatus = 200))
+        assertEquals(setOf(host.playerId, seeker.playerId), tracks.tracks.map { it.playerId }.toSet())
     }
 
     @Test
@@ -375,6 +406,13 @@ class GameApiTest(@Autowired private val mvc: MockMvc, @Autowired private val re
         val fix = LocationSample(park, accuracyMeters = 5.0, timestampMillis = System.currentTimeMillis())
         return post(ApiRoutes.sync(session.gameId), SyncRequest(listOf(fix), chatAfter).toJson(), session)
     }
+
+    private fun get(path: String, session: PlayerSession, expectedStatus: Int): String = mvc.get(path) {
+        accept = MediaType.APPLICATION_JSON
+        header("Authorization", "${ApiRoutes.AUTH_SCHEME} ${session.token}")
+    }.andExpect {
+        status { isEqualTo(expectedStatus) }
+    }.andReturn().response.getContentAsString(Charsets.UTF_8)
 
     private inline fun <reified T> T.toJson(): String = protocolJson.encodeToString(this)
 

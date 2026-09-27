@@ -126,6 +126,37 @@ class ProtocolJsonTest {
     }
 
     @Test
+    fun oneScanAndTheResultsDefaultForOlderApps() {
+        // A claim of the apps before one scan: no code, the hider shows it afterwards.
+        assertEquals(
+            ClaimCatchRequest(PlayerId("p2"), code = null),
+            protocolJson.decodeFromString<ClaimCatchRequest>("""{"hiderId":"p2"}"""),
+        )
+        // A snapshot of the servers before the results had times: nobody out, no end.
+        val decoded = protocolJson.decodeFromString<GameSnapshot>(protocolJson.encodeToString(snapshot))
+        assertEquals(null, decoded.finishedAtMillis)
+        assertEquals(null, decoded.players.single().outAtMillis)
+        assertEquals(null, decoded.players.single().caughtBy)
+
+        val caught = snapshot.copy(
+            phase = GamePhase.FINISHED,
+            finishedAtMillis = 3,
+            players = listOf(PlayerView(me, "Denys", Role.HIDER, PlayerStatus.CAUGHT, outAtMillis = 2, caughtBy = me)),
+        )
+        assertEquals(caught, protocolJson.decodeFromString<GameSnapshot>(protocolJson.encodeToString(caught)))
+    }
+
+    @Test
+    fun tracksAreFlatPoints() {
+        val tracks = TracksResponse(listOf(PlayerTrack(me, listOf(TrackPoint(50.45, 30.52, 1_700_000_000_000)))))
+        val json = protocolJson.encodeToString(tracks)
+        val point = """{"lat":50.45,"lon":30.52,"atMillis":1700000000000}"""
+        assertEquals("""{"tracks":[{"playerId":"p1","points":[$point]}]}""", json)
+        assertEquals(tracks, protocolJson.decodeFromString<TracksResponse>(json))
+        assertEquals(GeoPoint(50.45, 30.52), tracks.tracks.single().points.single().point)
+    }
+
+    @Test
     fun anUnknownChatChannelIsReadAsEveryone() {
         val json = """{"seq":3,"playerId":"p1","text":"hi","sentAtMillis":1,"channel":"SOMETHING_NEWER"}"""
         assertEquals(
@@ -173,6 +204,7 @@ class ProtocolJsonTest {
     fun routesAreFilled() {
         assertEquals("/api/v1/games/g1/catches/c1/confirm", ApiRoutes.catchConfirm(GameId("g1"), CatchId("c1")))
         assertEquals("/api/v1/games/g1/buildings", ApiRoutes.buildings(GameId("g1")))
+        assertEquals("/api/v1/games/g1/tracks", ApiRoutes.tracks(GameId("g1")))
         assertEquals("/api/v1/games/g1/chat/42/report", ApiRoutes.chatReport(GameId("g1"), 42))
         assertEquals("/api/v1/games/g1/invites", ApiRoutes.gameInvites(GameId("g1")))
         assertEquals("/api/v1/me/invites/i1/dismiss", ApiRoutes.inviteDismiss(InviteId("i1")))

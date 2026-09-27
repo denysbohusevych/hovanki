@@ -70,6 +70,7 @@ private suspend fun DeviceRun.fullRound() = with(scenario) {
 
     checkBackgroundTracking(lineup.deviceHiders.firstOrNull() ?: seeker)
     lineup.deviceHiders.firstOrNull()?.let { checkBuildingRule(it, seeker) }
+    lineup.deviceHiders.firstOrNull()?.let { checkMyCode(it) }
 
     for (bot in lineup.botHiders) {
         seeker.catchesUpWith(bot.gps.truePosition)
@@ -330,6 +331,24 @@ private suspend fun DeviceRun.checkBackgroundTracking(player: DevicePlayer) = wi
     )
     player.device.bringAppToFront()
     player.awaitVisible(TestTags.GAME_SCREEN)
+}
+
+/**
+ * «My code» (one scan): the hider opens the code without a claim, and it is the one the server expects right now; then
+ * hides it again. The seeker's side needs a camera, which emulators don't have: bots cover it.
+ */
+private suspend fun DeviceRun.checkMyCode(hider: DevicePlayer) = with(scenario) {
+    hider.flowRetryingLostTap("show-my-code", TestTags.MY_CODE_OPEN)
+    val shown = checkNotNull(hider.readText(TestTags.MY_CODE_DIGITS)) { "${hider.name} shows no code" }
+        .filter(Char::isDigit)
+    screenshot("my code", listOf(hider))
+    val server = state()
+    val secret = checkNotNull(server.players.single { it.id == hider.id }.catchCodeSecret)
+    check(
+        catchCodeTotp(secret, server.settings.rules).verify(shown, server.serverTimeMillis),
+        "${hider.name}'s «My code» is the code the server expects ($shown)",
+    )
+    hider.flow("hide-my-code")
 }
 
 /**

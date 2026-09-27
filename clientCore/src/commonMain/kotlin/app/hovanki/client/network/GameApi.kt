@@ -14,6 +14,7 @@ import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
+import app.hovanki.shared.protocol.TracksResponse
 
 /**
  * Request/response calls of the game server. Every call that changes the game returns the fresh
@@ -33,7 +34,11 @@ interface GameApi {
     /** Sends new location samples and returns the current state; see [GameConnection]. */
     suspend fun sync(session: PlayerSession, request: SyncRequest): GameSnapshot
 
-    suspend fun claimCatch(session: PlayerSession, hiderId: PlayerId): GameSnapshot
+    /**
+     * A claim on [hiderId]; with [code] (the seeker scanned the hider's QR code), the code is checked in the same step
+     * ([app.hovanki.shared.protocol.ClaimCatchRequest.code]).
+     */
+    suspend fun claimCatch(session: PlayerSession, hiderId: PlayerId, code: String? = null): GameSnapshot
 
     suspend fun confirmCatch(session: PlayerSession, catchId: CatchId, code: String): GameSnapshot
 
@@ -43,6 +48,9 @@ interface GameApi {
 
     /** The buildings the rule judges by; once per game, when the snapshot says they are ready. */
     suspend fun buildings(session: PlayerSession): BuildingsResponse
+
+    /** Every player's track of the round, for the replay on the results screen: once the game is finished. */
+    suspend fun tracks(session: PlayerSession): TracksResponse
 
     /** Sends a chat message; the snapshot's chat has the messages after [SendChatRequest.chatAfter], this one too. */
     suspend fun sendChat(session: PlayerSession, request: SendChatRequest): GameSnapshot

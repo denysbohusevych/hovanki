@@ -279,7 +279,7 @@
   <string name="flash_seekers_out">The seekers are out!</string>
   <string name="catch_auto_in">Counts by itself in %1$s</string>
   <string name="catch_or_say">Or read out the digits</string>
-  <string name="catch_seeker_hint">Tap who you caught, then type the 4 digits from their screen.</string>
+  <string name="catch_seeker_hint">Found someone? Tap «Found!» and scan the QR code on their screen. The camera won\'t read it: tap their name, they show 4 digits.</string>
   <string name="lobby_title">Lobby</string>
   <string name="lobby_random">Random</string>
   <string name="lobby_chip_zone">Zone %1$d m</string>
@@ -298,8 +298,8 @@
   <string name="back_in_zone">You are in the zone</string>
   <string name="consent_title">Location for the game</string>
   <string name="consent_text">Hide-and-seek on the street needs your precise location during the round.</string>
-  <string name="consent_who">Who sees it: the game server. Seekers see each other; hiders only when the rules reveal them: out of the zone, inside a building, no signal.</string>
-  <string name="consent_when">When it is deleted: with the game, right after the round. Nothing is kept on your phone.</string>
+  <string name="consent_who">Who sees it: the game server. Seekers see each other; hiders only when the rules reveal them: out of the zone, inside a building, no signal. After the round, the players of the game see everybody\'s way on the map.</string>
+  <string name="consent_when">When it is deleted: with the game, half an hour after the round at the latest. Nothing is kept on your phone.</string>
   <string name="consent_pocket">In your pocket: the game keeps sending your location with the screen off, otherwise hiding would not work.</string>
   <string name="consent_allow">Allow location</string>
   <string name="consent_later">Not now</string>
@@ -317,4 +317,31 @@
   <string name="alert_in_building_text">Otherwise the seekers will see you.</string>
   <string name="alert_claim_text">Open the game and show your code.</string>
   <string name="catch_or_type">Type the digits instead</string>
+
+  <!-- One scan, the arrow back into the zone, sharing the code, the results (docs/design.md) -->
+  <string name="hud_my_code">My code</string>
+  <string name="catch_pick_name">Pick them by name instead</string>
+  <string name="my_code_title">Show this to the seeker</string>
+  <string name="my_code_hint">Once they scan it, you are caught. Show it only if they really found you.</string>
+  <string name="my_code_close">Hide the code</string>
+  <string name="zone_arrow">The way back into the zone</string>
+  <string name="lobby_share">Share</string>
+  <string name="lobby_share_text">Let\'s play hide-and-seek in Hovanki! The game code: %1$s</string>
+  <string name="results_into_search">%1$s into the search</string>
+  <string name="results_to_the_end">Until the end</string>
+  <string name="results_finds">Finds: %1$d</string>
+  <string name="awards_title">Awards</string>
+  <string name="award_first_catch">First find</string>
+  <string name="award_hunter">Most finds</string>
+  <string name="award_survivor">Never found</string>
+  <string name="award_last_standing">Found last</string>
+  <string name="award_marathon">Marathon</string>
+  <string name="award_whole_search">The whole search, %1$s</string>
+  <string name="distance_m">%1$d m</string>
+  <string name="distance_km">%1$d.%2$d km</string>
+  <string name="replay_title">Replay</string>
+  <string name="replay_loading">Loading the tracks…</string>
+  <string name="replay_time">Time of the round</string>
+  <string name="replay_play">Play the round</string>
+  <string name="replay_pause">Pause</string>
 </resources>

@@ -26,6 +26,7 @@ import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
+import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VoteRequest
 import app.hovanki.shared.rules.RequestIds
@@ -70,6 +71,10 @@ class GameService(
         val game = gameOf(caller, gameId)
         return synchronized(game) { game.buildingsFor(caller.playerId, clock.millis()) }
     }
+
+    /** Every player's track of the round, for the replay: only once the game is over ([Game.tracks]). */
+    fun tracks(caller: PlayerRef, gameId: GameId): TracksResponse =
+        withGame(caller, gameId) { game, _ -> game.tracks() }
 
     /**
      * Joins the game of [JoinGameRequest.joinCode] as a new player, in the lobby only. [user]: the caller's account
@@ -149,8 +154,11 @@ class GameService(
         return snapshot
     }
 
+    /** A claim; with [ClaimCatchRequest.code] (one scan of the hider's QR code), confirmed in the same step. */
     fun claimCatch(caller: PlayerRef, gameId: GameId, request: ClaimCatchRequest): GameSnapshot =
-        update(caller, gameId) { game, now -> game.claimCatch(caller.playerId, request.hiderId, ids.catchId(), now) }
+        update(caller, gameId) { game, now ->
+            game.claimCatch(caller.playerId, request.hiderId, ids.catchId(), now, request.code)
+        }
 
     fun confirmCatch(caller: PlayerRef, gameId: GameId, catchId: CatchId, request: ConfirmCatchRequest): GameSnapshot =
         update(caller, gameId) { game, now -> game.confirmCatch(catchId, caller.playerId, request.code, now) }
