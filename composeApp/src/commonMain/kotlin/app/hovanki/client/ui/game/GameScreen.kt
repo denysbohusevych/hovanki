@@ -32,7 +32,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -683,7 +682,7 @@ private fun ShowCodeLayer(
             }
         }
         if (qr != null) {
-            // As big as the room allows (up to 240 dp): the seeker's camera reads it from a step away.
+            // As big as the room allows: the seeker's camera reads it from a step away.
             Box(
                 modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp),
                 contentAlignment = Alignment.Center,
@@ -691,7 +690,7 @@ private fun ShowCodeLayer(
                 Crossfade(
                     targetState = qr,
                     animationSpec = tween(Motion.FAST_MILLIS),
-                    modifier = Modifier.fillMaxHeight().aspectRatio(1f).widthIn(max = 240.dp),
+                    modifier = Modifier.fillMaxHeight().aspectRatio(1f),
                 ) { text ->
                     PopSurface(
                         shape = RoundedCornerShape(20.dp),
