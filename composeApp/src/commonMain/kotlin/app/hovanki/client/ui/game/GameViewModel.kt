@@ -66,11 +66,16 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
 
     fun confirmCatch(catchId: CatchId, code: String) = runCommand { sessionManager.confirmCatch(catchId, code) }
 
-    /** Text of a scanned QR code; ignored unless it is the code of the hider this claim is about. */
-    fun onCodeScanned(claim: ClaimUi, text: String) {
-        val payload = CatchCodePayload.decode(text) ?: return
+    /**
+     * Text of a scanned QR code; ignored unless it is the code of the hider this claim is about. True when it was:
+     * the camera can close.
+     */
+    fun onCodeScanned(claim: ClaimUi, text: String): Boolean {
+        val payload = CatchCodePayload.decode(text) ?: return false
         val gameId = sessionManager.state.value.session?.gameId
-        if (payload.gameId == gameId && payload.hiderId == claim.hiderId) confirmCatch(claim.id, payload.code)
+        if (payload.gameId != gameId || payload.hiderId != claim.hiderId) return false
+        confirmCatch(claim.id, payload.code)
+        return true
     }
 
     fun dispute(catchId: CatchId) = runCommand { sessionManager.dispute(catchId) }
@@ -158,6 +163,7 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
                 .toSet(),
             claimAgainstMe = claimAgainstMe?.toUi(),
             catchCode = catchCode,
+            catchQr = catchCode?.let { CatchCodePayload(snapshot.gameId, me.playerId, it.code).encode() },
             codeDigits = rules.catchCodeDigits,
             codePeriodMillis = rules.catchCodePeriodSeconds * 1000L,
             claimTimeoutMillis = rules.catchCodeTimeoutSeconds * 1000L,
@@ -213,6 +219,8 @@ data class GameUiState(
     val claimAgainstMe: ClaimUi?,
     /** Hider: the code to show while a claim awaits it. */
     val catchCode: CatchCode?,
+    /** Hider: the same code for the seeker's camera, the text of the QR code ([CatchCodePayload]). */
+    val catchQr: String?,
     val codeDigits: Int,
     /** How long a catch code lasts, and how long a hider has to show it: for the countdown rings. */
     val codePeriodMillis: Long,

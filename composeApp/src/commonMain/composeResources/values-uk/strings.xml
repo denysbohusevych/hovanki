@@ -233,7 +233,6 @@
   <string name="claim_enter_code">Попросіть %1$s показати код на екрані.</string>
   <string name="claim_time_left">Залишилося: %1$s</string>
   <string name="claim_disputed_mine">%1$s оскаржує знахідку. Інші гравці голосують.</string>
-  <string name="scanner_placeholder">Сканування QR-коду з’явиться згодом. Поки введіть цифри вручну.</string>
   <string name="hider_claim_title">%1$s каже, що знайшов вас!</string>
   <string name="hider_claim_hint">Покажіть цей код. Якщо вас насправді не знайшли — оскаржте.</string>
   <string name="hider_code_next">Новий код через %1$s</string>
@@ -317,4 +316,5 @@
   <string name="alert_in_building_title">Вийдіть із будівлі!</string>
   <string name="alert_in_building_text">Інакше шукачі вас побачать.</string>
   <string name="alert_claim_text">Відкрийте гру й покажіть код.</string>
+  <string name="catch_or_type">Ввести цифри вручну</string>
 </resources>

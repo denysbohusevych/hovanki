@@ -233,7 +233,6 @@
   <string name="claim_enter_code">Ask %1$s for the code on their screen.</string>
   <string name="claim_time_left">Time left: %1$s</string>
   <string name="claim_disputed_mine">%1$s disputes the catch. The other players are voting.</string>
-  <string name="scanner_placeholder">QR scanning is coming soon. Type the digits instead.</string>
   <string name="hider_claim_title">%1$s says they found you!</string>
   <string name="hider_claim_hint">Show this code. If they did not really find you, dispute the catch.</string>
   <string name="hider_code_next">New code in %1$s</string>
@@ -317,4 +316,5 @@
   <string name="alert_in_building_title">Leave the building!</string>
   <string name="alert_in_building_text">Otherwise the seekers will see you.</string>
   <string name="alert_claim_text">Open the game and show your code.</string>
+  <string name="catch_or_type">Type the digits instead</string>
 </resources>

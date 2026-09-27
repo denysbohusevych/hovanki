@@ -7,8 +7,11 @@
   <!-- Keeps location updates flowing while the screen is off during a round. -->
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-  <!-- The ongoing "round in progress" notification of the foreground service (Android 13+). -->
+  <!-- The ongoing "round in progress" notification of the foreground service and the hider's alerts (Android 13+). -->
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <!-- The seeker scans the hider's QR code; typing the digits works without a camera. -->
+  <uses-permission android:name="android.permission.CAMERA" />
+  <uses-feature android:name="android.hardware.camera" android:required="false" />
 
   <application>
     <service
