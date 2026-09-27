@@ -411,11 +411,17 @@ class BotPlayer(
                 CommandResult.Ok
             } else {
                 when (val error = running.session.state.value.lastError) {
-                    is SessionError.Rejected -> CommandResult.Rejected(error.code, error.message, error.reason)
+                    is SessionError.Rejected ->
+                        CommandResult.Rejected(error.code, error.message, error.reason, error.retryAfterSeconds)
+
                     is SessionError.Network -> CommandResult.Failed(error.details)
+
                     SessionError.SessionLost -> CommandResult.Failed("session lost")
+
                     SessionError.SavedGameFinished -> CommandResult.Failed("saved game finished")
+
                     SessionError.SavedGameGone -> CommandResult.Failed("saved game gone")
+
                     null -> CommandResult.Failed("unknown")
                 }
             }
@@ -437,7 +443,10 @@ class BotPlayer(
         val running = app ?: return notRunning(description)
         val result = when (val outcome = withContext(running.mainThread) { call(running) }) {
             is ApiResult.Success -> CommandResult.Ok
-            is ApiResult.Rejected -> CommandResult.Rejected(outcome.code, outcome.message, outcome.reason)
+
+            is ApiResult.Rejected ->
+                CommandResult.Rejected(outcome.code, outcome.message, outcome.reason, outcome.retryAfterSeconds)
+
             is ApiResult.Network -> CommandResult.Failed(outcome.details)
         }
         log(if (result == CommandResult.Ok) description else "$description: $result")
@@ -619,8 +628,16 @@ class BotPlayer(
 sealed interface CommandResult {
     data object Ok : CommandResult
 
-    /** The server refused; [code] is its [ErrorCode], [reason] the exact cause when it sent one. */
-    data class Rejected(val code: ErrorCode?, val message: String, val reason: ErrorReason? = null) : CommandResult
+    /**
+     * The server refused; [code] is its [ErrorCode], [reason] the exact cause when it sent one, [retryAfterSeconds]
+     * when to try again after a rate limit.
+     */
+    data class Rejected(
+        val code: ErrorCode?,
+        val message: String,
+        val reason: ErrorReason? = null,
+        val retryAfterSeconds: Long? = null,
+    ) : CommandResult
 
     /** Network or local failure. */
     data class Failed(val details: String?) : CommandResult

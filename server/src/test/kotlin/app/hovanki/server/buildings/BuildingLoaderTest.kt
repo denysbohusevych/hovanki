@@ -3,10 +3,14 @@ package app.hovanki.server.buildings
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.ZoneCircle
 import java.time.Duration
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class BuildingLoaderTest {
     private val area = ZoneCircle(GeoPoint(50.0, 30.0), 550.0)
@@ -56,5 +60,20 @@ class BuildingLoaderTest {
 
         assertNull(load(loader(attempts = 3, tooMany)))
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun aDelayedFakeSourceLoadsOffTheRequestThread() {
+        val properties = BuildingProperties(source = BuildingProperties.Source.FAKE, fakeDelay = Duration.ofMillis(300))
+        val loader = BuildingLoader(FakeBuildingSource(), properties)
+        val result = CompletableFuture<Buildings?>()
+        val started = System.nanoTime()
+
+        loader.load("g", area, result::complete)
+
+        assertFalse(result.isDone, "load returns before the buildings arrive")
+        assertNotNull(result.get(5, TimeUnit.SECONDS))
+        assertTrue((System.nanoTime() - started) / 1_000_000 >= 300, "they arrive after the delay")
+        loader.destroy()
     }
 }

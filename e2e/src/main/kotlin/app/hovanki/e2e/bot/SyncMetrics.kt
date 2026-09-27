@@ -35,6 +35,9 @@ class SyncMetrics {
 
     val syncCount: Int get() = syncMillis.size
 
+    /** Every `/sync` latency so far, roughly in the order they finished: the slice of a phase is a sublist. */
+    val syncLatencies: List<Long> get() = syncMillis.toList()
+
     val errors: List<String> get() = failures.toList()
 
     /** Requests the server answered with a 5xx: a bug on the server, whatever the scenario does. */
