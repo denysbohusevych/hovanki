@@ -39,6 +39,9 @@ object DeviceScenarios {
  */
 private const val HIDING_SECONDS = 60
 
+/** How far the backgrounded app is moved to see that its locations flow before the walk is measured. */
+private const val FIRST_STEP_METERS = 5.0
+
 /** Who plays what: the first device hosts; the seeker is a device if there is one for it, otherwise a bot. */
 private class Lineup(
     val host: DevicePlayer,
@@ -309,15 +312,24 @@ private suspend fun DeviceRun.checkBackgroundTracking(player: DevicePlayer) = wi
     player.log("app in the background")
     delay(3.seconds)
     screenshot("app in the background", listOf(player))
+    // Right after the app leaves the screen the device can be sluggish for half a minute (the iOS simulator starts
+    // Settings, and `simctl location set` takes seconds meanwhile): a walk started now could be over before its points
+    // reach the app, and a phone standing still sends no new fixes. A first step shows that locations flow again; the
+    // walk is measured from there.
+    player.walkTo(player.truePosition.offset(eastMeters = FIRST_STEP_METERS), speed = 2.0)
+    val stepped = eventually("a first step reaches the server from the background", 60.seconds) {
+        playerOnServer(player.id).takeIf { it.fixes.accepted > before.fixes.accepted }
+    }
     val east = player.truePosition.offset(eastMeters = 40.0)
     val walk = player.walkTo(buildings?.openSpotNear(east, searchMeters = 30.0) ?: east, speed = 2.0)
     delay(25.seconds)
     val after = playerOnServer(player.id)
     check(
-        after.fixes.accepted >= before.fixes.accepted + 5,
-        "fixes keep arriving in the background (${before.fixes.accepted} → ${after.fixes.accepted})",
+        after.fixes.accepted >= stepped.fixes.accepted + 5,
+        "fixes keep arriving in the background (${before.fixes.accepted} → ${stepped.fixes.accepted} → " +
+            "${after.fixes.accepted})",
     )
-    val moved = after.latestFix?.point?.distanceTo(checkNotNull(before.latestFix).point) ?: 0.0
+    val moved = after.latestFix?.point?.distanceTo(checkNotNull(stepped.latestFix).point) ?: 0.0
     check(
         moved >= minOf(20.0, walk.lengthMeters / 2),
         "the server follows the walk in the background (${moved.toInt()} m)",
