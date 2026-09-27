@@ -35,8 +35,8 @@ data class PlayerAccount(
     /** The player's account; null: a guest. */
     val userId: UserId?,
     /**
-     * What they are to the viewer; null when that does not apply: a guest, the viewer themselves, or the viewer plays
-     * without a confirmed account.
+     * What they are to the viewer; null when that does not apply: a guest, the viewer themselves, or the viewer is a
+     * guest.
      */
     val relation: UserRelation?,
 ) {
@@ -48,7 +48,7 @@ fun playerAccount(player: PlayerView, me: PlayerId, account: AccountState, frien
     val userId = player.userId
     val selfId = account.user?.id
     val relation = when {
-        userId == null || player.id == me || !account.isVerified -> null
+        userId == null || player.id == me || !account.isLoggedIn -> null
         else -> userRelation(userId, selfId, friends).takeIf { it != UserRelation.SELF }
     }
     return PlayerAccount(userId, relation)

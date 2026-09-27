@@ -47,13 +47,20 @@ class PlayerAccountTest {
     }
 
     @Test
-    fun nothingToDoAboutThemselvesOrWithoutAConfirmedAccount() {
+    fun nothingToDoAboutThemselvesOrAsAGuest() {
         val stranger = player("p-stranger", UserId("u-stranger"))
-        val unconfirmed = AccountState(user = profile(myUser, verified = false), isRestored = true)
 
         assertNull(playerAccount(player(me.value, myUser), me, loggedIn, friends).relation)
         assertNull(playerAccount(stranger, me, AccountState(isRestored = true), friends).relation)
-        assertNull(playerAccount(stranger, me, unconfirmed, friends).relation)
+    }
+
+    @Test
+    fun anUnconfirmedEmailMakesNoDifference() {
+        val unconfirmed = AccountState(user = profile(myUser, verified = false), isRestored = true)
+
+        val account = playerAccount(player("p-stranger", UserId("u-stranger")), me, unconfirmed, friends)
+
+        assertEquals(UserRelation.NONE, account.relation, "can be added as a friend")
     }
 
     private fun player(id: String, userId: UserId?) =

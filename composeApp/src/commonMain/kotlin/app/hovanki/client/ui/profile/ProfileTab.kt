@@ -2,6 +2,7 @@ package app.hovanki.client.ui.profile
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -27,11 +29,13 @@ import app.hovanki.client.resources.action_log_out
 import app.hovanki.client.resources.new_password_label
 import app.hovanki.client.resources.password_label
 import app.hovanki.client.resources.profile_change_password
+import app.hovanki.client.resources.profile_confirm_email
 import app.hovanki.client.resources.profile_current_password
 import app.hovanki.client.resources.profile_delete
 import app.hovanki.client.resources.profile_delete_confirm
 import app.hovanki.client.resources.profile_delete_warning
 import app.hovanki.client.resources.profile_email
+import app.hovanki.client.resources.profile_email_unconfirmed
 import app.hovanki.client.resources.profile_nickname
 import app.hovanki.client.resources.profile_save_password
 import app.hovanki.client.resources.register_password_hint
@@ -41,12 +45,15 @@ import app.hovanki.client.ui.common.PasswordField
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.verify.VerifyEmailViewModel
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
-/** «Profile»: nickname and email, change the password, log out, delete the account. */
+/**
+ * «Profile»: nickname and email (not confirmed yet: confirm it here), change the password, log out, delete the account.
+ */
 @Composable
-fun ProfileTab(viewModel: ProfileViewModel = koinViewModel()) {
+fun ProfileTab(verify: VerifyEmailViewModel, viewModel: ProfileViewModel = koinViewModel()) {
     val account by viewModel.accountState.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
@@ -67,6 +74,19 @@ fun ProfileTab(viewModel: ProfileViewModel = koinViewModel()) {
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.testTag(TestTags.PROFILE_EMAIL),
         )
+        if (!user.emailVerified) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(Res.string.profile_email_unconfirmed),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.weight(1f).testTag(TestTags.PROFILE_EMAIL_UNCONFIRMED),
+                )
+                TextButton(onClick = verify::open, modifier = Modifier.testTag(TestTags.PROFILE_CONFIRM_EMAIL)) {
+                    Text(stringResource(Res.string.profile_confirm_email))
+                }
+            }
+        }
         HorizontalDivider()
 
         OutlinedButton(

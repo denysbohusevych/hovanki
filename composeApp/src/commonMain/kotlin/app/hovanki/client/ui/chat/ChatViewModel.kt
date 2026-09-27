@@ -187,7 +187,7 @@ class ChatViewModel(
             lines = state.chatLines(blocked),
             unread = state.unreadChatCount(blocked),
             hasTeamChannel = snapshot != null && ChatRules.hasTeamChannel(snapshot.phase),
-            canBlock = accountState.isVerified,
+            canBlock = accountState.isLoggedIn,
             selectedSeq = selected,
             error = state.lastError,
         )
@@ -202,7 +202,7 @@ data class ChatUiState(
     val unread: Int = 0,
     /** «My team» can be picked (not in the lobby). */
     val hasTeamChannel: Boolean = false,
-    /** Playing with a confirmed account: senders with an account can be blocked. */
+    /** Logged in: senders with an account can be blocked. */
     val canBlock: Boolean = false,
     val selectedSeq: Long? = null,
     /** A message could not be sent or reported (rate limit, too long, not visible...). */

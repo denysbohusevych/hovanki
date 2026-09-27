@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -14,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
@@ -32,6 +34,9 @@ import app.hovanki.client.ui.groups.GroupsTab
 import app.hovanki.client.ui.groups.GroupsViewModel
 import app.hovanki.client.ui.play.PlayTab
 import app.hovanki.client.ui.profile.ProfileTab
+import app.hovanki.client.ui.verify.EmailConfirmedNotice
+import app.hovanki.client.ui.verify.VerifyEmailPanel
+import app.hovanki.client.ui.verify.VerifyEmailViewModel
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
@@ -39,14 +44,22 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Logged in with a confirmed email, not in a game: «Play», «Friends», «Groups» and «Profile» in a navigation bar, or a
- * group's panel over all of it. While it is shown, the inbox (game invites, friend requests) is polled for the tabs and
- * their badges.
+ * Logged in (the email confirmed or not), not in a game: «Play», «Friends», «Groups» and «Profile» in a navigation bar,
+ * or a panel over all of it (confirming the email, a group). While it is shown, the inbox (game invites, friend
+ * requests) is polled for the tabs and their badges.
  */
 @Composable
-fun MainScreen(viewModel: MainViewModel = koinViewModel(), groupsViewModel: GroupsViewModel = koinViewModel()) {
+fun MainScreen(
+    viewModel: MainViewModel = koinViewModel(),
+    groupsViewModel: GroupsViewModel = koinViewModel(),
+    verifyViewModel: VerifyEmailViewModel = koinViewModel(),
+) {
     val inbox by viewModel.inbox.collectAsStateWithLifecycle()
     val groups by groupsViewModel.groups.collectAsStateWithLifecycle()
+    if (verifyViewModel.isOpen) {
+        VerifyEmailPanel(verifyViewModel)
+        return
+    }
     val openGroup = groupsViewModel.openGroupId?.let { id -> groups?.groups?.firstOrNull { it.id == id } }
     if (openGroup != null) {
         GroupPanel(group = openGroup, viewModel = groupsViewModel)
@@ -58,12 +71,18 @@ fun MainScreen(viewModel: MainViewModel = koinViewModel(), groupsViewModel: Grou
     SystemBackHandler(enabled = tab != MainTab.PLAY, onBack = { viewModel.select(MainTab.PLAY) })
 
     Column(modifier = Modifier.fillMaxSize()) {
+        if (verifyViewModel.showConfirmed) {
+            EmailConfirmedNotice(
+                onDismiss = verifyViewModel::dismissConfirmed,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            )
+        }
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
-                MainTab.PLAY -> PlayTab(invites = inbox.invites)
+                MainTab.PLAY -> PlayTab(invites = inbox.invites, verify = verifyViewModel)
                 MainTab.FRIENDS -> FriendsTab()
                 MainTab.GROUPS -> GroupsTab(groupsViewModel)
-                MainTab.PROFILE -> ProfileTab()
+                MainTab.PROFILE -> ProfileTab(verify = verifyViewModel)
             }
         }
         NavigationBar {

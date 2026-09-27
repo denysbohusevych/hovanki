@@ -12,6 +12,7 @@ import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.code_format
 import app.hovanki.client.resources.code_sent
 import app.hovanki.client.resources.error_invalid_email
+import app.hovanki.client.resources.error_wrong_password
 import app.hovanki.client.ui.common.CommandRunner
 import app.hovanki.client.ui.common.FormMessage
 import app.hovanki.client.ui.common.Notice
@@ -22,29 +23,47 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
- * Logged in with an email that is not confirmed yet: the 6-digit code from the email, sending it again (at most once a
- * minute), fixing a mistyped address, or logging out. Once confirmed, the app shows the main screen by itself.
+ * Confirming the email, which is optional: the account works either way. The main screen offers it (a card on «Play»
+ * until «Later», the status on «Profile») and opens a panel: the 6-digit code from the email, sending it again (at
+ * most once a minute), fixing a mistyped address with the current password. Once the email is confirmed the panel
+ * closes by itself and the main screen says so briefly.
  */
 class VerifyEmailViewModel(private val account: AccountManager) : ViewModel() {
     private val commands = CommandRunner(viewModelScope)
     private var countdown: Job? = null
 
+    /** The panel is open. */
+    var isOpen by mutableStateOf(false)
+        private set
+
+    /** «Later» on the card: it stays hidden until the app starts again (or another account logs in). */
+    var isCardDismissed by mutableStateOf(false)
+        private set
+
+    /** The email was just confirmed in the panel: the main screen shows a short notice. */
+    var showConfirmed by mutableStateOf(false)
+        private set
+
+    // Compose state: text fields need synchronous updates. Cleared when the panel closes.
     var code by mutableStateOf("")
         private set
 
-    /** The inline "change the email" field is open. */
+    /** The inline "change the email" form is open. */
     var isChangingEmail by mutableStateOf(false)
         private set
     var newEmail by mutableStateOf("")
         private set
+    var password by mutableStateOf("")
+        private set
 
     private val mutableResendSeconds = MutableStateFlow(0L)
 
-    /** Seconds until the code may be sent again; 0: now. */
+    /** Seconds until the code may be sent again; 0: now (the server says when it was too soon). */
     val resendSecondsLeft: StateFlow<Long> = mutableResendSeconds.asStateFlow()
 
     val accountState: StateFlow<AccountState> = account.state
@@ -52,19 +71,46 @@ class VerifyEmailViewModel(private val account: AccountManager) : ViewModel() {
     val isBusy: StateFlow<Boolean> = commands.isBusy
 
     init {
+        // Confirmed (with the code here, or meanwhile on another device and reloaded): the panel has done its job.
         viewModelScope.launch {
-            account.state.map { state -> state.user?.takeIf { !it.emailVerified }?.id }
-                .distinctUntilChanged()
-                .collect { unconfirmed ->
-                    // Another account to confirm (just registered, or logged in): its code was sent a moment ago.
-                    if (unconfirmed != null) {
-                        code = ""
-                        isChangingEmail = false
-                        commands.dismiss()
-                        startCountdown(RESEND_INTERVAL_SECONDS)
-                    }
+            account.state.map { it.hasConfirmedEmail }.distinctUntilChanged().collect { confirmed ->
+                if (confirmed && isOpen) {
+                    close()
+                    showConfirmed = true
                 }
+            }
         }
+        // Another account on this phone: its own card, panel and countdown.
+        viewModelScope.launch {
+            account.state.map { it.user?.id }.distinctUntilChanged().drop(1).collect {
+                close()
+                isCardDismissed = false
+                showConfirmed = false
+                countdown?.cancel()
+                mutableResendSeconds.value = 0
+            }
+        }
+    }
+
+    fun open() {
+        isOpen = true
+        commands.dismiss()
+    }
+
+    fun close() {
+        isOpen = false
+        isChangingEmail = false
+        code = ""
+        password = ""
+        commands.dismiss()
+    }
+
+    fun dismissCard() {
+        isCardDismissed = true
+    }
+
+    fun dismissConfirmed() {
+        showConfirmed = false
     }
 
     fun onCodeChange(value: String) {
@@ -75,12 +121,17 @@ class VerifyEmailViewModel(private val account: AccountManager) : ViewModel() {
         newEmail = value.take(AccountRules.EMAIL_MAX_LENGTH)
     }
 
+    fun onPasswordChange(value: String) {
+        password = value
+    }
+
+    /** The panel closes by itself once the email is confirmed (see init). */
     fun verify() {
         if (!AccountRules.isCodeFormat(code)) {
             commands.show(Notice.Text(Res.string.code_format))
             return
         }
-        commands.execute({ account.verifyEmail(code) }) { code = "" }
+        commands.execute({ account.verifyEmail(code) })
     }
 
     fun resend() {
@@ -93,29 +144,35 @@ class VerifyEmailViewModel(private val account: AccountManager) : ViewModel() {
 
     fun startChangingEmail() {
         newEmail = account.state.value.user?.email.orEmpty()
+        password = ""
         isChangingEmail = true
         commands.dismiss()
     }
 
     fun cancelChangingEmail() {
         isChangingEmail = false
+        password = ""
     }
 
-    /** The code goes to the new address; the old code no longer works. */
+    /** The code goes to the new address; the old code no longer works. Needs the current password. */
     fun saveEmail() {
         if (!AccountRules.isValidEmail(newEmail)) {
             commands.show(Notice.Text(Res.string.error_invalid_email))
             return
         }
-        commands.execute({ account.changeEmail(newEmail) }, onFailure = ::waitAfterRateLimit) {
+        if (password.isEmpty()) return
+        commands.execute(
+            command = { account.changeEmail(newEmail, password) },
+            wrongCredentials = Res.string.error_wrong_password,
+            onFailure = ::waitAfterRateLimit,
+        ) {
             isChangingEmail = false
             code = ""
+            password = ""
             commands.show(Notice.Text(Res.string.code_sent), isError = false)
             startCountdown(RESEND_INTERVAL_SECONDS)
         }
     }
-
-    fun logOut() = account.logOut()
 
     fun dismissMessage() = commands.dismiss()
 

@@ -26,11 +26,10 @@
   <string name="error_wrong_login">Wrong nickname, email or password.</string>
   <string name="error_wrong_password">Wrong password.</string>
   <string name="error_nickname_taken">This nickname is taken. Try another one.</string>
-  <string name="error_email_taken">This email already has an account. Log in, or reset the password if you forgot it.</string>
+  <string name="error_email_taken">There is already an account with this email. If it is yours, log in or reset the password.</string>
   <string name="error_invalid_nickname">A nickname has 3 to 20 letters or digits (also _ . -) and starts with a letter or a digit.</string>
   <string name="error_invalid_email">Check the email address.</string>
   <string name="error_invalid_password">A password has 8 to 64 characters.</string>
-  <string name="error_email_not_verified">Confirm your email first.</string>
   <string name="error_wrong_code">Wrong code. Check the email and try again.</string>
   <string name="error_code_expired">This code is no longer valid. Ask for a new one.</string>
   <string name="error_session_expired">You were logged out. Log in again.</string>
@@ -82,7 +81,12 @@
   <!-- Email confirmation -->
   <string name="verify_title">Confirm your email</string>
   <string name="verify_text">We sent a 6-digit code to %1$s. Enter it here.</string>
-  <string name="verify_spam_hint">No email? Check the spam folder, or send the code again in a minute.</string>
+  <string name="verify_why">A confirmed email lets you reset a forgotten password. Everything else works without it.</string>
+  <string name="verify_spam_hint">No email, or the code has expired? Check the spam folder or send the code again.</string>
+  <string name="verify_confirmed">Email confirmed. Thank you!</string>
+  <string name="confirm_card_text">Confirm your email: the code went to %1$s.</string>
+  <string name="confirm_card_enter">Enter the code</string>
+  <string name="confirm_card_later">Later</string>
   <string name="verify_submit">Confirm</string>
   <string name="verify_change_email">Wrong address? Change the email</string>
   <string name="verify_new_email_label">New email</string>
@@ -101,6 +105,8 @@
   <string name="invite_dismiss">Dismiss</string>
   <string name="profile_nickname">Nickname</string>
   <string name="profile_email">Email</string>
+  <string name="profile_email_unconfirmed">not confirmed</string>
+  <string name="profile_confirm_email">Confirm</string>
   <string name="profile_change_password">Change the password</string>
   <string name="profile_current_password">Current password</string>
   <string name="profile_save_password">Save the password</string>

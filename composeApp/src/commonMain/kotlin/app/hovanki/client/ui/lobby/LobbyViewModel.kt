@@ -207,8 +207,8 @@ class LobbyViewModel(
             isSharingLocation = state.isSharingLocation,
             error = state.lastError,
             isBuildingRuleOff = snapshot.buildings == BuildingsState.UNAVAILABLE,
-            // The server takes invitations from players with a confirmed account only.
-            canInvite = accountState.isVerified && snapshot.players.any { it.id == me && it.userId != null },
+            // The server takes invitations from players who play with an account (logged in on this phone).
+            canInvite = accountState.isLoggedIn && snapshot.players.any { it.id == me && it.userId != null },
             userIdsInGame = snapshot.players.mapNotNull { it.userId }.toSet(),
         )
     }
@@ -226,7 +226,7 @@ data class LobbyUiState(
     val error: SessionError?,
     /** The server could not load the zone's buildings: the game will run without that rule. */
     val isBuildingRuleOff: Boolean,
-    /** Playing with a confirmed account: friends and groups can be invited. */
+    /** Playing with an account: friends and groups can be invited. */
     val canInvite: Boolean,
     /** Accounts already in the game: no need to invite them. */
     val userIdsInGame: Set<UserId>,

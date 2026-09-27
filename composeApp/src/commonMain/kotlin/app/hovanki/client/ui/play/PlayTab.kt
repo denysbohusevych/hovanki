@@ -46,13 +46,18 @@ import app.hovanki.client.ui.common.CommandStatus
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.StartStatusBanners
+import app.hovanki.client.ui.verify.ConfirmEmailCard
+import app.hovanki.client.ui.verify.VerifyEmailViewModel
 import app.hovanki.shared.protocol.GameInvite
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
-/** «Play»: invites first, then create a game here or join one by its code. */
+/**
+ * «Play»: the offer to confirm the email (until confirmed or «Later»), invites, then create a game here or join one by
+ * its code.
+ */
 @Composable
-fun PlayTab(invites: List<GameInvite>, viewModel: PlayViewModel = koinViewModel()) {
+fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: PlayViewModel = koinViewModel()) {
     val account by viewModel.accountState.collectAsStateWithLifecycle()
     val status by viewModel.startStatus.collectAsStateWithLifecycle()
     val sessionError by viewModel.sessionError.collectAsStateWithLifecycle()
@@ -72,6 +77,9 @@ fun PlayTab(invites: List<GameInvite>, viewModel: PlayViewModel = koinViewModel(
                 text = stringResource(Res.string.play_hello, user.nickname),
                 style = MaterialTheme.typography.headlineSmall,
             )
+            if (!user.emailVerified && !verify.isCardDismissed) {
+                ConfirmEmailCard(email = user.email, onOpen = verify::open, onLater = verify::dismissCard)
+            }
         }
         if (invites.isNotEmpty()) {
             Text(text = stringResource(Res.string.invites_title), style = MaterialTheme.typography.titleMedium)

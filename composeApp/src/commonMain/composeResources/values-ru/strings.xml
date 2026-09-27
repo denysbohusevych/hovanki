@@ -26,11 +26,10 @@
   <string name="error_wrong_login">Неверный ник, email или пароль.</string>
   <string name="error_wrong_password">Неверный пароль.</string>
   <string name="error_nickname_taken">Этот ник уже занят. Попробуйте другой.</string>
-  <string name="error_email_taken">С этим email уже есть аккаунт. Войдите или сбросьте пароль, если забыли его.</string>
+  <string name="error_email_taken">С этим email уже есть аккаунт. Если он ваш, войдите или сбросьте пароль.</string>
   <string name="error_invalid_nickname">Ник — от 3 до 20 букв или цифр (можно _ . -), начинается с буквы или цифры.</string>
   <string name="error_invalid_email">Проверьте адрес email.</string>
   <string name="error_invalid_password">Пароль — от 8 до 64 символов.</string>
-  <string name="error_email_not_verified">Сначала подтвердите email.</string>
   <string name="error_wrong_code">Неверный код. Проверьте письмо и попробуйте снова.</string>
   <string name="error_code_expired">Этот код больше не действует. Запросите новый.</string>
   <string name="error_session_expired">Вы вышли из аккаунта. Войдите снова.</string>
@@ -80,9 +79,14 @@
   <string name="code_format">Введите 6 цифр из письма.</string>
 
   <!-- Подтверждение email -->
-  <string name="verify_title">Подтвердите email</string>
+  <string name="verify_title">Подтвердить email</string>
   <string name="verify_text">Мы отправили 6-значный код на %1$s. Введите его здесь.</string>
-  <string name="verify_spam_hint">Письма нет? Проверьте папку «Спам» или отправьте код ещё раз через минуту.</string>
+  <string name="verify_why">С подтверждённым email можно сбросить забытый пароль. Всё остальное работает и без этого.</string>
+  <string name="verify_spam_hint">Письма нет или код устарел? Проверьте папку «Спам» или отправьте код ещё раз.</string>
+  <string name="verify_confirmed">Email подтверждён. Спасибо!</string>
+  <string name="confirm_card_text">Подтвердите email — код отправлен на %1$s.</string>
+  <string name="confirm_card_enter">Ввести код</string>
+  <string name="confirm_card_later">Позже</string>
   <string name="verify_submit">Подтвердить</string>
   <string name="verify_change_email">Ошиблись адресом? Изменить email</string>
   <string name="verify_new_email_label">Новый email</string>
@@ -101,6 +105,8 @@
   <string name="invite_dismiss">Скрыть</string>
   <string name="profile_nickname">Ник</string>
   <string name="profile_email">Email</string>
+  <string name="profile_email_unconfirmed">не подтверждён</string>
+  <string name="profile_confirm_email">Подтвердить</string>
   <string name="profile_change_password">Сменить пароль</string>
   <string name="profile_current_password">Текущий пароль</string>
   <string name="profile_save_password">Сохранить пароль</string>

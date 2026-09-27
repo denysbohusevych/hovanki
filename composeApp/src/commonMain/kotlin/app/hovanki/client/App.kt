@@ -19,7 +19,6 @@ import app.hovanki.client.ui.lobby.LobbyScreen
 import app.hovanki.client.ui.main.MainScreen
 import app.hovanki.client.ui.results.ResultsScreen
 import app.hovanki.client.ui.theme.HovankiTheme
-import app.hovanki.client.ui.verify.VerifyEmailScreen
 import app.hovanki.client.ui.welcome.WelcomeScreen
 import app.hovanki.shared.protocol.GamePhase
 import org.koin.compose.koinInject
@@ -41,11 +40,11 @@ fun App() {
             Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
                 val snapshot = state.snapshot
                 when {
-                    // Not in a game: who is logged in decides.
+                    // Not in a game: who is logged in decides. An unconfirmed email is no obstacle (confirming is
+                    // offered on the main screen).
                     state.session == null -> when {
                         !account.isRestored -> LoadingScreen()
                         !account.isLoggedIn -> WelcomeScreen()
-                        account.needsEmailVerification -> VerifyEmailScreen()
                         else -> MainScreen()
                     }
 

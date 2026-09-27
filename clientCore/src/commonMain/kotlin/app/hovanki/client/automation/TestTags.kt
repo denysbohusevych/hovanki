@@ -62,26 +62,38 @@ object TestTags {
     const val RESET_PASSWORD = "reset_password"
     const val RESET_SUBMIT = "reset_submit"
 
-    /** An account command is under way (welcome, email verification, profile). */
+    /** An account command is under way (welcome, email confirmation, profile). */
     const val ACCOUNT_BUSY = "account_busy"
 
     /** An account command failed (wrong password, nickname taken, no network...). */
     const val ACCOUNT_ERROR = "account_error"
 
-    // Logged in, email not confirmed yet.
-    const val VERIFY_SCREEN = "verify_screen"
+    /** Confirming the email (optional), full screen over the main screen; [PANEL_CLOSE] closes it. */
+    const val VERIFY_PANEL = "verify_panel"
 
     /** The address the code went to. */
     const val VERIFY_EMAIL = "verify_email"
     const val VERIFY_CODE = "verify_code"
     const val VERIFY_SUBMIT = "verify_submit"
     const val VERIFY_RESEND = "verify_resend"
+
+    /** Opens the change email form: [VERIFY_NEW_EMAIL], [VERIFY_PASSWORD] (the current one), [VERIFY_SAVE_EMAIL]. */
     const val VERIFY_CHANGE_EMAIL = "verify_change_email"
     const val VERIFY_NEW_EMAIL = "verify_new_email"
+    const val VERIFY_PASSWORD = "verify_password"
     const val VERIFY_SAVE_EMAIL = "verify_save_email"
-    const val VERIFY_LOG_OUT = "verify_log_out"
 
-    // Main screen (logged in, email confirmed): the navigation bar.
+    /** The email was confirmed: a short notice on the main screen once the panel closed by itself. */
+    const val VERIFY_CONFIRMED = "verify_confirmed"
+
+    /** «Play», while the email is not confirmed: a card that opens the panel ([CONFIRM_EMAIL_OPEN]) or hides. */
+    const val CONFIRM_EMAIL_CARD = "confirm_email_card"
+    const val CONFIRM_EMAIL_OPEN = "confirm_email_open"
+
+    /** Hides the card until the app starts again. */
+    const val CONFIRM_EMAIL_LATER = "confirm_email_later"
+
+    // Main screen (logged in): the navigation bar.
     const val TAB_PLAY = "tab_play"
     const val TAB_FRIENDS = "tab_friends"
     const val TAB_GROUPS = "tab_groups"
@@ -90,6 +102,10 @@ object TestTags {
     const val PROFILE_SCREEN = "profile_screen"
     const val PROFILE_NICKNAME = "profile_nickname"
     const val PROFILE_EMAIL = "profile_email"
+
+    /** «not confirmed» next to the email; [PROFILE_CONFIRM_EMAIL] opens the panel. */
+    const val PROFILE_EMAIL_UNCONFIRMED = "profile_email_unconfirmed"
+    const val PROFILE_CONFIRM_EMAIL = "profile_confirm_email"
 
     /** Opens the change password form. */
     const val PROFILE_CHANGE_PASSWORD = "profile_change_password"
@@ -140,7 +156,7 @@ object TestTags {
     const val GROUP_DELETE_CONFIRM = "group_delete_confirm"
     const val GROUP_LEAVE = "group_leave"
 
-    /** Closes a full-screen panel (group, invite, chat), like the system back button. */
+    /** Closes a full-screen panel (email confirmation, group, invite, chat), like the system back button. */
     const val PANEL_CLOSE = "panel_close"
 
     /** Lobby: opens the panel to invite friends and groups. */

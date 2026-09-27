@@ -6,7 +6,6 @@ import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.error_account_required
 import app.hovanki.client.resources.error_blocked_by_you
 import app.hovanki.client.resources.error_code_expired
-import app.hovanki.client.resources.error_email_not_verified
 import app.hovanki.client.resources.error_email_taken
 import app.hovanki.client.resources.error_invalid_email
 import app.hovanki.client.resources.error_invalid_group_name
@@ -80,8 +79,6 @@ fun reasonNotice(
         ErrorReason.INVALID_PASSWORD -> Res.string.error_invalid_password
 
         ErrorReason.WRONG_CREDENTIALS -> wrongCredentials
-
-        ErrorReason.EMAIL_NOT_VERIFIED -> Res.string.error_email_not_verified
 
         ErrorReason.CODE_EXPIRED -> Res.string.error_code_expired
 

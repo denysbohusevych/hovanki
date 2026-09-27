@@ -26,11 +26,10 @@
   <string name="error_wrong_login">Неправильний нік, email або пароль.</string>
   <string name="error_wrong_password">Неправильний пароль.</string>
   <string name="error_nickname_taken">Цей нік уже зайнятий. Спробуйте інший.</string>
-  <string name="error_email_taken">З цим email уже є акаунт. Увійдіть або скиньте пароль, якщо забули його.</string>
+  <string name="error_email_taken">З цим email уже є акаунт. Якщо він ваш, увійдіть або скиньте пароль.</string>
   <string name="error_invalid_nickname">Нік — від 3 до 20 літер або цифр (можна _ . -), починається з літери чи цифри.</string>
   <string name="error_invalid_email">Перевірте адресу email.</string>
   <string name="error_invalid_password">Пароль — від 8 до 64 символів.</string>
-  <string name="error_email_not_verified">Спочатку підтвердьте email.</string>
   <string name="error_wrong_code">Неправильний код. Перевірте лист і спробуйте знову.</string>
   <string name="error_code_expired">Цей код більше не діє. Запросіть новий.</string>
   <string name="error_session_expired">Ви вийшли з акаунта. Увійдіть знову.</string>
@@ -80,9 +79,14 @@
   <string name="code_format">Введіть 6 цифр із листа.</string>
 
   <!-- Підтвердження email -->
-  <string name="verify_title">Підтвердьте email</string>
+  <string name="verify_title">Підтвердити email</string>
   <string name="verify_text">Ми надіслали 6-значний код на %1$s. Введіть його тут.</string>
-  <string name="verify_spam_hint">Листа немає? Перевірте папку «Спам» або надішліть код ще раз за хвилину.</string>
+  <string name="verify_why">З підтвердженим email можна скинути забутий пароль. Усе інше працює й без цього.</string>
+  <string name="verify_spam_hint">Листа немає або код застарів? Перевірте папку «Спам» або надішліть код ще раз.</string>
+  <string name="verify_confirmed">Email підтверджено. Дякуємо!</string>
+  <string name="confirm_card_text">Підтвердьте email — код надіслано на %1$s.</string>
+  <string name="confirm_card_enter">Ввести код</string>
+  <string name="confirm_card_later">Пізніше</string>
   <string name="verify_submit">Підтвердити</string>
   <string name="verify_change_email">Помилилися адресою? Змінити email</string>
   <string name="verify_new_email_label">Новий email</string>
@@ -101,6 +105,8 @@
   <string name="invite_dismiss">Сховати</string>
   <string name="profile_nickname">Нік</string>
   <string name="profile_email">Email</string>
+  <string name="profile_email_unconfirmed">не підтверджений</string>
+  <string name="profile_confirm_email">Підтвердити</string>
   <string name="profile_change_password">Змінити пароль</string>
   <string name="profile_current_password">Поточний пароль</string>
   <string name="profile_save_password">Зберегти пароль</string>
