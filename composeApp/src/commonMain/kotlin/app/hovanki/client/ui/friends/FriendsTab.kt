@@ -9,12 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,8 +40,12 @@ import app.hovanki.client.resources.friends_remove
 import app.hovanki.client.resources.friends_unblock
 import app.hovanki.client.resources.friends_withdraw
 import app.hovanki.client.resources.working
+import app.hovanki.client.ui.common.Avatar
 import app.hovanki.client.ui.common.BusyRow
 import app.hovanki.client.ui.common.CommandStatus
+import app.hovanki.client.ui.common.PopButton
+import app.hovanki.client.ui.common.PopStyle
+import app.hovanki.client.ui.common.PopTextField
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SectionTitle
@@ -64,7 +64,7 @@ fun FriendsTab(viewModel: FriendsViewModel = koinViewModel()) {
 
     ScreenColumn(modifier = Modifier.testTag(TestTags.FRIENDS_SCREEN)) {
         Text(text = stringResource(Res.string.friends_add_title), style = MaterialTheme.typography.titleMedium)
-        OutlinedTextField(
+        PopTextField(
             value = viewModel.nickname,
             onValueChange = viewModel::onNicknameChange,
             label = { Text(stringResource(Res.string.friends_nickname_label)) },
@@ -74,13 +74,12 @@ fun FriendsTab(viewModel: FriendsViewModel = koinViewModel()) {
             keyboardActions = KeyboardActions(onSend = { viewModel.sendRequest() }),
             modifier = Modifier.fillMaxWidth().testTag(TestTags.FRIENDS_NICKNAME),
         )
-        Button(
+        PopButton(
+            text = stringResource(Res.string.friends_add),
             onClick = viewModel::sendRequest,
             enabled = !isBusy,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.FRIENDS_ADD),
-        ) {
-            Text(stringResource(Res.string.friends_add))
-        }
+        )
         CommandStatus(
             isBusy = isBusy,
             message = message,
@@ -88,7 +87,6 @@ fun FriendsTab(viewModel: FriendsViewModel = koinViewModel()) {
             errorTag = TestTags.SOCIAL_ERROR,
             infoTag = TestTags.SOCIAL_INFO,
         )
-        HorizontalDivider()
 
         val current = friends
         if (current == null) {
@@ -186,21 +184,20 @@ private fun FriendRow(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
+                    PopButton(
+                        text = stringResource(Res.string.friends_remove),
                         onClick = onRemove,
                         enabled = !isBusy,
                         modifier = Modifier.testTag(TestTags.friendRemove(user.id)),
-                    ) {
-                        Text(stringResource(Res.string.friends_remove))
-                    }
-                    OutlinedButton(
+                        style = PopStyle.Outline,
+                    )
+                    PopButton(
+                        text = stringResource(Res.string.friends_block),
                         onClick = onBlock,
                         enabled = !isBusy,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         modifier = Modifier.testTag(TestTags.friendBlock(user.id)),
-                    ) {
-                        Text(stringResource(Res.string.friends_block))
-                    }
+                        style = PopStyle.Danger,
+                    )
                 }
                 SecondaryText(stringResource(Res.string.friends_block_hint))
             }
@@ -219,7 +216,8 @@ private fun PersonRow(
         modifier = modifier.fillMaxWidth().testTag(TestTags.friend(user.id)).padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = user.nickname, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Avatar(name = user.nickname, size = 36.dp, modifier = Modifier.padding(end = 12.dp))
+        Text(text = user.nickname, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
         actions()
     }
 }

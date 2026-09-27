@@ -1,20 +1,32 @@
 package app.hovanki.client.ui.main
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
@@ -27,6 +39,7 @@ import app.hovanki.client.resources.tab_friends
 import app.hovanki.client.resources.tab_groups
 import app.hovanki.client.resources.tab_play
 import app.hovanki.client.resources.tab_profile
+import app.hovanki.client.ui.common.CountBadge
 import app.hovanki.client.ui.common.SystemBackHandler
 import app.hovanki.client.ui.friends.FriendsTab
 import app.hovanki.client.ui.groups.GroupPanel
@@ -34,6 +47,8 @@ import app.hovanki.client.ui.groups.GroupsTab
 import app.hovanki.client.ui.groups.GroupsViewModel
 import app.hovanki.client.ui.play.PlayTab
 import app.hovanki.client.ui.profile.ProfileTab
+import app.hovanki.client.ui.theme.Motion
+import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.verify.EmailConfirmedNotice
 import app.hovanki.client.ui.verify.VerifyEmailPanel
 import app.hovanki.client.ui.verify.VerifyEmailViewModel
@@ -85,30 +100,77 @@ fun MainScreen(
                 MainTab.PROFILE -> ProfileTab(verify = verifyViewModel)
             }
         }
-        NavigationBar {
-            MainTab.entries.forEach { item ->
-                val badge = when (item) {
-                    MainTab.PLAY -> inbox.invites.size
-                    MainTab.FRIENDS -> inbox.friendRequests.size
-                    MainTab.GROUPS, MainTab.PROFILE -> 0
-                }
-                NavigationBarItem(
-                    selected = item == tab,
-                    onClick = { viewModel.select(item) },
-                    icon = { TabIcon(item.icon(), badge) },
-                    label = { Text(stringResource(item.title())) },
-                    modifier = Modifier.testTag(item.tag()),
+        FloatingTabBar(selected = tab, onSelect = viewModel::select, badges = { item ->
+            when (item) {
+                MainTab.PLAY -> inbox.invites.size
+                MainTab.FRIENDS -> inbox.friendRequests.size
+                MainTab.GROUPS, MainTab.PROFILE -> 0
+            }
+        })
+    }
+}
+
+/**
+ * The tabs as an ink capsule floating above the bottom of the screen; the selected one is a lime pill
+ * (docs/design.md, «Компоненты»).
+ */
+@Composable
+private fun FloatingTabBar(selected: MainTab, onSelect: (MainTab) -> Unit, badges: (MainTab) -> Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .height(68.dp)
+            .clip(RoundedCornerShape(34.dp))
+            .background(Palette.Ink)
+            .padding(horizontal = 8.dp, vertical = 8.dp)
+            .selectableGroup(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        MainTab.entries.forEach { item ->
+            val isSelected = item == selected
+            val background by animateColorAsState(if (isSelected) Palette.Lime else Palette.Ink, Motion.base())
+            val content by animateColorAsState(if (isSelected) Palette.Ink else TAB_IDLE, Motion.base())
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(background)
+                    .selectable(selected = isSelected, role = Role.Tab, onClick = { onSelect(item) })
+                    .testTag(item.tag()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                TabIcon(item.icon(), badges(item), tint = content)
+                Text(
+                    text = stringResource(item.title()),
+                    color = content,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
                 )
             }
         }
     }
 }
 
+private val TAB_IDLE = Color(0xFFC9C9D2)
+
 /** The tab's icon, with the number of new things in it. */
 @Composable
-private fun TabIcon(icon: DrawableResource, badge: Int) {
-    BadgedBox(badge = { if (badge > 0) Badge { Text(badge.toString()) } }) {
-        Icon(painter = painterResource(icon), contentDescription = null)
+private fun TabIcon(icon: DrawableResource, badge: Int, tint: Color) {
+    Box {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.padding(horizontal = 6.dp).size(22.dp),
+        )
+        if (badge >
+            0
+        ) {
+            CountBadge(count = badge, modifier = Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-6).dp))
+        }
     }
 }
 

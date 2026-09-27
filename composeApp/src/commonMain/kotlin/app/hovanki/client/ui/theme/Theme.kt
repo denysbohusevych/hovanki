@@ -1,47 +1,77 @@
 package app.hovanki.client.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
-// Park green: the game is played outdoors, ideally in parks.
-private val lightColors = lightColorScheme(
-    primary = Color(0xFF2E7D32),
+/**
+ * Material's roles for the widgets that stay Material (fields, dialogs, switches). `primary` is ink, not lime: Material
+ * draws `primary` as text and thin lines on light surfaces (text buttons, focused fields, spinners), where lime can't
+ * be read. Lime comes in through the containers and the app's own components (ui/common/Pop.kt).
+ */
+private val colors = lightColorScheme(
+    primary = Palette.Ink,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFB9F0B4),
-    onPrimaryContainer = Color(0xFF002204),
-    secondary = Color(0xFF52634F),
+    primaryContainer = Palette.Lime,
+    onPrimaryContainer = Palette.Ink,
+    inversePrimary = Palette.Lime,
+    secondary = Palette.Violet,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFD5E8CF),
-    onSecondaryContainer = Color(0xFF101F10),
-    tertiary = Color(0xFF1565C0),
+    secondaryContainer = Palette.Lime,
+    onSecondaryContainer = Palette.Ink,
+    tertiary = Palette.OrangeInk,
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFD3E3FF),
-    onTertiaryContainer = Color(0xFF001B3E),
+    tertiaryContainer = Palette.Orange,
+    onTertiaryContainer = Palette.Ink,
+    background = Palette.Cream,
+    onBackground = Palette.Ink,
+    surface = Palette.Cream,
+    onSurface = Palette.Ink,
+    surfaceVariant = Palette.Sand,
+    onSurfaceVariant = Palette.Ink2,
+    surfaceTint = Palette.Paper,
+    inverseSurface = Palette.Ink,
+    inverseOnSurface = Color.White,
+    error = Palette.PinkInk,
+    onError = Color.White,
+    errorContainer = Palette.Pink,
+    onErrorContainer = Palette.Ink,
+    outline = Palette.Ink,
+    outlineVariant = Palette.Line,
+    scrim = Color.Black,
+    surfaceBright = Palette.Paper,
+    surfaceDim = Palette.Sand,
+    surfaceContainerLowest = Palette.Paper,
+    surfaceContainerLow = Palette.Paper,
+    surfaceContainer = Palette.Paper,
+    surfaceContainerHigh = Palette.Paper,
+    surfaceContainerHighest = Palette.Paper,
 )
 
-private val darkColors = darkColorScheme(
-    primary = Color(0xFF9DD49A),
-    onPrimary = Color(0xFF00390A),
-    primaryContainer = Color(0xFF1B5E20),
-    onPrimaryContainer = Color(0xFFB9F0B4),
-    secondary = Color(0xFFB9CCB4),
-    onSecondary = Color(0xFF253423),
-    secondaryContainer = Color(0xFF3B4B38),
-    onSecondaryContainer = Color(0xFFD5E8CF),
-    tertiary = Color(0xFFA4C8FF),
-    onTertiary = Color(0xFF003063),
-    tertiaryContainer = Color(0xFF0D47A1),
-    onTertiaryContainer = Color(0xFFD3E3FF),
+private val shapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(28.dp),
 )
 
+/**
+ * The «Dopamine» style (docs/adr/0006-visual-style.md): light only, whatever the system theme — the game is played
+ * outdoors, where a dark screen can't be read.
+ */
 @Composable
-fun HovankiTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) darkColors else lightColors,
-        content = content,
-    )
+fun HovankiTheme(content: @Composable () -> Unit) {
+    val fonts = hovankiFonts()
+    val typography = remember(fonts) { hovankiTypography(fonts) }
+    val textStyles = remember(fonts) { hovankiTextStyles(fonts) }
+    CompositionLocalProvider(LocalHovankiFonts provides fonts, LocalHovankiTextStyles provides textStyles) {
+        MaterialTheme(colorScheme = colors, typography = typography, shapes = shapes, content = content)
+    }
 }

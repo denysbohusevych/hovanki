@@ -7,12 +7,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,10 +46,14 @@ import app.hovanki.client.ui.common.Banner
 import app.hovanki.client.ui.common.CommandStatus
 import app.hovanki.client.ui.common.Panel
 import app.hovanki.client.ui.common.PasswordField
+import app.hovanki.client.ui.common.PopButton
+import app.hovanki.client.ui.common.PopSurface
+import app.hovanki.client.ui.common.PopTextField
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SystemBackHandler
 import app.hovanki.client.ui.common.formatCountdown
+import app.hovanki.client.ui.theme.Palette
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.stringResource
 
@@ -84,7 +84,7 @@ fun VerifyEmailPanel(viewModel: VerifyEmailViewModel) {
                 modifier = Modifier.testTag(TestTags.VERIFY_EMAIL),
             )
             SecondaryText(stringResource(Res.string.verify_why))
-            OutlinedTextField(
+            PopTextField(
                 value = viewModel.code,
                 onValueChange = viewModel::onCodeChange,
                 label = { Text(stringResource(Res.string.code_label)) },
@@ -98,13 +98,12 @@ fun VerifyEmailPanel(viewModel: VerifyEmailViewModel) {
                 keyboardActions = KeyboardActions(onDone = { viewModel.verify() }),
                 modifier = Modifier.fillMaxWidth().testTag(TestTags.VERIFY_CODE),
             )
-            Button(
+            PopButton(
+                text = stringResource(Res.string.verify_submit),
                 onClick = viewModel::verify,
                 enabled = !isBusy,
                 modifier = Modifier.fillMaxWidth().testTag(TestTags.VERIFY_SUBMIT),
-            ) {
-                Text(stringResource(Res.string.verify_submit))
-            }
+            )
             TextButton(
                 onClick = viewModel::resend,
                 enabled = !isBusy && resendSecondsLeft == 0L,
@@ -140,7 +139,7 @@ fun VerifyEmailPanel(viewModel: VerifyEmailViewModel) {
 /** A mistyped address: the new one and the current password (the email is how a forgotten password is reset). */
 @Composable
 private fun ChangeEmailForm(viewModel: VerifyEmailViewModel, isBusy: Boolean) {
-    OutlinedTextField(
+    PopTextField(
         value = viewModel.newEmail,
         onValueChange = viewModel::onNewEmailChange,
         label = { Text(stringResource(Res.string.verify_new_email_label)) },
@@ -162,13 +161,12 @@ private fun ChangeEmailForm(viewModel: VerifyEmailViewModel, isBusy: Boolean) {
         modifier = Modifier.testTag(TestTags.VERIFY_PASSWORD),
     )
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(
+        PopButton(
+            text = stringResource(Res.string.verify_save_email),
             onClick = viewModel::saveEmail,
             enabled = !isBusy && viewModel.password.isNotEmpty(),
             modifier = Modifier.testTag(TestTags.VERIFY_SAVE_EMAIL),
-        ) {
-            Text(stringResource(Res.string.verify_save_email))
-        }
+        )
         TextButton(onClick = viewModel::cancelChangingEmail) {
             Text(stringResource(Res.string.action_cancel))
         }
@@ -181,12 +179,10 @@ private fun ChangeEmailForm(viewModel: VerifyEmailViewModel, isBusy: Boolean) {
  */
 @Composable
 fun ConfirmEmailCard(email: String, onOpen: () -> Unit, onLater: () -> Unit) {
-    Card(
+    PopSurface(
         modifier = Modifier.fillMaxWidth().testTag(TestTags.CONFIRM_EMAIL_CARD),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-        ),
+        color = Palette.Orange,
+        shadow = 4.dp,
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),

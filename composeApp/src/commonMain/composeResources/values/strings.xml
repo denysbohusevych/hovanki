@@ -274,4 +274,31 @@
   <string name="results_eliminated">Eliminated</string>
   <string name="results_seekers">Seekers</string>
   <string name="results_back">Back to start</string>
+
+  <!-- «Dopamine» UI (docs/design.md) -->
+  <string name="play_subtitle">Gather your crew and head outside.</string>
+  <string name="hud_hiders">hiding</string>
+  <string name="hud_to_find">to find</string>
+  <string name="hud_to_edge">%1$d m to the edge</string>
+  <string name="hud_outside">%1$d m outside!</string>
+  <string name="hud_zone_soon">Zone shrinks in %1$s</string>
+  <string name="hud_zone_shrinking">Zone shrinking: %1$s</string>
+  <string name="hud_zone_done">The zone shrank</string>
+  <string name="hud_zone_final">Final zone</string>
+  <string name="hud_you_hide">You hide</string>
+  <string name="hud_you_seek">You seek</string>
+  <string name="hud_more">More</string>
+  <string name="hud_me">Show me</string>
+  <string name="hud_catch">Found!</string>
+  <string name="flash_seek">Go seek!</string>
+  <string name="flash_seekers_out">The seekers are out!</string>
+  <string name="catch_auto_in">Counts by itself in %1$s</string>
+  <string name="catch_or_say">Or read out the digits</string>
+  <string name="catch_seeker_hint">Tap who you caught, then type the 4 digits from their screen.</string>
+  <string name="lobby_title">Lobby</string>
+  <string name="lobby_random">Random</string>
+  <string name="lobby_chip_zone">Zone %1$d m</string>
+  <string name="lobby_chip_time">%1$d + %2$d min</string>
+  <string name="lobby_hider">Hides</string>
+  <string name="lobby_start_hint">Hiders get %1$d min to hide first</string>
 </resources>

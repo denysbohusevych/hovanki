@@ -7,13 +7,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,12 +34,17 @@ import app.hovanki.client.resources.profile_email_unconfirmed
 import app.hovanki.client.resources.profile_nickname
 import app.hovanki.client.resources.profile_save_password
 import app.hovanki.client.resources.register_password_hint
+import app.hovanki.client.ui.common.Avatar
 import app.hovanki.client.ui.common.BuildLabel
 import app.hovanki.client.ui.common.CommandStatus
 import app.hovanki.client.ui.common.PasswordField
+import app.hovanki.client.ui.common.PopButton
+import app.hovanki.client.ui.common.PopCard
+import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.verify.VerifyEmailViewModel
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
@@ -62,53 +62,65 @@ fun ProfileTab(verify: VerifyEmailViewModel, viewModel: ProfileViewModel = koinV
     SystemBackHandler(enabled = form != null, onBack = viewModel::closeForm)
 
     ScreenColumn(modifier = Modifier.testTag(TestTags.PROFILE_SCREEN)) {
-        SecondaryText(stringResource(Res.string.profile_nickname))
-        Text(
-            text = user.nickname,
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.testTag(TestTags.PROFILE_NICKNAME),
-        )
-        SecondaryText(stringResource(Res.string.profile_email))
-        Text(
-            text = user.email,
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.testTag(TestTags.PROFILE_EMAIL),
-        )
-        if (!user.emailVerified) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        PopCard(modifier = Modifier.fillMaxWidth(), shadow = 5.dp, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Avatar(name = user.nickname, color = Palette.Violet, contentColor = Palette.Paper, size = 64.dp)
+                Column(modifier = Modifier.weight(1f)) {
+                    SecondaryText(stringResource(Res.string.profile_nickname))
+                    Text(
+                        text = user.nickname,
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.testTag(TestTags.PROFILE_NICKNAME),
+                    )
+                }
+            }
+            Column {
+                SecondaryText(stringResource(Res.string.profile_email))
                 Text(
-                    text = stringResource(Res.string.profile_email_unconfirmed),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.weight(1f).testTag(TestTags.PROFILE_EMAIL_UNCONFIRMED),
+                    text = user.email,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.testTag(TestTags.PROFILE_EMAIL),
                 )
-                TextButton(onClick = verify::open, modifier = Modifier.testTag(TestTags.PROFILE_CONFIRM_EMAIL)) {
-                    Text(stringResource(Res.string.profile_confirm_email))
+            }
+            if (!user.emailVerified) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(Res.string.profile_email_unconfirmed),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Palette.OrangeInk,
+                        modifier = Modifier.weight(1f).testTag(TestTags.PROFILE_EMAIL_UNCONFIRMED),
+                    )
+                    PopButton(
+                        text = stringResource(Res.string.profile_confirm_email),
+                        onClick = verify::open,
+                        style = PopStyle.Dark,
+                        height = 40.dp,
+                        modifier = Modifier.testTag(TestTags.PROFILE_CONFIRM_EMAIL),
+                    )
                 }
             }
         }
-        HorizontalDivider()
 
-        OutlinedButton(
+        PopButton(
+            text = stringResource(Res.string.profile_change_password),
             onClick = { viewModel.toggle(ProfileForm.CHANGE_PASSWORD) },
             enabled = !isBusy,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.PROFILE_CHANGE_PASSWORD),
-        ) {
-            Text(stringResource(Res.string.profile_change_password))
-        }
+            style = PopStyle.Outline,
+        )
         if (form == ProfileForm.CHANGE_PASSWORD) ChangePasswordForm(viewModel, isBusy)
 
-        OutlinedButton(
+        PopButton(
+            text = stringResource(Res.string.action_log_out),
             onClick = viewModel::logOut,
             enabled = !isBusy,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.PROFILE_LOG_OUT),
-        ) {
-            Text(stringResource(Res.string.action_log_out))
-        }
+            style = PopStyle.Outline,
+        )
         TextButton(
             onClick = { viewModel.toggle(ProfileForm.DELETE_ACCOUNT) },
             enabled = !isBusy,
-            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            colors = ButtonDefaults.textButtonColors(contentColor = Palette.PinkInk),
             modifier = Modifier.fillMaxWidth().testTag(TestTags.PROFILE_DELETE),
         ) {
             Text(stringResource(Res.string.profile_delete))
@@ -147,48 +159,36 @@ private fun ChangePasswordForm(viewModel: ProfileViewModel, isBusy: Boolean) {
         onImeAction = viewModel::changePassword,
         modifier = Modifier.testTag(TestTags.PROFILE_NEW_PASSWORD),
     )
-    Button(
+    PopButton(
+        text = stringResource(Res.string.profile_save_password),
         onClick = viewModel::changePassword,
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.PROFILE_SAVE_PASSWORD),
-    ) {
-        Text(stringResource(Res.string.profile_save_password))
-    }
+    )
 }
 
 /** A clear warning, the password, and a red button: nothing to undo afterwards. */
 @Composable
 private fun DeleteAccountForm(viewModel: ProfileViewModel, isBusy: Boolean) {
-    Card(
+    PopCard(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        ),
+        color = Palette.Pink,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(text = stringResource(Res.string.profile_delete_warning), style = MaterialTheme.typography.bodyMedium)
-            PasswordField(
-                value = viewModel.deletePassword,
-                onValueChange = viewModel::onDeletePasswordChange,
-                label = stringResource(Res.string.password_label),
-                enabled = !isBusy,
-                modifier = Modifier.testTag(TestTags.PROFILE_DELETE_PASSWORD),
-            )
-            Button(
-                onClick = viewModel::deleteAccount,
-                enabled = !isBusy && viewModel.deletePassword.isNotEmpty(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                ),
-                modifier = Modifier.fillMaxWidth().testTag(TestTags.PROFILE_DELETE_CONFIRM),
-            ) {
-                Text(stringResource(Res.string.profile_delete_confirm))
-            }
-        }
+        Text(text = stringResource(Res.string.profile_delete_warning), style = MaterialTheme.typography.bodyMedium)
+        PasswordField(
+            value = viewModel.deletePassword,
+            onValueChange = viewModel::onDeletePasswordChange,
+            label = stringResource(Res.string.password_label),
+            enabled = !isBusy,
+            modifier = Modifier.testTag(TestTags.PROFILE_DELETE_PASSWORD),
+        )
+        PopButton(
+            text = stringResource(Res.string.profile_delete_confirm),
+            onClick = viewModel::deleteAccount,
+            enabled = !isBusy && viewModel.deletePassword.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.PROFILE_DELETE_CONFIRM),
+            style = PopStyle.Danger,
+        )
     }
 }

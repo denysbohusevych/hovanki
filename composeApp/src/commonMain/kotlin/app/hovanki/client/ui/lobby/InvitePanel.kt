@@ -1,7 +1,6 @@
 package app.hovanki.client.ui.lobby
 
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,6 +23,7 @@ import app.hovanki.client.ui.common.Banner
 import app.hovanki.client.ui.common.BusyRow
 import app.hovanki.client.ui.common.Panel
 import app.hovanki.client.ui.common.PickRow
+import app.hovanki.client.ui.common.PopButton
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SectionTitle
@@ -81,13 +81,12 @@ fun InvitePanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                 friendList.isEmpty() && groupList.isEmpty() -> SecondaryText(stringResource(Res.string.invite_nobody))
             }
 
-            Button(
+            PopButton(
+                text = stringResource(Res.string.invite_send),
                 onClick = viewModel::sendInvites,
                 enabled = !isSending && (viewModel.pickedFriends.isNotEmpty() || viewModel.pickedGroups.isNotEmpty()),
                 modifier = Modifier.fillMaxWidth().testTag(TestTags.INVITE_SEND),
-            ) {
-                Text(stringResource(Res.string.invite_send))
-            }
+            )
             if (isSending) BusyRow(stringResource(Res.string.working))
             state.error?.let { error -> InviteError(error, viewModel) }
         }

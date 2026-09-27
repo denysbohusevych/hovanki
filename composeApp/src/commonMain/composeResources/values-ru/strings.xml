@@ -274,4 +274,31 @@
   <string name="results_eliminated">Выбыли</string>
   <string name="results_seekers">Искали</string>
   <string name="results_back">На старт</string>
+
+  <!-- «Dopamine» UI (docs/design.md) -->
+  <string name="play_subtitle">Соберите компанию — и на улицу.</string>
+  <string name="hud_hiders">прячутся</string>
+  <string name="hud_to_find">найти</string>
+  <string name="hud_to_edge">до края %1$d м</string>
+  <string name="hud_outside">за зоной %1$d м!</string>
+  <string name="hud_zone_soon">Зона сузится через %1$s</string>
+  <string name="hud_zone_shrinking">Зона сужается: %1$s</string>
+  <string name="hud_zone_done">Зона сузилась</string>
+  <string name="hud_zone_final">Финальная зона</string>
+  <string name="hud_you_hide">Вы прячетесь</string>
+  <string name="hud_you_seek">Вы ищете</string>
+  <string name="hud_more">Ещё</string>
+  <string name="hud_me">Где я</string>
+  <string name="hud_catch">Нашёл!</string>
+  <string name="flash_seek">Ищите!</string>
+  <string name="flash_seekers_out">Ищущие вышли!</string>
+  <string name="catch_auto_in">Засчитается само через %1$s</string>
+  <string name="catch_or_say">Или назовите цифры</string>
+  <string name="catch_seeker_hint">Нажмите на пойманного, потом введите 4 цифры с его экрана.</string>
+  <string name="lobby_title">Лобби</string>
+  <string name="lobby_random">Случайно</string>
+  <string name="lobby_chip_zone">Зона %1$d м</string>
+  <string name="lobby_chip_time">%1$d + %2$d мин</string>
+  <string name="lobby_hider">Прячется</string>
+  <string name="lobby_start_hint">Сначала %1$d мин прячемся — ищущие ждут</string>
 </resources>

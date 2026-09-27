@@ -1,5 +1,6 @@
 package app.hovanki.client.ui.common
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,9 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -25,7 +23,6 @@ import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_close
 import app.hovanki.client.resources.ic_close
-import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -40,24 +37,25 @@ fun Panel(title: String, onClose: () -> Unit, modifier: Modifier = Modifier, con
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 20.dp, top = 4.dp, bottom = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                IconButton(onClick = onClose, modifier = Modifier.testTag(TestTags.PANEL_CLOSE)) {
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_close),
-                        contentDescription = stringResource(Res.string.action_close),
-                    )
-                }
+                PopIconButton(
+                    icon = Res.drawable.ic_close,
+                    contentDescription = stringResource(Res.string.action_close),
+                    onClick = onClose,
+                    size = 44.dp,
+                    modifier = Modifier.testTag(TestTags.PANEL_CLOSE),
+                )
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.headlineSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
             }
-            HorizontalDivider()
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 content()
             }
