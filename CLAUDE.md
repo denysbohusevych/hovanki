@@ -2,7 +2,7 @@
 
 Hovanki: street hide-and-seek for Android + iOS. Kotlin Multiplatform + Compose Multiplatform client, Spring Boot server, shared Kotlin module for protocol and rules. Docs are in Russian (`docs/`), code and comments in English.
 
-Read first: `docs/architecture.md` (how it works), `docs/adr/` (why: 0001 stack and game rules, 0002 session storage, 0003 map and buildings, 0004 accounts, friends, groups and chat; 0005 is a draft for the future: game modes and other games on one platform, not implemented), `docs/roadmap.md` (what is missing).
+Read first: `docs/architecture.md` (how it works), `docs/adr/` (why: 0001 stack and game rules, 0002 session storage, 0003 map and buildings, 0004 accounts, friends, groups and chat; 0005 is a draft for the future: game modes and other games on one platform, not implemented; 0006 visual style), `docs/design.md` (UI spec: colors, fonts, components, screens, animations, and the plan to redo the UI), `docs/roadmap.md` (what is missing).
 
 ## Layout
 
