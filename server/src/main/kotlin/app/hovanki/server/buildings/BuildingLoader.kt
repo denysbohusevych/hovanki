@@ -7,6 +7,7 @@ import org.springframework.beans.factory.DisposableBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.stereotype.Component
+import java.time.Duration
 import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -15,11 +16,14 @@ import kotlin.concurrent.thread
 /**
  * Loads a new game's buildings off the request thread, so creating a game never waits for the source: the players
  * gather in the lobby meanwhile. Fast local sources ([FakeBuildingSource], [NoBuildingSource]) run inline, so a
- * test game has its buildings right away.
+ * test game has its buildings right away; the fake one with [BuildingProperties.fakeDelay] runs like Overpass.
  */
 @Component
 class BuildingLoader(private val source: BuildingSource, private val properties: BuildingProperties) : DisposableBean {
-    private val pool: ExecutorService? = if (properties.source == BuildingProperties.Source.OVERPASS) {
+    private val fakeDelay = properties.fakeDelay.takeIf { properties.source == BuildingProperties.Source.FAKE }
+        ?.takeIf { it > Duration.ZERO }
+    private val offThread = properties.source == BuildingProperties.Source.OVERPASS || fakeDelay != null
+    private val pool: ExecutorService? = if (offThread) {
         Executors.newFixedThreadPool(POOL_SIZE) { task ->
             thread(start = false, isDaemon = true, name = "buildings") { task.run() }
         }
@@ -35,6 +39,14 @@ class BuildingLoader(private val source: BuildingSource, private val properties:
 
     private fun loadWithRetry(gameId: String, area: ZoneCircle): Buildings? {
         if (properties.source == BuildingProperties.Source.OFF) return null
+        if (fakeDelay != null) {
+            try {
+                Thread.sleep(fakeDelay.toMillis())
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return null
+            }
+        }
         val attempts = properties.attempts.coerceAtLeast(1)
         for (attempt in 1..attempts) {
             try {
