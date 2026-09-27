@@ -32,6 +32,8 @@ embedded-postgres = "2.2.2"
 embedded-postgres-binaries = "17.11.0"
 
 turbine = "1.2.1"
+# QR codes: JVM tests cross-check the pure-Kotlin QR encoder in :clientCore against ZXing.
+zxing = "3.5.4"
 
 spotless = "8.10.2"
 ktlint = "1.8.0"
@@ -101,6 +103,7 @@ embedded-postgres-binaries-linux-arm64v8 = { module = "io.zonky.test.postgres:em
 
 # Testing
 turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
