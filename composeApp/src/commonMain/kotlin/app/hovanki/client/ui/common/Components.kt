@@ -31,7 +31,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.hovanki.client.automation.TestTags
-import app.hovanki.client.location.rememberLocationPermissionRequester
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_allow
 import app.hovanki.client.resources.action_back
@@ -225,7 +224,7 @@ fun SessionBanners(
     onDismissError: () -> Unit,
     onLocationPermissionGranted: () -> Unit,
 ) {
-    val requestLocation = rememberLocationPermissionRequester { granted ->
+    val requestLocation = rememberLocationRequest { granted ->
         if (granted) onLocationPermissionGranted()
     }
     if (connectionStatus == ConnectionStatus.RECONNECTING) {

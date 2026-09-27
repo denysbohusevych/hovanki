@@ -6,13 +6,20 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.account.AccountManager
+import app.hovanki.client.account.AccountState
 import app.hovanki.client.session.ConnectionStatus
 import app.hovanki.client.session.GameSessionManager
+import app.hovanki.client.session.SessionState
 import app.hovanki.client.ui.common.LoadingScreen
+import app.hovanki.client.ui.common.LocalLocationConsent
+import app.hovanki.client.ui.common.LocationConsentLayer
+import app.hovanki.client.ui.common.LocationConsentState
 import app.hovanki.client.ui.common.ResumingScreen
 import app.hovanki.client.ui.game.GameScreen
 import app.hovanki.client.ui.lobby.LobbyScreen
@@ -35,33 +42,45 @@ fun App() {
         val accountManager = koinInject<AccountManager>()
         val state by sessionManager.state.collectAsStateWithLifecycle()
         val account by accountManager.state.collectAsStateWithLifecycle()
+        val locationConsent = remember { LocationConsentState() }
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            // Edge to edge on both platforms: keep content clear of system bars, cutouts and the keyboard.
-            Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
-                val snapshot = state.snapshot
-                when {
-                    // Not in a game: who is logged in decides. An unconfirmed email is no obstacle (confirming is
-                    // offered on the main screen).
-                    state.session == null -> when {
-                        !account.isRestored -> LoadingScreen()
-                        !account.isLoggedIn -> WelcomeScreen()
-                        else -> MainScreen()
-                    }
+            CompositionLocalProvider(LocalLocationConsent provides locationConsent) {
+                Screen(state, account, onLeave = sessionManager::leave)
+                LocationConsentLayer(locationConsent)
+            }
+        }
+    }
+}
 
-                    // Started again during a game: checking with the server whether it is still on.
-                    snapshot == null && state.isResuming -> ResumingScreen(
-                        isReconnecting = state.connectionStatus == ConnectionStatus.RECONNECTING,
-                        onLeave = sessionManager::leave,
-                    )
+@Composable
+private fun Screen(state: SessionState, account: AccountState, onLeave: () -> Unit) {
+    val snapshot = state.snapshot
+    // The round draws its map (and the hider's code) under the system bars and keeps its HUD clear of them itself.
+    val isRound = state.session != null &&
+        (snapshot?.phase == GamePhase.HIDING || snapshot?.phase == GamePhase.SEEKING)
+    // Edge to edge on both platforms: keep content clear of system bars, cutouts and the keyboard.
+    Box(modifier = Modifier.fillMaxSize().then(if (isRound) Modifier else Modifier.safeDrawingPadding())) {
+        when {
+            // Not in a game: who is logged in decides. An unconfirmed email is no obstacle (confirming is offered on
+            // the main screen).
+            state.session == null -> when {
+                !account.isRestored -> LoadingScreen()
+                !account.isLoggedIn -> WelcomeScreen()
+                else -> MainScreen()
+            }
 
-                    snapshot == null -> LoadingScreen()
+            // Started again during a game: checking with the server whether it is still on.
+            snapshot == null && state.isResuming -> ResumingScreen(
+                isReconnecting = state.connectionStatus == ConnectionStatus.RECONNECTING,
+                onLeave = onLeave,
+            )
 
-                    else -> when (snapshot.phase) {
-                        GamePhase.LOBBY -> LobbyScreen()
-                        GamePhase.HIDING, GamePhase.SEEKING -> GameScreen()
-                        GamePhase.FINISHED -> ResultsScreen(snapshot = snapshot)
-                    }
-                }
+            snapshot == null -> LoadingScreen()
+
+            else -> when (snapshot.phase) {
+                GamePhase.LOBBY -> LobbyScreen()
+                GamePhase.HIDING, GamePhase.SEEKING -> GameScreen()
+                GamePhase.FINISHED -> ResultsScreen(snapshot = snapshot)
             }
         }
     }

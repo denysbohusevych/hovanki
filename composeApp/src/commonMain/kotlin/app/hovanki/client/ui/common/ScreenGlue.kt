@@ -1,6 +1,7 @@
 package app.hovanki.client.ui.common
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.ClipEntry
 
 /**
  * Keeps the screen on and at full brightness while in composition, and restores it afterwards: the hider's catch code
@@ -16,3 +17,6 @@ expect fun KeepScreenBright()
  */
 @Composable
 expect fun rememberReduceMotion(): Boolean
+
+/** Plain text for [androidx.compose.ui.platform.Clipboard]: the join code to paste into a messenger. */
+expect fun plainTextClipEntry(text: String): ClipEntry

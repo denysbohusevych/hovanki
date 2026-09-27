@@ -288,4 +288,33 @@
   <string name="lobby_hider">Прячется</string>
   <string name="lobby_start_hint">Сначала %1$d мин прячемся — ищущие ждут</string>
   <string name="home_join_short">Войти</string>
+
+  <!-- «Dopamine» UI, the rest of docs/design.md -->
+  <string name="start_hide">Прячьтесь!</string>
+  <string name="start_wait">Ждите!</string>
+  <string name="seeker_wait_title">Ждите, не подглядывайте</string>
+  <string name="catch_confirmed">Засчитано!</string>
+  <string name="caught_title">Вас нашли</string>
+  <string name="caught_hint">Оставайтесь: посмотрите, чем закончится раунд.</string>
+  <string name="back_in_zone">Вы в зоне</string>
+  <string name="consent_title">Геолокация для игры</string>
+  <string name="consent_text">Прятки на улице работают по точной геолокации — только во время раунда.</string>
+  <string name="consent_who">Кто видит: сервер игры. Ищущие видят друг друга, а прячущихся — только когда их раскрывают правила: вышли из зоны, зашли в здание, пропал сигнал.</string>
+  <string name="consent_when">Когда удаляется: вместе с игрой, сразу после раунда. На телефоне ничего не хранится.</string>
+  <string name="consent_pocket">В кармане: игра отправляет место и с выключенным экраном, иначе прятаться не получится.</string>
+  <string name="consent_allow">Разрешить геолокацию</string>
+  <string name="consent_later">Не сейчас</string>
+  <string name="lobby_copy_code">Скопировать код</string>
+  <string name="lobby_code_copied">Код скопирован</string>
+  <string name="scanner_open">Сканировать QR-код</string>
+  <string name="scanner_close">Закрыть камеру</string>
+  <string name="scanner_hint">Наведите камеру на QR-код на экране пойманного</string>
+  <string name="scanner_no_camera">Нет доступа к камере. Введите цифры вручную.</string>
+  <string name="hider_qr">QR-код для камеры ищущего</string>
+  <string name="alert_channel">Тревоги игры</string>
+  <string name="alert_out_of_zone_title">Вернитесь в зону!</string>
+  <string name="alert_out_of_zone_text">Иначе вы выбываете из раунда.</string>
+  <string name="alert_in_building_title">Выйдите из здания!</string>
+  <string name="alert_in_building_text">Иначе ищущие вас увидят.</string>
+  <string name="alert_claim_text">Откройте игру и покажите код.</string>
 </resources>

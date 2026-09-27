@@ -288,4 +288,33 @@
   <string name="lobby_hider">Ховається</string>
   <string name="lobby_start_hint">Спершу %1$d хв ховаємося — шукачі чекають</string>
   <string name="home_join_short">Увійти</string>
+
+  <!-- «Dopamine» UI, the rest of docs/design.md -->
+  <string name="start_hide">Ховайтеся!</string>
+  <string name="start_wait">Чекайте!</string>
+  <string name="seeker_wait_title">Чекайте, не підглядайте</string>
+  <string name="catch_confirmed">Зараховано!</string>
+  <string name="caught_title">Вас знайшли</string>
+  <string name="caught_hint">Лишайтеся: подивіться, чим закінчиться раунд.</string>
+  <string name="back_in_zone">Ви в зоні</string>
+  <string name="consent_title">Геолокація для гри</string>
+  <string name="consent_text">Хованки на вулиці працюють за точною геолокацією — лише під час раунду.</string>
+  <string name="consent_who">Хто бачить: сервер гри. Шукачі бачать одне одного, а тих, хто ховається, — лише коли їх розкривають правила: вийшли із зони, зайшли в будівлю, зник сигнал.</string>
+  <string name="consent_when">Коли видаляється: разом із грою, одразу після раунду. На телефоні нічого не зберігається.</string>
+  <string name="consent_pocket">У кишені: гра надсилає місце й з вимкненим екраном, інакше ховатися не вийде.</string>
+  <string name="consent_allow">Дозволити геолокацію</string>
+  <string name="consent_later">Не зараз</string>
+  <string name="lobby_copy_code">Скопіювати код</string>
+  <string name="lobby_code_copied">Код скопійовано</string>
+  <string name="scanner_open">Сканувати QR-код</string>
+  <string name="scanner_close">Закрити камеру</string>
+  <string name="scanner_hint">Наведіть камеру на QR-код на екрані спійманого</string>
+  <string name="scanner_no_camera">Немає доступу до камери. Введіть цифри вручну.</string>
+  <string name="hider_qr">QR-код для камери шукача</string>
+  <string name="alert_channel">Тривоги гри</string>
+  <string name="alert_out_of_zone_title">Поверніться в зону!</string>
+  <string name="alert_out_of_zone_text">Інакше ви вибуваєте з раунду.</string>
+  <string name="alert_in_building_title">Вийдіть із будівлі!</string>
+  <string name="alert_in_building_text">Інакше шукачі вас побачать.</string>
+  <string name="alert_claim_text">Відкрийте гру й покажіть код.</string>
 </resources>

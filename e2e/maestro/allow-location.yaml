@@ -1,6 +1,7 @@
 # Waits until the element ${UNTIL} is visible, answering the location prompt like a player whenever it shows up.
-# iOS asks the first time the app needs location (creating or joining a game); on a busy simulator the prompt can
-# appear many seconds after the tap. On Android the permission is granted at install and the prompt never shows.
+# iOS asks the first time the app needs location (creating or joining a game): first the app's consent screen, then
+# the system prompts for notifications («Allow») and location; on a busy simulator a prompt can appear many seconds
+# after the tap. On Android the permissions are granted at install and none of this shows.
 # Fails right away when the start screen shows a problem (e.g. no location fix): waiting longer would not help.
 appId: ${APP_ID}
 ---
@@ -10,6 +11,18 @@ appId: ${APP_ID}
         id: ${UNTIL}
     times: 40
     commands:
+      - runFlow:
+          when:
+            visible:
+              id: location_consent_allow
+          commands:
+            - tapOn:
+                id: location_consent_allow
+      - runFlow:
+          when:
+            visible: "Allow"
+          commands:
+            - tapOn: "Allow"
       - runFlow:
           when:
             visible: "Allow While Using.*"

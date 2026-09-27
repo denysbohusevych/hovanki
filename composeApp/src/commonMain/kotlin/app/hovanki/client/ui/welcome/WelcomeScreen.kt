@@ -20,7 +20,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
-import app.hovanki.client.location.rememberLocationPermissionRequester
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_dismiss
 import app.hovanki.client.resources.code_label
@@ -68,6 +67,7 @@ import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.StartStatusBanners
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.common.rememberLocationRequest
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -126,7 +126,7 @@ private fun StartContent(viewModel: WelcomeViewModel, isBusy: Boolean) {
     val startStatus by viewModel.startStatus.collectAsStateWithLifecycle()
     val sessionError by viewModel.sessionError.collectAsStateWithLifecycle()
     // Asked before joining, so location is already on when the round starts.
-    val requestLocationThenJoin = rememberLocationPermissionRequester { viewModel.joinAsGuest() }
+    val requestLocationThenJoin = rememberLocationRequest { viewModel.joinAsGuest() }
     val isStarting = startStatus.isBusy
 
     PopButton(

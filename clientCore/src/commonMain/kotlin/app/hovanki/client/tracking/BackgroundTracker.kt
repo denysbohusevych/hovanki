@@ -9,4 +9,13 @@ interface BackgroundTracker {
     fun start()
 
     fun stop()
+
+    /**
+     * Time to vibrate for a hider's [alert] (when is decided by [AlertRepeats]). The platform shows it as a
+     * notification that vibrates while the app is not on screen; on screen the round's own UI alerts.
+     */
+    fun alert(alert: HiderAlert) = Unit
+
+    /** The alert of [kind] is over: its notification goes. */
+    fun endAlert(kind: AlertKind) = Unit
 }

@@ -288,4 +288,33 @@
   <string name="lobby_hider">Hides</string>
   <string name="lobby_start_hint">Hiders get %1$d min to hide first</string>
   <string name="home_join_short">Join</string>
+
+  <!-- «Dopamine» UI, the rest of docs/design.md -->
+  <string name="start_hide">Hide!</string>
+  <string name="start_wait">Wait!</string>
+  <string name="seeker_wait_title">Wait, no peeking</string>
+  <string name="catch_confirmed">Got them!</string>
+  <string name="caught_title">You were found</string>
+  <string name="caught_hint">Stay and watch how the round ends.</string>
+  <string name="back_in_zone">You are in the zone</string>
+  <string name="consent_title">Location for the game</string>
+  <string name="consent_text">Hide-and-seek on the street needs your precise location during the round.</string>
+  <string name="consent_who">Who sees it: the game server. Seekers see each other; hiders only when the rules reveal them: out of the zone, inside a building, no signal.</string>
+  <string name="consent_when">When it is deleted: with the game, right after the round. Nothing is kept on your phone.</string>
+  <string name="consent_pocket">In your pocket: the game keeps sending your location with the screen off, otherwise hiding would not work.</string>
+  <string name="consent_allow">Allow location</string>
+  <string name="consent_later">Not now</string>
+  <string name="lobby_copy_code">Copy the code</string>
+  <string name="lobby_code_copied">Code copied</string>
+  <string name="scanner_open">Scan the QR code</string>
+  <string name="scanner_close">Close the camera</string>
+  <string name="scanner_hint">Point the camera at the QR code on their screen</string>
+  <string name="scanner_no_camera">No access to the camera. Type the digits instead.</string>
+  <string name="hider_qr">QR code for the seeker\'s camera</string>
+  <string name="alert_channel">Game alerts</string>
+  <string name="alert_out_of_zone_title">Back into the zone!</string>
+  <string name="alert_out_of_zone_text">Otherwise you are out of the round.</string>
+  <string name="alert_in_building_title">Leave the building!</string>
+  <string name="alert_in_building_text">Otherwise the seekers will see you.</string>
+  <string name="alert_claim_text">Open the game and show your code.</string>
 </resources>

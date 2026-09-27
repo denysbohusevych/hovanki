@@ -22,13 +22,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -153,13 +158,7 @@ fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
             )
             CapsText(
                 text = stringResource(
-                    if (state.phase ==
-                        GamePhase.HIDING
-                    ) {
-                        Res.string.phase_hiding
-                    } else {
-                        Res.string.phase_seeking
-                    },
+                    if (state.phase == GamePhase.HIDING) Res.string.phase_hiding else Res.string.phase_seeking,
                 ),
                 color = HUD_MUTED,
                 modifier = Modifier.testTag(TestTags.phase(state.phase)),
@@ -168,9 +167,7 @@ fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
         Box(modifier = Modifier.width(1.dp).height(34.dp).background(HUD_TRACK))
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = if (state.myRole ==
-                    Role.HIDER
-                ) {
+                text = if (state.myRole == Role.HIDER) {
                     "${state.hidersLeft}/${state.hidersTotal}"
                 } else {
                     "${state.hidersLeft}"
@@ -180,13 +177,7 @@ fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
             )
             CapsText(
                 text = stringResource(
-                    if (state.myRole ==
-                        Role.HIDER
-                    ) {
-                        Res.string.hud_hiders
-                    } else {
-                        Res.string.hud_to_find
-                    },
+                    if (state.myRole == Role.HIDER) Res.string.hud_hiders else Res.string.hud_to_find,
                 ),
                 color = HUD_MUTED,
             )
@@ -208,13 +199,7 @@ fun HudChips(state: GameUiState, modifier: Modifier = Modifier) {
         ) {
             PopChip(
                 text = stringResource(
-                    if (state.myRole ==
-                        Role.HIDER
-                    ) {
-                        Res.string.hud_you_hide
-                    } else {
-                        Res.string.hud_you_seek
-                    },
+                    if (state.myRole == Role.HIDER) Res.string.hud_you_hide else Res.string.hud_you_seek,
                 ),
                 color = state.myRole.color,
                 contentColor = state.myRole.onColor,
@@ -288,13 +273,7 @@ fun AlertPill(alert: GameAlert, text: String, tag: String, modifier: Modifier = 
         ) {
             Icon(
                 painter = painterResource(
-                    if (alert ==
-                        GameAlert.IN_BUILDING
-                    ) {
-                        Res.drawable.ic_building
-                    } else {
-                        Res.drawable.ic_warning
-                    },
+                    if (alert == GameAlert.IN_BUILDING) Res.drawable.ic_building else Res.drawable.ic_warning,
                 ),
                 contentDescription = null,
                 tint = Palette.Ink,
@@ -540,7 +519,13 @@ fun PhaseFlash(phase: GamePhase, role: Role, reduceMotion: Boolean) {
         enter = slideInVertically { -it } + fadeIn(),
         exit = slideOutVertically { -it } + fadeOut(),
     ) {
-        Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.TopCenter) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                .padding(16.dp),
+            contentAlignment = Alignment.TopCenter,
+        ) {
             PopSurface(color = Palette.Pink, shape = RoundedCornerShape(20.dp), shadow = 4.dp) {
                 Text(
                     text = stringResource(Res.string.flash_seekers_out),

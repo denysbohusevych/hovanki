@@ -11,7 +11,11 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import platform.CoreLocation.CLLocationManager
 import platform.CoreLocation.CLLocationManagerDelegateProtocol
 import platform.CoreLocation.kCLAuthorizationStatusNotDetermined
+import platform.UserNotifications.UNAuthorizationOptionAlert
+import platform.UserNotifications.UNUserNotificationCenter
 import platform.darwin.NSObject
+import platform.darwin.dispatch_async
+import platform.darwin.dispatch_get_main_queue
 
 @Composable
 actual fun rememberLocationPermissionRequester(onResult: (granted: Boolean) -> Unit): () -> Unit {
@@ -21,6 +25,11 @@ actual fun rememberLocationPermissionRequester(onResult: (granted: Boolean) -> U
         onDispose { requester.cancel() }
     }
     return remember(requester) { { requester.request { granted -> currentOnResult(granted) } } }
+}
+
+@Composable
+actual fun rememberLocationConsentNeeded(): () -> Boolean = remember {
+    { CLLocationManager().authorizationStatus == kCLAuthorizationStatusNotDetermined }
 }
 
 /**
@@ -40,6 +49,18 @@ private class AuthorizationRequester :
             return
         }
         pending = onResult
+        // Notifications first: the hider's alerts reach the pocket as notifications (IosBackgroundTracker). Asked
+        // right before location, while the player is deciding on permissions anyway; without a sound option, so the
+        // alerts never make a sound. The answer does not matter for the game.
+        val notifications = UNUserNotificationCenter.currentNotificationCenter()
+        notifications.requestAuthorizationWithOptions(UNAuthorizationOptionAlert) { _, _ ->
+            dispatch_async(dispatch_get_main_queue()) { requestLocation() }
+        }
+    }
+
+    private fun requestLocation() {
+        // Cancelled meanwhile: the screen that asked is gone.
+        if (pending == null) return
         manager.delegate = this
         manager.requestWhenInUseAuthorization()
     }

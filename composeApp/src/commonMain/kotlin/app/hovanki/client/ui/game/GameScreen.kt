@@ -13,19 +13,28 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -37,8 +46,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
@@ -48,6 +59,7 @@ import app.hovanki.client.resources.action_cancel
 import app.hovanki.client.resources.action_confirm
 import app.hovanki.client.resources.action_dispute
 import app.hovanki.client.resources.action_leave
+import app.hovanki.client.resources.back_in_zone
 import app.hovanki.client.resources.building_rule_off
 import app.hovanki.client.resources.catch_auto_in
 import app.hovanki.client.resources.catch_seeker_hint
@@ -60,7 +72,6 @@ import app.hovanki.client.resources.hider_claim_title
 import app.hovanki.client.resources.hider_code_next
 import app.hovanki.client.resources.hider_disputed
 import app.hovanki.client.resources.hint_hider_hiding
-import app.hovanki.client.resources.hint_seeker_hiding
 import app.hovanki.client.resources.hud_me
 import app.hovanki.client.resources.hud_more
 import app.hovanki.client.resources.ic_chat
@@ -96,9 +107,11 @@ import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopSurface
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SessionBanners
+import app.hovanki.client.ui.common.Toast
 import app.hovanki.client.ui.common.formatCountdown
 import app.hovanki.client.ui.common.rememberHaptics
 import app.hovanki.client.ui.common.rememberReduceMotion
+import app.hovanki.client.ui.common.rememberToastVisible
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
@@ -127,7 +140,13 @@ fun GameScreen(viewModel: GameViewModel = koinViewModel(), chat: ChatViewModel =
     // The chat panel covers the round instead of replacing it: the map keeps its tiles and camera.
     Box(modifier = Modifier.fillMaxSize()) {
         GameContent(state, viewModel, chatUnread = chatState.unread, onOpenChat = chat::open)
-        if (chatState.isOpen) ChatPanel(chat)
+        if (chatState.isOpen) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding(),
+            ) {
+                ChatPanel(chat)
+            }
+        }
     }
 }
 
@@ -145,6 +164,27 @@ private fun GameContent(state: GameUiState, viewModel: GameViewModel, chatUnread
     val claimAgainstMe = state.claimAgainstMe?.takeIf {
         it.status == CatchStatus.AWAITING_CODE && state.myStatus == PlayerStatus.ACTIVE
     }
+    val hasSheet = hasBottomSheet(state)
+    // Back inside after being out: a toast and a short vibration.
+    val isOut = state.outOfZoneMillisLeft != null
+    var wasOut by remember { mutableStateOf(isOut) }
+    var backInZone by remember { mutableIntStateOf(0) }
+    val haptics = rememberHaptics()
+    LaunchedEffect(isOut) {
+        if (wasOut && !isOut && state.myStatus == PlayerStatus.ACTIVE) {
+            backInZone++
+            haptics(Haptic.TICK)
+        }
+        wasOut = isOut
+    }
+    // Edge to edge: the map runs under the system bars, the HUD and the controls stay clear of them. Without the sheet
+    // the controls and the map credit keep above the navigation bar; the sheet keeps clear of it (and the keyboard)
+    // itself.
+    val bottomInset = if (hasSheet) {
+        PaddingValues(0.dp)
+    } else {
+        WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).asPaddingValues()
+    }
 
     Box(modifier = Modifier.fillMaxSize().testTag(TestTags.GAME_SCREEN)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -158,20 +198,43 @@ private fun GameContent(state: GameUiState, viewModel: GameViewModel, chatUnread
                     buildings = state.buildings,
                     recenterRequests = recenter,
                     reduceMotion = reduceMotion,
+                    attributionPadding = bottomInset,
                     modifier = Modifier.fillMaxSize(),
                 )
+                if (state.myRole == Role.SEEKER && state.phase == GamePhase.HIDING) {
+                    SeekerWaitLayer(millisLeft = state.phaseMillisLeft)
+                }
                 if (alert != null) EdgeVignette(alert, reduceMotion)
-                TopHud(state, viewModel, modifier = Modifier.align(Alignment.TopCenter))
+                // The HUD grows with the system font size up to 1.3×, so the capsule still fits.
+                val density = LocalDensity.current
+                CompositionLocalProvider(
+                    LocalDensity provides Density(density.density, density.fontScale.coerceAtMost(HUD_MAX_FONT_SCALE)),
+                ) {
+                    TopHud(
+                        state,
+                        viewModel,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .windowInsetsPadding(
+                                WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                            ),
+                    )
+                }
+                Toast(
+                    visible = rememberToastVisible(backInZone),
+                    text = stringResource(Res.string.back_in_zone),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottomInset).padding(bottom = 132.dp),
+                )
                 BottomControls(
                     chatUnread = chatUnread,
                     onOpenChat = onOpenChat,
                     onRecenter = { recenter++ },
                     canRecenter = state.myLocation != null,
                     onMore = { showLeaveDialog = true },
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 26.dp),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottomInset).padding(bottom = 26.dp),
                 )
             }
-            BottomSheet(state, viewModel)
+            if (hasSheet) BottomSheet(state, viewModel)
         }
 
         // The last claim, kept while its layer slides out after the claim is gone.
@@ -193,6 +256,9 @@ private fun GameContent(state: GameUiState, viewModel: GameViewModel, chatUnread
             )
         }
         PhaseFlash(phase = state.phase, role = state.myRole, reduceMotion = reduceMotion)
+        if (state.myRole == Role.SEEKER) CatchCelebration(state.myConfirmedCatches, reduceMotion)
+        if (state.myRole == Role.HIDER) CaughtLayer(state.myStatus)
+        StartCountdown(state.hidingElapsedMillis, state.myRole, reduceMotion)
     }
 
     if (showLeaveDialog) {
@@ -307,16 +373,13 @@ private fun BottomControls(
 @Composable
 private fun BottomSheet(state: GameUiState, viewModel: GameViewModel) {
     val status = statusText(state)
-    val hint = when {
-        state.myStatus != PlayerStatus.ACTIVE -> null
-        state.phase != GamePhase.HIDING -> null
-        state.myRole == Role.HIDER -> stringResource(Res.string.hint_hider_hiding)
-        else -> stringResource(Res.string.hint_seeker_hiding)
+    val hint = if (state.myStatus == PlayerStatus.ACTIVE && state.phase == GamePhase.HIDING) {
+        stringResource(Res.string.hint_hider_hiding)
+    } else {
+        null
     }
-    val seeking = state.myRole == Role.SEEKER && state.myStatus == PlayerStatus.ACTIVE &&
-        state.phase == GamePhase.SEEKING
-    val hiderDisputed = state.myRole == Role.HIDER && state.claimAgainstMe?.status == CatchStatus.DISPUTED
-    if (status == null && hint == null && !seeking && state.votes.isEmpty() && !hiderDisputed) return
+    val seeking = isSeekingNow(state)
+    val hiderDisputed = isHiderDisputed(state)
 
     PopSurface(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
@@ -324,7 +387,12 @@ private fun BottomSheet(state: GameUiState, viewModel: GameViewModel) {
         color = Palette.Paper,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+                )
+                .padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(
@@ -349,6 +417,20 @@ private fun BottomSheet(state: GameUiState, viewModel: GameViewModel) {
         }
     }
 }
+
+/** Whether the sheet under the map has anything: see [BottomSheet]. */
+private fun hasBottomSheet(state: GameUiState): Boolean = state.myStatus != PlayerStatus.ACTIVE ||
+    // The seeker waits out the hiding phase on SeekerWaitLayer.
+    (state.phase == GamePhase.HIDING && state.myRole == Role.HIDER) ||
+    isSeekingNow(state) ||
+    state.votes.isNotEmpty() ||
+    isHiderDisputed(state)
+
+private fun isSeekingNow(state: GameUiState): Boolean =
+    state.myRole == Role.SEEKER && state.myStatus == PlayerStatus.ACTIVE && state.phase == GamePhase.SEEKING
+
+private fun isHiderDisputed(state: GameUiState): Boolean =
+    state.myRole == Role.HIDER && state.claimAgainstMe?.status == CatchStatus.DISPUTED
 
 /** «You were found» or «you are out», with its tag. */
 @Composable
@@ -513,7 +595,11 @@ private fun ShowCodeLayer(
 ) {
     KeepScreenBright()
     Column(
-        modifier = Modifier.fillMaxSize().background(Palette.Violet).padding(horizontal = 24.dp, vertical = 20.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Palette.Violet)
+            .safeDrawingPadding()
+            .padding(horizontal = 24.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
@@ -533,9 +619,7 @@ private fun ShowCodeLayer(
                     style = MaterialTheme.typography.titleSmall,
                     color = Color.White,
                 )
-                val fraction = if (claimTimeoutMillis >
-                    0
-                ) {
+                val fraction = if (claimTimeoutMillis > 0) {
                     (millisLeft.toFloat() / claimTimeoutMillis).coerceIn(0f, 1f)
                 } else {
                     0f
@@ -652,6 +736,7 @@ private fun GameHaptics(state: GameUiState) {
 }
 
 private const val COUNTDOWN_TICKS = 3
+private const val HUD_MAX_FONT_SCALE = 1.3f
 private const val LAST_SECONDS = 5
 private const val OUT_OF_ZONE_EVERY = 10
 private const val IN_BUILDING_EVERY = 15

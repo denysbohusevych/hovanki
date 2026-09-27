@@ -6,9 +6,19 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 
-/** Runs [LocationTrackingService] while a round is in progress. */
+/**
+ * Runs [LocationTrackingService] while a round is in progress, and shows the hider's alerts as vibrating
+ * notifications while the app is not on screen.
+ */
 class AndroidBackgroundTracker(private val context: Context) : BackgroundTracker {
+    private val notifications = AlertNotifications(context)
+    private val scope = MainScope()
+    private val shows = mutableMapOf<AlertKind, Job>()
+
     override fun start() {
         // A location foreground service without the location permission is refused by Android 14+.
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -25,6 +35,17 @@ class AndroidBackgroundTracker(private val context: Context) : BackgroundTracker
 
     override fun stop() {
         context.stopService(serviceIntent())
+    }
+
+    override fun alert(alert: HiderAlert) {
+        if (notifications.isAppOnScreen()) return
+        shows.remove(alert.kind)?.cancel()
+        shows[alert.kind] = scope.launch { notifications.show(alert) }
+    }
+
+    override fun endAlert(kind: AlertKind) {
+        shows.remove(kind)?.cancel()
+        notifications.cancel(kind)
     }
 
     private fun serviceIntent() = Intent(context, LocationTrackingService::class.java)

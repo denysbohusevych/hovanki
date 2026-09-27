@@ -1,6 +1,9 @@
 package app.hovanki.client.ui.results
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +23,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
@@ -52,6 +57,8 @@ import app.hovanki.client.ui.common.PopButton
 import app.hovanki.client.ui.common.PopCard
 import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.ScreenColumn
+import app.hovanki.client.ui.common.rememberReduceMotion
+import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.theme.color
@@ -62,9 +69,11 @@ import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.UserId
+import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
+import kotlin.math.roundToInt
 
 /**
  * Final standings of the finished game ([snapshot] no longer changes) on lime (docs/design.md, «Итоги»), players to
@@ -88,9 +97,12 @@ fun ResultsScreen(
     val hiders = snapshot.players.filter { it.role == Role.HIDER }
     val survivors = hiders.filter { it.status == PlayerStatus.ACTIVE }
     val list = PlayerList(myId = me.playerId, accounts = accounts, isBusy = isBusy, onAddFriend = viewModel::addFriend)
+    val reduceMotion = rememberReduceMotion()
     // The title pops in once, when the results open.
-    val pop = remember { Animatable(0.6f) }
+    val pop = remember { Animatable(if (reduceMotion) 1f else 0.6f) }
     LaunchedEffect(Unit) { pop.animateTo(1f, Motion.pop()) }
+    val caught = hiders.filter { it.status == PlayerStatus.CAUGHT }
+    val eliminated = hiders.filter { it.status == PlayerStatus.ELIMINATED }
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenColumn(modifier = Modifier.weight(1f).testTag(TestTags.RESULTS_SCREEN)) {
@@ -127,6 +139,16 @@ fun ResultsScreen(
                     }
                     Text(text = stringResource(personal), style = MaterialTheme.typography.titleMedium)
                 }
+                Row(
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ResultCount(Res.string.results_caught, caught.size, reduceMotion, Modifier.weight(1f))
+                    ResultCount(Res.string.results_survived, survivors.size, reduceMotion, Modifier.weight(1f))
+                    if (eliminated.isNotEmpty()) {
+                        ResultCount(Res.string.results_eliminated, eliminated.size, reduceMotion, Modifier.weight(1f))
+                    }
+                }
             }
 
             PopCard(
@@ -136,13 +158,26 @@ fun ResultsScreen(
             ) {
                 val groups = listOf(
                     Res.string.results_survived to survivors,
-                    Res.string.results_caught to hiders.filter { it.status == PlayerStatus.CAUGHT },
-                    Res.string.results_eliminated to hiders.filter { it.status == PlayerStatus.ELIMINATED },
+                    Res.string.results_caught to caught,
+                    Res.string.results_eliminated to eliminated,
                     Res.string.results_seekers to snapshot.players.filter { it.role == Role.SEEKER },
                 ).filter { it.second.isNotEmpty() }
                 groups.forEachIndexed { index, (title, players) ->
-                    if (index > 0) HorizontalDivider(color = Palette.Line, thickness = 1.5.dp)
-                    PlayerGroup(title, players, list)
+                    // The groups drop in one after another.
+                    val drop = remember { Animatable(if (reduceMotion) 1f else 0f) }
+                    LaunchedEffect(Unit) {
+                        delay(GROUP_DELAY_MILLIS * (index + 1))
+                        drop.animateTo(1f, Motion.pop())
+                    }
+                    Column(
+                        modifier = Modifier.graphicsLayer {
+                            alpha = drop.value.coerceIn(0f, 1f)
+                            translationY = (1f - drop.value) * -GROUP_DROP_DP.dp.toPx()
+                        },
+                    ) {
+                        if (index > 0) HorizontalDivider(color = Palette.Line, thickness = 1.5.dp)
+                        PlayerGroup(title, players, list)
+                    }
                 }
             }
             CommandStatus(
@@ -165,6 +200,28 @@ fun ResultsScreen(
         )
     }
 }
+
+/** A number on the results card that counts up when the results open. */
+@Composable
+private fun ResultCount(label: StringResource, count: Int, reduceMotion: Boolean, modifier: Modifier = Modifier) {
+    val shown = remember { Animatable(if (reduceMotion) count.toFloat() else 0f) }
+    LaunchedEffect(count) { shown.animateTo(count.toFloat(), tween(COUNT_UP_MILLIS, easing = FastOutSlowInEasing)) }
+    Column(
+        modifier = modifier.clip(RoundedCornerShape(16.dp)).background(Palette.Ink).padding(vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = shown.value.roundToInt().toString(),
+            style = Hovanki.text.timer,
+            color = Palette.Lime,
+        )
+        CapsText(stringResource(label), color = Color.White)
+    }
+}
+
+private const val COUNT_UP_MILLIS = 600
+private const val GROUP_DELAY_MILLIS = 80L
+private const val GROUP_DROP_DP = 24
 
 /** How the players are shown in each group: the viewer marked, accounts to add as friends. */
 private class PlayerList(

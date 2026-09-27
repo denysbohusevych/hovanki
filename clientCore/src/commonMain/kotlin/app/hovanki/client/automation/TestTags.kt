@@ -156,6 +156,11 @@ object TestTags {
     const val GROUP_DELETE_CONFIRM = "group_delete_confirm"
     const val GROUP_LEAVE = "group_leave"
 
+    /** What the game does with location, before the system asks for it (only while the player has not decided). */
+    const val LOCATION_CONSENT = "location_consent"
+    const val LOCATION_CONSENT_ALLOW = "location_consent_allow"
+    const val LOCATION_CONSENT_LATER = "location_consent_later"
+
     /** Closes a full-screen panel (email confirmation, group, invite, chat), like the system back button. */
     const val PANEL_CLOSE = "panel_close"
 
@@ -198,6 +203,11 @@ object TestTags {
     const val CATCH_DISPUTE = "catch_dispute"
     const val CODE_INPUT = "code_input"
     const val CODE_CONFIRM = "code_confirm"
+
+    /** The hider's code as a QR code, and the seeker's camera for it. */
+    const val CATCH_QR = "catch_qr"
+    const val SCANNER_OPEN = "scanner_open"
+    const val SCANNER = "scanner"
 
     const val RESULTS_SCREEN = "results_screen"
     const val RESULTS_BACK = "results_back"

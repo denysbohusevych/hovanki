@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
-import app.hovanki.client.location.rememberLocationPermissionRequester
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.home_code_label
 import app.hovanki.client.resources.home_create
@@ -66,6 +65,7 @@ import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SectionTitle
 import app.hovanki.client.ui.common.StartStatusBanners
+import app.hovanki.client.ui.common.rememberLocationRequest
 import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.verify.ConfirmEmailCard
@@ -85,11 +85,11 @@ fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: 
     val status by viewModel.startStatus.collectAsStateWithLifecycle()
     val sessionError by viewModel.sessionError.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
-    val requestLocationThenCreate = rememberLocationPermissionRequester { granted -> viewModel.createGame(granted) }
+    val requestLocationThenCreate = rememberLocationRequest { granted -> viewModel.createGame(granted) }
     // Asked before joining as well, so location is already on when the round starts.
-    val requestLocationThenJoin = rememberLocationPermissionRequester { viewModel.joinGame() }
+    val requestLocationThenJoin = rememberLocationRequest { viewModel.joinGame() }
     var acceptedInvite by remember { mutableStateOf<GameInvite?>(null) }
-    val requestLocationThenAccept = rememberLocationPermissionRequester {
+    val requestLocationThenAccept = rememberLocationRequest {
         acceptedInvite?.let(viewModel::acceptInvite)
     }
     val isBusy = status.isBusy

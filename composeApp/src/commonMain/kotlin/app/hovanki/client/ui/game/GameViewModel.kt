@@ -130,6 +130,9 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             myRole = me.role,
             myStatus = me.status,
             phaseMillisLeft = snapshot.phaseEndsAtMillis?.let { it - now },
+            hidingElapsedMillis = snapshot.phaseEndsAtMillis
+                ?.takeIf { snapshot.phase == GamePhase.HIDING }
+                ?.let { endsAt -> now - (endsAt - snapshot.settings.hidingSeconds * 1000L) },
             zone = zone,
             zoneMoment = zoneMoment,
             isZoneRunning = zoneStartedAt != null,
@@ -149,6 +152,10 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
                 emptyList()
             },
             myClaim = myClaim?.toUi(),
+            myConfirmedCatches = snapshot.catches
+                .filter { it.seekerId == me.playerId && it.status == CatchStatus.CONFIRMED }
+                .map { it.id }
+                .toSet(),
             claimAgainstMe = claimAgainstMe?.toUi(),
             catchCode = catchCode,
             codeDigits = rules.catchCodeDigits,
@@ -182,6 +189,8 @@ data class GameUiState(
     val myRole: Role,
     val myStatus: PlayerStatus,
     val phaseMillisLeft: Long?,
+    /** How long ago the hiding phase started (server time); null in other phases. */
+    val hidingElapsedMillis: Long?,
     val zone: ZoneState,
     /** What the zone is doing, for the animations. */
     val zoneMoment: ZoneMoment,
@@ -198,6 +207,8 @@ data class GameUiState(
     val huntableHiders: List<PlayerView>,
     /** Seeker: my open claim. */
     val myClaim: ClaimUi?,
+    /** Seeker: my claims the hider's code (or the vote) confirmed, for the celebration. */
+    val myConfirmedCatches: Set<CatchId>,
     /** Hider: the open claim against me. */
     val claimAgainstMe: ClaimUi?,
     /** Hider: the code to show while a claim awaits it. */
