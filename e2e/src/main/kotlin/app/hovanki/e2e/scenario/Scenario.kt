@@ -145,11 +145,23 @@ class Scenario(val name: String, val serverUrl: String) {
         return checkNotNull(sent.code)
     }
 
-    /** Registers [account] and confirms the email with the emailed code: logged in with a confirmed email. */
+    /**
+     * Registers [account]: logged in and usable right away (games under the nickname, friends, groups, invites). The
+     * email stays unconfirmed, as most players leave it; [confirmsEmail] confirms it.
+     */
     suspend fun BotPlayer.signsUp(account: BotAccount = newAccount(name)): BotAccount {
         requireOk(register(account), "$name registers")
-        requireOk(verifyEmail(emailedCode(account.email, EmailPurpose.VERIFY_EMAIL)), "$name confirms the email")
         return account
+    }
+
+    /**
+     * Confirms the email of the logged-in account (optional, whenever the player likes) with the code of the first
+     * verification email to it that is not among [known]: the one sent at registration, or, with the inbox before a
+     * resend or an email change as [known], the new one.
+     */
+    suspend fun BotPlayer.confirmsEmail(known: List<DebugEmail> = emptyList()) {
+        val email = checkNotNull(user?.email) { "$name is not logged in" }
+        requireOk(verifyEmail(emailedCode(email, EmailPurpose.VERIFY_EMAIL, known)), "$name confirms the email")
     }
 
     /** Logs in with [account]'s password, by its nickname or by [login] (e.g. the email). */

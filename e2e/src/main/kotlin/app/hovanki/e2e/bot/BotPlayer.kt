@@ -207,7 +207,10 @@ class BotPlayer(
 
     val userId: UserId? get() = user?.id
 
-    /** Signs up; logged in right away with an unconfirmed email, the code goes to [BotAccount.email]. */
+    /**
+     * Signs up: logged in and usable right away. The email is unconfirmed; the code to confirm it (optional,
+     * [verifyEmail]) goes to [BotAccount.email].
+     */
     suspend fun register(account: BotAccount, language: String = "en"): CommandResult =
         accountCommand("registers as $account") {
             it.account.register(account.nickname, account.email, account.password, language)

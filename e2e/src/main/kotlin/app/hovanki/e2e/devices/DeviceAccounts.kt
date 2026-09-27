@@ -15,6 +15,9 @@ import io.ktor.client.engine.okhttp.OkHttp
  * register, read the code in the email (the server's debug route, [Observer.awaitEmail]), confirm it. The app on the
  * device then logs in with it from its launch options (`name` + `password`), so a device run spends no taps on forms
  * the scenarios don't test. The registration's own session is ended again: the device logs in with one of its own.
+ *
+ * Confirming the email is optional (the account works without it), but the app offers it on the «Play» tab to an
+ * account that hasn't: a confirmed account keeps that offer out of the way of the Maestro flows.
  */
 class DeviceAccounts(
     private val api: AccountApi,

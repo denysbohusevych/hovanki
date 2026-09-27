@@ -15,7 +15,8 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * A logged-in player comes back into a running game on another phone (a reinstalled app, a second phone): joining
- * with the code while logged in gives back the same player, and the old phone's session ends. Guests can't.
+ * with the code while logged in gives back the same player, and the old phone's session ends. Guests can't. The
+ * accounts' emails are not confirmed: it makes no difference.
  */
 class AccountRejoinTest {
     @Test
@@ -50,7 +51,7 @@ class AccountRejoinTest {
         }
         check(!anna.backgroundTracker.isRunning, "the old phone stops tracking")
         check(anna.storage.read("session") == null, "the old phone forgets the game")
-        check(anna.accountState.hasConfirmedEmail, "the old phone stays logged in")
+        check(anna.accountState.isLoggedIn, "the old phone stays logged in")
         check(state().players.size == 3, "no new player in the game")
 
         phone.walksToAndArrives(PARK.offset(northMeters = 15.0, eastMeters = 25.0), speed = 4.0)

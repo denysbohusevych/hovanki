@@ -13,29 +13,27 @@ import kotlin.time.Duration.Companion.minutes
 /**
  * Friends, blocks, groups and game invites (docs/adr/0004-accounts-friends-chat.md) through the apps' SocialManager and
  * GameSessionManager. The other side sees a change when its app reloads the list (the friends screen, the inbox poll).
+ * The players' emails are not confirmed, like most players': an account takes part in all of it right away.
  */
 class SocialTest {
     @Test
     fun friendsByNickname() = scenario("Friends by nickname") {
         val anna = player("Anna", at = PARK)
         val bob = player("Bob", at = PARK)
-        val carl = player("Carl", at = PARK)
         val annaAccount = anna.signsUp()
         val bobAccount = bob.signsUp()
         val annaId = checkNotNull(anna.userId)
         val bobId = checkNotNull(bob.userId)
-        val unconfirmed = newAccount("Carl")
-        requireOk(carl.register(unconfirmed), "Carl registers but never confirms the email")
+        anna.confirmsEmail()
+        check(bob.accountState.hasUnconfirmedEmail, "Anna confirmed her email, Bob never does: no difference")
 
         expectRejected(anna.sendFriendRequest(newAccount("Nobody").nickname), ErrorReason.USER_NOT_FOUND, "nobody")
-        expectRejected(
-            anna.sendFriendRequest(unconfirmed.nickname),
-            ErrorReason.USER_NOT_FOUND,
-            "an unconfirmed account",
-        )
         expectRejected(anna.sendFriendRequest(annaAccount.nickname), ErrorCode.BAD_REQUEST, "Anna herself")
 
-        requireOk(anna.sendFriendRequest(bobAccount.nickname.uppercase()), "Anna asks Bob (nickname in capitals)")
+        requireOk(
+            anna.sendFriendRequest(bobAccount.nickname.uppercase()),
+            "Anna finds Bob by his nickname (in capitals), unconfirmed email and all",
+        )
         check(anna.relationTo(bobId) == UserRelation.OUTGOING, "Anna's request waits")
         requireOk(bob.refreshInbox(), "Bob's start screen polls the inbox")
         check(bob.inbox.friendRequests.map { it.id } == listOf(annaId), "Bob's inbox shows Anna's request")
@@ -255,6 +253,7 @@ class SocialTest {
         val dave = player("Dave", at = PARK)
         val bots = listOf(anna, sam, bob, carl, dave)
         for (bot in bots) bot.signsUp()
+        check(bots.all { it.accountState.hasUnconfirmedEmail }, "nobody confirmed their email")
         val members = listOf(sam, bob, carl, dave)
         for (member in members) anna.befriends(member)
         val group = anna.createsGroup("Crew", members)

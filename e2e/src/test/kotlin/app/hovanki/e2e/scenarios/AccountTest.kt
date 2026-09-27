@@ -13,19 +13,22 @@ import kotlin.test.Test
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Accounts (docs/adr/0004-accounts-friends-chat.md) through the app's AccountManager: sign-up with the emailed code,
- * login by nickname or email on other phones, logout, password reset, deletion. The codes come from the emails the
- * server sent (observer), as a person reads them in their inbox.
+ * Accounts (docs/adr/0004-accounts-friends-chat.md) through the app's AccountManager: sign-up, an account that works
+ * right away while confirming the email with the emailed code is optional, login by nickname or email on other phones,
+ * logout, fixing a mistyped email, password reset, deletion. The codes come from the emails the server sent
+ * (observer), as a person reads them in their inbox.
  */
 class AccountTest {
     @Test
-    fun signUpWithAnEmailedCode() = scenario("Sign up with an emailed code") {
+    fun signUpAndConfirmTheEmailLater() = scenario("Sign up, confirm the email later") {
         val anna = player("Anna", at = PARK)
         val account = newAccount("Anna")
 
         requireOk(anna.register(account, language = "uk-UA"), "Anna registers")
-        check(anna.accountState.hasUnconfirmedEmail, "Anna is logged in, her email not confirmed yet")
+        check(anna.accountState.hasUnconfirmedEmail, "Anna is logged in, her email not confirmed")
         check(anna.user?.nickname == account.nickname && anna.user?.email == account.email, "her nickname and email")
+        eventually("the app loads Anna's friends right away: the account works unconfirmed") { anna.friends }
+        requireOk(anna.refreshInbox(), "and her inbox")
         val email = observer.awaitEmail(account.email, EmailPurpose.VERIFY_EMAIL)
         check(email.language == "uk", "the email is in the app's language (${email.language})")
         val firstCode = checkNotNull(email.code)
@@ -39,7 +42,7 @@ class AccountTest {
         expectRejected(
             bob.register(newAccount("Bob").copy(email = account.email.uppercase())),
             ErrorReason.EMAIL_TAKEN,
-            "Anna's email in capitals is taken",
+            "Anna's email in capitals is taken, confirmed or not",
         )
         check(!bob.accountState.isLoggedIn, "Bob stays logged out")
 
@@ -58,6 +61,43 @@ class AccountTest {
         check(anna.accountState.hasConfirmedEmail, "Anna's email is confirmed")
         requireOk(anna.refreshAccount(), "Anna's app reloads the profile")
         check(anna.user?.emailVerified == true, "the server has it confirmed too")
+    }
+
+    @Test
+    fun anAccountPlaysBeforeConfirmingItsEmail() = scenario("An account plays before confirming its email") {
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK)
+        val account = sam.signsUp()
+        check(sam.accountState.hasUnconfirmedEmail, "Sam has not confirmed his email")
+
+        sam.createsGame(GameSetups.fast())
+        join(anna)
+        val lobby = state().players
+        check(
+            lobby.single { it.id == sam.id }.let { it.name == account.nickname && it.userId == sam.userId },
+            "Sam plays under his nickname, with his account",
+        )
+        check(lobby.single { it.id == anna.id }.let { it.name == "Anna" && it.userId == null }, "Anna is a guest")
+        awaitThat("Anna's phone shows Sam's nickname and account") {
+            anna.snapshot?.players?.any { it.id == sam.id && it.name == account.nickname && it.userId == sam.userId } ==
+                true
+        }
+        check(anna.snapshot?.players?.single { it.id == anna.id }?.userId == null, "and Anna as a guest")
+
+        sam.startsGame(seekers = listOf(sam))
+        anna.walksTo(PARK.offset(eastMeters = 30.0))
+        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+        sam.catches(anna)
+        awaitPhase(GamePhase.FINISHED)
+        awaitThat("the results show Sam under his nickname") {
+            anna.snapshot?.phase == GamePhase.FINISHED &&
+                anna.snapshot?.players?.single { it.id == sam.id }?.name == account.nickname
+        }
+
+        // Whenever he likes, e.g. on the results screen, with the code emailed at registration.
+        sam.confirmsEmail()
+        check(sam.accountState.hasConfirmedEmail, "Sam's email is confirmed now")
+        check(sam.snapshot?.phase == GamePhase.FINISHED && sam.state.lastError == null, "his game didn't notice")
     }
 
     @Test
@@ -81,19 +121,16 @@ class AccountTest {
 
         tablet.logsIn(account, login = account.nickname.lowercase())
         check(
-            tablet.userId == anna.userId && tablet.accountState.hasConfirmedEmail,
-            "by nickname: Anna's confirmed account",
+            tablet.userId == anna.userId && tablet.accountState.hasUnconfirmedEmail,
+            "by nickname: Anna's account, its email still unconfirmed",
         )
         laptop.logsIn(account, login = account.email.uppercase())
-        check(
-            laptop.userId == anna.userId && laptop.accountState.hasConfirmedEmail,
-            "by email: Anna's confirmed account",
-        )
+        check(laptop.userId == anna.userId, "by email (not confirmed): Anna's account")
 
         laptop.killApp()
         laptop.launchApp()
         awaitThat("the relaunched app is logged in again", 10.seconds) {
-            laptop.accountState.hasConfirmedEmail && laptop.userId == anna.userId
+            laptop.accountState.isLoggedIn && laptop.userId == anna.userId
         }
 
         requireOk(tablet.logOut(), "Anna logs out on the tablet")
@@ -101,7 +138,46 @@ class AccountTest {
         check(tablet.storage.read("account") == null, "no account saved on the tablet")
         requireOk(anna.refreshAccount(), "Anna's phone still works")
         requireOk(laptop.refreshAccount(), "the laptop still works")
-        check(anna.accountState.hasConfirmedEmail && laptop.accountState.hasConfirmedEmail, "both are still logged in")
+        check(anna.accountState.isLoggedIn && laptop.accountState.isLoggedIn, "both are still logged in")
+    }
+
+    @Test
+    fun changeAMistypedEmail() = scenario("Change a mistyped email") {
+        val anna = player("Anna", at = PARK)
+        val bob = player("Bob", at = PARK)
+        val account = newAccount("Anna")
+        val mistyped = newAccount("Typo").email
+        requireOk(anna.register(account.copy(email = mistyped)), "Anna registers with a typo in her email")
+        val firstCode = emailedCode(mistyped, EmailPurpose.VERIFY_EMAIL)
+        val bobAccount = bob.signsUp()
+
+        expectRejected(
+            anna.changeEmail(account.email, "not-her-password"),
+            ErrorReason.WRONG_CREDENTIALS,
+            "fixing it without her password",
+        )
+        expectRejected(anna.changeEmail("anna.example", account.password), ErrorReason.INVALID_EMAIL, "not an address")
+        expectRejected(anna.changeEmail(bobAccount.email, account.password), ErrorReason.EMAIL_TAKEN, "Bob's address")
+        check(anna.user?.email == mistyped, "the email is still the mistyped one")
+
+        requireOk(anna.changeEmail(account.email, account.password), "Anna fixes her email, with her password")
+        check(
+            anna.user?.email == account.email && anna.accountState.hasUnconfirmedEmail,
+            "the new address, unconfirmed",
+        )
+        val code = emailedCode(account.email, EmailPurpose.VERIFY_EMAIL)
+        check(observer.emails(mistyped).size == 1, "nothing more went to the mistyped address")
+        if (code != firstCode) {
+            expectRejected(anna.verifyEmail(firstCode), ErrorCode.INVALID_CODE, "the code sent to the typo is void")
+        }
+        requireOk(anna.verifyEmail(code), "Anna confirms the new address with the code sent there")
+        check(anna.accountState.hasConfirmedEmail, "Anna's email is confirmed")
+        anna.newPhone().logsIn(account, login = account.email)
+
+        val confirmed = anna.changeEmail(newAccount("Anna").email, account.password)
+        expectRejected(confirmed, ErrorCode.WRONG_STATE, "changing a confirmed email")
+        check((confirmed as CommandResult.Rejected).reason == null, "not possible (yet), whatever the address")
+        check(anna.user?.email == account.email, "the confirmed email stays")
     }
 
     @Test
@@ -111,6 +187,7 @@ class AccountTest {
         val tablet = anna.newPhone("Anna's tablet")
         tablet.logsIn(account)
         val newPhone = anna.newPhone()
+        check(anna.accountState.hasUnconfirmedEmail, "Anna never confirmed her email")
 
         val unknown = newAccount("Nobody").email
         requireOk(newPhone.requestPasswordReset(unknown), "a reset for an address without an account looks the same")
@@ -127,10 +204,8 @@ class AccountTest {
         )
         check(!newPhone.accountState.isLoggedIn, "not logged in with a wrong code")
         requireOk(newPhone.resetPassword(account.email, code, newPassword), "Anna sets a new password")
-        check(
-            newPhone.userId == anna.userId && newPhone.accountState.hasConfirmedEmail,
-            "logged in with the new password",
-        )
+        check(newPhone.userId == anna.userId, "logged in with the new password")
+        check(newPhone.accountState.hasConfirmedEmail, "the code from her inbox confirmed the email too")
 
         val laptop = anna.newPhone("Anna's laptop")
         expectRejected(
@@ -163,8 +238,8 @@ class AccountTest {
         tablet.logsIn(account)
 
         expectRejected(anna.deleteAccount("not-her-password"), ErrorReason.WRONG_CREDENTIALS, "a wrong password")
-        check(anna.accountState.hasConfirmedEmail, "nothing deleted, Anna is still logged in")
-        requireOk(anna.deleteAccount(account.password), "Anna deletes her account")
+        check(anna.accountState.isLoggedIn, "nothing deleted, Anna is still logged in")
+        requireOk(anna.deleteAccount(account.password), "Anna deletes her account (email never confirmed)")
         check(!anna.accountState.isLoggedIn, "Anna is logged out")
         check(anna.storage.read("account") == null, "no account saved on her phone")
 
@@ -181,37 +256,6 @@ class AccountTest {
         val bob = player("Bob", at = PARK)
         requireOk(bob.register(account.withPassword("bobs-password-1")), "Bob takes the free nickname and email")
         check(bob.userId != null && bob.userId != annaId, "a new account, not Anna's")
-    }
-
-    @Test
-    fun loggedInPlayerAndGuestInOneGame() = scenario("A logged-in player and a guest in one game") {
-        val sam = player("Sam", at = PARK)
-        val anna = player("Anna", at = PARK)
-        val account = sam.signsUp()
-
-        sam.createsGame(GameSetups.fast())
-        join(anna)
-        val lobby = state().players
-        check(
-            lobby.single { it.id == sam.id }.let { it.name == account.nickname && it.userId == sam.userId },
-            "Sam plays under his nickname, with his account",
-        )
-        check(lobby.single { it.id == anna.id }.let { it.name == "Anna" && it.userId == null }, "Anna is a guest")
-        awaitThat("Anna's phone shows Sam's nickname and account") {
-            anna.snapshot?.players?.any { it.id == sam.id && it.name == account.nickname && it.userId == sam.userId } ==
-                true
-        }
-        check(anna.snapshot?.players?.single { it.id == anna.id }?.userId == null, "and Anna as a guest")
-
-        sam.startsGame(seekers = listOf(sam))
-        anna.walksTo(PARK.offset(eastMeters = 30.0))
-        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
-        sam.catches(anna)
-        awaitPhase(GamePhase.FINISHED)
-        awaitThat("the results show Sam under his nickname") {
-            anna.snapshot?.phase == GamePhase.FINISHED &&
-                anna.snapshot?.players?.single { it.id == sam.id }?.name == account.nickname
-        }
     }
 
     /** A code that is not [code]. */
