@@ -21,6 +21,7 @@ import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.GroupId
 import app.hovanki.shared.protocol.InviteRequest
+import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
@@ -29,6 +30,7 @@ import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.rules.RequestIds
 import app.hovanki.shared.rules.shrinkingZone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -42,6 +44,9 @@ import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -126,7 +131,64 @@ class ChatSessionTest {
         assertTrue(manager.sendChat("Hi", team = true))
 
         assertEquals(listOf(1L, 2L, 3L), manager.state.value.chat.map { it.seq })
-        assertEquals(SendChatRequest("Hi", team = true, chatAfter = 2), api.chatRequests.single())
+        val sent = api.chatRequests.single()
+        assertEquals(SendChatRequest("Hi", team = true, chatAfter = 2), sent.copy(clientMessageId = null))
+        assertTrue(RequestIds.isValid(assertNotNull(sent.clientMessageId)))
+    }
+
+    @Test
+    fun aMessageWithoutAnAnswerIsSentAgainWithItsId() = runTest {
+        var sends = 0
+        val api = FakeGameApi(
+            onJoin = { SessionResponse(testSession, testSnapshot(players = players)) },
+            onSendChat = {
+                sends++
+                if (sends == 1 || sends == 4) throw Exception("connection reset")
+                snapshot(5_000)
+            },
+        ) { snapshot(2_000) }
+        val manager = manager(api)
+        manager.join("ABC234", "Anna")
+
+        assertFalse(manager.sendChat("Hi"))
+        assertIs<SessionError.Network>(manager.state.value.lastError)
+        assertTrue(manager.sendChat("Hi"))
+        assertTrue(manager.sendChat("Hi"))
+        assertFalse(manager.sendChat("Hi"))
+        assertTrue(manager.sendChat("Bye"))
+
+        val ids = api.chatRequests.map { assertNotNull(it.clientMessageId) }
+        assertEquals(ids[0], ids[1], "sent again after no answer: the same message")
+        assertNotEquals(ids[1], ids[2], "the same text after it went through: a new message")
+        assertNotEquals(ids[3], ids[4], "another text after no answer: a new message")
+    }
+
+    @Test
+    fun aJoinWithoutAnAnswerIsSentAgainWithItsId() = runTest {
+        val joins = mutableListOf<JoinGameRequest>()
+        val api = FakeGameApi(
+            onJoin = { request ->
+                joins += request
+                when (joins.size) {
+                    1 -> throw Exception("connection reset")
+                    3 -> throw ApiException(404, ApiError(ErrorCode.NOT_FOUND, "No game with this code"))
+                    else -> SessionResponse(testSession, testSnapshot())
+                }
+            },
+        ) { testSnapshot() }
+        val manager = manager(api)
+
+        assertFalse(manager.join("abc234 ", "Anna"))
+        assertTrue(manager.join("ABC234", "Anna"))
+        manager.leave()
+        assertFalse(manager.join("XYZ789", "Anna"))
+        assertTrue(manager.join("XYZ789", "Anna"))
+
+        val ids = joins.map { assertNotNull(it.requestId) }
+        assertTrue(ids.all(RequestIds::isValid), "$ids")
+        assertEquals(ids[0], ids[1], "pressed again after no answer: the same request")
+        assertNotEquals(ids[1], ids[2], "another game: another request")
+        assertNotEquals(ids[2], ids[3], "pressed again after a refusal: a new request")
     }
 
     @Test

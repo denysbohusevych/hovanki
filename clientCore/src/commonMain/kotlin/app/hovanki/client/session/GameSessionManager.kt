@@ -82,6 +82,15 @@ class GameSessionManager(
     private var resumeAttempted = false
     private var buildingsJob: Job? = null
 
+    /**
+     * The join that got no answer (no network, or the answer got lost): pressed again with the same code and name, it
+     * goes out with the same [JoinGameRequest.requestId], and the server gives back the player it may have created.
+     */
+    private var unansweredJoin: JoinGameRequest? = null
+
+    /** The chat message that got no answer; sent again, it keeps its [SendChatRequest.clientMessageId]. */
+    private var unansweredChat: SendChatRequest? = null
+
     /** New game with the default settings: a shrinking zone around [center] (the host's position). */
     suspend fun create(playerName: String, center: GeoPoint): Boolean = create(playerName, defaultSettings(center))
 
@@ -94,8 +103,12 @@ class GameSessionManager(
     /** [playerName] as in [create]. Also how an invite is accepted: its join code, while logged in. */
     suspend fun join(code: String, playerName: String): Boolean {
         val token = account.accountToken
-        val request = JoinGameRequest(code.trim().uppercase(), playerName.trim())
-        return command(token) { begin(api.joinGame(request, token)) }
+        val typed = JoinGameRequest(code.trim().uppercase(), playerName.trim())
+        val request = unansweredJoin?.takeIf { it.copy(requestId = null) == typed }
+            ?: typed.copy(requestId = newRequestId())
+        val joined = command(token) { begin(api.joinGame(request, token)) }
+        unansweredJoin = request.takeIf { !joined && mutableState.value.lastError is SessionError.Network }
+        return joined
     }
 
     suspend fun start(seekers: List<PlayerId>): Boolean = sessionCommand {
@@ -112,8 +125,14 @@ class GameSessionManager(
     suspend fun vote(catchId: CatchId, confirm: Boolean): Boolean = sessionCommand { api.vote(it, catchId, confirm) }
 
     /** To everyone, or to the player's team only ([team], not in the lobby); the response brings it into the chat. */
-    suspend fun sendChat(text: String, team: Boolean = false): Boolean =
-        sessionCommand { api.sendChat(it, SendChatRequest(text, team, chatAfter = chatCursor())) }
+    suspend fun sendChat(text: String, team: Boolean = false): Boolean {
+        // Sent again after no answer: the same id, so the server keeps the message once.
+        val message = unansweredChat?.takeIf { it.text == text && it.team == team }
+            ?: SendChatRequest(text, team, clientMessageId = newRequestId())
+        val sent = sessionCommand { api.sendChat(it, message.copy(chatAfter = chatCursor())) }
+        unansweredChat = message.takeIf { !sent && mutableState.value.lastError is SessionError.Network }
+        return sent
+    }
 
     /** Reports another player's chat message [seq] to the moderators. */
     suspend fun reportChat(seq: Long): Boolean = sessionCommand { api.reportChat(it, seq) }
@@ -162,6 +181,7 @@ class GameSessionManager(
      * results screen is closed: polling (for the chat) goes on until then.
      */
     fun leave() {
+        unansweredChat = null
         stopBackgroundWork()
         storage.clearSession()
         mutableState.value = SessionState()

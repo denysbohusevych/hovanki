@@ -181,7 +181,7 @@ PR из той же репы проверяются push-запуском на �
 
 | Job | Раннер | Время | Что делает |
 |---|---|---|---|
-| `E2E bots` | `ubuntu-latest` | ~5 мин | `./gradlew :e2e:test`: headless-боты играют партии против сервера ([e2e.md](e2e.md#быстрый-слой-боты)) |
+| `E2E bots` | `ubuntu-latest` | ~8 мин | `./gradlew :e2e:test -Pe2e.slow=true`: headless-боты играют партии против сервера, вместе с долгими сценариями (тег `slow`) ([e2e.md](e2e.md#быстрый-слой-боты)) |
 | `Android emulators` | `ubuntu-latest` + KVM | ~15 мин | `e2e/run-devices.sh --android 2`: два эмулятора, системный образ в кэше |
 | `iOS simulator` | `macos-26` | ~20 мин | `e2e/run-devices.sh --ios 1`: один симулятор, второй на раннере грузится слишком долго |
 | `Nightly issue` | `ubuntu-latest` | секунды | только по расписанию: issue при падении, закрытие при зелёном прогоне (ниже) |
@@ -220,7 +220,7 @@ CI на push не играет партии, поэтому перед PR их �
 | Что меняется | Что запустить | Где |
 |---|---|---|
 | Любой код | `./gradlew spotlessApply` и `./gradlew check` (или быстрый цикл `./gradlew :shared:jvmTest :clientCore:jvmTest :server:test`) | локально |
-| Правила игры, протокол, поведение клиент–сервер, аккаунты, друзья, чат (`:shared`, `:server`, `:clientCore`, `:e2e`) | `./gradlew :e2e:test` (~4 мин, работает и в облачном контейнере без KVM; PostgreSQL поднимается сам) | локально |
+| Правила игры, протокол, поведение клиент–сервер, аккаунты, друзья, чат (`:shared`, `:server`, `:clientCore`, `:e2e`) | `./gradlew :e2e:test` (~6 мин, работает и в облачном контейнере без KVM; PostgreSQL поднимается сам) | локально |
 | UI, платформенный код (`:composeApp`, `androidApp`, `iosApp`), Maestro-флоу, `run-devices.sh` | `./gradlew :e2e:devices` на своих эмуляторах ([e2e-local.md](e2e-local.md)) или ночной workflow вручную на своей ветке: `suite=devices`, нужный сценарий | локально с Android Studio / GitHub Actions, 15–20 мин |
 
 В описании PR — что из этого запускалось (чеклист в шаблоне PR).

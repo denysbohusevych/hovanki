@@ -26,6 +26,11 @@ data class BuildingProperties(
     /** Attempts over all [overpassUrls]; after a failed one the loader waits [retryDelay], then twice that, etc. */
     val attempts: Int = 2,
     val retryDelay: Duration = Duration.ofSeconds(5),
+    /**
+     * Only with [Source.FAKE] (tests, the `e2e` profile): the test quarter arrives this late, off the request thread,
+     * like a slow Overpass; zero (the default) loads it right away. The other sources ignore it.
+     */
+    val fakeDelay: Duration = Duration.ZERO,
 ) {
     enum class Source {
         /** OpenStreetMap buildings through the Overpass API. */

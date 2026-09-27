@@ -46,6 +46,7 @@ import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -139,12 +140,23 @@ class BotPlayer(
         return command("enters code $code") { it.confirmCatch(claim.id, code) }
     }
 
+    /**
+     * Sends [code] for claim [claimId], whoever's it is: what the app never offers for another seeker's claim, and a
+     * modified app could still send.
+     */
+    suspend fun confirmCatch(claimId: CatchId, code: String): CommandResult =
+        command("enters code $code for claim ${claimId.value}") { it.confirmCatch(claimId, code) }
+
     /** Presses "Dispute" on the claim against this hider. */
     suspend fun dispute(): CommandResult {
         val claim = snapshot?.catches?.lastOrNull { it.hiderId == playerId && it.status == CatchStatus.AWAITING_CODE }
             ?: return CommandResult.Rejected(null, "$name has no claim to dispute")
         return command("disputes the claim") { it.dispute(claim.id) }
     }
+
+    /** Disputes claim [claimId], whoever it is against (see [confirmCatch] with a claim id). */
+    suspend fun dispute(claimId: CatchId): CommandResult =
+        command("disputes claim ${claimId.value}") { it.dispute(claimId) }
 
     suspend fun vote(claimId: CatchId, confirm: Boolean): CommandResult =
         command(if (confirm) "votes to confirm" else "votes to reject") { it.vote(claimId, confirm) }
@@ -277,6 +289,23 @@ class BotPlayer(
 
     suspend fun refreshInbox(): CommandResult = socialCommand("checks the inbox") { it.refreshInbox() }
 
+    /**
+     * Keeps a screen with the inbox open (the start screen): while it is open, the app polls the inbox by itself, like
+     * the real one ([closesInbox]). Gone with the app process.
+     */
+    fun opensInbox() {
+        val running = app ?: return
+        running.inboxScreen?.cancel()
+        running.inboxScreen = running.scope.launch { running.social.inbox.collect {} }
+        log("opens the inbox")
+    }
+
+    fun closesInbox() {
+        app?.inboxScreen?.cancel()
+        app?.inboxScreen = null
+        log("closes the inbox")
+    }
+
     /** By the exact nickname, as typed into the friends screen. */
     suspend fun sendFriendRequest(nickname: String): CommandResult =
         socialCommand("asks $nickname to be friends") { it.sendFriendRequest(nickname) }
@@ -382,11 +411,17 @@ class BotPlayer(
                 CommandResult.Ok
             } else {
                 when (val error = running.session.state.value.lastError) {
-                    is SessionError.Rejected -> CommandResult.Rejected(error.code, error.message, error.reason)
+                    is SessionError.Rejected ->
+                        CommandResult.Rejected(error.code, error.message, error.reason, error.retryAfterSeconds)
+
                     is SessionError.Network -> CommandResult.Failed(error.details)
+
                     SessionError.SessionLost -> CommandResult.Failed("session lost")
+
                     SessionError.SavedGameFinished -> CommandResult.Failed("saved game finished")
+
                     SessionError.SavedGameGone -> CommandResult.Failed("saved game gone")
+
                     null -> CommandResult.Failed("unknown")
                 }
             }
@@ -408,7 +443,10 @@ class BotPlayer(
         val running = app ?: return notRunning(description)
         val result = when (val outcome = withContext(running.mainThread) { call(running) }) {
             is ApiResult.Success -> CommandResult.Ok
-            is ApiResult.Rejected -> CommandResult.Rejected(outcome.code, outcome.message, outcome.reason)
+
+            is ApiResult.Rejected ->
+                CommandResult.Rejected(outcome.code, outcome.message, outcome.reason, outcome.retryAfterSeconds)
+
             is ApiResult.Network -> CommandResult.Failed(outcome.details)
         }
         log(if (result == CommandResult.Ok) description else "$description: $result")
@@ -466,6 +504,9 @@ class BotPlayer(
         )
 
         @Volatile var showingCodeFor: CatchId? = null
+
+        /** A screen that shows the inbox, while open ([opensInbox]). */
+        @Volatile var inboxScreen: Job? = null
         private val handledClaims = HashSet<CatchId>()
         private val handledVotes = HashSet<CatchId>()
         private var previous = SessionState()
@@ -587,8 +628,16 @@ class BotPlayer(
 sealed interface CommandResult {
     data object Ok : CommandResult
 
-    /** The server refused; [code] is its [ErrorCode], [reason] the exact cause when it sent one. */
-    data class Rejected(val code: ErrorCode?, val message: String, val reason: ErrorReason? = null) : CommandResult
+    /**
+     * The server refused; [code] is its [ErrorCode], [reason] the exact cause when it sent one, [retryAfterSeconds]
+     * when to try again after a rate limit.
+     */
+    data class Rejected(
+        val code: ErrorCode?,
+        val message: String,
+        val reason: ErrorReason? = null,
+        val retryAfterSeconds: Long? = null,
+    ) : CommandResult
 
     /** Network or local failure. */
     data class Failed(val details: String?) : CommandResult

@@ -1,10 +1,12 @@
 package app.hovanki.e2e.scenarios
 
+import app.hovanki.e2e.OWN_SERVER
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.route.offset
 import app.hovanki.e2e.scenario
 import app.hovanki.e2e.scenario.GameSetups
 import app.hovanki.e2e.scenario.GameSetups.PARK
+import app.hovanki.e2e.scenarioOnOwnServer
 import app.hovanki.shared.debug.DebugBuildings
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.BuildingsState
@@ -12,6 +14,7 @@ import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.VisibilityReason
 import kotlinx.coroutines.delay
+import org.junit.jupiter.api.parallel.ResourceLock
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.seconds
 
@@ -181,5 +184,69 @@ class BuildingsTest {
         awaitThat("Sam no longer sees Anna", 10.seconds) {
             sam.snapshot?.players?.single { it.id == anna.id }?.location == null
         }
+    }
+
+    /**
+     * The quarter lies outside a 100 m zone: a hider inside it is both out of the zone and in a building. The zone wins
+     * (the reveal says OUT_OF_ZONE, never INSIDE_BUILDING), and the zone's grace period eliminates the hider.
+     */
+    @Test
+    fun aBuildingOutsideTheZone() = scenario("A building outside the zone") {
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK, noise = exact5)
+        val boris = player("Boris", at = PARK.offset(eastMeters = 40.0))
+
+        sam.createsGame(GameSetups.fixedZone(100.0))
+        join(anna, boris)
+        sam.startsGame(seekers = listOf(sam))
+        anna.walksTo(insideBlock, speed = 4.0)
+        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+
+        awaitReveal(anna, VisibilityReason.OUT_OF_ZONE, to = sam, within = 60.seconds)
+        awaitStatus(anna, PlayerStatus.ELIMINATED, within = (rules.outOfZoneGraceSeconds + 30).seconds)
+        check(
+            sam.revealsSeen.none { it == anna.id to VisibilityReason.INSIDE_BUILDING },
+            "Sam never saw Anna as inside a building",
+        )
+        check(boris.onServer().status == PlayerStatus.ACTIVE, "Boris plays on")
+    }
+
+    /**
+     * The buildings are still loading when seeking starts (Overpass is slow; here the test source takes 25 s): the rule
+     * is off meanwhile, a hider in the quarter is not warned. Once they arrive the rule is on and every app loads them.
+     */
+    @Test
+    @ResourceLock(OWN_SERVER)
+    fun buildingsStillLoading() = scenarioOnOwnServer(
+        "Buildings still loading",
+        properties = mapOf("hovanki.buildings.fake-delay" to "25s"),
+    ) {
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = insideBlock, noise = exact5)
+
+        sam.createsGame(GameSetups.fast())
+        check(sam.snapshot?.buildings == BuildingsState.LOADING, "the buildings are still loading")
+        join(anna)
+        sam.startsGame(seekers = listOf(sam))
+        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+        check(state().buildings == BuildingsState.LOADING, "seeking starts before they arrive")
+        holdsFor("Anna in the quarter is not warned: nothing to judge by yet", 6.seconds) {
+            val server = state()
+            server.buildings == BuildingsState.LOADING &&
+                server.players.single { it.id == anna.id }.insideBuildingSinceMillis == null
+        }
+
+        eventually("the buildings arrive", within = 20.seconds) {
+            state().takeIf { it.buildings == BuildingsState.READY }
+        }
+        awaitThat("every app loads the buildings its map draws") {
+            players.all { bot ->
+                bot.state.buildings?.buildings?.isNotEmpty() == true && bot.onServer().buildingsLoadedAtMillis != null
+            }
+        }
+        val revealAt = eventually("now Anna is warned", within = 15.seconds) {
+            anna.snapshot?.me?.insideBuildingRevealAtMillis
+        }
+        check(revealAt > state().serverTimeMillis, "and seen only later, as usual")
     }
 }

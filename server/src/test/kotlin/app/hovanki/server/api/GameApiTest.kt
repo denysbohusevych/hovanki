@@ -198,6 +198,29 @@ class GameApiTest(@Autowired private val mvc: MockMvc, @Autowired private val re
     }
 
     @Test
+    fun aJoinSentAgainGivesBackThePlayer() {
+        val created = createGame()
+        val request = JoinGameRequest(created.snapshot.joinCode, "Anna", requestId = "0f8fad5bd9cb469fa16570867728950e")
+        val first = postAs<SessionResponse>(null, ApiRoutes.JOIN, request.toJson())
+
+        // The answer got lost, the app sends the same request again: the same player, with a new token.
+        val again = postAs<SessionResponse>(null, ApiRoutes.JOIN, request.toJson())
+        assertEquals(first.session.playerId, again.session.playerId)
+        assertNotEquals(first.session.token, again.session.token)
+        assertEquals(listOf("Host", "Anna"), again.snapshot.players.map { it.name })
+        postRaw(ApiRoutes.sync(created.session.gameId), SyncRequest().toJson(), first.session, expectedStatus = 401)
+        assertEquals(2, sync(again.session).players.size)
+
+        // Another press of "Join" has another id: another player.
+        val anotherPress = request.copy(requestId = "another-press-0001")
+        val other = postAs<SessionResponse>(null, ApiRoutes.JOIN, anotherPress.toJson())
+        assertNotEquals(first.session.playerId, other.session.playerId)
+        // Guessable ids are refused.
+        val guessable = postRaw(ApiRoutes.JOIN, request.copy(requestId = "1").toJson(), token = null, 400)
+        assertError(guessable, ErrorCode.BAD_REQUEST, reason = null)
+    }
+
+    @Test
     fun unknownAccountTokensOnCreateAndJoin() {
         val joinCode = createGame().snapshot.joinCode
         val unknown = "0".repeat(64)
@@ -236,6 +259,18 @@ class GameApiTest(@Autowired private val mvc: MockMvc, @Autowired private val re
         val empty = postRaw(ApiRoutes.chat(host.gameId), SendChatRequest(" \n ").toJson(), host, expectedStatus = 400)
         assertError(empty, ErrorCode.BAD_REQUEST, ErrorReason.INVALID_MESSAGE)
         postRaw(ApiRoutes.chat(host.gameId), SendChatRequest("hi").toJson(), session = null, expectedStatus = 401)
+    }
+
+    @Test
+    fun aMessageSentAgainIsKeptOnceOverHttp() {
+        val host = createGame().session
+        val request = SendChatRequest("hello", chatAfter = 0, clientMessageId = "0f8fad5bd9cb469fa16570867728950e")
+
+        val first = sendChat(host, request).chat.single()
+        assertEquals(listOf(first), sendChat(host, request).chat)
+        assertEquals(listOf(first), sync(host, chatAfter = 0).chat)
+        val invalid = postRaw(ApiRoutes.chat(host.gameId), request.copy(clientMessageId = "x").toJson(), host, 400)
+        assertError(invalid, ErrorCode.BAD_REQUEST, reason = null)
     }
 
     @Test

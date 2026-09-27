@@ -5,28 +5,43 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.ceil
 
-/** Latency of `/sync` calls and failed requests, collected over many bots. Thread-safe. */
+/**
+ * Latency of `/sync` calls and failed requests, collected over many bots. Thread-safe. A failed request is an I/O
+ * error, a response lost on the way back, or any 4xx and 5xx (expected refusals like `TOO_FAR` too); 5xx are also
+ * kept apart ([serverErrors]): a scenario never expects one.
+ */
 class SyncMetrics {
     private val syncMillis = ConcurrentLinkedQueue<Long>()
     private val failures = ConcurrentLinkedQueue<String>()
+    private val serverFailures = ConcurrentLinkedQueue<String>()
     private val requests = AtomicInteger()
 
     fun record(exchange: Exchange) {
         requests.incrementAndGet()
         val status = exchange.status
-        if (status == null ||
-            status >= 400
-        ) {
-            failures += "${exchange.method} ${exchange.path} -> ${status ?: "I/O error"}"
+        val request = "${exchange.method} ${exchange.path}"
+        when {
+            status == null -> failures += "$request -> I/O error"
+            exchange.isResponseLost -> failures += "$request -> $status, response lost"
+            status >= 400 -> failures += "$request -> $status"
         }
-        if (exchange.path.endsWith("/sync") && status != null) syncMillis += exchange.durationMillis
+        if (status != null && status >= 500) serverFailures += "$request -> $status"
+        if (exchange.path.endsWith("/sync") && status != null && !exchange.isResponseLost) {
+            syncMillis += exchange.durationMillis
+        }
     }
 
     val requestCount: Int get() = requests.get()
 
     val syncCount: Int get() = syncMillis.size
 
+    /** Every `/sync` latency so far, roughly in the order they finished: the slice of a phase is a sublist. */
+    val syncLatencies: List<Long> get() = syncMillis.toList()
+
     val errors: List<String> get() = failures.toList()
+
+    /** Requests the server answered with a 5xx: a bug on the server, whatever the scenario does. */
+    val serverErrors: List<String> get() = serverFailures.toList()
 
     fun syncPercentile(percent: Double): Long {
         val sorted = syncMillis.sorted()

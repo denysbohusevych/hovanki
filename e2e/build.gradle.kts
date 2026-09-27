@@ -125,7 +125,7 @@ tasks.register<JavaExec>("devices") {
 
 val externalServerUrl = providers.environmentVariable("HOVANKI_E2E_SERVER_URL").orElse("")
 
-// `test` plays whole games (~3 min): it runs only when asked for, `./gradlew :e2e:test`, and nightly
+// `test` plays whole games (~6 min): it runs only when asked for, `./gradlew :e2e:test`, and nightly
 // (.github/workflows/nightly.yml), never as part of `check`. `check` runs this module's own unit tests instead.
 val unitTest = tasks.register<Test>("unitTest") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
@@ -141,8 +141,15 @@ tasks.check {
     dependsOn(unitTest)
 }
 
+// Scenarios tagged `slow` (several minutes of real game time, e.g. the default rules) run only with
+// `-Pe2e.slow=true`: nightly, or by hand.
+val includeSlowScenarios = providers.gradleProperty("e2e.slow").map { it.toBoolean() }.orElse(false)
+
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        if (!includeSlowScenarios.get()) excludeTags("slow")
+    }
+    inputs.property("includeSlowScenarios", includeSlowScenarios)
     // Scenarios run in real time and mostly wait on game timers: run them in parallel (junit-platform.properties).
     maxHeapSize = "2g"
     // A different target server is a different test run.

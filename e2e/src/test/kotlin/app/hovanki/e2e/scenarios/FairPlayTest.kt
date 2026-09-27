@@ -9,6 +9,8 @@ import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.VisibilityReason
 import kotlinx.coroutines.delay
 import kotlin.test.Test
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /** Scenarios 6 and 7: suspicious signals reveal the player instead of punishing them. */
@@ -99,5 +101,67 @@ class FairPlayTest {
         // Nothing accepted any more: the signal goes stale and seekers see the last genuine point.
         val revealed = awaitReveal(anna, VisibilityReason.STALE_SIGNAL, to = sam, within = 20.seconds)
         check(revealed.point.distanceTo(genuine.point) < 15.0, "Sam sees where Anna really was")
+    }
+
+    /**
+     * GPS off since the hiding phase: nobody sees a hider while they hide, but the silence counts from the last fix,
+     * not from the start of seeking. Seekers see the last point a few seconds into seeking.
+     */
+    @Test
+    fun gpsOffSinceHiding() = scenario("GPS off since the hiding phase") {
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK.offset(northMeters = 60.0))
+        val boris = player("Boris", at = PARK.offset(northMeters = -60.0))
+
+        sam.createsGame(GameSetups.fast())
+        join(anna, boris)
+        awaitThat("Anna's fixes reach the server") { anna.onServer().latestFix != null }
+        sam.startsGame(seekers = listOf(sam))
+        anna.turnsGpsOff()
+        val hiding = state()
+        val seekingStarts = checkNotNull(hiding.phaseEndsAtMillis)
+        holdsFor("Anna stays hidden while hiding", (seekingStarts - hiding.serverTimeMillis - 500).milliseconds) {
+            state().players.single { it.id == anna.id }.revealedToSeekers == null
+        }
+
+        val lastFix = checkNotNull(anna.onServer().latestFix)
+        val revealed = awaitReveal(anna, VisibilityReason.STALE_SIGNAL, to = sam, within = 20.seconds)
+        val revealedAt = state().serverTimeMillis
+        check(
+            revealedAt < seekingStarts + rules.staleLocationRevealSeconds * 1000L - 3_000,
+            "revealed ${(revealedAt - seekingStarts) / 1000} s into seeking: the silence counts from the last fix",
+        )
+        check(revealed.point == lastFix.point, "Sam sees Anna's last known point")
+    }
+
+    /**
+     * Mocked fixes while hiding: nobody sees it during the hiding phase, but the seekers see the hider as soon as
+     * seeking starts, for a minute after the last mocked fix.
+     */
+    @Test
+    fun mockLocationWhileHiding() = scenario("Mock location while hiding", timeout = 2.minutes) {
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK.offset(eastMeters = 40.0))
+        val boris = player("Boris", at = PARK.offset(eastMeters = -40.0))
+
+        sam.createsGame(GameSetups.fast())
+        join(anna, boris)
+        awaitThat("Anna's fixes reach the server") { anna.onServer().latestFix != null }
+        sam.startsGame(seekers = listOf(sam))
+        anna.startsMockingLocation()
+        eventually("the server gets mocked fixes") { anna.onServer().lastMockAtMillis }
+        delay(2.seconds)
+        anna.stopsMockingLocation()
+        delay(2.seconds)
+        val lastMock = checkNotNull(anna.onServer().lastMockAtMillis)
+        check(state().phase == GamePhase.HIDING, "still hiding")
+        check(state().players.single { it.id == anna.id }.revealedToSeekers == null, "nobody sees Anna while hiding")
+
+        awaitPhase(GamePhase.SEEKING, within = 15.seconds)
+        awaitReveal(anna, VisibilityReason.MOCK_LOCATION, to = sam, within = 5.seconds)
+        awaitThat("Anna is hidden again a minute after her last mocked fix", within = 75.seconds) {
+            sam.snapshot?.players?.single { it.id == anna.id }?.location == null
+        }
+        check(state().serverTimeMillis >= lastMock + 60_000, "not before a minute passed")
     }
 }
