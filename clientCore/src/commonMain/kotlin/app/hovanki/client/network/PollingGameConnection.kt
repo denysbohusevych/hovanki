@@ -53,6 +53,11 @@ class PollingGameConnection(private val api: GameApi) : GameConnection {
 
     companion object {
         const val MIN_BACKOFF_MILLIS = 1_000L
-        const val MAX_BACKOFF_MILLIS = 15_000L
+
+        /**
+         * Short even so: a failed sync is usually a bad mobile network, not a busy server, and a player without a sync
+         * for `staleLocationRevealSeconds` (45 s) is revealed to the seekers. Still no more requests than polling.
+         */
+        const val MAX_BACKOFF_MILLIS = 5_000L
     }
 }

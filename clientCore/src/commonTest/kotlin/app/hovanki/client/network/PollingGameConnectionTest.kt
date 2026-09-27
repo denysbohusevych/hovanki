@@ -111,7 +111,7 @@ class PollingGameConnectionTest {
 
         PollingGameConnection(api).connect(testSession, LocationOutbox()).test {
             val delays = List(6) { assertIs<ConnectionEvent.Problem>(awaitItem()).retryInMillis }
-            assertEquals(listOf(1_000L, 2_000L, 4_000L, 8_000L, 15_000L, 15_000L), delays)
+            assertEquals(listOf(1_000L, 2_000L, 4_000L, 5_000L, 5_000L, 5_000L), delays)
             cancelAndIgnoreRemainingEvents()
         }
     }
