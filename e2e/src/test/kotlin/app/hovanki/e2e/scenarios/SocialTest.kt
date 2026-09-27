@@ -7,8 +7,10 @@ import app.hovanki.e2e.scenario.GameSetups.PARK
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GamePhase
+import app.hovanki.shared.rules.GroupRules
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Friends, blocks, groups and game invites (docs/adr/0004-accounts-friends-chat.md) through the apps' SocialManager and
@@ -282,5 +284,69 @@ class SocialTest {
         awaitThat("everybody in the lobby sees Carl") {
             listOf(sam, anna).all { bot -> bot.snapshot?.players?.any { it.id == carl.id } == true }
         }
+    }
+
+    /**
+     * While a screen with the inbox is open, the app polls it by itself (every 10 s): an invitation and a friend
+     * request show up without reloading anything. Closed, it no longer polls.
+     */
+    @Test
+    fun theInboxPollsWhileItIsOpen() = scenario("The inbox polls while it is open") {
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK)
+        val boris = player("Boris", at = PARK)
+        for (bot in listOf(sam, anna, boris)) bot.signsUp()
+        sam.befriends(anna)
+        val annaNickname = checkNotNull(anna.user).nickname
+
+        anna.opensInbox()
+        requireOk(boris.sendFriendRequest(annaNickname), "Boris asks Anna to be friends")
+        sam.createsGame(GameSetups.fast())
+        requireOk(sam.invite(listOf(checkNotNull(anna.userId))), "Sam invites Anna")
+        awaitThat("Anna's open inbox shows both without reloading", 15.seconds) {
+            anna.inbox.invites.any { it.gameId == gameId } && anna.inbox.friendRequests.any { it.id == boris.userId }
+        }
+
+        anna.closesInbox()
+        val carl = player("Carl", at = PARK)
+        carl.signsUp()
+        requireOk(carl.sendFriendRequest(annaNickname), "Carl asks Anna to be friends")
+        holdsFor("a closed inbox is not polled", 15.seconds) {
+            anna.inbox.friendRequests.none { it.id == carl.userId }
+        }
+    }
+
+    /** A group has at most 30 members, an account owns at most 20 groups, and only members can invite a group. */
+    @Test
+    fun groupLimits() = scenario("Group limits") {
+        val sam = player("Sam", at = PARK)
+        val friends = (1..GroupRules.MAX_MEMBERS).map { player("F$it", at = PARK, logChanges = false) }
+        sam.signsUp()
+        for (friend in friends) {
+            friend.signsUp()
+            sam.befriends(friend)
+        }
+
+        val crew = sam.createsGroup("Park crew", friends.dropLast(1))
+        check(crew.members.size == GroupRules.MAX_MEMBERS, "Sam and ${GroupRules.MAX_MEMBERS - 1} friends")
+        val last = friends.last()
+        expectRejected(
+            sam.addGroupMembers(crew.id, listOf(checkNotNull(last.userId))),
+            ErrorReason.LIMIT_REACHED,
+            "member number ${GroupRules.MAX_MEMBERS + 1}",
+        )
+
+        for (n in 2..GroupRules.MAX_OWNED_GROUPS) requireOk(sam.createGroup("Group $n"), "Sam creates group $n")
+        expectRejected(
+            sam.createGroup("One too many"),
+            ErrorReason.LIMIT_REACHED,
+            "group number ${GroupRules.MAX_OWNED_GROUPS + 1}",
+        )
+
+        last.createsGame(GameSetups.fast())
+        // As if there were no such group: an outsider doesn't learn that it exists.
+        expectRejected(last.invite(groupId = crew.id), ErrorCode.NOT_FOUND, "an outsider invites the group")
+        requireOk(friends.first().refreshInbox(), "a member's inbox")
+        check(friends.first().inbox.invites.isEmpty(), "nobody was invited")
     }
 }

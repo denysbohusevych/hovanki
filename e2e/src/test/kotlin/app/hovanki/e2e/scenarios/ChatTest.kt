@@ -12,7 +12,9 @@ import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.rules.ChatRules
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -158,10 +160,81 @@ class ChatTest {
         check(anna.chat.map { it.text } == listOf("hello", "after the block", "from vera"), "Sam's messages are back")
     }
 
+    /**
+     * 250 messages in the lobby from ten players, each keeping to the limit of five in ten seconds. The game keeps the
+     * newest 200 and every phone online has exactly those, in order. A phone offline the whole time gets the newest
+     * 100 (one response's worth) when it is back, in order and without duplicates; older ones it doesn't fetch.
+     */
+    @Test
+    fun aLongChat() = scenario("A long chat") {
+        val talkers = (1..10).map { player("P$it", at = PARK, logChanges = false) }
+        val zoe = player("Zoe", at = PARK, logChanges = false)
+
+        talkers.first().createsGame(GameSetups.fast())
+        join(*(talkers.drop(1) + zoe).toTypedArray())
+        zoe.losesNetwork()
+        coroutineScope {
+            for (bot in talkers) {
+                launch {
+                    repeat(MESSAGES_EACH) { n ->
+                        requireOk(bot.sendChat("${bot.name} #$n"), "${bot.name} says #$n")
+                        delay(2_100.milliseconds)
+                    }
+                }
+            }
+        }
+        val kept = state().chat.map { it.seq }
+        check(kept.size == ChatRules.HISTORY_SIZE, "the game keeps the newest ${ChatRules.HISTORY_SIZE}")
+        check(kept.last() == (talkers.size * MESSAGES_EACH).toLong(), "all ${talkers.size * MESSAGES_EACH} were sent")
+        awaitThat("every phone online has the newest ${ChatRules.HISTORY_SIZE}, in order") {
+            talkers.all { bot -> bot.state.chat.map { it.seq } == kept }
+        }
+
+        zoe.regainsNetwork()
+        val newest = kept.takeLast(ChatRules.MAX_PER_RESPONSE)
+        awaitThat("Zoe's phone has the newest ${ChatRules.MAX_PER_RESPONSE}, in order", 20.seconds) {
+            zoe.state.chat.map { it.seq } == newest
+        }
+        holdsFor("and nothing else arrives", 3.seconds) { zoe.state.chat.map { it.seq } == newest }
+    }
+
+    /**
+     * What a message can't be (empty, too long), what is cleaned out of it (line breaks, control and direction
+     * characters), and a report of a message the reporter can't see (the other team's) is as unknown as a wrong seq.
+     */
+    @Test
+    fun chatEdges() = scenario("Chat edges") {
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK.offset(eastMeters = 30.0))
+        val boris = player("Boris", at = PARK.offset(eastMeters = -30.0))
+
+        sam.createsGame(GameSetups.fast())
+        join(anna, boris)
+        expectRejected(anna.sendChat("x".repeat(ChatRules.MAX_LENGTH + 1)), ErrorReason.INVALID_MESSAGE, "too long")
+        expectRejected(anna.sendChat(" \n\t "), ErrorReason.INVALID_MESSAGE, "only blanks")
+        requireOk(anna.sendChat("x".repeat(ChatRules.MAX_LENGTH)), "exactly ${ChatRules.MAX_LENGTH} characters")
+        requireOk(anna.sendChat("  meet\nat the \u202Efountain\u0007 "), "a message with control characters")
+        awaitThat("Sam reads it cleaned") { sam.chat.any { it.text == "meet at the fountain" } }
+        check(state().chat.none { "\u202E" in it.text || "\u0007" in it.text }, "nothing of it is kept on the server")
+
+        sam.startsGame(seekers = listOf(sam))
+        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+        requireOk(sam.sendChat("going north", team = true), "Sam tells the seekers")
+        val secret = state().chat.single { it.text == "going north" }
+        check(secret.channel == ChatChannel.SEEKERS, "a seekers' message")
+        expectRejected(anna.reportChat(secret.seq), ErrorCode.NOT_FOUND, "Anna reports the seekers' message")
+        check(anna.chat.none { it.text == "going north" }, "Anna never saw it")
+        check(observer.reports().none { it.messageSeq == secret.seq && it.gameId == gameId }, "no report")
+    }
+
     /** Waits until each of [bots] has [text] in its chat panel. */
     private suspend fun Scenario.everybodyReads(bots: List<BotPlayer>, text: String) {
         awaitThat("${bots.joinToString { it.name }} read \"$text\"", 10.seconds) {
             bots.all { bot -> bot.chat.any { it.text == text } }
         }
+    }
+
+    private companion object {
+        const val MESSAGES_EACH = 25
     }
 }
