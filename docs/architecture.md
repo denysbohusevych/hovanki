@@ -48,10 +48,10 @@ flowchart LR
 | Сервис | Android | iOS | Статус |
 |---|---|---|---|
 | `LocationProvider` | FusedLocationProvider (play-services-location) | `CLLocationManager` | работает |
-| `BackgroundTracker` | foreground service с типом `location` | фоновый режим `location` | работает |
+| `BackgroundTracker` | foreground service с типом `location`; тревоги прячущегося — уведомления без звука с вибрацией | фоновый режим `location`; тревоги — вибрация и уведомление без звука | работает; когда вибрировать, решает `AlertRepeats` в `:clientCore` |
 | `SecureStore` | AES-GCM, ключ в Android Keystore, шифротекст в приватных `SharedPreferences` | Keychain, `AfterFirstUnlockThisDeviceOnly` | работает, [ADR 0002](adr/0002-session-storage.md) |
 | `ProximityScanner` | — | — | no-op, BLE через Kable после MVP |
-| `CatchCodeScanner` | CameraX + ML Kit (план) | AVFoundation (план) | expect/actual-заглушка, ручной ввод кода работает |
+| `CatchCodeScanner` | CameraX + ZXing | AVFoundation (`AVCaptureMetadataOutput`) | работает; ручной ввод кода — всегда |
 
 ### Автоматизация UI (только debug)
 
