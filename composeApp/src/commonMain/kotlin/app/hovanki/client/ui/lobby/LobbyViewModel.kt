@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 class LobbyViewModel(
     private val sessionManager: GameSessionManager,
@@ -91,6 +92,14 @@ class LobbyViewModel(
 
     fun toggleSeeker(playerId: PlayerId) {
         selectedSeekers.update { if (playerId in it) it - playerId else it + playerId }
+    }
+
+    /** Picks as many seekers as are picked now (at least one) at random; the others hide. */
+    fun shuffleSeekers() {
+        val players = uiState.value?.players ?: return
+        if (players.size < 2) return
+        val count = players.count { it.isSeeker }.coerceIn(1, players.size - 1)
+        selectedSeekers.value = players.map { it.id }.shuffled().take(count).toSet()
     }
 
     fun start() {
@@ -210,7 +219,16 @@ class LobbyViewModel(
             // The server takes invitations from players who play with an account (logged in on this phone).
             canInvite = accountState.isLoggedIn && snapshot.players.any { it.id == me && it.userId != null },
             userIdsInGame = snapshot.players.mapNotNull { it.userId }.toSet(),
+            zoneRadiusMeters = snapshot.settings.zone.initial.radiusMeters.roundToInt(),
+            hidingMinutes = snapshot.settings.hidingSeconds.minutesRoundedUp(),
+            seekingMinutes = snapshot.settings.seekingSeconds.minutesRoundedUp(),
         )
+    }
+
+    private fun Int.minutesRoundedUp(): Int = (this + SECONDS_PER_MINUTE - 1) / SECONDS_PER_MINUTE
+
+    private companion object {
+        const val SECONDS_PER_MINUTE = 60
     }
 }
 
@@ -230,6 +248,10 @@ data class LobbyUiState(
     val canInvite: Boolean,
     /** Accounts already in the game: no need to invite them. */
     val userIdsInGame: Set<UserId>,
+    /** The settings, shown as chips: the zone at the start, the hiding and seeking times. */
+    val zoneRadiusMeters: Int,
+    val hidingMinutes: Int,
+    val seekingMinutes: Int,
 )
 
 data class LobbyPlayer(

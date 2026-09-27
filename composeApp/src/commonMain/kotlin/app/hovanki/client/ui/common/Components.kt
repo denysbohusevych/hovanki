@@ -12,16 +12,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -34,7 +31,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.hovanki.client.automation.TestTags
-import app.hovanki.client.location.rememberLocationPermissionRequester
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_allow
 import app.hovanki.client.resources.action_back
@@ -51,6 +47,7 @@ import app.hovanki.client.resources.error_too_far
 import app.hovanki.client.resources.home_connecting
 import app.hovanki.client.resources.home_locating
 import app.hovanki.client.resources.ic_back
+import app.hovanki.client.resources.ic_warning
 import app.hovanki.client.resources.location_not_shared
 import app.hovanki.client.resources.problem_code_missing
 import app.hovanki.client.resources.problem_location_denied
@@ -60,6 +57,7 @@ import app.hovanki.client.resources.resuming_game
 import app.hovanki.client.resources.working
 import app.hovanki.client.session.ConnectionStatus
 import app.hovanki.client.session.SessionError
+import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.protocol.ErrorCode
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -80,7 +78,7 @@ fun ScreenColumn(modifier: Modifier = Modifier, content: @Composable ColumnScope
 @Composable
 fun LoadingScreen(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize().testTag(TestTags.LOADING), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
+        CircularProgressIndicator(color = Palette.Ink, trackColor = Palette.Lime, strokeWidth = 5.dp)
     }
 }
 
@@ -95,10 +93,10 @@ fun ResumingScreen(isReconnecting: Boolean, onLeave: () -> Unit, modifier: Modif
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CircularProgressIndicator()
+        CircularProgressIndicator(color = Palette.Ink, trackColor = Palette.Lime, strokeWidth = 5.dp)
         Text(
             text = stringResource(Res.string.resuming_game),
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
         )
         if (isReconnecting) {
@@ -109,13 +107,19 @@ fun ResumingScreen(isReconnecting: Boolean, onLeave: () -> Unit, modifier: Modif
                 modifier = Modifier.testTag(TestTags.BANNER_RECONNECTING),
             )
         }
-        OutlinedButton(onClick = onLeave, modifier = Modifier.testTag(TestTags.RESUMING_LEAVE)) {
-            Text(stringResource(Res.string.action_leave_game))
-        }
+        PopButton(
+            text = stringResource(Res.string.action_leave_game),
+            onClick = onLeave,
+            style = PopStyle.Outline,
+            modifier = Modifier.testTag(TestTags.RESUMING_LEAVE),
+        )
     }
 }
 
-/** A highlighted message with an optional action button on the right. */
+/**
+ * A highlighted message with an optional action button on the right: white and outlined, pink for errors. The first
+ * text inside is the message (UI automation reads it through the banner's tag).
+ */
 @Composable
 fun Banner(
     text: String,
@@ -124,29 +128,31 @@ fun Banner(
     actionLabel: String? = null,
     onAction: () -> Unit = {},
 ) {
-    val colors = if (isError) {
-        CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        )
-    } else {
-        CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        )
-    }
-    Card(modifier = modifier.fillMaxWidth(), colors = colors) {
+    PopSurface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = if (isError) Palette.Pink else Palette.Paper,
+        borderWidth = 2.dp,
+    ) {
         Row(
-            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
                 text = text,
                 style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+                modifier = Modifier.weight(1f).padding(vertical = 10.dp),
             )
+            if (isError) {
+                Icon(
+                    painter = painterResource(Res.drawable.ic_warning),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
             if (actionLabel != null) {
-                TextButton(onClick = onAction) { Text(actionLabel) }
+                TextButton(onClick = onAction) { Text(actionLabel, style = MaterialTheme.typography.labelLarge) }
             }
         }
     }
@@ -199,7 +205,12 @@ fun BusyRow(text: String, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier,
     ) {
-        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        CircularProgressIndicator(
+            modifier = Modifier.size(20.dp),
+            color = Palette.Ink,
+            trackColor = Palette.Lime,
+            strokeWidth = 3.dp,
+        )
         Text(text = text)
     }
 }
@@ -213,7 +224,7 @@ fun SessionBanners(
     onDismissError: () -> Unit,
     onLocationPermissionGranted: () -> Unit,
 ) {
-    val requestLocation = rememberLocationPermissionRequester { granted ->
+    val requestLocation = rememberLocationRequest { granted ->
         if (granted) onLocationPermissionGranted()
     }
     if (connectionStatus == ConnectionStatus.RECONNECTING) {
@@ -320,7 +331,7 @@ fun PasswordField(
     supportingText: String? = null,
     onImeAction: () -> Unit = {},
 ) {
-    OutlinedTextField(
+    PopTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },

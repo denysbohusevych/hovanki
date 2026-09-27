@@ -19,6 +19,8 @@ androidx-core = "1.17.0"
 # JetBrains multiplatform builds of androidx.lifecycle
 androidx-lifecycle = "2.11.0"
 play-services-location = "21.3.0"
+# The seeker's camera for the hider's QR code (CameraX preview + analysis, decoded with ZXing).
+camerax = "1.6.2"
 
 kotlinx-coroutines = "1.11.0"
 kotlinx-serialization = "1.11.0"
@@ -32,6 +34,9 @@ embedded-postgres = "2.2.2"
 embedded-postgres-binaries = "17.11.0"
 
 turbine = "1.2.1"
+# QR codes: the Android camera decodes the hider's QR code with ZXing; JVM tests cross-check the pure-Kotlin QR
+# encoder in :clientCore against it.
+zxing = "3.5.4"
 
 spotless = "8.10.2"
 ktlint = "1.8.0"
@@ -58,6 +63,9 @@ androidx-lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycl
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "play-services-location" }
+androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
 
 # Ktor client
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
@@ -101,6 +109,8 @@ embedded-postgres-binaries-linux-arm64v8 = { module = "io.zonky.test.postgres:em
 
 # Testing
 turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
+
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

@@ -10,7 +10,9 @@ import app.hovanki.client.network.LocationOutbox
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.storage.SavedSession
+import app.hovanki.client.tracking.AlertRepeats
 import app.hovanki.client.tracking.BackgroundTracker
+import app.hovanki.client.tracking.hiderAlerts
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CreateGameRequest
@@ -79,6 +81,9 @@ class GameSessionManager(
     private var connectionJob: Job? = null
     private var locationJob: Job? = null
     private var isTracking = false
+
+    /** When the hider's alerts vibrate again in the background. */
+    private val alertRepeats = AlertRepeats()
     private var resumeAttempted = false
     private var buildingsJob: Job? = null
 
@@ -285,7 +290,12 @@ class GameSessionManager(
         when (snapshot.phase) {
             GamePhase.LOBBY -> Unit
 
-            GamePhase.HIDING, GamePhase.SEEKING -> startTracking()
+            GamePhase.HIDING, GamePhase.SEEKING -> {
+                startTracking()
+                val alerts = alertRepeats.update(snapshot.hiderAlerts(), snapshot.serverTimeMillis)
+                alerts.ended.forEach(backgroundTracker::endAlert)
+                alerts.buzz.forEach(backgroundTracker::alert)
+            }
 
             // Results are final: no more location or foreground service, and nothing to resume. Polling goes on for
             // the chat on the results screen, until the player leaves.
@@ -364,6 +374,7 @@ class GameSessionManager(
         outbox.clear()
         mutableMyLocation.value = null
         mutableState.update { it.copy(isSharingLocation = false) }
+        alertRepeats.clear().forEach(backgroundTracker::endAlert)
         if (isTracking) {
             isTracking = false
             backgroundTracker.stop()

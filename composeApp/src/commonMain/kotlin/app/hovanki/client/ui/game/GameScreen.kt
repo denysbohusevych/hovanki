@@ -1,49 +1,77 @@
 package app.hovanki.client.ui.game
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.catchcode.CatchCodeScanner
+import app.hovanki.client.catchcode.QrCodeImage
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_cancel
 import app.hovanki.client.resources.action_confirm
 import app.hovanki.client.resources.action_dispute
-import app.hovanki.client.resources.action_found
 import app.hovanki.client.resources.action_leave
-import app.hovanki.client.resources.action_leave_game
+import app.hovanki.client.resources.back_in_zone
 import app.hovanki.client.resources.building_rule_off
-import app.hovanki.client.resources.claim_code_label
+import app.hovanki.client.resources.catch_auto_in
+import app.hovanki.client.resources.catch_or_say
+import app.hovanki.client.resources.catch_or_type
+import app.hovanki.client.resources.catch_seeker_hint
+import app.hovanki.client.resources.chat_open
 import app.hovanki.client.resources.claim_disputed_mine
 import app.hovanki.client.resources.claim_enter_code
 import app.hovanki.client.resources.claim_time_left
@@ -51,23 +79,25 @@ import app.hovanki.client.resources.hider_claim_hint
 import app.hovanki.client.resources.hider_claim_title
 import app.hovanki.client.resources.hider_code_next
 import app.hovanki.client.resources.hider_disputed
-import app.hovanki.client.resources.hiders_left
+import app.hovanki.client.resources.hider_qr
 import app.hovanki.client.resources.hint_hider_hiding
-import app.hovanki.client.resources.hint_hider_seeking
-import app.hovanki.client.resources.hint_seeker_hiding
+import app.hovanki.client.resources.hud_me
+import app.hovanki.client.resources.hud_more
+import app.hovanki.client.resources.ic_chat
+import app.hovanki.client.resources.ic_close
+import app.hovanki.client.resources.ic_exit
+import app.hovanki.client.resources.ic_navigation
+import app.hovanki.client.resources.ic_qr
 import app.hovanki.client.resources.in_building_revealed
 import app.hovanki.client.resources.in_building_warning
 import app.hovanki.client.resources.leave_text
 import app.hovanki.client.resources.leave_text_account
 import app.hovanki.client.resources.leave_title
-import app.hovanki.client.resources.map_legend
 import app.hovanki.client.resources.no_hiders_to_claim
 import app.hovanki.client.resources.out_of_zone_warning
-import app.hovanki.client.resources.phase_hiding
-import app.hovanki.client.resources.phase_seeking
-import app.hovanki.client.resources.role_hider
-import app.hovanki.client.resources.role_seeker
-import app.hovanki.client.resources.seeker_found_hint
+import app.hovanki.client.resources.scanner_close
+import app.hovanki.client.resources.scanner_hint
+import app.hovanki.client.resources.scanner_open
 import app.hovanki.client.resources.seeker_found_title
 import app.hovanki.client.resources.status_caught
 import app.hovanki.client.resources.status_eliminated
@@ -75,21 +105,31 @@ import app.hovanki.client.resources.vote_confirm
 import app.hovanki.client.resources.vote_done
 import app.hovanki.client.resources.vote_reject
 import app.hovanki.client.resources.vote_title
-import app.hovanki.client.resources.zone_final
-import app.hovanki.client.resources.zone_inside
-import app.hovanki.client.resources.zone_outside
-import app.hovanki.client.resources.zone_radius
-import app.hovanki.client.resources.zone_shrinking
-import app.hovanki.client.resources.zone_shrinks_in
 import app.hovanki.client.session.CatchCode
-import app.hovanki.client.ui.chat.ChatButton
+import app.hovanki.client.session.SessionError
+import app.hovanki.client.session.ZoneCue
 import app.hovanki.client.ui.chat.ChatPanel
 import app.hovanki.client.ui.chat.ChatViewModel
 import app.hovanki.client.ui.common.Banner
+import app.hovanki.client.ui.common.CapsText
+import app.hovanki.client.ui.common.CountdownRing
+import app.hovanki.client.ui.common.Haptic
+import app.hovanki.client.ui.common.KeepScreenBright
 import app.hovanki.client.ui.common.LoadingScreen
-import app.hovanki.client.ui.common.ScreenColumn
+import app.hovanki.client.ui.common.PopButton
+import app.hovanki.client.ui.common.PopIconButton
+import app.hovanki.client.ui.common.PopStyle
+import app.hovanki.client.ui.common.PopSurface
+import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SessionBanners
+import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.common.Toast
 import app.hovanki.client.ui.common.formatCountdown
+import app.hovanki.client.ui.common.rememberHaptics
+import app.hovanki.client.ui.common.rememberReduceMotion
+import app.hovanki.client.ui.common.rememberToastVisible
+import app.hovanki.client.ui.theme.Motion
+import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.GamePhase
@@ -99,9 +139,12 @@ import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
-import kotlin.math.abs
-import kotlin.math.roundToInt
 
+/**
+ * The round (docs/design.md, «Игра»): the map over the whole screen with the HUD on it, and a sheet at the bottom for
+ * what needs the player's hands (the seeker's catch, a vote). A claim against the hider covers everything with the
+ * code to show.
+ */
 @Composable
 fun GameScreen(viewModel: GameViewModel = koinViewModel(), chat: ChatViewModel = koinViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -114,93 +157,139 @@ fun GameScreen(viewModel: GameViewModel = koinViewModel(), chat: ChatViewModel =
     // The chat panel covers the round instead of replacing it: the map keeps its tiles and camera.
     Box(modifier = Modifier.fillMaxSize()) {
         GameContent(state, viewModel, chatUnread = chatState.unread, onOpenChat = chat::open)
-        if (chatState.isOpen) ChatPanel(chat)
+        if (chatState.isOpen) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding(),
+            ) {
+                ChatPanel(chat)
+            }
+        }
     }
 }
 
 @Composable
 private fun GameContent(state: GameUiState, viewModel: GameViewModel, chatUnread: Int, onOpenChat: () -> Unit) {
     var showLeaveDialog by rememberSaveable { mutableStateOf(false) }
+    var recenter by remember { mutableIntStateOf(0) }
+    val reduceMotion = rememberReduceMotion()
+    GameHaptics(state)
+    val alert = when {
+        state.outOfZoneMillisLeft != null -> GameAlert.OUT_OF_ZONE
+        state.insideBuildingMillisLeft != null -> GameAlert.IN_BUILDING
+        else -> null
+    }
+    val claimAgainstMe = state.claimAgainstMe?.takeIf {
+        it.status == CatchStatus.AWAITING_CODE && state.myStatus == PlayerStatus.ACTIVE
+    }
+    val hasSheet = hasBottomSheet(state)
+    // The seeker's camera for the hider's QR code, while that claim waits for the code.
+    var scanning by remember { mutableStateOf<CatchId?>(null) }
+    val scannedClaim = state.myClaim?.takeIf { it.id == scanning && it.status == CatchStatus.AWAITING_CODE }
+    // Back inside after being out: a toast and a short vibration.
+    val isOut = state.outOfZoneMillisLeft != null
+    var wasOut by remember { mutableStateOf(isOut) }
+    var backInZone by remember { mutableIntStateOf(0) }
+    val haptics = rememberHaptics()
+    LaunchedEffect(isOut) {
+        if (wasOut && !isOut && state.myStatus == PlayerStatus.ACTIVE) {
+            backInZone++
+            haptics(Haptic.TICK)
+        }
+        wasOut = isOut
+    }
+    // Edge to edge: the map runs under the system bars, the HUD and the controls stay clear of them. Without the sheet
+    // the controls and the map credit keep above the navigation bar; the sheet keeps clear of it (and the keyboard)
+    // itself.
+    val bottomInset = if (hasSheet) {
+        PaddingValues(0.dp)
+    } else {
+        WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).asPaddingValues()
+    }
 
-    ScreenColumn(modifier = Modifier.testTag(TestTags.GAME_SCREEN)) {
-        PhaseHeader(state)
-        ChatButton(unread = chatUnread, onClick = onOpenChat, modifier = Modifier.fillMaxWidth())
-        SessionBanners(
-            connectionStatus = state.connectionStatus,
-            isSharingLocation = state.isSharingLocation,
-            error = state.error,
-            onDismissError = viewModel::dismissError,
-            onLocationPermissionGranted = viewModel::onLocationPermissionGranted,
-        )
-        state.outOfZoneMillisLeft?.let { millisLeft ->
-            Banner(
-                text = stringResource(Res.string.out_of_zone_warning, formatCountdown(millisLeft)),
-                modifier = Modifier.testTag(TestTags.GAME_OUT_OF_ZONE),
-                isError = true,
+    Box(modifier = Modifier.fillMaxSize().testTag(TestTags.GAME_SCREEN)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                GameMap(
+                    zone = state.zone,
+                    cue = state.zoneMoment.cue,
+                    myLocation = state.myLocation,
+                    myRole = state.myRole,
+                    markers = state.markers,
+                    buildings = state.buildings,
+                    recenterRequests = recenter,
+                    reduceMotion = reduceMotion,
+                    attributionPadding = bottomInset,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                if (state.myRole == Role.SEEKER && state.phase == GamePhase.HIDING) {
+                    SeekerWaitLayer(millisLeft = state.phaseMillisLeft)
+                }
+                if (alert != null) EdgeVignette(alert, reduceMotion)
+                // The HUD grows with the system font size up to 1.3×, so the capsule still fits.
+                val density = LocalDensity.current
+                CompositionLocalProvider(
+                    LocalDensity provides Density(density.density, density.fontScale.coerceAtMost(HUD_MAX_FONT_SCALE)),
+                ) {
+                    TopHud(
+                        state,
+                        viewModel,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .windowInsetsPadding(
+                                WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                            ),
+                    )
+                }
+                Toast(
+                    visible = rememberToastVisible(backInZone),
+                    text = stringResource(Res.string.back_in_zone),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottomInset).padding(bottom = 132.dp),
+                )
+                BottomControls(
+                    chatUnread = chatUnread,
+                    onOpenChat = onOpenChat,
+                    onRecenter = { recenter++ },
+                    canRecenter = state.myLocation != null,
+                    onMore = { showLeaveDialog = true },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottomInset).padding(bottom = 26.dp),
+                )
+            }
+            if (hasSheet) BottomSheet(state, viewModel, onOpenScanner = { scanning = state.myClaim?.id })
+        }
+
+        // The last claim, kept while its layer slides out after the claim is gone.
+        var shownClaim by remember { mutableStateOf(claimAgainstMe) }
+        if (claimAgainstMe != null) shownClaim = claimAgainstMe
+        AnimatedVisibility(
+            visible = claimAgainstMe != null,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+        ) {
+            val claim = shownClaim ?: return@AnimatedVisibility
+            ShowCodeLayer(
+                claim = claim,
+                code = state.catchCode,
+                qr = state.catchQr,
+                codePeriodMillis = state.codePeriodMillis,
+                claimTimeoutMillis = state.claimTimeoutMillis,
+                isBusy = state.isBusy,
+                onDispute = { viewModel.dispute(claim.id) },
             )
         }
-        state.insideBuildingMillisLeft?.let { millisLeft ->
-            Banner(
-                text = if (millisLeft > 0) {
-                    stringResource(Res.string.in_building_warning, formatCountdown(millisLeft))
-                } else {
-                    stringResource(Res.string.in_building_revealed)
-                },
-                modifier = Modifier.testTag(TestTags.GAME_IN_BUILDING),
-                isError = true,
+        AnimatedVisibility(
+            visible = scannedClaim != null,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+        ) {
+            ScannerLayer(
+                onScanned = { text -> scannedClaim != null && viewModel.onCodeScanned(scannedClaim, text) },
+                onClose = { scanning = null },
             )
         }
-        if (state.isBuildingRuleOff) {
-            Banner(
-                text = stringResource(Res.string.building_rule_off),
-                modifier = Modifier.testTag(TestTags.BUILDING_RULE_OFF),
-            )
-        }
-        when (state.myStatus) {
-            PlayerStatus.ACTIVE -> Unit
-
-            PlayerStatus.CAUGHT -> Banner(
-                text = stringResource(Res.string.status_caught),
-                modifier = Modifier.testTag(TestTags.GAME_CAUGHT),
-            )
-
-            PlayerStatus.ELIMINATED -> Banner(
-                text = stringResource(Res.string.status_eliminated),
-                modifier = Modifier.testTag(TestTags.GAME_ELIMINATED),
-            )
-        }
-
-        when (state.myRole) {
-            Role.HIDER -> HiderPanel(state, onDispute = viewModel::dispute)
-
-            Role.SEEKER -> SeekerPanel(
-                state = state,
-                onClaim = viewModel::claimCatch,
-                onConfirm = viewModel::confirmCatch,
-                onScanned = viewModel::onCodeScanned,
-            )
-        }
-        state.votes.forEach { claim ->
-            VoteCard(claim, isBusy = state.isBusy, onVote = { confirm -> viewModel.vote(claim.id, confirm) })
-        }
-
-        GameMap(
-            zone = state.zone,
-            myLocation = state.myLocation,
-            markers = state.markers,
-            buildings = state.buildings,
-            modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-        )
-        Text(
-            text = stringResource(Res.string.map_legend),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        ZoneInfo(state)
-
-        TextButton(onClick = { showLeaveDialog = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(Res.string.action_leave_game))
-        }
+        PhaseFlash(phase = state.phase, role = state.myRole, reduceMotion = reduceMotion)
+        if (state.myRole == Role.SEEKER) CatchCelebration(state.myConfirmedCatches, reduceMotion)
+        if (state.myRole == Role.HIDER) CaughtLayer(state.myStatus)
+        StartCountdown(state.hidingElapsedMillis, state.myRole, reduceMotion)
     }
 
     if (showLeaveDialog) {
@@ -226,251 +315,551 @@ private fun GameContent(state: GameUiState, viewModel: GameViewModel, chatUnread
     }
 }
 
+/** The capsule, the chips, the alerts and the notices, stacked at the top of the map. */
 @Composable
-private fun PhaseHeader(state: GameUiState) {
-    val phaseTitle = if (state.phase == GamePhase.HIDING) Res.string.phase_hiding else Res.string.phase_seeking
-    val roleTitle = if (state.myRole == Role.HIDER) Res.string.role_hider else Res.string.role_seeker
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stringResource(phaseTitle),
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.testTag(TestTags.phase(state.phase)),
-            )
-            Text(text = stringResource(roleTitle), style = MaterialTheme.typography.bodyMedium)
-            Text(
-                text = stringResource(Res.string.hiders_left, state.hidersLeft, state.hidersTotal),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+private fun TopHud(state: GameUiState, viewModel: GameViewModel, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        HudCapsule(state)
+        HudChips(state)
+        state.outOfZoneMillisLeft?.let { millisLeft ->
+            AlertPill(
+                alert = GameAlert.OUT_OF_ZONE,
+                text = stringResource(Res.string.out_of_zone_warning, formatCountdown(millisLeft)),
+                tag = TestTags.GAME_OUT_OF_ZONE,
             )
         }
-        state.phaseMillisLeft?.let { millisLeft ->
-            Text(
-                text = formatCountdown(millisLeft),
-                style = MaterialTheme.typography.displaySmall,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.testTag(TestTags.GAME_TIMER),
+        state.insideBuildingMillisLeft?.let { millisLeft ->
+            AlertPill(
+                alert = GameAlert.IN_BUILDING,
+                text = if (millisLeft > 0) {
+                    stringResource(Res.string.in_building_warning, formatCountdown(millisLeft))
+                } else {
+                    stringResource(Res.string.in_building_revealed)
+                },
+                tag = TestTags.GAME_IN_BUILDING,
             )
         }
-    }
-}
-
-@Composable
-private fun ZoneInfo(state: GameUiState) {
-    val zone = state.zone
-    val change = zone.millisUntilChange
-    val schedule = when {
-        !state.isZoneRunning -> null
-        change == null -> stringResource(Res.string.zone_final)
-        zone.isShrinking -> stringResource(Res.string.zone_shrinking, formatCountdown(change))
-        else -> stringResource(Res.string.zone_shrinks_in, formatCountdown(change))
-    }
-    val radius = stringResource(Res.string.zone_radius, zone.current.radiusMeters.roundToInt())
-    Text(text = listOfNotNull(radius, schedule).joinToString(", "), style = MaterialTheme.typography.bodyLarge)
-    state.metersToZoneBorder?.let { meters ->
-        if (meters >= 0) {
-            Text(text = stringResource(Res.string.zone_inside, meters.roundToInt()))
-        } else {
-            Text(
-                text = stringResource(Res.string.zone_outside, abs(meters).roundToInt()),
-                color = MaterialTheme.colorScheme.error,
-                fontWeight = FontWeight.Bold,
+        SessionBanners(
+            connectionStatus = state.connectionStatus,
+            isSharingLocation = state.isSharingLocation,
+            error = state.error,
+            onDismissError = viewModel::dismissError,
+            onLocationPermissionGranted = viewModel::onLocationPermissionGranted,
+        )
+        if (state.isBuildingRuleOff) {
+            Banner(
+                text = stringResource(Res.string.building_rule_off),
+                modifier = Modifier.testTag(TestTags.BUILDING_RULE_OFF),
             )
         }
     }
 }
 
+/** Chat on the left, «where am I» in the middle, «more» (leaving the game) on the right. */
 @Composable
-private fun HiderPanel(state: GameUiState, onDispute: (CatchId) -> Unit) {
-    val claim = state.claimAgainstMe
-    when {
-        state.myStatus != PlayerStatus.ACTIVE -> Unit
-
-        claim != null && claim.status == CatchStatus.AWAITING_CODE ->
-            ShowCodeCard(claim, state.catchCode, isBusy = state.isBusy, onDispute = { onDispute(claim.id) })
-
-        claim != null -> Banner(text = stringResource(Res.string.hider_disputed))
-
-        state.phase == GamePhase.HIDING -> HintText(stringResource(Res.string.hint_hider_hiding))
-
-        else -> HintText(stringResource(Res.string.hint_hider_seeking))
+private fun BottomControls(
+    chatUnread: Int,
+    onOpenChat: () -> Unit,
+    onRecenter: () -> Unit,
+    canRecenter: Boolean,
+    onMore: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(26.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        RoundControl(
+            icon = Res.drawable.ic_chat,
+            label = stringResource(Res.string.chat_open),
+            onClick = onOpenChat,
+            badge = chatUnread,
+            badgeTag = TestTags.CHAT_UNREAD,
+            buttonModifier = Modifier.testTag(TestTags.CHAT_OPEN),
+        )
+        RoundControl(
+            icon = Res.drawable.ic_navigation,
+            label = stringResource(Res.string.hud_me),
+            onClick = onRecenter,
+            style = if (canRecenter) PopStyle.Primary else PopStyle.Quiet,
+            size = 72.dp,
+        )
+        RoundControl(
+            icon = Res.drawable.ic_exit,
+            label = stringResource(Res.string.hud_more),
+            onClick = onMore,
+        )
     }
 }
 
-/** The hider's side of a catch: the current code, big enough to be read out or scanned. */
+/**
+ * Under the map: the seeker's catch, disputes to vote on, how the round ended for the player, the hint of the
+ * hiding phase. Nothing when there is nothing to do: the map gets the room.
+ */
 @Composable
-private fun ShowCodeCard(claim: ClaimUi, code: CatchCode?, isBusy: Boolean, onDispute: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-        ),
+private fun BottomSheet(state: GameUiState, viewModel: GameViewModel, onOpenScanner: () -> Unit) {
+    val status = statusText(state)
+    val hint = if (state.myStatus == PlayerStatus.ACTIVE && state.phase == GamePhase.HIDING) {
+        stringResource(Res.string.hint_hider_hiding)
+    } else {
+        null
+    }
+    val seeking = isSeekingNow(state)
+    val hiderDisputed = isHiderDisputed(state)
+
+    PopSurface(
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        color = Palette.Paper,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = stringResource(Res.string.hider_claim_title, claim.seekerName),
-                style = MaterialTheme.typography.titleLarge,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                text = stringResource(Res.string.hider_claim_hint),
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-            )
-            // TODO(QR): also render CatchCodePayload(gameId, myId, code).encode() as a QR code for the seeker's camera.
-            if (code != null) {
-                Text(
-                    text = code.code,
-                    style = MaterialTheme.typography.displayLarge,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 8.sp,
-                    modifier = Modifier.testTag(TestTags.CATCH_CODE),
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
                 )
-                Text(text = stringResource(Res.string.hider_code_next, formatCountdown(code.millisUntilNext)))
-            }
-            claim.millisLeft?.let { millisLeft ->
-                Text(text = stringResource(Res.string.claim_time_left, formatCountdown(millisLeft)))
-            }
-            OutlinedButton(
-                onClick = onDispute,
-                enabled = !isBusy,
-                modifier = Modifier.testTag(TestTags.CATCH_DISPUTE),
-            ) {
-                Text(stringResource(Res.string.action_dispute))
+                .padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .size(width = 40.dp, height = 4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Palette.Line),
+            )
+            status?.let { (text, tag) -> Banner(text = text, modifier = Modifier.testTag(tag)) }
+            hint?.let { Text(text = it, style = MaterialTheme.typography.titleMedium) }
+            if (hiderDisputed) Banner(text = stringResource(Res.string.hider_disputed))
+            if (seeking) SeekerCatch(state, viewModel, onOpenScanner)
+            state.votes.forEach { claim ->
+                VoteCard(
+                    claim = claim,
+                    voteTimeoutMillis = state.voteTimeoutMillis,
+                    isBusy = state.isBusy,
+                    onVote = { confirm -> viewModel.vote(claim.id, confirm) },
+                )
             }
         }
     }
 }
 
+/** Whether the sheet under the map has anything: see [BottomSheet]. */
+private fun hasBottomSheet(state: GameUiState): Boolean = state.myStatus != PlayerStatus.ACTIVE ||
+    // The seeker waits out the hiding phase on SeekerWaitLayer.
+    (state.phase == GamePhase.HIDING && state.myRole == Role.HIDER) ||
+    isSeekingNow(state) ||
+    state.votes.isNotEmpty() ||
+    isHiderDisputed(state)
+
+private fun isSeekingNow(state: GameUiState): Boolean =
+    state.myRole == Role.SEEKER && state.myStatus == PlayerStatus.ACTIVE && state.phase == GamePhase.SEEKING
+
+private fun isHiderDisputed(state: GameUiState): Boolean =
+    state.myRole == Role.HIDER && state.claimAgainstMe?.status == CatchStatus.DISPUTED
+
+/** «You were found» or «you are out», with its tag. */
 @Composable
-private fun SeekerPanel(
-    state: GameUiState,
-    onClaim: (PlayerId) -> Unit,
-    onConfirm: (CatchId, String) -> Unit,
-    onScanned: (ClaimUi, String) -> Unit,
-) {
+private fun statusText(state: GameUiState): Pair<String, String>? = when (state.myStatus) {
+    PlayerStatus.ACTIVE -> null
+    PlayerStatus.CAUGHT -> stringResource(Res.string.status_caught) to TestTags.GAME_CAUGHT
+    PlayerStatus.ELIMINATED -> stringResource(Res.string.status_eliminated) to TestTags.GAME_ELIMINATED
+}
+
+/** The seeker: tap who was caught, then type their code; or wait for the vote on a disputed claim. */
+@Composable
+private fun ColumnScope.SeekerCatch(state: GameUiState, viewModel: GameViewModel, onOpenScanner: () -> Unit) {
     val claim = state.myClaim
     when {
-        state.myStatus != PlayerStatus.ACTIVE -> Unit
-
-        state.phase == GamePhase.HIDING -> HintText(stringResource(Res.string.hint_seeker_hiding))
-
-        claim != null && claim.status == CatchStatus.AWAITING_CODE -> EnterCodeCard(
+        claim != null && claim.status == CatchStatus.AWAITING_CODE -> EnterCode(
             claim = claim,
             codeDigits = state.codeDigits,
             isBusy = state.isBusy,
-            onConfirm = { code -> onConfirm(claim.id, code) },
-            onScanned = { text -> onScanned(claim, text) },
+            error = state.error,
+            onConfirm = { code -> viewModel.confirmCatch(claim.id, code) },
+            onOpenScanner = onOpenScanner,
         )
 
         claim != null -> Banner(text = stringResource(Res.string.claim_disputed_mine, claim.hiderName))
 
-        else -> HiderList(state.huntableHiders, isBusy = state.isBusy, onClaim = onClaim)
+        else -> HiderChips(state.huntableHiders, isBusy = state.isBusy, onClaim = viewModel::claimCatch)
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HiderList(hiders: List<PlayerView>, isBusy: Boolean, onClaim: (PlayerId) -> Unit) {
-    Text(text = stringResource(Res.string.seeker_found_title), style = MaterialTheme.typography.titleMedium)
+private fun HiderChips(hiders: List<PlayerView>, isBusy: Boolean, onClaim: (PlayerId) -> Unit) {
+    Text(text = stringResource(Res.string.seeker_found_title), style = MaterialTheme.typography.headlineSmall)
     if (hiders.isEmpty()) {
-        HintText(stringResource(Res.string.no_hiders_to_claim))
+        SecondaryText(stringResource(Res.string.no_hiders_to_claim))
         return
     }
-    HintText(stringResource(Res.string.seeker_found_hint))
-    hiders.forEach { hider ->
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(text = hider.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-            Button(onClick = {
-                onClaim(hider.id)
-            }, enabled = !isBusy, modifier = Modifier.testTag(TestTags.claimButton(hider.id))) {
-                Text(stringResource(Res.string.action_found))
-            }
+    SecondaryText(stringResource(Res.string.catch_seeker_hint))
+    // Wrapped, not scrolled: every hider stays on screen, however many there are.
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        hiders.forEach { hider ->
+            PopButton(
+                text = hider.name,
+                onClick = { onClaim(hider.id) },
+                enabled = !isBusy,
+                style = PopStyle.Seeker,
+                height = 52.dp,
+                modifier = Modifier.testTag(TestTags.claimButton(hider.id)),
+            )
         }
     }
+    // Room for the shadows of the chips.
+    Spacer(Modifier.height(2.dp))
 }
 
 /** The seeker's side of a catch: scan the QR code or type the digits the hider shows. */
 @Composable
-private fun EnterCodeCard(
+private fun EnterCode(
     claim: ClaimUi,
     codeDigits: Int,
     isBusy: Boolean,
+    error: SessionError?,
     onConfirm: (String) -> Unit,
-    onScanned: (String) -> Unit,
+    onOpenScanner: () -> Unit,
 ) {
     var code by rememberSaveable(claim.id.value) { mutableStateOf("") }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = stringResource(Res.string.claim_enter_code, claim.hiderName),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            claim.millisLeft?.let { millisLeft ->
-                Text(text = stringResource(Res.string.claim_time_left, formatCountdown(millisLeft)))
-            }
-            CatchCodeScanner(onScanned = onScanned, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(
-                value = code,
-                onValueChange = { value -> code = value.filter { it.isDigit() }.take(codeDigits) },
-                label = { Text(stringResource(Res.string.claim_code_label)) },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.headlineMedium.copy(fontFamily = FontFamily.Monospace),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                modifier = Modifier.fillMaxWidth().testTag(TestTags.CODE_INPUT),
-            )
-            Button(
-                onClick = { onConfirm(code) },
-                enabled = code.length == codeDigits && !isBusy,
-                modifier = Modifier.fillMaxWidth().testTag(TestTags.CODE_CONFIRM),
-            ) {
-                Text(stringResource(Res.string.action_confirm))
-            }
+    var shakes by remember { mutableIntStateOf(0) }
+    val haptics = rememberHaptics()
+    // The server refused the code: shake the tiles and let the seeker type again.
+    LaunchedEffect(error) {
+        if (error is SessionError.Rejected) {
+            shakes++
+            code = ""
+            haptics(Haptic.ERROR)
         }
     }
+    Text(
+        text = stringResource(Res.string.claim_enter_code, claim.hiderName),
+        style = MaterialTheme.typography.titleMedium,
+    )
+    claim.millisLeft?.let { millisLeft ->
+        CapsText(stringResource(Res.string.claim_time_left, formatCountdown(millisLeft)), color = Palette.OrangeInk)
+    }
+    PopButton(
+        text = stringResource(Res.string.scanner_open),
+        onClick = onOpenScanner,
+        enabled = !isBusy,
+        style = PopStyle.Outline,
+        height = 48.dp,
+        icon = Res.drawable.ic_qr,
+        modifier = Modifier.fillMaxWidth().testTag(TestTags.SCANNER_OPEN),
+    )
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        CodeInput(
+            value = code,
+            onValueChange = { code = it },
+            digits = codeDigits,
+            enabled = !isBusy,
+            shakes = shakes,
+            tag = TestTags.CODE_INPUT,
+        )
+    }
+    PopButton(
+        text = stringResource(Res.string.action_confirm),
+        onClick = { onConfirm(code) },
+        enabled = code.length == codeDigits && !isBusy,
+        style = PopStyle.Seeker,
+        modifier = Modifier.fillMaxWidth().testTag(TestTags.CODE_CONFIRM),
+    )
 }
 
 @Composable
-private fun VoteCard(claim: ClaimUi, isBusy: Boolean, onVote: (confirm: Boolean) -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun VoteCard(claim: ClaimUi, voteTimeoutMillis: Long, isBusy: Boolean, onVote: (confirm: Boolean) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
                 text = stringResource(Res.string.vote_title, claim.seekerName, claim.hiderName),
                 style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
             )
             claim.millisLeft?.let { millisLeft ->
-                Text(text = stringResource(Res.string.claim_time_left, formatCountdown(millisLeft)))
+                CountdownRing(
+                    progress = if (voteTimeoutMillis > 0) millisLeft.toFloat() / voteTimeoutMillis else 0f,
+                    text = formatCountdown(millisLeft),
+                    color = Palette.Orange,
+                    trackColor = Palette.Line,
+                    textColor = Palette.Ink,
+                    size = 48.dp,
+                )
             }
-            if (claim.canVote) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { onVote(true) },
-                        enabled = !isBusy,
-                        modifier = Modifier.testTag(TestTags.voteConfirm(claim.id)),
-                    ) {
-                        Text(stringResource(Res.string.vote_confirm))
-                    }
-                    OutlinedButton(
-                        onClick = { onVote(false) },
-                        enabled = !isBusy,
-                        modifier = Modifier.testTag(TestTags.voteReject(claim.id)),
-                    ) {
-                        Text(stringResource(Res.string.vote_reject))
-                    }
-                }
-            } else {
-                HintText(stringResource(Res.string.vote_done))
+        }
+        if (claim.canVote) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PopButton(
+                    text = stringResource(Res.string.vote_confirm),
+                    onClick = { onVote(true) },
+                    enabled = !isBusy,
+                    modifier = Modifier.weight(1f).testTag(TestTags.voteConfirm(claim.id)),
+                )
+                PopButton(
+                    text = stringResource(Res.string.vote_reject),
+                    onClick = { onVote(false) },
+                    enabled = !isBusy,
+                    style = PopStyle.Outline,
+                    modifier = Modifier.weight(1f).testTag(TestTags.voteReject(claim.id)),
+                )
             }
+        } else {
+            SecondaryText(stringResource(Res.string.vote_done))
         }
     }
 }
 
+/**
+ * The hider's side of a catch, over the whole screen in violet: who says they caught the hider, the code as big
+ * tiles (to read out, or for the seeker's camera once QR is there), when it changes, and «Dispute».
+ */
 @Composable
-private fun HintText(text: String) {
-    Text(text = text, style = MaterialTheme.typography.bodyLarge)
+private fun ShowCodeLayer(
+    claim: ClaimUi,
+    code: CatchCode?,
+    qr: String?,
+    codePeriodMillis: Long,
+    claimTimeoutMillis: Long,
+    isBusy: Boolean,
+    onDispute: () -> Unit,
+) {
+    KeepScreenBright()
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Palette.Violet)
+            .safeDrawingPadding()
+            .padding(horizontal = 24.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(
+            text = stringResource(Res.string.hider_claim_title, claim.seekerName),
+            style = MaterialTheme.typography.headlineMedium,
+            color = Color.White,
+        )
+        Text(
+            text = stringResource(Res.string.hider_claim_hint),
+            style = MaterialTheme.typography.bodyLarge,
+            color = Color.White,
+        )
+        claim.millisLeft?.let { millisLeft ->
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(Res.string.catch_auto_in, formatCountdown(millisLeft)),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White,
+                )
+                val fraction = if (claimTimeoutMillis > 0) {
+                    (millisLeft.toFloat() / claimTimeoutMillis).coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(10.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(Palette.Ink),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction)
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(Palette.Lime),
+                    )
+                }
+            }
+        }
+        if (qr != null) {
+            // As big as the room allows: the seeker's camera reads it from a step away.
+            Box(
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Crossfade(
+                    targetState = qr,
+                    animationSpec = tween(Motion.FAST_MILLIS),
+                    modifier = Modifier.fillMaxHeight().aspectRatio(1f),
+                ) { text ->
+                    PopSurface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.White,
+                        shadow = 4.dp,
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        QrCodeImage(
+                            text = text,
+                            contentDescription = stringResource(Res.string.hider_qr),
+                            color = Palette.Ink,
+                            modifier = Modifier.fillMaxSize().padding(6.dp).testTag(TestTags.CATCH_QR),
+                        )
+                    }
+                }
+            }
+            Text(
+                text = stringResource(Res.string.catch_or_say),
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.White,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        if (code != null) {
+            CodeTiles(
+                code = code.code,
+                tag = TestTags.CATCH_CODE,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+            Row(
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                CountdownRing(
+                    progress = if (codePeriodMillis > 0) code.millisUntilNext.toFloat() / codePeriodMillis else 0f,
+                    text = formatCountdown(code.millisUntilNext),
+                    color = Palette.Lime,
+                    trackColor = Palette.Ink,
+                    textColor = Color.White,
+                    size = 52.dp,
+                )
+                Text(
+                    text = stringResource(Res.string.hider_code_next, formatCountdown(code.millisUntilNext)),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White,
+                    textAlign = TextAlign.Start,
+                )
+            }
+        }
+        // Without the QR code the tiles sit in the middle; with it the code takes the room.
+        if (qr == null) Spacer(Modifier.weight(1f)) else Spacer(Modifier.height(4.dp))
+        PopButton(
+            text = stringResource(Res.string.action_dispute),
+            onClick = onDispute,
+            enabled = !isBusy,
+            style = PopStyle.Dark,
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.CATCH_DISPUTE),
+        )
+    }
 }
+
+/**
+ * The seeker's camera over the whole round: the hider's QR code in the frame confirms the catch
+ * ([GameViewModel.onCodeScanned]); «type the digits» goes back to the tiles.
+ */
+@Composable
+private fun ScannerLayer(onScanned: (String) -> Boolean, onClose: () -> Unit) {
+    SystemBackHandler(enabled = true, onBack = onClose)
+    Box(modifier = Modifier.fillMaxSize().background(Palette.Ink).testTag(TestTags.SCANNER)) {
+        CatchCodeScanner(
+            onScanned = { text -> if (onScanned(text)) onClose() },
+            modifier = Modifier.fillMaxSize(),
+        )
+        // Where to hold the code.
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(250.dp)
+                .border(4.dp, Palette.Lime, RoundedCornerShape(28.dp)),
+        )
+        Column(
+            modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PopIconButton(
+                    icon = Res.drawable.ic_close,
+                    contentDescription = stringResource(Res.string.scanner_close),
+                    onClick = onClose,
+                    style = PopStyle.Outline,
+                    size = 44.dp,
+                )
+                Text(
+                    text = stringResource(Res.string.scanner_hint),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            PopButton(
+                text = stringResource(Res.string.catch_or_type),
+                onClick = onClose,
+                style = PopStyle.Outline,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+/**
+ * Vibration for what happens in the round (docs/design.md, «Вибрация и звук»): the zone about to shrink (then 3-2-1)
+ * and done shrinking, the seekers going out, alerts (on entering, then every 10 s, every second at the end), a claim
+ * against the hider, a hider caught.
+ */
+@Composable
+private fun GameHaptics(state: GameUiState) {
+    val play = rememberHaptics()
+    val cue = state.zoneMoment.cue
+    LaunchedEffect(cue) {
+        when (cue) {
+            ZoneCue.SOON -> play(Haptic.TICK)
+            ZoneCue.SHRUNK -> play(Haptic.SUCCESS)
+            else -> Unit
+        }
+    }
+    val secondsToShrink = state.zoneMoment.millisLeft?.takeIf { cue == ZoneCue.COUNTDOWN }?.let { (it + 999) / 1000 }
+    LaunchedEffect(secondsToShrink) {
+        if (secondsToShrink != null && secondsToShrink <= COUNTDOWN_TICKS) play(Haptic.TICK)
+    }
+
+    var phase by remember { mutableStateOf(state.phase) }
+    LaunchedEffect(state.phase) {
+        if (phase == GamePhase.HIDING && state.phase == GamePhase.SEEKING) play(Haptic.SUCCESS)
+        phase = state.phase
+    }
+
+    val outSeconds = state.outOfZoneMillisLeft?.let { (it + 999) / 1000 }
+    LaunchedEffect(outSeconds != null) { if (outSeconds != null) play(Haptic.ERROR) }
+    LaunchedEffect(outSeconds) {
+        if (outSeconds != null &&
+            (outSeconds <= LAST_SECONDS || outSeconds % OUT_OF_ZONE_EVERY == 0L)
+        ) {
+            play(Haptic.TICK)
+        }
+    }
+    val buildingSeconds = state.insideBuildingMillisLeft?.takeIf { it > 0 }?.let { (it + 999) / 1000 }
+    LaunchedEffect(state.insideBuildingMillisLeft != null) {
+        if (state.insideBuildingMillisLeft != null) play(Haptic.ERROR)
+    }
+    LaunchedEffect(buildingSeconds) {
+        if (buildingSeconds != null && buildingSeconds % IN_BUILDING_EVERY == 0L) play(Haptic.TICK)
+    }
+
+    val claimAgainstMe = state.claimAgainstMe?.takeIf { it.status == CatchStatus.AWAITING_CODE }?.id
+    LaunchedEffect(claimAgainstMe) { if (claimAgainstMe != null) play(Haptic.HEAVY) }
+    var hidersLeft by remember { mutableIntStateOf(state.hidersLeft) }
+    LaunchedEffect(state.hidersLeft) {
+        if (state.hidersLeft < hidersLeft && state.myRole == Role.SEEKER) play(Haptic.SUCCESS)
+        hidersLeft = state.hidersLeft
+    }
+    LaunchedEffect(state.myStatus) { if (state.myStatus == PlayerStatus.CAUGHT) play(Haptic.HEAVY) }
+}
+
+private const val COUNTDOWN_TICKS = 3
+private const val HUD_MAX_FONT_SCALE = 1.3f
+private const val LAST_SECONDS = 5
+private const val OUT_OF_ZONE_EVERY = 10
+private const val IN_BUILDING_EVERY = 15

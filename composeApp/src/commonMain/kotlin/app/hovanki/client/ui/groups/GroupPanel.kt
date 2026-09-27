@@ -7,12 +7,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,11 +45,15 @@ import app.hovanki.client.resources.lobby_you
 import app.hovanki.client.ui.common.CommandStatus
 import app.hovanki.client.ui.common.Panel
 import app.hovanki.client.ui.common.PickRow
+import app.hovanki.client.ui.common.PopButton
+import app.hovanki.client.ui.common.PopStyle
+import app.hovanki.client.ui.common.PopTextField
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SectionTitle
 import app.hovanki.client.ui.common.StartStatusBanners
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.protocol.GroupView
 import app.hovanki.shared.protocol.UserId
 import org.jetbrains.compose.resources.stringResource
@@ -95,13 +96,12 @@ private fun GroupOverview(group: GroupView, viewModel: GroupsViewModel, isBusy: 
     val isOwner = viewModel.isOwner(group)
     val myId = account.user?.id
 
-    Button(
+    PopButton(
+        text = stringResource(Res.string.group_play),
         onClick = requestLocationThenPlay,
         enabled = !isBusy && !startStatus.isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.GROUP_PLAY),
-    ) {
-        Text(stringResource(Res.string.group_play))
-    }
+    )
     SecondaryText(stringResource(Res.string.group_play_hint))
     StartStatusBanners(status = startStatus, sessionError = sessionError, onDismiss = viewModel::dismissMessage)
     HorizontalDivider()
@@ -121,34 +121,34 @@ private fun GroupOverview(group: GroupView, viewModel: GroupsViewModel, isBusy: 
     HorizontalDivider()
 
     if (isOwner) {
-        OutlinedButton(
+        PopButton(
+            text = stringResource(Res.string.group_add_members),
             onClick = viewModel::startAdding,
             enabled = !isBusy,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.GROUP_ADD_MEMBERS),
-        ) {
-            Text(stringResource(Res.string.group_add_members))
-        }
-        OutlinedButton(
+            style = PopStyle.Outline,
+        )
+        PopButton(
+            text = stringResource(Res.string.group_rename),
             onClick = { viewModel.startRenaming(group) },
             enabled = !isBusy,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.GROUP_RENAME),
-        ) {
-            Text(stringResource(Res.string.group_rename))
-        }
+            style = PopStyle.Outline,
+        )
     }
-    OutlinedButton(
+    PopButton(
+        text = stringResource(Res.string.group_leave),
         onClick = viewModel::leave,
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.GROUP_LEAVE),
-    ) {
-        Text(stringResource(Res.string.group_leave))
-    }
+        style = PopStyle.Outline,
+    )
     if (isOwner) {
         SecondaryText(stringResource(Res.string.group_leave_owner_hint))
         TextButton(
             onClick = viewModel::askToDelete,
             enabled = !isBusy,
-            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            colors = ButtonDefaults.textButtonColors(contentColor = Palette.PinkInk),
             modifier = Modifier.fillMaxWidth().testTag(TestTags.GROUP_DELETE),
         ) {
             Text(stringResource(Res.string.group_delete))
@@ -216,7 +216,7 @@ private fun AddMembersForm(group: GroupView, viewModel: GroupsViewModel, isBusy:
 
 @Composable
 private fun RenameForm(viewModel: GroupsViewModel, isBusy: Boolean) {
-    OutlinedTextField(
+    PopTextField(
         value = viewModel.name,
         onValueChange = viewModel::onNameChange,
         label = { Text(stringResource(Res.string.group_name_label)) },
@@ -264,21 +264,13 @@ private fun FormButtons(
     isDestructive: Boolean = false,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(
+        PopButton(
+            text = confirm,
             onClick = onConfirm,
             enabled = enabled,
-            colors = if (isDestructive) {
-                ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                )
-            } else {
-                ButtonDefaults.buttonColors()
-            },
+            style = if (isDestructive) PopStyle.Danger else PopStyle.Primary,
             modifier = Modifier.testTag(confirmTag),
-        ) {
-            Text(confirm)
-        }
+        )
         TextButton(onClick = onCancel) {
             Text(stringResource(Res.string.action_cancel))
         }

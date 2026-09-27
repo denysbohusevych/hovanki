@@ -1,16 +1,13 @@
 package app.hovanki.client.ui.welcome
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -23,10 +20,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
-import app.hovanki.client.location.rememberLocationPermissionRequester
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_dismiss
-import app.hovanki.client.resources.app_name
 import app.hovanki.client.resources.code_label
 import app.hovanki.client.resources.error_session_expired
 import app.hovanki.client.resources.home_code_label
@@ -62,11 +57,17 @@ import app.hovanki.client.ui.common.BackButton
 import app.hovanki.client.ui.common.Banner
 import app.hovanki.client.ui.common.BuildLabel
 import app.hovanki.client.ui.common.CommandStatus
+import app.hovanki.client.ui.common.Logo
 import app.hovanki.client.ui.common.PasswordField
+import app.hovanki.client.ui.common.PopButton
+import app.hovanki.client.ui.common.PopCard
+import app.hovanki.client.ui.common.PopStyle
+import app.hovanki.client.ui.common.PopTextField
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.StartStatusBanners
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.common.rememberLocationRequest
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -83,12 +84,16 @@ fun WelcomeScreen(viewModel: WelcomeViewModel = koinViewModel()) {
 
     ScreenColumn(modifier = Modifier.testTag(TestTags.WELCOME_SCREEN)) {
         if (mode == WelcomeMode.START) {
-            Text(
-                text = stringResource(Res.string.app_name),
+            Logo(
+                markSize = 48.dp,
                 style = MaterialTheme.typography.displaySmall,
-                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 12.dp),
             )
-            Text(text = stringResource(Res.string.home_tagline), style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = stringResource(Res.string.home_tagline),
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
         } else {
             BackButton(onClick = viewModel::back, modifier = Modifier.testTag(TestTags.FORM_BACK))
         }
@@ -121,64 +126,70 @@ private fun StartContent(viewModel: WelcomeViewModel, isBusy: Boolean) {
     val startStatus by viewModel.startStatus.collectAsStateWithLifecycle()
     val sessionError by viewModel.sessionError.collectAsStateWithLifecycle()
     // Asked before joining, so location is already on when the round starts.
-    val requestLocationThenJoin = rememberLocationPermissionRequester { viewModel.joinAsGuest() }
+    val requestLocationThenJoin = rememberLocationRequest { viewModel.joinAsGuest() }
     val isStarting = startStatus.isBusy
 
-    Button(
+    PopButton(
+        text = stringResource(Res.string.welcome_log_in),
         onClick = { viewModel.open(WelcomeMode.LOG_IN) },
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.WELCOME_LOG_IN),
-    ) {
-        Text(stringResource(Res.string.welcome_log_in))
-    }
-    OutlinedButton(
+    )
+    PopButton(
+        text = stringResource(Res.string.welcome_register),
         onClick = { viewModel.open(WelcomeMode.REGISTER) },
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.WELCOME_REGISTER),
-    ) {
-        Text(stringResource(Res.string.welcome_register))
-    }
+        style = PopStyle.Outline,
+    )
     SecondaryText(stringResource(Res.string.welcome_account_hint))
 
-    HorizontalDivider()
-    Text(text = stringResource(Res.string.welcome_guest_title), style = MaterialTheme.typography.titleMedium)
-    SecondaryText(stringResource(Res.string.welcome_guest_hint))
-    OutlinedTextField(
-        value = viewModel.guestName,
-        onValueChange = viewModel::onGuestNameChange,
-        label = { Text(stringResource(Res.string.home_name_label)) },
-        singleLine = true,
-        enabled = !isStarting,
-        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
-        modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_NAME),
-    )
-    OutlinedTextField(
-        value = viewModel.joinCode,
-        onValueChange = viewModel::onJoinCodeChange,
-        label = { Text(stringResource(Res.string.home_code_label)) },
-        singleLine = true,
-        enabled = !isStarting,
-        keyboardOptions = KeyboardOptions(
-            capitalization = KeyboardCapitalization.Characters,
-            keyboardType = KeyboardType.Ascii,
-        ),
-        modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_JOIN_CODE),
-    )
-    FilledTonalButton(
-        onClick = { if (viewModel.canJoinAsGuest()) requestLocationThenJoin() },
-        enabled = !isStarting,
-        modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_JOIN),
+    PopCard(
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(stringResource(Res.string.home_join))
+        Text(text = stringResource(Res.string.welcome_guest_title), style = MaterialTheme.typography.titleLarge)
+        SecondaryText(stringResource(Res.string.welcome_guest_hint))
+        PopTextField(
+            value = viewModel.guestName,
+            onValueChange = viewModel::onGuestNameChange,
+            label = { Text(stringResource(Res.string.home_name_label)) },
+            singleLine = true,
+            enabled = !isStarting,
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Words,
+                imeAction = ImeAction.Next,
+            ),
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_NAME),
+        )
+        PopTextField(
+            value = viewModel.joinCode,
+            onValueChange = viewModel::onJoinCodeChange,
+            label = { Text(stringResource(Res.string.home_code_label)) },
+            singleLine = true,
+            enabled = !isStarting,
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Characters,
+                keyboardType = KeyboardType.Ascii,
+            ),
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_JOIN_CODE),
+        )
+        PopButton(
+            text = stringResource(Res.string.home_join),
+            onClick = { if (viewModel.canJoinAsGuest()) requestLocationThenJoin() },
+            enabled = !isStarting,
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_JOIN),
+            style = PopStyle.Hider,
+        )
+        SecondaryText(stringResource(Res.string.home_location_note))
     }
-    SecondaryText(stringResource(Res.string.home_location_note))
     StartStatusBanners(status = startStatus, sessionError = sessionError, onDismiss = viewModel::dismissStartProblems)
 }
 
 @Composable
 private fun LoginForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
     FormTitle(stringResource(Res.string.login_title))
-    OutlinedTextField(
+    PopTextField(
         value = viewModel.login,
         onValueChange = viewModel::onLoginChange,
         label = { Text(stringResource(Res.string.login_login_label)) },
@@ -199,13 +210,12 @@ private fun LoginForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
         onImeAction = viewModel::logIn,
         modifier = Modifier.testTag(TestTags.LOGIN_PASSWORD),
     )
-    Button(
+    PopButton(
+        text = stringResource(Res.string.login_submit),
         onClick = viewModel::logIn,
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.LOGIN_SUBMIT),
-    ) {
-        Text(stringResource(Res.string.login_submit))
-    }
+    )
     TextButton(
         onClick = { viewModel.open(WelcomeMode.RESET_REQUEST) },
         enabled = !isBusy,
@@ -219,7 +229,7 @@ private fun LoginForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
 private fun RegisterForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
     val showErrors = viewModel.showFieldErrors
     FormTitle(stringResource(Res.string.register_title))
-    OutlinedTextField(
+    PopTextField(
         value = viewModel.nickname,
         onValueChange = viewModel::onNicknameChange,
         label = { Text(stringResource(Res.string.register_nickname_label)) },
@@ -230,7 +240,7 @@ private fun RegisterForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
         keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Next),
         modifier = Modifier.fillMaxWidth().testTag(TestTags.REGISTER_NICKNAME),
     )
-    OutlinedTextField(
+    PopTextField(
         value = viewModel.email,
         onValueChange = viewModel::onEmailChange,
         label = { Text(stringResource(Res.string.register_email_label)) },
@@ -255,20 +265,19 @@ private fun RegisterForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
         onImeAction = viewModel::register,
         modifier = Modifier.testTag(TestTags.REGISTER_PASSWORD),
     )
-    Button(
+    PopButton(
+        text = stringResource(Res.string.register_submit),
         onClick = viewModel::register,
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.REGISTER_SUBMIT),
-    ) {
-        Text(stringResource(Res.string.register_submit))
-    }
+    )
 }
 
 @Composable
 private fun ResetRequestForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
     FormTitle(stringResource(Res.string.reset_title))
     Text(text = stringResource(Res.string.reset_text), style = MaterialTheme.typography.bodyMedium)
-    OutlinedTextField(
+    PopTextField(
         value = viewModel.resetEmail,
         onValueChange = viewModel::onResetEmailChange,
         label = { Text(stringResource(Res.string.register_email_label)) },
@@ -282,13 +291,12 @@ private fun ResetRequestForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
         keyboardActions = KeyboardActions(onDone = { viewModel.requestPasswordReset() }),
         modifier = Modifier.fillMaxWidth().testTag(TestTags.RESET_EMAIL),
     )
-    Button(
+    PopButton(
+        text = stringResource(Res.string.reset_send_code),
         onClick = viewModel::requestPasswordReset,
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.RESET_SEND_CODE),
-    ) {
-        Text(stringResource(Res.string.reset_send_code))
-    }
+    )
 }
 
 @Composable
@@ -299,7 +307,7 @@ private fun ResetConfirmForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
         text = stringResource(Res.string.reset_code_sent, viewModel.resetEmail.trim()),
         style = MaterialTheme.typography.bodyMedium,
     )
-    OutlinedTextField(
+    PopTextField(
         value = viewModel.resetCode,
         onValueChange = viewModel::onResetCodeChange,
         label = { Text(stringResource(Res.string.code_label)) },
@@ -318,13 +326,12 @@ private fun ResetConfirmForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
         onImeAction = viewModel::confirmPasswordReset,
         modifier = Modifier.testTag(TestTags.RESET_PASSWORD),
     )
-    Button(
+    PopButton(
+        text = stringResource(Res.string.reset_submit),
         onClick = viewModel::confirmPasswordReset,
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.RESET_SUBMIT),
-    ) {
-        Text(stringResource(Res.string.reset_submit))
-    }
+    )
     TextButton(onClick = viewModel::resendResetCode, enabled = !isBusy) {
         Text(stringResource(Res.string.resend_code))
     }

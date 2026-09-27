@@ -8,7 +8,9 @@ import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
 import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
+import app.hovanki.client.session.ZoneMoment
 import app.hovanki.client.session.catchCodeToShow
+import app.hovanki.client.session.momentAt
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
@@ -64,11 +66,16 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
 
     fun confirmCatch(catchId: CatchId, code: String) = runCommand { sessionManager.confirmCatch(catchId, code) }
 
-    /** Text of a scanned QR code; ignored unless it is the code of the hider this claim is about. */
-    fun onCodeScanned(claim: ClaimUi, text: String) {
-        val payload = CatchCodePayload.decode(text) ?: return
+    /**
+     * Text of a scanned QR code; ignored unless it is the code of the hider this claim is about. True when it was:
+     * the camera can close.
+     */
+    fun onCodeScanned(claim: ClaimUi, text: String): Boolean {
+        val payload = CatchCodePayload.decode(text) ?: return false
         val gameId = sessionManager.state.value.session?.gameId
-        if (payload.gameId == gameId && payload.hiderId == claim.hiderId) confirmCatch(claim.id, payload.code)
+        if (payload.gameId != gameId || payload.hiderId != claim.hiderId) return false
+        confirmCatch(claim.id, payload.code)
+        return true
     }
 
     fun dispute(catchId: CatchId) = runCommand { sessionManager.dispute(catchId) }
@@ -113,6 +120,7 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
         // Before SEEKING the zone has not started yet: show its initial circle.
         val zoneStartedAt = snapshot.zoneStartedAtMillis
         val zone = snapshot.settings.zone.stateAt(if (zoneStartedAt == null) 0L else now - zoneStartedAt)
+        val zoneMoment = snapshot.settings.zone.momentAt(zoneStartedAt?.let { now - it })
         val openClaims = snapshot.catches.filter { it.status in OPEN_CLAIM_STATUSES }
         val myClaim = openClaims.firstOrNull { it.seekerId == me.playerId }
         val claimAgainstMe = openClaims.firstOrNull { it.hiderId == me.playerId }
@@ -127,14 +135,18 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             myRole = me.role,
             myStatus = me.status,
             phaseMillisLeft = snapshot.phaseEndsAtMillis?.let { it - now },
+            hidingElapsedMillis = snapshot.phaseEndsAtMillis
+                ?.takeIf { snapshot.phase == GamePhase.HIDING }
+                ?.let { endsAt -> now - (endsAt - snapshot.settings.hidingSeconds * 1000L) },
             zone = zone,
+            zoneMoment = zoneMoment,
             isZoneRunning = zoneStartedAt != null,
             myLocation = myLocation,
             metersToZoneBorder = myLocation?.let {
                 zone.current.radiusMeters - it.point.distanceTo(zone.current.center)
             },
             markers = snapshot.players.mapNotNull { player ->
-                player.location?.let { MapMarker(player.name, it.point, it.accuracyMeters, it.exactReason) }
+                player.location?.let { MapMarker(player.id, player.name, it.point, it.accuracyMeters, it.exactReason) }
             },
             hidersLeft = hiders.count { it.status == PlayerStatus.ACTIVE },
             hidersTotal = hiders.size,
@@ -145,9 +157,17 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
                 emptyList()
             },
             myClaim = myClaim?.toUi(),
+            myConfirmedCatches = snapshot.catches
+                .filter { it.seekerId == me.playerId && it.status == CatchStatus.CONFIRMED }
+                .map { it.id }
+                .toSet(),
             claimAgainstMe = claimAgainstMe?.toUi(),
             catchCode = catchCode,
+            catchQr = catchCode?.let { CatchCodePayload(snapshot.gameId, me.playerId, it.code).encode() },
             codeDigits = rules.catchCodeDigits,
+            codePeriodMillis = rules.catchCodePeriodSeconds * 1000L,
+            claimTimeoutMillis = rules.catchCodeTimeoutSeconds * 1000L,
+            voteTimeoutMillis = rules.disputeVoteSeconds * 1000L,
             votes = openClaims
                 .filter { it.status == CatchStatus.DISPUTED && (it.canVote || it.myVote != null) }
                 .map { it.toUi() },
@@ -175,7 +195,11 @@ data class GameUiState(
     val myRole: Role,
     val myStatus: PlayerStatus,
     val phaseMillisLeft: Long?,
+    /** How long ago the hiding phase started (server time); null in other phases. */
+    val hidingElapsedMillis: Long?,
     val zone: ZoneState,
+    /** What the zone is doing, for the animations. */
+    val zoneMoment: ZoneMoment,
     /** False during HIDING: the zone schedule starts with SEEKING. */
     val isZoneRunning: Boolean,
     val myLocation: LocationSample?,
@@ -189,11 +213,19 @@ data class GameUiState(
     val huntableHiders: List<PlayerView>,
     /** Seeker: my open claim. */
     val myClaim: ClaimUi?,
+    /** Seeker: my claims the hider's code (or the vote) confirmed, for the celebration. */
+    val myConfirmedCatches: Set<CatchId>,
     /** Hider: the open claim against me. */
     val claimAgainstMe: ClaimUi?,
     /** Hider: the code to show while a claim awaits it. */
     val catchCode: CatchCode?,
+    /** Hider: the same code for the seeker's camera, the text of the QR code ([CatchCodePayload]). */
+    val catchQr: String?,
     val codeDigits: Int,
+    /** How long a catch code lasts, and how long a hider has to show it: for the countdown rings. */
+    val codePeriodMillis: Long,
+    val claimTimeoutMillis: Long,
+    val voteTimeoutMillis: Long,
     /** Disputes of other players I vote (or voted) on. */
     val votes: List<ClaimUi>,
     val outOfZoneMillisLeft: Long?,
@@ -224,4 +256,10 @@ data class ClaimUi(
 )
 
 /** A player the server lets us see, on the map. */
-data class MapMarker(val name: String, val point: GeoPoint, val accuracyMeters: Double, val reason: VisibilityReason)
+data class MapMarker(
+    val id: PlayerId,
+    val name: String,
+    val point: GeoPoint,
+    val accuracyMeters: Double,
+    val reason: VisibilityReason,
+)

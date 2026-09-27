@@ -2,31 +2,23 @@ package app.hovanki.client.ui.chat
 
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,8 +27,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
@@ -61,9 +57,16 @@ import app.hovanki.client.resources.player_guest
 import app.hovanki.client.session.ChatLine
 import app.hovanki.client.ui.common.Banner
 import app.hovanki.client.ui.common.CommandStatus
+import app.hovanki.client.ui.common.CountBadge
 import app.hovanki.client.ui.common.Panel
+import app.hovanki.client.ui.common.PopButton
+import app.hovanki.client.ui.common.PopIconButton
+import app.hovanki.client.ui.common.PopStyle
+import app.hovanki.client.ui.common.PopSurface
+import app.hovanki.client.ui.common.PopTextField
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.describe
+import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.rules.ChatRules
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -71,21 +74,45 @@ import org.jetbrains.compose.resources.stringResource
 /** Opens the chat; shows how many messages are unread ([TestTags.CHAT_UNREAD]). */
 @Composable
 fun ChatButton(unread: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    FilledTonalButton(onClick = onClick, modifier = modifier.testTag(TestTags.CHAT_OPEN)) {
-        BadgedBox(
-            badge = {
-                if (unread > 0) {
-                    Badge(modifier = Modifier.testTag(TestTags.CHAT_UNREAD)) {
-                        Text(if (unread > MAX_BADGE) "$MAX_BADGE+" else unread.toString())
-                    }
-                }
-            },
+    Box(modifier = modifier) {
+        PopButton(
+            onClick = onClick,
+            style = PopStyle.Outline,
+            height = 52.dp,
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.CHAT_OPEN),
         ) {
             Icon(painter = painterResource(Res.drawable.ic_chat), contentDescription = null)
+            Text(stringResource(Res.string.chat_open))
         }
-        Spacer(Modifier.width(12.dp))
-        Text(stringResource(Res.string.chat_open))
+        if (unread > 0) {
+            CountBadge(
+                count = unread,
+                tag = TestTags.CHAT_UNREAD,
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-6).dp),
+            )
+        }
     }
+}
+
+/** The chat as a round button (lobby header, game HUD), with the unread count in its corner. */
+@Composable
+fun ChatIconButton(
+    unread: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    style: PopStyle = PopStyle.Outline,
+    size: Dp = 48.dp,
+) {
+    PopIconButton(
+        icon = Res.drawable.ic_chat,
+        contentDescription = stringResource(Res.string.chat_open),
+        onClick = onClick,
+        style = style,
+        size = size,
+        badge = unread,
+        badgeTag = TestTags.CHAT_UNREAD,
+        modifier = modifier.testTag(TestTags.CHAT_OPEN),
+    )
 }
 
 /**
@@ -165,23 +192,35 @@ fun ChatPanel(viewModel: ChatViewModel) {
 /** «Everyone» or «my team»: the server picks the team channel from the player's role. */
 @Composable
 private fun ChannelPicker(toTeam: Boolean, onSelect: (team: Boolean) -> Unit) {
-    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-        SegmentedButton(
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        ChannelPill(
+            text = stringResource(Res.string.chat_to_all),
             selected = !toTeam,
             onClick = { onSelect(false) },
-            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-            modifier = Modifier.testTag(TestTags.CHAT_TO_ALL),
-        ) {
-            Text(stringResource(Res.string.chat_to_all))
-        }
-        SegmentedButton(
+            modifier = Modifier.weight(1f).testTag(TestTags.CHAT_TO_ALL),
+        )
+        ChannelPill(
+            text = stringResource(Res.string.chat_to_team),
             selected = toTeam,
             onClick = { onSelect(true) },
-            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-            modifier = Modifier.testTag(TestTags.CHAT_TO_TEAM),
-        ) {
-            Text(stringResource(Res.string.chat_to_team))
-        }
+            modifier = Modifier.weight(1f).testTag(TestTags.CHAT_TO_TEAM),
+        )
+    }
+}
+
+@Composable
+private fun ChannelPill(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    PopSurface(
+        modifier = modifier.height(40.dp).semantics { this.selected = selected },
+        shape = RoundedCornerShape(20.dp),
+        color = if (selected) Palette.Ink else Palette.Paper,
+        contentColor = if (selected) Palette.Lime else Palette.Ink,
+        borderWidth = 2.dp,
+        onClick = onClick,
+        role = Role.Tab,
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = text, style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -189,8 +228,8 @@ private fun ChannelPicker(toTeam: Boolean, onSelect: (team: Boolean) -> Unit) {
 private fun MessageInput(viewModel: ChatViewModel) {
     val text = viewModel.text
     val canSend = !viewModel.isSending && ChatRules.clean(text).isNotEmpty()
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        PopTextField(
             value = text,
             onValueChange = viewModel::onTextChange,
             label = { Text(stringResource(Res.string.chat_input_label)) },
@@ -203,16 +242,15 @@ private fun MessageInput(viewModel: ChatViewModel) {
             keyboardActions = KeyboardActions(onSend = { viewModel.send() }),
             modifier = Modifier.weight(1f).testTag(TestTags.CHAT_INPUT),
         )
-        IconButton(
+        PopIconButton(
+            icon = Res.drawable.ic_send,
+            contentDescription = stringResource(Res.string.chat_send),
             onClick = viewModel::send,
             enabled = canSend,
+            style = PopStyle.Primary,
+            size = 52.dp,
             modifier = Modifier.testTag(TestTags.CHAT_SEND),
-        ) {
-            Icon(
-                painter = painterResource(Res.drawable.ic_send),
-                contentDescription = stringResource(Res.string.chat_send),
-            )
-        }
+        )
     }
 }
 
@@ -242,13 +280,15 @@ private fun ChatMessage(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
         horizontalAlignment = if (line.isMine) Alignment.End else Alignment.Start,
     ) {
-        Surface(
-            color = if (line.isMine) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            },
-            shape = MaterialTheme.shapes.medium,
+        PopSurface(
+            color = if (line.isMine) Palette.Lime else Palette.Paper,
+            shape = RoundedCornerShape(
+                topStart = 18.dp,
+                topEnd = 18.dp,
+                bottomStart = if (line.isMine) 18.dp else 4.dp,
+                bottomEnd = if (line.isMine) 4.dp else 18.dp,
+            ),
+            borderWidth = 2.dp,
             modifier = Modifier
                 .widthIn(max = 320.dp)
                 .testTag(TestTags.chatMessage(line.seq))
@@ -258,7 +298,7 @@ private fun ChatMessage(
                 Text(
                     text = header,
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (line.isTeam) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                    color = if (line.isTeam) Palette.OrangeInk else Palette.Ink2,
                 )
                 Text(text = line.text, style = MaterialTheme.typography.bodyLarge)
             }
@@ -268,21 +308,23 @@ private fun ChatMessage(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(top = 4.dp),
             ) {
-                OutlinedButton(
+                PopButton(
+                    text = stringResource(Res.string.chat_report),
                     onClick = onReport,
                     enabled = !isBusy,
+                    style = PopStyle.Outline,
+                    height = 40.dp,
                     modifier = Modifier.testTag(TestTags.CHAT_REPORT),
-                ) {
-                    Text(stringResource(Res.string.chat_report))
-                }
+                )
                 if (canBlock) {
-                    OutlinedButton(
+                    PopButton(
+                        text = stringResource(Res.string.chat_block),
                         onClick = onBlock,
                         enabled = !isBusy,
+                        style = PopStyle.Danger,
+                        height = 40.dp,
                         modifier = Modifier.testTag(TestTags.CHAT_BLOCK),
-                    ) {
-                        Text(stringResource(Res.string.chat_block))
-                    }
+                    )
                 }
                 TextButton(onClick = onCancel) {
                     Text(stringResource(Res.string.action_cancel))

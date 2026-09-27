@@ -1,6 +1,7 @@
 package app.hovanki.client.location
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -8,6 +9,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 
 @Composable
 actual fun rememberLocationPermissionRequester(onResult: (granted: Boolean) -> Unit): () -> Unit {
@@ -16,6 +19,17 @@ actual fun rememberLocationPermissionRequester(onResult: (granted: Boolean) -> U
         currentOnResult(results[Manifest.permission.ACCESS_FINE_LOCATION] == true)
     }
     return remember(launcher) { { launcher.launch(REQUESTED_PERMISSIONS) } }
+}
+
+@Composable
+actual fun rememberLocationConsentNeeded(): () -> Boolean {
+    val context = LocalContext.current
+    return remember(context) {
+        {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) !=
+                PackageManager.PERMISSION_GRANTED
+        }
+    }
 }
 
 // Android 12+ requires asking for coarse together with fine location. Notifications (13+) are for

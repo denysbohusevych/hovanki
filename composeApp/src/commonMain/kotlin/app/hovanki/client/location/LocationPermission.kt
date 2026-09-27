@@ -9,3 +9,10 @@ import androidx.compose.runtime.Composable
  */
 @Composable
 expect fun rememberLocationPermissionRequester(onResult: (granted: Boolean) -> Unit): () -> Unit
+
+/**
+ * Returns a check whether the player still has to decide on location: then the app explains what it does with it
+ * before the system dialog (the consent screen, docs/design.md). Android: not granted yet; iOS: not asked yet.
+ */
+@Composable
+expect fun rememberLocationConsentNeeded(): () -> Boolean

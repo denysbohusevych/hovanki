@@ -1,43 +1,39 @@
 package app.hovanki.client.catchcode
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.hovanki.client.resources.Res
-import app.hovanki.client.resources.scanner_placeholder
+import app.hovanki.client.resources.scanner_no_camera
+import app.hovanki.client.ui.theme.Palette
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * Camera preview that reads the QR code on the hider's screen and reports its raw text
- * (parse it with [app.hovanki.shared.totp.CatchCodePayload.decode]).
- * Typing the 4 digits by hand is a full-fledged alternative, not just a fallback.
+ * Camera preview that reads the QR code on the hider's screen and reports its raw text, possibly many times
+ * (parse it with [app.hovanki.shared.totp.CatchCodePayload.decode]). Asks for the camera permission itself; without
+ * it, says so. Typing the 4 digits by hand is a full-fledged alternative, not just a fallback.
  */
 @Composable
 expect fun CatchCodeScanner(onScanned: (String) -> Unit, modifier: Modifier)
 
-/** Shown by the platform scanners until camera scanning is implemented. */
+/** The camera is not allowed (or there is none): the digits are the way. */
 @Composable
-internal fun ScannerPlaceholder(modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier.fillMaxWidth().height(96.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = MaterialTheme.shapes.medium,
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = stringResource(Res.string.scanner_placeholder),
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-            )
-        }
+internal fun NoCameraNotice(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.background(Palette.Ink), contentAlignment = Alignment.Center) {
+        Text(
+            text = stringResource(Res.string.scanner_no_camera),
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(32.dp),
+        )
     }
 }
