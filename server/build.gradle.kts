@@ -3,6 +3,8 @@ plugins {
     alias(libs.plugins.kotlinSpring)
     alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.springBoot)
+    // TestPostgres for this module's tests and for :e2e (`testImplementation(testFixtures(projects.server))`).
+    `java-test-fixtures`
 }
 
 kotlin {
@@ -20,7 +22,23 @@ dependencies {
     implementation(libs.spring.boot.starter.webmvc)
     implementation(libs.spring.boot.starter.kotlinx.serialization.json)
     implementation(libs.spring.boot.starter.actuator)
+    implementation(libs.spring.boot.starter.jdbc)
+    implementation(libs.spring.boot.starter.flyway)
+    implementation(libs.spring.boot.starter.mail)
+    implementation(libs.spring.security.crypto)
     implementation(libs.kotlin.reflect)
+    runtimeOnly(libs.flyway.database.postgresql)
+    runtimeOnly(libs.postgresql)
+
+    testFixturesImplementation(platform(libs.spring.boot.bom))
+    // The BOM moves every platform's binaries to the same PostgreSQL version.
+    testFixturesImplementation(platform(libs.embedded.postgres.binaries.bom))
+    testFixturesImplementation(libs.embedded.postgres)
+    testFixturesImplementation(libs.postgresql)
+    testFixturesRuntimeOnly(libs.embedded.postgres.binaries.darwin.arm64v8)
+    testFixturesRuntimeOnly(libs.embedded.postgres.binaries.linux.arm64v8)
+    // TestPostgresSessionListener; the test runtime brings the launcher itself.
+    testFixturesCompileOnly(libs.junit.platform.launcher)
 
     testImplementation(libs.spring.boot.starter.webmvc.test)
     testImplementation(libs.kotlin.test)

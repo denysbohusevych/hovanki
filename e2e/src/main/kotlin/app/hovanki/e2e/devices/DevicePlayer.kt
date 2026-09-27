@@ -2,6 +2,7 @@ package app.hovanki.e2e.devices
 
 import app.hovanki.client.automation.LaunchOptions
 import app.hovanki.client.automation.TestTags
+import app.hovanki.e2e.bot.BotAccount
 import app.hovanki.e2e.route.Route
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.PlayerId
@@ -21,9 +22,22 @@ import kotlin.time.Duration.Companion.seconds
  * A player on a real emulator/simulator running the debug app: taps go through Maestro flows. Until [placeAt], the
  * device keeps its own location; from then on the position is fed to the device's GPS once per second along a
  * [Route] (`adb emu geo fix` / `xcrun simctl location set`).
+ *
+ * With an [account], the app logs in with it at start and the player plays under its nickname; without one the
+ * player is a guest named after the device.
  */
 class DevicePlayer(val device: Device, private val run: DeviceRun) {
+    /** The device's label, e.g. `Android-1`: the timeline's name for this player. */
     val name: String get() = device.label
+
+    /** The account the app logs in with; null: a guest. Set before [launchApp]. */
+    @Volatile var account: BotAccount? = null
+
+    /** The player's name in the game (the server's lobby): the nickname when logged in, else the device's label. */
+    val playerName: String get() = account?.nickname ?: name
+
+    /** What the app shows outside a game: the «Play» tab when logged in, the welcome screen for a guest. */
+    val startScreen: String get() = if (account != null) TestTags.HOME_SCREEN else TestTags.WELCOME_SCREEN
 
     private class Movement(val route: Route, val startedAtMillis: Long)
 
@@ -72,21 +86,23 @@ class DevicePlayer(val device: Device, private val run: DeviceRun) {
     }
 
     /**
-     * Starts the app fresh, with the start screen prefilled by debug launch options. A game saved by an earlier run
-     * (another scenario on the same device) is dropped, unless [forgetSavedGame] is false: the app then resumes it,
-     * like a player opening it again after it was killed.
+     * Starts the app fresh with debug launch options: logged in with [account] (or logged out, as a guest) and the
+     * start screen prefilled. A game saved by an earlier run (another scenario on the same device) is dropped, unless
+     * [forgetSavedGame] is false: the app then resumes it, like a player opening it again after it was killed.
      */
     fun launchApp(joinCode: String? = null, hidingSeconds: Int? = null, forgetSavedGame: Boolean = true) {
-        val options = buildMap {
-            put(LaunchOptions.SERVER, device.serverUrl(run.port))
-            put(LaunchOptions.NAME, name)
-            joinCode?.let { put(LaunchOptions.JOIN_CODE, it) }
-            hidingSeconds?.let { put(LaunchOptions.HIDING_SECONDS, it.toString()) }
-            if (device is IosDevice) put(LaunchOptions.ALLOW_SIMULATED_LOCATION, "true")
-            if (forgetSavedGame) put(LaunchOptions.FORGET_SAVED_GAME, "true")
-        }
+        val options = appLaunchOptions(
+            serverUrl = device.serverUrl(run.port),
+            guestName = name,
+            account = account,
+            joinCode = joinCode,
+            hidingSeconds = hidingSeconds,
+            simulatedLocation = device is IosDevice,
+            forgetSavedGame = forgetSavedGame,
+        )
         device.launchApp(options)
-        log(if (forgetSavedGame) "app launched" else "app launched again")
+        val who = account?.let { "logged in as ${it.nickname}" } ?: "as a guest"
+        log(if (forgetSavedGame) "app launched ($who)" else "app launched again ($who)")
     }
 
     fun killApp() {
@@ -154,4 +170,35 @@ class DevicePlayer(val device: Device, private val run: DeviceRun) {
     suspend fun readText(id: String): String? = run.maestro.hierarchy(device).textOf(id)
 
     fun log(text: String) = run.timeline.log(name, text)
+}
+
+/**
+ * The debug launch options ([LaunchOptions] keys without the `hovanki.` prefix) that start the app for one player:
+ * - with [account]: its nickname and password, so the app logs in at start (it keeps a restored session of the same
+ *   account, e.g. after a kill, and replaces one of another account);
+ * - without: `logOut` (an account left on the device by an earlier scenario is dropped) and [guestName] for the
+ *   welcome screen, where a guest joins by code.
+ * [simulatedLocation]: an iOS simulator, whose every location is flagged as simulated.
+ */
+fun appLaunchOptions(
+    serverUrl: String,
+    guestName: String,
+    account: BotAccount?,
+    joinCode: String? = null,
+    hidingSeconds: Int? = null,
+    simulatedLocation: Boolean = false,
+    forgetSavedGame: Boolean = true,
+): Map<String, String> = buildMap {
+    put(LaunchOptions.SERVER, serverUrl)
+    if (account != null) {
+        put(LaunchOptions.NAME, account.nickname)
+        put(LaunchOptions.PASSWORD, account.password)
+    } else {
+        put(LaunchOptions.NAME, guestName)
+        put(LaunchOptions.LOG_OUT, "true")
+    }
+    joinCode?.let { put(LaunchOptions.JOIN_CODE, it) }
+    hidingSeconds?.let { put(LaunchOptions.HIDING_SECONDS, it.toString()) }
+    if (simulatedLocation) put(LaunchOptions.ALLOW_SIMULATED_LOCATION, "true")
+    if (forgetSavedGame) put(LaunchOptions.FORGET_SAVED_GAME, "true")
 }

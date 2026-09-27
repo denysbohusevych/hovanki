@@ -1,5 +1,6 @@
 #!/bin/bash
-# EC2 user data for the Hovanki server VM (Ubuntu 24.04, t3.micro): swap, Docker with Compose, /opt/hovanki.
+# EC2 user data for the Hovanki server VM (Ubuntu 24.04, t3.micro): swap, Docker with Compose, /opt/hovanki with the
+# certificate bundle of Amazon RDS (the database's TLS certificate is checked against it).
 # Runs once on the first boot; the server is started by hand afterwards, see docs/deploy.md.
 set -euxo pipefail
 
@@ -19,3 +20,7 @@ systemctl enable --now docker
 usermod -aG docker ubuntu
 
 install -d -o ubuntu -g ubuntu /opt/hovanki
+# Certificate authorities of Amazon RDS, all regions (compose.yaml mounts it into the server). AWS rotates them rarely;
+# refreshing: the same command (docs/deploy.md).
+curl -fsSL -o /opt/hovanki/rds-ca.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+chown ubuntu:ubuntu /opt/hovanki/rds-ca.pem

@@ -1,5 +1,6 @@
 package app.hovanki.server.api
 
+import app.hovanki.server.account.AccountService
 import app.hovanki.server.game.GameException
 import app.hovanki.server.game.GameRegistry
 import app.hovanki.server.game.PlayerRef
@@ -28,20 +29,22 @@ class PlayerRefArgumentResolver(private val registry: GameRegistry) : HandlerMet
         webRequest: NativeWebRequest,
         binderFactory: WebDataBinderFactory?,
     ): PlayerRef {
-        val header = webRequest.getHeader(HttpHeaders.AUTHORIZATION).orEmpty()
-        val token = header.removePrefix("${ApiRoutes.AUTH_SCHEME} ").trim()
-        if (token.isEmpty() ||
-            token == header.trim()
-        ) {
-            throw GameException(ErrorCode.UNAUTHORIZED, "Missing bearer token")
-        }
+        val token = webRequest.bearerToken() ?: throw GameException(ErrorCode.UNAUTHORIZED, "Missing bearer token")
         return registry.resolveToken(token) ?: throw GameException(ErrorCode.UNAUTHORIZED, "Unknown or expired token")
     }
 }
 
+/** The token of `Authorization: Bearer <token>`; null without the header, another scheme or an empty token. */
+fun NativeWebRequest.bearerToken(): String? {
+    val header = getHeader(HttpHeaders.AUTHORIZATION).orEmpty()
+    val token = header.removePrefix("${ApiRoutes.AUTH_SCHEME} ").trim()
+    return token.takeUnless { it.isEmpty() || token == header.trim() }
+}
+
 @Configuration(proxyBeanMethods = false)
-class WebConfig(private val registry: GameRegistry) : WebMvcConfigurer {
+class WebConfig(private val registry: GameRegistry, private val accounts: AccountService) : WebMvcConfigurer {
     override fun addArgumentResolvers(resolvers: MutableList<HandlerMethodArgumentResolver>) {
         resolvers.add(PlayerRefArgumentResolver(registry))
+        resolvers.add(UserArgumentResolver(accounts))
     }
 }

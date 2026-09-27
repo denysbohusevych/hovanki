@@ -19,10 +19,12 @@ import kotlin.time.Duration.Companion.minutes
 /**
  * Command line of `:e2e` (`./gradlew :e2e:installDist` → `e2e/build/install/e2e/bin/e2e`):
  *
- * - `devices`: runs device scenarios on already booted emulators/simulators with the debug app installed and a server
- *   with the `e2e` profile running; `e2e/run-devices.sh` prepares all of that and calls it. With `--android auto`,
- *   `--install-apk` and `--server-jar` it finds the running emulators, installs the app and starts the server itself:
- *   `./gradlew :e2e:devices`, e.g. from Android Studio.
+ * - `devices`: runs device scenarios on already booted emulators/simulators with the debug app installed;
+ *   `e2e/run-devices.sh` prepares those and calls it. With `--server-jar` it starts the server itself (profile `e2e`,
+ *   on a fresh PostgreSQL database: [LocalServer]), as both the script and `./gradlew :e2e:devices` do; without it,
+ *   it plays against a server with the `e2e` profile already running at `--server`. With `--android auto` and
+ *   `--install-apk` it finds the running emulators and installs the app: `./gradlew :e2e:devices`, e.g. from Android
+ *   Studio.
  * - `route`: prints the fixes of a route or feeds them to an emulator/simulator in real time (see [RouteCli]).
  */
 fun main(args: Array<String>) {
@@ -77,7 +79,10 @@ private fun runDevices(options: CliArgs): Int {
         if (serverJar != null) {
             val log = File(reportRoot, "logs/server.log")
             val buildings = options.single("buildings") ?: "overpass"
-            println("[devices] starting the server on :$port (profile e2e, buildings: $buildings), log: $log")
+            println(
+                "[devices] starting the server on :$port (profile e2e, buildings: $buildings, a fresh PostgreSQL " +
+                    "database), log: $log",
+            )
             server = LocalServer.start(serverJar, port, File(reportRoot, "logs"), buildings)
         }
         // iOS asks when the app first needs location; the flows answer like a player (allow-location.yaml).

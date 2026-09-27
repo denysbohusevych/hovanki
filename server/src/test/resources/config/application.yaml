@@ -1,5 +1,15 @@
 # Test overrides on top of src/main/resources/application.yaml (Spring Boot reads classpath:/config/ last).
+# The database: TestPostgres, set up by TestPostgresSessionListener (spring.datasource.* as system properties).
 hovanki:
   buildings:
     # The fixed test quarter (DebugBuildings) instead of the Overpass API: tests never go to the network.
     source: fake
+  # Emails stay in memory (RecordingEmailSender); tests read the codes there.
+  mail:
+    sender: recording
+  # Off: tests register and log in a lot from 127.0.0.1. RateLimitApiTest turns them on in a context of its own.
+  rate-limits:
+    enabled: false
+  accounts:
+    # Fast password hashing.
+    bcrypt-strength: 4

@@ -3,12 +3,12 @@
 [![CI](https://github.com/denysbohusevych/hovanki/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/denysbohusevych/hovanki/actions/workflows/ci.yml?query=branch%3Amain)
 [![Nightly](https://github.com/denysbohusevych/hovanki/actions/workflows/nightly.yml/badge.svg?event=schedule)](https://github.com/denysbohusevych/hovanki/actions/workflows/nightly.yml?query=event%3Aschedule)
 
-Уличные прятки для Android и iOS: сужающаяся зона, геолокация игроков через сервер, находка подтверждается одноразовым кодом с телефона прячущегося (QR или 4 цифры). Сервер решает, кто кого видит, и раскрывает подозрительных игроков вместо наказаний.
+Уличные прятки для Android и iOS: сужающаяся зона, геолокация игроков через сервер, находка подтверждается одноразовым кодом с телефона прячущегося (QR или 4 цифры). Сервер решает, кто кого видит, и раскрывает подозрительных игроков вместо наказаний. Аккаунты по нику, email и паролю (email можно подтвердить позже), друзья, группы-«компании» с приглашением в игру и чат внутри игры — всем или своей команде.
 
 ## Стек
 
 - **Клиент:** Kotlin Multiplatform + Compose Multiplatform (Android и iOS из одного кода), Koin, Ktor Client, kotlinx.coroutines/serialization.
-- **Сервер:** Spring Boot на Kotlin, REST (`/api/v1`), состояние игр в памяти.
+- **Сервер:** Spring Boot на Kotlin, REST (`/api/v1`), состояние игр в памяти, аккаунты и друзья — в PostgreSQL (Flyway).
 - **Общий модуль:** протокол, TOTP-коды находки, гео-математика и правила игры — один код на клиенте и сервере.
 - **Версии:** Kotlin 2.4.20, Gradle 9.7.1, AGP 9.3.3, Compose Multiplatform 1.12.1, Ktor 3.6.0, Koin 4.2.2, Spring Boot 4.1.1. Android: minSdk 26, targetSdk 36, compileSdk 37. iOS 16+. Все версии — в `gradle/libs.versions.toml`.
 
@@ -19,9 +19,9 @@
 | Путь | Что это |
 |---|---|
 | `shared/` | KMP (JVM, Android, iOS): DTO протокола, `ApiRoutes`, TOTP, гео, расписание зоны, правила GPS |
-| `server/` | Spring Boot сервер игры |
-| `clientCore/` | KMP (JVM, Android, iOS): клиентская логика без UI — API сервера, синхронизация, `ServerClock`, игровая сессия |
-| `composeApp/` | KMP-библиотека клиента: Compose UI, DI, платформенные сервисы (геолокация, фон) |
+| `server/` | Spring Boot сервер: игры в памяти, аккаунты, друзья, группы и жалобы в PostgreSQL |
+| `clientCore/` | KMP (JVM, Android, iOS): клиентская логика без UI — API сервера, синхронизация, `ServerClock`, игровая сессия с чатом, аккаунт, друзья и группы |
+| `composeApp/` | KMP-библиотека клиента: Compose UI, DI, платформенные сервисы (геолокация, фон, Keystore/Keychain) |
 | `androidApp/` | Android-приложение: точка входа (`Application`, `MainActivity`) |
 | `e2e/` | End-to-end тесты: headless-боты на клиентском коде играют партии против настоящего сервера; оркестратор приложения на эмуляторах и симуляторах (Maestro) |
 | `iosApp/` | Xcode-проект: SwiftUI-оболочка вокруг Compose UI |
@@ -31,6 +31,7 @@
 ## Что нужно
 
 - **JDK 21** (сервер собирается toolchain'ом 21; недостающий JDK Gradle скачает сам через foojay).
+- **PostgreSQL** для локального сервера: проще всего Docker (`deploy/compose.dev.yaml`), см. [Быстрый старт](#быстрый-старт). Тестам он не нужен.
 - **Android Studio** с плагином Kotlin Multiplatform или **IntelliJ IDEA** с Android-плагином; Android SDK с платформой 37.
 - Для iOS: **Mac на Apple Silicon** и **Xcode 26.4+** (собираются только таргеты `iosArm64` и `iosSimulatorArm64`).
 
@@ -38,10 +39,17 @@
 
 **1. Сервер**
 
+Аккаунты, друзья и группы сервер хранит в PostgreSQL: база `hovanki` на `localhost:5432`, пользователь и пароль `hovanki`.
+
 ```bash
+docker compose -f deploy/compose.dev.yaml up -d   # PostgreSQL 17 для разработки; остановить — down, стереть данные — down -v
 ./gradlew :server:bootRun
 curl http://localhost:8080/actuator/health   # {"status":"UP",...}
 ```
+
+Подойдёт и любой свой PostgreSQL с такими базой, пользователем и паролем. Письма с кодами (подтверждение email, сброс пароля) локальный сервер не отправляет, а пишет в свой лог.
+
+Тестам (`:server:test`, `:e2e:test`) своя база не нужна: они сами поднимают встроенный PostgreSQL 17 (без Docker, бинарники из Maven Central). Уже запущенный сервер PostgreSQL можно подставить через `HOVANKI_TEST_DATABASE_URL='jdbc:postgresql://localhost:5432/hovanki?user=hovanki&password=hovanki'` (пользователю нужно право `CREATEDB`: тесты создают отдельную базу на каждый запуск и потом удаляют). В облачных сессиях Claude Code переменную выставляет SessionStart-хук [`.claude/hooks/session-start.sh`](.claude/hooks/session-start.sh), если в контейнере есть свой PostgreSQL.
 
 **2. Android**
 
@@ -74,15 +82,16 @@ open iosApp/iosApp.xcodeproj
 
 ## Сборки на реальные телефоны
 
-Играть на улице с друзьями: сервер работает в AWS (`https://hovanki.duckdns.org`, [docs/deploy.md](docs/deploy.md)), и тестовые сборки стартуют с этим адресом; свою версию сервера можно открыть наружу через HTTPS-туннель (`cloudflared tunnel --url http://localhost:8080`, без аккаунта). Android-сборка ставится с pre-release [`preview`](https://github.com/denysbohusevych/hovanki/releases/tag/preview) (каждый push в `main`, обновления через Obtainium), iPhone — через TestFlight или из Xcode по кабелю. Пошагово — [docs/ci-cd.md, «Как поставить сборку на телефон»](docs/ci-cd.md#как-поставить-сборку-на-телефон).
+Играть на улице с друзьями: сервер работает в AWS (`https://hovanki.duckdns.org`, [docs/deploy.md](docs/deploy.md)), и тестовые сборки ходят на этот адрес; свою версию сервера можно открыть наружу через HTTPS-туннель (`cloudflared tunnel --url http://localhost:8080`, без аккаунта) и собрать под него тестовую сборку. Android-сборка ставится с pre-release [`preview`](https://github.com/denysbohusevych/hovanki/releases/tag/preview) (каждый push в `main`, обновления через Obtainium), iPhone — через TestFlight или из Xcode по кабелю. Пошагово — [docs/ci-cd.md, «Как поставить сборку на телефон»](docs/ci-cd.md#как-поставить-сборку-на-телефон).
 
-Тестовые сборки ходят только по HTTPS. Адрес сервера вводится на главном экране; адрес по умолчанию задаёт Gradle-свойство `hovanki.serverUrl` (`gradle.properties`). Версия и commit сборки — мелко внизу главного экрана.
+Тестовые сборки ходят только по HTTPS и только на сервер из Gradle-свойства `hovanki.serverUrl` (`gradle.properties`): аккаунты живут на одном сервере, поля адреса в приложении нет ([ADR 0004](docs/adr/0004-accounts-friends-chat.md)). Debug-сборки ходят на компьютер разработчика или на адрес из параметра запуска `server`. Версия и commit сборки — мелко внизу экрана входа и профиля.
 
 ## Команды
 
 | Команда | Что делает |
 |---|---|
-| `./gradlew :server:bootRun` | Сервер на `:8080` |
+| `docker compose -f deploy/compose.dev.yaml up -d` | PostgreSQL для локального сервера |
+| `./gradlew :server:bootRun` | Сервер на `:8080` (коды из писем — в его логе) |
 | `./gradlew :androidApp:installDebug` | Собрать и поставить debug-сборку Android |
 | `./gradlew :androidApp:assemblePreview` | Тестовая Android-сборка (release-код, `app.hovanki.preview`); подписывается, если заданы переменные `ANDROID_KEYSTORE_*` ([CI/CD](docs/ci-cd.md#секреты-для-подписи-android)) |
 | `./gradlew check` | Все тесты и проверки, кроме e2e-сценариев (то же, что в CI на Linux) |
@@ -103,9 +112,10 @@ open iosApp/iosApp.xcodeproj
 - [E2E-тесты](docs/e2e.md): боты, приложение на эмуляторах и симуляторах, как написать сценарий и читать отчёт.
 - [Локальный запуск e2e](docs/e2e-local.md): пошагово из Android Studio и терминала — подготовка эмуляторов и Maestro, параметры, отчёты, частые проблемы.
 - [CI/CD](docs/ci-cd.md): как поставить сборку на телефон (Android pre-release, TestFlight, Xcode по кабелю, туннель к своему серверу), быстрые проверки на push, ночные e2e, что запускать перед PR, тестовые сборки, релиз по тегу, секреты подписи, образ сервера, защита веток.
-- [Деплой сервера](docs/deploy.md): одна машина в AWS (EC2, Франкфурт), Docker Compose, Caddy с Let's Encrypt, обновление и откат.
+- [Деплой сервера](docs/deploy.md): одна машина в AWS (EC2, Франкфурт), Docker Compose, Caddy с Let's Encrypt, база в Amazon RDS, почта, обновление и откат, бэкапы и восстановление базы.
 - [Roadmap](docs/roadmap.md): что уже сделано и что дальше.
 - [ADR 0001: выбор стека](docs/adr/0001-stack.md).
 - [ADR 0002: сессия на устройстве, возврат в игру после перезапуска](docs/adr/0002-session-storage.md).
 - [ADR 0003: карта и здания как запретная зона](docs/adr/0003-map-and-buildings.md).
+- [ADR 0004: аккаунты, друзья, группы и чат](docs/adr/0004-accounts-friends-chat.md).
 - [CLAUDE.md](CLAUDE.md): правила для AI-агентов (и людей) при работе с кодом.

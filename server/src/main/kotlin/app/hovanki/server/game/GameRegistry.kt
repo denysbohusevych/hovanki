@@ -35,6 +35,12 @@ class GameRegistry {
 
     fun resolveToken(token: String): PlayerRef? = playersByToken[token]
 
+    /** Every token of [playerId] in [gameId] stops working (the player came back on another device). */
+    fun revokeTokens(gameId: GameId, playerId: PlayerId) {
+        val ref = PlayerRef(gameId, playerId)
+        playersByToken.values.removeIf { it == ref }
+    }
+
     /** Removes games matching [predicate] together with their join codes and tokens. */
     fun removeIf(predicate: (Game) -> Boolean): Int {
         val removed = games.values.filter(predicate)

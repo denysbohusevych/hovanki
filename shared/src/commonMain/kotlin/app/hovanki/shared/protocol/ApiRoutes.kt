@@ -3,6 +3,9 @@ package app.hovanki.shared.protocol
 /**
  * HTTP API paths. The server maps the templates, the client builds concrete paths with the functions.
  * All mutating calls return the fresh [GameSnapshot] so the UI does not wait for the next poll.
+ *
+ * Game routes take the game token, account routes (accounts, me, friends, users, groups) the account token, both as
+ * `Authorization: Bearer <token>`; creating and joining a game take an optional account token.
  */
 object ApiRoutes {
     const val GAMES = "/api/v1/games"
@@ -17,24 +20,101 @@ object ApiRoutes {
     /** GET: the buildings of the game's zone where hiding is not allowed ([BuildingsResponse]). */
     const val BUILDINGS = "$GAMES/{gameId}/buildings"
 
+    /** POST [InviteRequest]: invites friends or a group into the game (lobby, logged-in players only). */
+    const val GAME_INVITES = "$GAMES/{gameId}/invites"
+
+    /** POST [SendChatRequest]. */
+    const val CHAT = "$GAMES/{gameId}/chat"
+
+    /** POST: reports the chat message with this seq to the moderators. */
+    const val CHAT_REPORT = "$CHAT/{seq}/report"
+
+    // Accounts.
+    const val ACCOUNTS = "/api/v1/accounts"
+    const val LOGIN = "$ACCOUNTS/login"
+    const val LOGOUT = "$ACCOUNTS/logout"
+    const val PASSWORD_RESET = "$ACCOUNTS/password-reset"
+    const val PASSWORD_RESET_CONFIRM = "$PASSWORD_RESET/confirm"
+
+    // The caller's own account.
+    const val ME = "/api/v1/me"
+    const val ME_EMAIL = "$ME/email"
+    const val ME_EMAIL_VERIFY = "$ME_EMAIL/verify"
+    const val ME_EMAIL_RESEND = "$ME_EMAIL/resend"
+    const val ME_PASSWORD = "$ME/password"
+    const val ME_DELETE = "$ME/delete"
+    const val INBOX = "$ME/inbox"
+    const val INVITE_DISMISS = "$ME/invites/{inviteId}/dismiss"
+
+    // Friends and blocks.
+    const val FRIENDS = "/api/v1/friends"
+    const val FRIEND_REQUESTS = "$FRIENDS/requests"
+    const val FRIEND_REQUEST_ACCEPT = "$FRIEND_REQUESTS/{userId}/accept"
+
+    /** Declines a request to the caller, or withdraws the caller's own request. */
+    const val FRIEND_REQUEST_DECLINE = "$FRIEND_REQUESTS/{userId}/decline"
+    const val FRIEND_REMOVE = "$FRIENDS/{userId}/remove"
+    const val USERS = "/api/v1/users"
+    const val USER_BLOCK = "$USERS/{userId}/block"
+    const val USER_UNBLOCK = "$USERS/{userId}/unblock"
+
+    // Groups.
+    const val GROUPS = "/api/v1/groups"
+    const val GROUP_MEMBERS = "$GROUPS/{groupId}/members"
+
+    /** The owner removes a member; a member removes themselves (leaves the group). */
+    const val GROUP_MEMBER_REMOVE = "$GROUP_MEMBERS/{userId}/remove"
+    const val GROUP_RENAME = "$GROUPS/{groupId}/rename"
+    const val GROUP_DELETE = "$GROUPS/{groupId}/delete"
+
     const val AUTH_SCHEME = "Bearer"
 
-    fun start(gameId: GameId): String = START.fill(gameId)
+    fun start(gameId: GameId): String = START.fill("gameId" to gameId.value)
 
-    fun sync(gameId: GameId): String = SYNC.fill(gameId)
+    fun sync(gameId: GameId): String = SYNC.fill("gameId" to gameId.value)
 
-    fun catches(gameId: GameId): String = CATCHES.fill(gameId)
+    fun catches(gameId: GameId): String = CATCHES.fill("gameId" to gameId.value)
 
-    fun catchConfirm(gameId: GameId, catchId: CatchId): String = CATCH_CONFIRM.fill(gameId, catchId)
+    fun catchConfirm(gameId: GameId, catchId: CatchId): String =
+        CATCH_CONFIRM.fill("gameId" to gameId.value, "catchId" to catchId.value)
 
-    fun catchDispute(gameId: GameId, catchId: CatchId): String = CATCH_DISPUTE.fill(gameId, catchId)
+    fun catchDispute(gameId: GameId, catchId: CatchId): String =
+        CATCH_DISPUTE.fill("gameId" to gameId.value, "catchId" to catchId.value)
 
-    fun catchVote(gameId: GameId, catchId: CatchId): String = CATCH_VOTE.fill(gameId, catchId)
+    fun catchVote(gameId: GameId, catchId: CatchId): String =
+        CATCH_VOTE.fill("gameId" to gameId.value, "catchId" to catchId.value)
 
-    fun buildings(gameId: GameId): String = BUILDINGS.fill(gameId)
+    fun buildings(gameId: GameId): String = BUILDINGS.fill("gameId" to gameId.value)
 
-    private fun String.fill(gameId: GameId, catchId: CatchId? = null): String {
-        val withGame = replace("{gameId}", gameId.value)
-        return if (catchId == null) withGame else withGame.replace("{catchId}", catchId.value)
-    }
+    fun gameInvites(gameId: GameId): String = GAME_INVITES.fill("gameId" to gameId.value)
+
+    fun chat(gameId: GameId): String = CHAT.fill("gameId" to gameId.value)
+
+    fun chatReport(gameId: GameId, seq: Long): String =
+        CHAT_REPORT.fill("gameId" to gameId.value, "seq" to seq.toString())
+
+    fun inviteDismiss(inviteId: InviteId): String = INVITE_DISMISS.fill("inviteId" to inviteId.value)
+
+    fun friendRequestAccept(userId: UserId): String = FRIEND_REQUEST_ACCEPT.fill("userId" to userId.value)
+
+    fun friendRequestDecline(userId: UserId): String = FRIEND_REQUEST_DECLINE.fill("userId" to userId.value)
+
+    fun friendRemove(userId: UserId): String = FRIEND_REMOVE.fill("userId" to userId.value)
+
+    fun userBlock(userId: UserId): String = USER_BLOCK.fill("userId" to userId.value)
+
+    fun userUnblock(userId: UserId): String = USER_UNBLOCK.fill("userId" to userId.value)
+
+    fun groupMembers(groupId: GroupId): String = GROUP_MEMBERS.fill("groupId" to groupId.value)
+
+    fun groupMemberRemove(groupId: GroupId, userId: UserId): String =
+        GROUP_MEMBER_REMOVE.fill("groupId" to groupId.value, "userId" to userId.value)
+
+    fun groupRename(groupId: GroupId): String = GROUP_RENAME.fill("groupId" to groupId.value)
+
+    fun groupDelete(groupId: GroupId): String = GROUP_DELETE.fill("groupId" to groupId.value)
+
+    /** Replaces each `{name}` of the template with its value. */
+    private fun String.fill(vararg values: Pair<String, String>): String =
+        values.fold(this) { path, (name, value) -> path.replace("{$name}", value) }
 }

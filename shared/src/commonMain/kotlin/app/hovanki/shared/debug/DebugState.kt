@@ -3,6 +3,7 @@ package app.hovanki.shared.debug
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
+import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
@@ -10,6 +11,7 @@ import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.ZoneCircle
 import kotlinx.serialization.Serializable
@@ -24,7 +26,15 @@ object DebugRoutes {
     const val GAMES = "/api/v1/debug/games"
     const val GAME = "$GAMES/{gameId}"
 
+    /** Emails the server sent to an address (the e2e tests read the codes there). */
+    const val EMAILS = "/api/v1/debug/emails/{email}"
+
+    /** Chat messages reported to the moderators. */
+    const val REPORTS = "/api/v1/debug/reports"
+
     fun game(gameId: GameId): String = GAME.replace("{gameId}", gameId.value)
+
+    fun emails(email: String): String = EMAILS.replace("{email}", email)
 }
 
 @Serializable
@@ -56,6 +66,8 @@ data class DebugGameState(
     val players: List<DebugPlayer>,
     val catches: List<DebugCatch>,
     val buildings: BuildingsState? = null,
+    /** Every chat message the game keeps, of every channel. */
+    val chat: List<ChatMessage> = emptyList(),
 )
 
 @Serializable
@@ -82,6 +94,8 @@ data class DebugPlayer(
     val catchCodeSecret: String? = null,
     /** What happened to the fixes this player sent (see `LocationTrack.Result`). */
     val fixes: DebugFixCounts = DebugFixCounts(),
+    /** The player's account; null for a guest. */
+    val userId: UserId? = null,
 )
 
 @Serializable
@@ -103,3 +117,36 @@ data class DebugCatch(
 
 @Serializable
 data class DebugVote(val voterId: PlayerId, val confirm: Boolean)
+
+/** Emails sent to one address, oldest first; the recording sender of tests and the `e2e` profile keeps them. */
+@Serializable
+data class DebugEmails(val emails: List<DebugEmail> = emptyList())
+
+@Serializable
+data class DebugEmail(
+    val to: String,
+    /** What the email is for: `VERIFY_EMAIL` or `RESET_PASSWORD`. */
+    val purpose: String,
+    val language: String,
+    val subject: String,
+    val text: String,
+    /** The code in the email. */
+    val code: String? = null,
+    val sentAtMillis: Long,
+)
+
+@Serializable
+data class DebugReportList(val reports: List<DebugReport> = emptyList())
+
+@Serializable
+data class DebugReport(
+    val id: String,
+    val gameId: GameId,
+    val messageSeq: Long,
+    val reporterPlayerId: PlayerId,
+    val reporterUserId: UserId? = null,
+    val reportedUserId: UserId? = null,
+    val reportedName: String,
+    val text: String,
+    val createdAtMillis: Long,
+)

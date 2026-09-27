@@ -11,7 +11,9 @@ import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.CatchView
+import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.ErrorCode
+import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
@@ -23,15 +25,18 @@ import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.VisibleLocation
 import app.hovanki.shared.rules.BuildingMap
 import app.hovanki.shared.rules.BuildingRules
 import app.hovanki.shared.rules.CatchRules
+import app.hovanki.shared.rules.ChatRules
 import app.hovanki.shared.rules.LocationTrack
 import app.hovanki.shared.rules.ZoneRules
 import app.hovanki.shared.rules.circleAt
 import app.hovanki.shared.totp.catchCodeTotp
+import java.time.Duration
 
 /**
  * One game and all of its rules. Pure domain object: no Spring, no threads, time is passed in,
@@ -50,6 +55,10 @@ class Game(
     private val rules = settings.rules
     private val players = LinkedHashMap<PlayerId, Player>()
     private val catches = LinkedHashMap<CatchId, CatchClaim>()
+
+    /** The last [ChatRules.HISTORY_SIZE] chat messages, oldest first. */
+    private val chat = ArrayDeque<ChatMessage>()
+    private var lastChatSeq = 0L
 
     var phase: GamePhase = GamePhase.LOBBY
         private set
@@ -85,12 +94,22 @@ class Game(
         return buildings.copy(state = buildingsState)
     }
 
-    fun addPlayer(id: PlayerId, name: String, nowMillis: Long) {
+    /** A new player, only in the lobby; [userId] is their account (null: a guest), at most one player per account. */
+    fun addPlayer(id: PlayerId, name: String, nowMillis: Long, userId: UserId? = null) {
         requirePhase(GamePhase.LOBBY)
         if (players.size >= MAX_PLAYERS) throw GameException(ErrorCode.WRONG_STATE, "The game is full")
-        players[id] = Player(id, name, LocationTrack(rules))
+        if (userId != null && playerOf(userId) != null) {
+            throw GameException(ErrorCode.WRONG_STATE, "This account already plays in this game")
+        }
+        players[id] = Player(id, name, LocationTrack(rules), userId)
         lastActivityMillis = nowMillis
     }
+
+    /** The player of the account [userId] in this game, if it has one. */
+    fun playerOf(userId: UserId): PlayerId? = players.values.firstOrNull { it.userId == userId }?.id
+
+    /** The account of [playerId]; null for a guest. */
+    fun userIdOf(playerId: PlayerId): UserId? = player(playerId).userId
 
     fun start(by: PlayerId, seekers: Set<PlayerId>, newCatchCodeSecret: () -> String, nowMillis: Long) {
         requirePhase(GamePhase.LOBBY)
@@ -193,6 +212,58 @@ class Game(
         if (claim.votes.keys.containsAll(eligible)) resolveDispute(claim, nowMillis)
     }
 
+    /**
+     * A chat message by [playerId], in any phase (the results screen has a chat too): to everybody, or with [team] to
+     * the sender's team only (not in the lobby, see [ChatRules.channelFor]). [text] is cleaned ([ChatRules.clean]);
+     * at most [ChatRules.RATE_LIMIT_MESSAGES] per player within [ChatRules.RATE_LIMIT_WINDOW_MILLIS].
+     */
+    fun sendChat(playerId: PlayerId, text: String, team: Boolean, nowMillis: Long): ChatMessage {
+        val sender = player(playerId)
+        val cleaned = ChatRules.clean(text)
+        if (cleaned.length !in 1..ChatRules.MAX_LENGTH) {
+            throw GameException(
+                ErrorCode.BAD_REQUEST,
+                "A message has 1..${ChatRules.MAX_LENGTH} characters",
+                ErrorReason.INVALID_MESSAGE,
+            )
+        }
+        val recent = sender.chatSentAtMillis
+        while (recent.isNotEmpty() && recent.first() <= nowMillis - ChatRules.RATE_LIMIT_WINDOW_MILLIS) {
+            recent.removeFirst()
+        }
+        if (recent.size >= ChatRules.RATE_LIMIT_MESSAGES) {
+            val retryAfter = recent.first() + ChatRules.RATE_LIMIT_WINDOW_MILLIS - nowMillis
+            throw GameException.tooManyRequests(Duration.ofMillis(retryAfter), "Too many messages, wait a little")
+        }
+        recent.addLast(nowMillis)
+
+        val message = ChatMessage(
+            seq = ++lastChatSeq,
+            playerId = playerId,
+            text = cleaned,
+            sentAtMillis = nowMillis,
+            channel = ChatRules.channelFor(phase, sender.role, team),
+        )
+        chat.addLast(message)
+        while (chat.size > ChatRules.HISTORY_SIZE) chat.removeFirst()
+        lastActivityMillis = nowMillis
+        return message
+    }
+
+    /**
+     * Chat message [seq] as [reporterId] reports it to the moderators. Only a message the game still keeps and the
+     * reporter can see (else [ErrorCode.NOT_FOUND], the same for both: nobody learns about the other team's messages),
+     * and not their own ([ErrorCode.FORBIDDEN]).
+     */
+    fun reportedMessage(reporterId: PlayerId, seq: Long): ReportedMessage {
+        val reporter = player(reporterId)
+        val message = chat.firstOrNull { it.seq == seq }?.takeIf { ChatRules.canSee(it.channel, reporter.role) }
+            ?: throw GameException(ErrorCode.NOT_FOUND, "No such message")
+        if (message.playerId == reporterId) throw GameException(ErrorCode.FORBIDDEN, "That is your own message")
+        val sender = player(message.playerId)
+        return ReportedMessage(message, sender.name, sender.userId, reporter.userId)
+    }
+
     /** Applies everything that happens by itself as time passes. */
     fun advance(nowMillis: Long) {
         if (phase == GamePhase.HIDING) {
@@ -224,8 +295,11 @@ class Game(
             nowMillis - lastActivityMillis >= idleRetentionMillis
     }
 
-    /** State as [viewerId] is allowed to see it. */
-    fun snapshotFor(viewerId: PlayerId, nowMillis: Long): GameSnapshot {
+    /**
+     * State as [viewerId] is allowed to see it. [chatAfter]: the viewer's chat cursor; the snapshot brings the newest
+     * [ChatRules.MAX_PER_RESPONSE] messages after it that the viewer may see. Null (a client without chat): none.
+     */
+    fun snapshotFor(viewerId: PlayerId, nowMillis: Long, chatAfter: Long? = null): GameSnapshot {
         val viewer = player(viewerId)
         return GameSnapshot(
             gameId = id,
@@ -243,6 +317,7 @@ class Game(
                     player.role,
                     player.status,
                     visibleLocation(viewer, player, nowMillis),
+                    player.userId,
                 )
             },
             me = MyState(
@@ -258,6 +333,10 @@ class Game(
                 .takeLast(MAX_CATCHES_IN_SNAPSHOT)
                 .map { it.toView(viewerId) },
             buildings = buildingsState,
+            chat = chatAfter?.let { after ->
+                chat.filter { it.seq > after && ChatRules.canSee(it.channel, viewer.role) }
+                    .takeLast(ChatRules.MAX_PER_RESPONSE)
+            }.orEmpty(),
         )
     }
 
@@ -309,6 +388,7 @@ class Game(
                         outOfOrder = player.fixResults[LocationTrack.Result.OUT_OF_ORDER] ?: 0,
                         implausible = player.fixResults[LocationTrack.Result.IMPLAUSIBLE] ?: 0,
                     ),
+                    userId = player.userId,
                 )
             },
             catches = catches.values.map { claim ->
@@ -325,6 +405,7 @@ class Game(
                 )
             },
             buildings = buildingsState,
+            chat = chat.toList(),
         )
     }
 
@@ -487,7 +568,7 @@ class Game(
         if (phase != expected) throw GameException(ErrorCode.WRONG_STATE, "Not possible in phase $phase")
     }
 
-    private class Player(val id: PlayerId, val name: String, val track: LocationTrack) {
+    private class Player(val id: PlayerId, val name: String, val track: LocationTrack, val userId: UserId?) {
         var role: Role = Role.HIDER
         var status: PlayerStatus = PlayerStatus.ACTIVE
         var catchCodeSecret: String? = null
@@ -498,6 +579,9 @@ class Game(
         /** When the player's app last fetched the READY buildings (for the e2e observer). */
         var buildingsLoadedAtMillis: Long? = null
         val fixResults = HashMap<LocationTrack.Result, Int>()
+
+        /** When the player's recent chat messages were sent, oldest first (the chat's rate limit). */
+        val chatSentAtMillis = ArrayDeque<Long>()
     }
 
     private class CatchClaim(
@@ -519,4 +603,17 @@ class Game(
         private const val MAX_CATCHES_IN_SNAPSHOT = 20
         private const val MOCK_REVEAL_MILLIS = 60_000L
     }
+}
+
+/** A chat message being reported ([Game.reportedMessage]), with what the report keeps about both players. */
+class ReportedMessage(
+    val message: ChatMessage,
+    val senderName: String,
+    /** Null: the sender is a guest. */
+    val senderUserId: UserId?,
+    /** Null: the reporter is a guest. */
+    val reporterUserId: UserId?,
+) {
+    // Never the chat text in logs.
+    override fun toString(): String = "ReportedMessage(seq ${message.seq})"
 }

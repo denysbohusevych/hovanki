@@ -24,6 +24,11 @@ data class GameSnapshot(
     val catches: List<CatchView> = emptyList(),
     /** The "no hiding in buildings" rule: null from older servers (no rule), or when the value is unknown. */
     val buildings: BuildingsState? = null,
+    /**
+     * Chat messages the viewer may see, newer than the request's chat cursor (`SyncRequest.chatAfter`), oldest first.
+     * Empty when the request had no cursor. Clients merge them by [ChatMessage.seq].
+     */
+    val chat: List<ChatMessage> = emptyList(),
 )
 
 @Serializable
@@ -34,6 +39,8 @@ data class PlayerView(
     val status: PlayerStatus,
     /** Present only when the viewer is allowed to see this player right now. */
     val location: VisibleLocation? = null,
+    /** The player's account; null for a guest (no account, or an app version without accounts). */
+    val userId: UserId? = null,
 )
 
 @Serializable
@@ -81,4 +88,16 @@ data class CatchView(
     val deadlineMillis: Long? = null,
     val canVote: Boolean = false,
     val myVote: Boolean? = null,
+)
+
+/** One chat message of a game. Chat lives in the server's memory and is deleted with the game. */
+@Serializable
+data class ChatMessage(
+    /** Increases by one per message in the game (across channels): the chat cursor. */
+    val seq: Long,
+    /** The sender; the name comes from [GameSnapshot.players]. */
+    val playerId: PlayerId,
+    val text: String,
+    val sentAtMillis: Long,
+    val channel: ChatChannel = ChatChannel.ALL,
 )

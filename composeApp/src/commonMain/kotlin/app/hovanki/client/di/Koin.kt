@@ -1,20 +1,37 @@
 package app.hovanki.client.di
 
+import app.hovanki.client.account.AccountManager
 import app.hovanki.client.automation.LaunchOptions
 import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.defaultServerUrl
+import app.hovanki.client.network.AccountApi
 import app.hovanki.client.network.GameApi
 import app.hovanki.client.network.GameConnection
+import app.hovanki.client.network.HttpAccountApi
 import app.hovanki.client.network.HttpGameApi
+import app.hovanki.client.network.HttpSocialApi
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
+import app.hovanki.client.network.SocialApi
 import app.hovanki.client.network.createHttpClient
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
+import app.hovanki.client.social.SocialManager
 import app.hovanki.client.storage.ClientStorage
+import app.hovanki.client.ui.chat.ChatViewModel
+import app.hovanki.client.ui.friends.FriendsViewModel
 import app.hovanki.client.ui.game.GameViewModel
-import app.hovanki.client.ui.home.HomeViewModel
+import app.hovanki.client.ui.groups.GroupsViewModel
 import app.hovanki.client.ui.lobby.LobbyViewModel
+import app.hovanki.client.ui.main.MainViewModel
+import app.hovanki.client.ui.play.PlayViewModel
+import app.hovanki.client.ui.profile.ProfileViewModel
+import app.hovanki.client.ui.results.ResultsViewModel
+import app.hovanki.client.ui.verify.VerifyEmailViewModel
+import app.hovanki.client.ui.welcome.WelcomeViewModel
+import app.hovanki.shared.rules.AccountRules
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
 import org.koin.core.module.dsl.viewModelOf
@@ -36,36 +53,73 @@ fun initKoin(appDeclaration: KoinAppDeclaration = {}) {
 
 val commonModule: Module = module {
     single { ClientStorage(get()) }
-    // The address that worked last time; the build's default on the first launch.
-    single { ServerUrl(get<ClientStorage>().serverUrl ?: defaultServerUrl(get())) }
+    // One server: the build's (debug builds: the development machine, or the launch options' server, see onAppStart).
+    single { ServerUrl(defaultServerUrl(get())) }
     single { LaunchOptionsHolder() }
     single { createHttpClient(get()) }
     single<GameApi> { HttpGameApi(get(), get()) }
+    single<AccountApi> { HttpAccountApi(get(), get()) }
+    single<SocialApi> { HttpSocialApi(get(), get()) }
     single<GameConnection> { PollingGameConnection(get()) }
     single { ServerClock() }
-    single { GameSessionManager(get(), get(), get(), get(), get(), get(), get()) }
+    single { AccountManager(get(), get(), get()) }
+    single { SocialManager(get(), get()) }
+    single { GameSessionManager(get(), get(), get(), get(), get(), get(), get(), account = get<AccountManager>()) }
 
-    viewModelOf(::HomeViewModel)
+    viewModelOf(::WelcomeViewModel)
+    viewModelOf(::VerifyEmailViewModel)
+    viewModelOf(::MainViewModel)
+    viewModelOf(::PlayViewModel)
+    viewModelOf(::FriendsViewModel)
+    viewModelOf(::GroupsViewModel)
+    viewModelOf(::ProfileViewModel)
     viewModelOf(::LobbyViewModel)
     viewModelOf(::GameViewModel)
+    viewModelOf(::ResultsViewModel)
+    viewModelOf(::ChatViewModel)
 }
 
-/** Hands debug start parameters (UI automation) to the start screen; see [LaunchOptions]. */
+/** Hands debug start parameters (UI automation) to the screens; see [LaunchOptions]. */
 fun offerLaunchOptions(options: LaunchOptions) {
     KoinPlatformTools.defaultContext().get().get<LaunchOptionsHolder>().offer(options)
 }
 
+/** [onAppStart] ran in this process. Main thread only. */
+private var appStarted = false
+
 /**
  * The UI starts (Android: MainActivity is created, iOS: the view controller): hands over the debug launch [options],
- * then comes back into a game saved by an earlier run of the app, if any. Main thread; later calls only offer options.
+ * then, once per process and in this order: the options' server, dropping the saved game and account they ask to
+ * drop, the account saved by an earlier run, a login with the options' account, and back into the saved game, if any.
+ * Main thread; later calls only offer options (e.g. a new intent).
  */
 fun onAppStart(options: LaunchOptions?) {
-    val sessionManager = KoinPlatformTools.defaultContext().get().get<GameSessionManager>()
-    if (options != null) {
-        offerLaunchOptions(options)
-        if (options.forgetSavedGame) sessionManager.forgetSavedGame()
-    }
+    if (options != null) offerLaunchOptions(options)
+    if (appStarted) return
+    appStarted = true
+    val koin = KoinPlatformTools.defaultContext().get()
+    val sessionManager = koin.get<GameSessionManager>()
+    val account = koin.get<AccountManager>()
+    // Debug builds only reach here with options: release builds never read them.
+    options?.serverUrl?.let { koin.get<ServerUrl>().value = it }
+    if (options?.forgetSavedGame == true) sessionManager.forgetSavedGame()
+    if (options?.logOut == true) account.forgetSavedAccount()
+    account.restore()
+    val login = options?.playerName
+    val password = options?.password
+    if (login != null && password != null) logInAtStart(account, login, password)
     sessionManager.resumeSavedGame()
+}
+
+/** UI automation: log in as the launch options' account, unless the restored account already is that one. */
+private fun logInAtStart(account: AccountManager, login: String, password: String) {
+    val restored = account.state.value.user
+    if (restored != null) {
+        val key = login.trim().lowercase()
+        if (key == AccountRules.nicknameKey(restored.nickname) || key == AccountRules.emailKey(restored.email)) return
+        account.logOut()
+    }
+    MainScope().launch { account.logIn(login, password) }
 }
 
 /**

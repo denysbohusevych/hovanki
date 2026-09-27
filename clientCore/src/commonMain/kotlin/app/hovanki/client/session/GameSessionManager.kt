@@ -1,5 +1,6 @@
 package app.hovanki.client.session
 
+import app.hovanki.client.account.AccountCredentials
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.ConnectionEvent
@@ -17,12 +18,16 @@ import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.GroupId
+import app.hovanki.shared.protocol.InviteRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
+import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.rules.shrinkingZone
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +48,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  * and our own location updates. App-scoped (outlives screens), so a round keeps running while the UI changes.
  *
  * The session is also saved to [storage], so a killed app comes back into its game: [resumeSavedGame] at app start.
+ * A logged-in player ([account]) creates and joins games with the account token: the game knows them by their
+ * nickname, and joining again (a new phone) gives back the same player. The chat of the game is merged from every
+ * snapshot into [SessionState.chat].
  *
  * Commands return true on success; on failure they return false and put the reason into [SessionState.lastError].
  * Every command applies the snapshot from its response immediately. Runs on the main thread.
@@ -56,6 +64,7 @@ class GameSessionManager(
     private val serverUrl: ServerUrl,
     private val storage: ClientStorage,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
+    private val account: AccountCredentials = AccountCredentials.None,
 ) {
     private val mutableState = MutableStateFlow(SessionState())
     val state: StateFlow<SessionState> = mutableState.asStateFlow()
@@ -76,12 +85,17 @@ class GameSessionManager(
     /** New game with the default settings: a shrinking zone around [center] (the host's position). */
     suspend fun create(playerName: String, center: GeoPoint): Boolean = create(playerName, defaultSettings(center))
 
-    suspend fun create(playerName: String, settings: GameSettings): Boolean = command {
-        begin(api.createGame(CreateGameRequest(playerName.trim(), settings)))
+    /** [playerName] is only used for guests: a logged-in player plays under their nickname. */
+    suspend fun create(playerName: String, settings: GameSettings): Boolean {
+        val token = account.accountToken
+        return command(token) { begin(api.createGame(CreateGameRequest(playerName.trim(), settings), token)) }
     }
 
-    suspend fun join(code: String, playerName: String): Boolean = command {
-        begin(api.joinGame(JoinGameRequest(code.trim().uppercase(), playerName.trim())))
+    /** [playerName] as in [create]. Also how an invite is accepted: its join code, while logged in. */
+    suspend fun join(code: String, playerName: String): Boolean {
+        val token = account.accountToken
+        val request = JoinGameRequest(code.trim().uppercase(), playerName.trim())
+        return command(token) { begin(api.joinGame(request, token)) }
     }
 
     suspend fun start(seekers: List<PlayerId>): Boolean = sessionCommand {
@@ -97,6 +111,24 @@ class GameSessionManager(
 
     suspend fun vote(catchId: CatchId, confirm: Boolean): Boolean = sessionCommand { api.vote(it, catchId, confirm) }
 
+    /** To everyone, or to the player's team only ([team], not in the lobby); the response brings it into the chat. */
+    suspend fun sendChat(text: String, team: Boolean = false): Boolean =
+        sessionCommand { api.sendChat(it, SendChatRequest(text, team, chatAfter = chatCursor())) }
+
+    /** Reports another player's chat message [seq] to the moderators. */
+    suspend fun reportChat(seq: Long): Boolean = sessionCommand { api.reportChat(it, seq) }
+
+    /** Invites friends ([userIds]) and/or everyone in [groupId] into this game: lobby, logged-in players only. */
+    suspend fun invite(userIds: List<UserId> = emptyList(), groupId: GroupId? = null): Boolean =
+        sessionCommand { api.invite(it, InviteRequest(userIds, groupId)) }
+
+    /** The player has seen the chat as it is now: nothing in it counts as unread any more. */
+    fun markChatRead() {
+        mutableState.update { state ->
+            state.copy(chatReadSeq = maxOf(state.chatReadSeq, state.chat.lastOrNull()?.seq ?: 0L))
+        }
+    }
+
     /**
      * Comes back into the game saved by an earlier run of the app, if there is one. Call once when the app starts;
      * later calls do nothing. The session is set right away ([SessionState.isResuming], no snapshot yet: a loading
@@ -105,13 +137,18 @@ class GameSessionManager(
      * - the game is over, deleted on the server or the token is refused: the saved session is dropped and the start
      *   screen shows [SessionError.SavedGameFinished] / [SessionError.SavedGameGone];
      * - no connection: keeps retrying like a running game (the player may leave).
+     *
+     * A game saved for another server (debug builds can switch) is dropped.
      */
     fun resumeSavedGame() {
         if (resumeAttempted) return
         resumeAttempted = true
         if (mutableState.value.session != null) return
         val saved = storage.loadSession() ?: return
-        serverUrl.value = saved.serverUrl
+        if (ServerUrl.normalize(saved.serverUrl) != serverUrl.value) {
+            storage.clearSession()
+            return
+        }
         startSession(saved.session, snapshot = null)
     }
 
@@ -120,7 +157,10 @@ class GameSessionManager(
         if (mutableState.value.session == null) storage.clearSession()
     }
 
-    /** Leaves the game locally (the server has no "leave": silence reveals the player like a lost signal). */
+    /**
+     * Leaves the game locally (the server has no "leave": silence reveals the player like a lost signal). Also how the
+     * results screen is closed: polling (for the chat) goes on until then.
+     */
     fun leave() {
         stopBackgroundWork()
         storage.clearSession()
@@ -167,7 +207,7 @@ class GameSessionManager(
         outbox = sessionOutbox
         connectionJob = scope.launch {
             // Off the main thread: JSON of every poll is parsed in the flow.
-            connection.connect(session, sessionOutbox)
+            connection.connect(session, sessionOutbox, chatAfter = ::chatCursor)
                 .flowOn(Dispatchers.Default)
                 .collect { onConnectionEvent(it) }
         }
@@ -191,8 +231,14 @@ class GameSessionManager(
             is ConnectionEvent.Problem ->
                 mutableState.update { it.copy(connectionStatus = ConnectionStatus.RECONNECTING) }
 
-            is ConnectionEvent.Ended ->
-                endSession(if (resuming) SessionError.SavedGameGone else SessionError.SessionLost)
+            is ConnectionEvent.Ended -> when {
+                resuming -> endSession(SessionError.SavedGameGone)
+
+                // The results stay until the player leaves; the server has deleted the game, the chat is over.
+                mutableState.value.snapshot?.phase == GamePhase.FINISHED -> connectionJob = null
+
+                else -> endSession(SessionError.SessionLost)
+            }
         }
     }
 
@@ -207,6 +253,8 @@ class GameSessionManager(
         val current = mutableState.value
         // A late response from a previous game must not leak into the current one.
         if (current.session?.gameId != snapshot.gameId) return
+        // Messages are merged by seq, so even an overtaken response may add some.
+        if (snapshot.chat.isNotEmpty()) mutableState.update { it.copy(chat = mergeChat(it.chat, snapshot.chat)) }
         // A slow poll can be overtaken by a command's response: keep the newer state.
         val previous = current.snapshot
         if (previous != null && snapshot.serverTimeMillis < previous.serverTimeMillis) return
@@ -219,13 +267,17 @@ class GameSessionManager(
 
             GamePhase.HIDING, GamePhase.SEEKING -> startTracking()
 
-            // Results are final: no more polling, location or foreground service, and nothing to resume.
-            GamePhase.FINISHED -> {
-                stopBackgroundWork()
+            // Results are final: no more location or foreground service, and nothing to resume. Polling goes on for
+            // the chat on the results screen, until the player leaves.
+            GamePhase.FINISHED -> if (previous?.phase != GamePhase.FINISHED) {
+                stopLocationWork()
                 storage.clearSession()
             }
         }
     }
+
+    /** The chat cursor: the newest message seq this game's chat has, 0 for none. */
+    private fun chatCursor(): Long = mutableState.value.chat.lastOrNull()?.seq ?: 0L
 
     private fun startLocationUpdates() {
         val snapshot = mutableState.value.snapshot ?: return
@@ -283,6 +335,10 @@ class GameSessionManager(
         connectionJob = null
         buildingsJob?.cancel()
         buildingsJob = null
+        stopLocationWork()
+    }
+
+    private fun stopLocationWork() {
         locationJob?.cancel()
         locationJob = null
         outbox.clear()
@@ -299,14 +355,17 @@ class GameSessionManager(
         return command { applySnapshot(call(session)) }
     }
 
-    private suspend fun command(block: suspend () -> Unit): Boolean = try {
+    /** [accountToken]: sent with the call; a 401 then means the account session is gone (the player is logged out). */
+    private suspend fun command(accountToken: String? = null, block: suspend () -> Unit): Boolean = try {
         block()
         mutableState.update { it.copy(lastError = null) }
         true
     } catch (e: CancellationException) {
         throw e
     } catch (e: ApiException) {
-        fail(SessionError.Rejected(e.error?.code, e.error?.message ?: e.message.orEmpty()))
+        if (accountToken != null && e.status == UNAUTHORIZED) account.onTokenRejected(accountToken)
+        val message = e.error?.message ?: e.message.orEmpty()
+        fail(SessionError.Rejected(e.error?.code, message, e.reason, e.retryAfterSeconds))
     } catch (e: Exception) {
         fail(SessionError.Network(e.message))
     }
@@ -321,6 +380,7 @@ class GameSessionManager(
         fun defaultSettings(center: GeoPoint): GameSettings = GameSettings(zone = shrinkingZone(center))
 
         private const val FIRST_FIX_INTERVAL_MILLIS = 1_000L
+        private const val UNAUTHORIZED = 401
 
         /** Good enough to center the zone on (the default zone is hundreds of meters wide). */
         private const val GOOD_FIX_ACCURACY_METERS = 50.0

@@ -12,16 +12,16 @@
 
 ## Как поставить сборку на телефон
 
-Путь для игры с друзьями: сервер работает в AWS (`https://hovanki.duckdns.org`, [deploy.md](deploy.md)), и тестовые сборки сразу стартуют с этим адресом. Android-сборка ставится из GitHub, iPhone — через TestFlight или из Xcode по кабелю. Туннель к своему компьютеру нужен, чтобы сыграть на своей версии сервера.
+Путь для игры с друзьями: сервер работает в AWS (`https://hovanki.duckdns.org`, [deploy.md](deploy.md)), и тестовые сборки ходят только туда: поля адреса в приложении нет, аккаунты живут на одном сервере ([ADR 0004](adr/0004-accounts-friends-chat.md)). Android-сборка ставится из GitHub, iPhone — через TestFlight или из Xcode по кабелю. Туннель к своему компьютеру нужен, чтобы сыграть на своей версии сервера: с debug-сборкой или с тестовой, собранной под адрес туннеля.
 
 | Что | Откуда | Обновления |
 |---|---|---|
-| Сервер | `https://hovanki.duckdns.org` в AWS ([deploy.md](deploy.md)); своя версия — `./gradlew :server:bootRun` + [Cloudflare Quick Tunnel](#сервер-через-туннель) | AWS: сам, через несколько минут после каждого push в `main` ([deploy.md](deploy.md#автообновление)); туннель: новый запуск — новый адрес |
+| Сервер | `https://hovanki.duckdns.org` в AWS ([deploy.md](deploy.md)); своя версия — `./gradlew :server:bootRun` + [Cloudflare Quick Tunnel](#сервер-через-туннель) | AWS: сам, через несколько минут после каждого push в `main` ([deploy.md](deploy.md#автообновление)); туннель: новый запуск — новый адрес и новая сборка под него |
 | Android | pre-release [`preview`](https://github.com/denysbohusevych/hovanki/releases/tag/preview), файл `hovanki-preview.apk` | каждый push в `main`; ставить вручную или через Obtainium |
 | iPhone | TestFlight, когда подтверждён Apple Developer Program | каждый push в `main`; TestFlight предлагает обновить |
 | iPhone до подтверждения | Xcode по кабелю, бесплатный Apple ID | сборка работает 7 дней |
 
-Версия, номер сборки и commit видны мелко внизу главного экрана, например `0.1.0-preview (42) · 1a2b3c4`: по ним отзыв привязывается к сборке. Номер сборки — номер запуска `preview.yml`, у Android и iOS из одного запуска он общий.
+Версия, номер сборки и commit видны мелко внизу экрана входа и профиля, например `0.1.0-preview (42) · 1a2b3c4`: по ним отзыв привязывается к сборке. Номер сборки — номер запуска `preview.yml`, у Android и iOS из одного запуска он общий.
 
 ### Сервер через туннель
 
@@ -34,38 +34,41 @@
 2. Запустить сервер и туннель в двух терминалах:
 
    ```bash
+   docker compose -f deploy/compose.dev.yaml up -d  # PostgreSQL для аккаунтов (или свой, см. README)
    ./gradlew :server:bootRun                        # сервер на :8080 (без профиля e2e)
    cloudflared tunnel --url http://localhost:8080   # печатает https://<слова>.trycloudflare.com
    ```
 
    На macOS, чтобы компьютер не уснул посреди игры: `caffeinate -i cloudflared tunnel --url http://localhost:8080`.
 3. Подождать полминуты: DNS-запись нового адреса появляется не сразу. Потом проверить с телефона: открыть в браузере `https://<слова>.trycloudflare.com/actuator/health` — ответ `{"status":"UP",...}`. Если открыть адрес слишком рано, устройство может ещё несколько минут «помнить», что такого адреса нет (так было в проверке на macOS); помогает подождать или включить и выключить авиарежим.
-4. Разослать адрес игрокам. В приложении: главный экран → внизу поле «Адрес сервера» → вставить адрес. `https://` можно не писать, приложение добавит его само.
+4. Приложение под этот адрес. Поля адреса в приложении нет, поэтому:
+   - тестовая сборка Android под туннель: `./gradlew :androidApp:assemblePreview -Phovanki.serverUrl=https://<слова>.trycloudflare.com` и разослать APK;
+   - debug-сборка — параметр запуска `server`: на Android `adb shell am start -n app.hovanki/app.hovanki.android.MainActivity --es hovanki.server https://<слова>.trycloudflare.com`, на iPhone из Xcode — `-hovanki.server https://…` в аргументах схемы ([iosApp/README.md](../iosApp/README.md#сервер)).
+5. Коды из писем (подтверждение email, сброс пароля) локальный сервер не отправляет, а пишет в свой лог (`hovanki.mail.sender: log`). Подтверждать email необязательно, аккаунт работает сразу; код для сброса пароля нужно переслать игроку. Для настоящих писем — SMTP, как на сервере в AWS ([deploy.md](deploy.md)).
 
 Что важно знать:
 
-- **Адрес меняется при каждом запуске `cloudflared`.** Перезапустили туннель — все вводят новый адрес. Приложение запоминает адрес, с которым последний раз удалось создать игру или войти в неё, так что после перезапуска туннеля старый адрес надо заменить.
-- **Компьютер нужен всю игру**: сон, закрытая крышка ноутбука или обрыв сети — и телефоны видят «Нет связи с сервером». Перезапуск сервера обрывает все игры, они хранятся в памяти.
+- **Адрес меняется при каждом запуске `cloudflared`.** Перезапустили туннель — нужна новая сборка под новый адрес (или новый параметр запуска debug-сборки). Аккаунт и сохранённая игра со старого адреса при запуске отбрасываются, в аккаунт нужно войти заново.
+- **Компьютер нужен всю игру**: сон, закрытая крышка ноутбука или обрыв сети — и телефоны видят «Нет связи с сервером». Перезапуск сервера обрывает все игры, они хранятся в памяти; аккаунты остаются в базе.
 - **Не открывайте туннелем сервер с профилем `e2e`**: его отладочный эндпоинт отдаёт позиции всех игроков любому, кто знает адрес. `./gradlew :server:bootRun` запускает сервер без этого профиля.
 - Трафик идёт через Cloudflare (TLS заканчивается у них), то есть координаты игроков проходят через их серверы. Для теста с друзьями это приемлемо, для публичного запуска нужен свой хостинг.
 - Quick Tunnel — для тестов: без гарантий доступности, до 200 одновременных запросов (игре с опросом раз в 3 секунды хватает с запасом).
 - Quick Tunnel не запускается, если есть `~/.cloudflared/config.yml` (или `.yaml`) от настроенного именованного туннеля: временно переименуйте файл.
-- Debug-сборки по-прежнему ходят на компьютер напрямую по HTTP в той же Wi-Fi сети ([README](../README.md#быстрый-старт)). Тестовым (preview, TestFlight) нужен HTTPS, то есть туннель или хостинг.
+- Debug-сборки ходят на компьютер напрямую по HTTP: эмулятор и симулятор — сами, телефон в той же Wi-Fi сети — с параметром запуска `server` ([README](../README.md#быстрый-старт)). Тестовым (preview, TestFlight) нужен HTTPS, то есть туннель или хостинг.
 
-### Адрес сервера по умолчанию
+### Адрес сервера
 
-Тестовые и релизные сборки стартуют с адресом из Gradle-свойства `hovanki.serverUrl` в `gradle.properties`. Сейчас это сервер в AWS ([deploy.md](deploy.md)):
+Тестовые и релизные сборки ходят на адрес из Gradle-свойства `hovanki.serverUrl` в `gradle.properties`. Сейчас это сервер в AWS ([deploy.md](deploy.md)):
 
 ```properties
 hovanki.serverUrl=https://hovanki.duckdns.org
 ```
 
-Без свойства поле адреса пустое и адрес вводят руками.
+Другого адреса у тестовой и релизной сборки нет: поле адреса убрано, аккаунты живут на одном сервере ([ADR 0004](adr/0004-accounts-friends-chat.md#12-один-сервер)).
 
 - Действует на Android и iOS, локально и в CI: при сборке значение попадает в сгенерированный `BuildConstants` модуля `:composeApp` (задача `generateBuildConstants`).
-- Только `https://`, иначе сборка падает с понятной ошибкой: вне debug Android не пускает HTTP, а iOS закрывает его App Transport Security.
-- Debug-сборки это свойство не используют: они стартуют с компьютера разработчика (`http://10.0.2.2:8080` в эмуляторе, `http://localhost:8080` в симуляторе).
-- Ручной ввод на главном экране остаётся. Адрес, с которым удалось создать игру или войти в неё, приложение запоминает и при следующем запуске берёт его, а не адрес по умолчанию.
+- Свойство обязательно и только `https://`, иначе сборка падает с понятной ошибкой: вне debug Android не пускает HTTP, а iOS закрывает его App Transport Security.
+- Debug-сборки это свойство не используют: они ходят на компьютер разработчика (`http://10.0.2.2:8080` в эмуляторе, `http://localhost:8080` в симуляторе) или на адрес из параметра запуска `server`.
 - Для одной сборки: `./gradlew :androidApp:assemblePreview -Phovanki.serverUrl=https://…`.
 
 ### Android: pre-release `preview`
@@ -102,7 +105,7 @@ hovanki.serverUrl=https://hovanki.duckdns.org
 
 1. Поставить на iPhone приложение [TestFlight](https://apps.apple.com/app/testflight/id899247664) из App Store.
 2. **Себе** (внутреннее тестирование, без проверки Apple): App Store Connect → приложение → TestFlight → Internal Testing → «+» → группа → добавить себя. Приглашение придёт на почту Apple ID, дальше — «Установить» в TestFlight. Новые сборки группа получает сама, когда App Store Connect их обработает (5–30 минут после job'а).
-3. **Друзьям** (внешнее тестирование, до 10 000 человек, добавлять их в команду App Store Connect не нужно): TestFlight → External Testing → группа → Public Link или приглашения по e-mail. Первая сборка каждой версии (`MARKETING_VERSION`) проходит Beta App Review, обычно до суток. Заполнить Test Information: что тестировать и e-mail для отзывов; в заметках для ревьюера — зачем фоновая геолокация; адрес сервера уже вписан в сборку. Следующие сборки той же версии обычно приходят без ревью.
+3. **Друзьям** (внешнее тестирование, до 10 000 человек, добавлять их в команду App Store Connect не нужно): TestFlight → External Testing → группа → Public Link или приглашения по e-mail. Первая сборка каждой версии (`MARKETING_VERSION`) проходит Beta App Review, обычно до суток. Заполнить Test Information: что тестировать и e-mail для отзывов; в заметках для ревьюера — зачем фоновая геолокация и данные тестового аккаунта (ник и пароль): без входа приложение не создаёт игр; адрес сервера уже вписан в сборку. Следующие сборки той же версии обычно приходят без ревью.
 4. Отзыв со скриншотом отправляется прямо из TestFlight; версия и commit — внизу главного экрана.
 
 Сборка в TestFlight доступна 90 дней.
@@ -124,7 +127,7 @@ hovanki.serverUrl=https://hovanki.duckdns.org
 4. Подключить iPhone кабелем, «Доверять этому компьютеру». Включить режим разработчика: Настройки → Конфиденциальность и безопасность → Режим разработчика (iOS 16+, с перезагрузкой). Если пункта нет, он появится после первой попытки запуска из Xcode.
 5. Схема `iosApp` → выбрать свой iPhone → Run. Первая сборка долгая: Gradle собирает Kotlin-фреймворк.
 6. При первом запуске iOS не откроет приложение от неизвестного разработчика: Настройки → Основные → VPN и управление устройством → «Apple Development: …» → Доверять.
-7. Адрес сервера — туннель (`https://…trycloudflare.com`) или в той же Wi-Fi `http://<имя-мака>.local:8080`: Run собирает Debug, а Debug пускает HTTP в локальную сеть.
+7. Адрес сервера — параметр запуска схемы (`-hovanki.server …`, [iosApp/README.md](../iosApp/README.md#сервер)): туннель (`https://…trycloudflare.com`) или в той же Wi-Fi `http://<имя-мака>.local:8080`. Run собирает Debug, а Debug пускает HTTP в локальную сеть. Без параметра сборка ходит на `localhost`, то есть на сам телефон.
 
 Когда платный аккаунт подтвердят, уберите `BUNDLE_ID` из `Local.xcconfig` и поставьте `TEAM_ID` платной команды — или пользуйтесь TestFlight.
 
@@ -155,7 +158,7 @@ iOS job идёт около 12 минут на каждый push в `main` (бе
 **Lint, tests, Android** (`ubuntu-latest`, JDK 21):
 
 1. `./gradlew spotlessCheck` — ktlint через Spotless. Локально исправляется `./gradlew spotlessApply`.
-2. `./gradlew check --continue` — тесты и проверки всех модулей: `:shared` (JVM, Android), `:clientCore` (JVM), `:server`, Android-модули, юнит-тесты инструментов `:e2e` (`:e2e:unitTest`: маршруты, шум GPS, разбор дерева UI). E2e-сценарии (`:e2e:test`) в `check` не входят: они запускаются только явно и ночью.
+2. `./gradlew check --continue` — тесты и проверки всех модулей: `:shared` (JVM, Android), `:clientCore` (JVM), `:server` (на встроенном PostgreSQL, без Docker), Android-модули, юнит-тесты инструментов `:e2e` (`:e2e:unitTest`: маршруты, шум GPS, разбор дерева UI, аудит снапшотов). E2e-сценарии (`:e2e:test`) в `check` не входят: они запускаются только явно и ночью.
 3. Сборка debug- и release-версии Android-приложения, debug APK — артефакт `hovanki-debug-apk`.
 4. При падении отчёты `**/build/reports/` прикладываются к запуску как артефакт `test-reports` (7 дней).
 
@@ -217,7 +220,7 @@ CI на push не играет партии, поэтому перед PR их �
 | Что меняется | Что запустить | Где |
 |---|---|---|
 | Любой код | `./gradlew spotlessApply` и `./gradlew check` (или быстрый цикл `./gradlew :shared:jvmTest :clientCore:jvmTest :server:test`) | локально |
-| Правила игры, протокол, поведение клиент–сервер (`:shared`, `:server`, `:clientCore`, `:e2e`) | `./gradlew :e2e:test` (~3 мин, работает и в облачном контейнере без KVM) | локально |
+| Правила игры, протокол, поведение клиент–сервер, аккаунты, друзья, чат (`:shared`, `:server`, `:clientCore`, `:e2e`) | `./gradlew :e2e:test` (~4 мин, работает и в облачном контейнере без KVM; PostgreSQL поднимается сам) | локально |
 | UI, платформенный код (`:composeApp`, `androidApp`, `iosApp`), Maestro-флоу, `run-devices.sh` | `./gradlew :e2e:devices` на своих эмуляторах ([e2e-local.md](e2e-local.md)) или ночной workflow вручную на своей ветке: `suite=devices`, нужный сценарий | локально с Android Studio / GitHub Actions, 15–20 мин |
 
 В описании PR — что из этого запускалось (чеклист в шаблоне PR).
@@ -300,15 +303,17 @@ gh secret set ANDROID_KEY_PASSWORD
 | `sha-<коммит>` | каждая сборка, включая ручные |
 
 ```bash
-docker run --rm -p 8080:8080 ghcr.io/denysbohusevych/hovanki-server:0.1.0
+# Серверу нужен PostgreSQL (здесь — из deploy/compose.dev.yaml) и отправитель писем.
+docker compose -f deploy/compose.dev.yaml up -d
+docker run --rm --network host -e HOVANKI_MAIL_SENDER=log ghcr.io/denysbohusevych/hovanki-server:0.1.0
 curl http://localhost:8080/actuator/health
 ```
 
 - Проверьте видимость пакета после первой публикации: чтобы тянуть образ без логина, он должен быть публичным (Package settings → Change visibility). Для приватного — `docker login ghcr.io` с PAT со scope `read:packages`.
-- Настройки — через переменные окружения: `PORT`, `HOVANKI_GAMES_FINISHED_RETENTION=15m`, `HOVANKI_GAMES_IDLE_RETENTION=2h` и т.п. (relaxed binding Spring Boot для `hovanki.games.*`).
+- Настройки — через переменные окружения: `PORT`, `HOVANKI_GAMES_FINISHED_RETENTION=15m`, `HOVANKI_GAMES_IDLE_RETENTION=2h` и т.п. (relaxed binding Spring Boot для `hovanki.games.*`). База — `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`; письма — `HOVANKI_MAIL_SENDER` (`smtp`, `log`), `HOVANKI_MAIL_FROM`, `SPRING_MAIL_*` ([deploy.md](deploy.md)). Схему базы сервер создаёт и обновляет сам при старте (Flyway).
 - Правило зданий: серверу нужен исходящий HTTPS к Overpass API (`overpass-api.de`) — `HOVANKI_BUILDINGS_OVERPASS_URLS` — свои адреса через запятую (свой инстанс первым), `HOVANKI_BUILDINGS_SOURCE=off`, чтобы выключить правило. Без доступа игры идут без правила, и игроки это видят ([ADR 0003](adr/0003-map-and-buildings.md)).
 - Пробы для оркестратора: `/actuator/health/liveness` и `/actuator/health/readiness`.
-- Игры хранятся в памяти: запускаем **одну реплику**, рестарт/деплой обрывает идущие игры.
+- Игры хранятся в памяти: запускаем **одну реплику**, рестарт/деплой обрывает идущие игры. Аккаунты, друзья и группы — в PostgreSQL и переживают рестарт.
 - Release-сборки приложений должны ходить по HTTPS (на Android cleartext разрешён только в debug, на iOS действует App Transport Security), поэтому в проде сервер ставится за reverse proxy с TLS (Caddy, Traefik, nginx) или за managed-балансировщик.
 - Локальная сборка образа: `./gradlew :server:bootJar && docker build -t hovanki-server server`.
 

@@ -1,14 +1,21 @@
 package app.hovanki.e2e.bot
 
+import app.hovanki.shared.protocol.ChatChannel
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.VisibilityReason
+import app.hovanki.shared.rules.ChatRules
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Privacy rules every snapshot must follow, whatever happens in the game (docs/architecture.md, "Видимость"):
- * the server never sends a position the viewer may not see. Checked on every response every bot receives.
+ * the server never sends a position the viewer may not see, nor a chat message of another team. Checked on every
+ * response every bot receives.
  */
 object SnapshotAudit {
     private val HIDER_REVEALS = setOf(
@@ -31,7 +38,9 @@ object SnapshotAudit {
         val problems = mutableListOf<String>()
         val me = snapshot.me
         val phase = snapshot.phase
-        if (me.role == Role.HIDER && "\"location\"" in rawJson) {
+        // On the wire, not in the decoded snapshot, which drops fields this client doesn't know. Keys only: a chat
+        // message or a player's name saying "location" is text, not a position.
+        if (me.role == Role.HIDER && hasKey(Json.parseToJsonElement(rawJson), "location")) {
             problems += "hider ${me.playerId.value} received a position in $phase"
         }
         if (me.role != Role.HIDER && me.catchCodeSecret != null) {
@@ -59,6 +68,25 @@ object SnapshotAudit {
                     problems += where
             }
         }
+        for (message in snapshot.chat) {
+            // The role the viewer has in this snapshot; in the lobby nobody has one yet, and there are no teams.
+            val maySee = if (phase == GamePhase.LOBBY) {
+                message.channel == ChatChannel.ALL
+            } else {
+                ChatRules.canSee(message.channel, me.role)
+            }
+            if (!maySee) {
+                problems += "${me.role} ${me.playerId.value} received chat message ${message.seq} of channel " +
+                    "${message.channel} in $phase"
+            }
+        }
         return problems
+    }
+
+    /** Whether any object in [element], however deep, has the key [key]. */
+    private fun hasKey(element: JsonElement, key: String): Boolean = when (element) {
+        is JsonObject -> element.any { (name, value) -> name == key || hasKey(value, key) }
+        is JsonArray -> element.any { hasKey(it, key) }
+        else -> false
     }
 }

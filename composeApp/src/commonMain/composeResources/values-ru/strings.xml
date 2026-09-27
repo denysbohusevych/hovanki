@@ -8,9 +8,12 @@
   <string name="action_confirm">Подтвердить</string>
   <string name="action_dismiss">OK</string>
   <string name="action_leave">Выйти</string>
+  <string name="action_back">Назад</string>
+  <string name="action_log_out">Выйти из аккаунта</string>
+  <string name="working">Секунду…</string>
   <string name="connection_reconnecting">Нет связи с сервером. Переподключение…</string>
   <string name="location_not_shared">Ваше местоположение не передаётся. Без него игра не работает.</string>
-  <string name="error_network">Не удаётся связаться с сервером. Проверьте интернет и адрес сервера.</string>
+  <string name="error_network">Не удаётся связаться с сервером. Проверьте подключение к интернету.</string>
   <string name="error_not_found">Игра не найдена. Проверьте код.</string>
   <string name="error_too_far">По GPS вы слишком далеко от этого игрока.</string>
   <string name="error_no_location">Точных GPS-координат пока нет. Выйдите на открытое место и попробуйте снова.</string>
@@ -19,8 +22,143 @@
   <string name="error_saved_game_gone">Не удалось вернуться в игру: на сервере её больше нет (она закончилась или сервер перезапустили).</string>
   <string name="resuming_game">Возвращаемся в вашу игру…</string>
 
-  <!-- Стартовый экран -->
+  <!-- Аккаунты, друзья и группы: что пошло не так -->
+  <string name="error_wrong_login">Неверный ник, email или пароль.</string>
+  <string name="error_wrong_password">Неверный пароль.</string>
+  <string name="error_nickname_taken">Этот ник уже занят. Попробуйте другой.</string>
+  <string name="error_email_taken">С этим email уже есть аккаунт. Если он ваш, войдите или сбросьте пароль.</string>
+  <string name="error_invalid_nickname">Ник — от 3 до 20 букв или цифр (можно _ . -), начинается с буквы или цифры.</string>
+  <string name="error_invalid_email">Проверьте адрес email.</string>
+  <string name="error_invalid_password">Пароль — от 8 до 64 символов.</string>
+  <string name="error_wrong_code">Неверный код. Проверьте письмо и попробуйте снова.</string>
+  <string name="error_code_expired">Этот код больше не действует. Запросите новый.</string>
+  <string name="error_session_expired">Вы вышли из аккаунта. Войдите снова.</string>
+  <string name="error_account_required">Для этого нужно войти в аккаунт.</string>
+  <string name="error_user_not_found">Игрока с таким ником нет.</string>
+  <string name="error_not_friends">Это можно только с друзьями.</string>
+  <string name="error_blocked_by_you">Вы заблокировали этого игрока. Сначала разблокируйте его.</string>
+  <string name="error_not_group_owner">Это может только владелец группы.</string>
+  <string name="error_not_group_member">Вы не состоите в этой группе.</string>
+  <string name="error_invalid_group_name">Название группы — от 1 до 40 символов.</string>
+  <string name="error_limit_reached">Достигнут лимит: слишком много друзей, заявок, групп или участников.</string>
+  <string name="error_invalid_message">Сообщение — от 1 до 300 символов.</string>
+  <string name="error_too_many_requests">Слишком много попыток. Попробуйте позже.</string>
+  <string name="error_too_many_requests_wait">Слишком много попыток. Попробуйте через %1$s.</string>
+
+  <!-- Приветствие: без аккаунта -->
   <string name="home_tagline">Прятки на улице в сужающейся зоне.</string>
+  <string name="welcome_log_in">Войти</string>
+  <string name="welcome_register">Создать аккаунт</string>
+  <string name="welcome_account_hint">С аккаунтом можно создавать игры, добавлять друзей и играть своей группой.</string>
+  <string name="welcome_guest_title">Войти в игру как гость</string>
+  <string name="welcome_guest_hint">Аккаунт не нужен: введите имя и код, который дал вам друг.</string>
+  <string name="login_title">Вход</string>
+  <string name="login_login_label">Ник или email</string>
+  <string name="password_label">Пароль</string>
+  <string name="login_submit">Войти</string>
+  <string name="login_forgot">Забыли пароль?</string>
+  <string name="login_missing">Введите ник или email и пароль.</string>
+  <string name="register_title">Новый аккаунт</string>
+  <string name="register_nickname_label">Ник</string>
+  <string name="register_nickname_hint">От 3 до 20 букв или цифр, можно _ . -. Его видят другие игроки.</string>
+  <string name="register_email_label">Email</string>
+  <string name="register_email_hint">Пришлём туда код для подтверждения. Другие игроки его не видят.</string>
+  <string name="register_password_hint">От 8 до 64 символов.</string>
+  <string name="register_submit">Создать аккаунт</string>
+  <string name="form_check_fields">Проверьте выделенные поля.</string>
+  <string name="reset_title">Сброс пароля</string>
+  <string name="reset_text">Введите email вашего аккаунта. Мы пришлём туда код.</string>
+  <string name="reset_send_code">Прислать код</string>
+  <string name="reset_code_sent">Если %1$s привязан к аккаунту, код уже в пути. Введите его и новый пароль.</string>
+  <string name="code_label">Код из письма</string>
+  <string name="new_password_label">Новый пароль</string>
+  <string name="reset_submit">Сохранить и войти</string>
+  <string name="resend_code">Отправить код ещё раз</string>
+  <string name="resend_code_in">Отправить ещё раз через %1$s</string>
+  <string name="code_sent">Новый код уже в пути.</string>
+  <string name="code_format">Введите 6 цифр из письма.</string>
+
+  <!-- Подтверждение email -->
+  <string name="verify_title">Подтвердить email</string>
+  <string name="verify_text">Мы отправили 6-значный код на %1$s. Введите его здесь.</string>
+  <string name="verify_why">С подтверждённым email можно сбросить забытый пароль. Всё остальное работает и без этого.</string>
+  <string name="verify_spam_hint">Письма нет или код устарел? Проверьте папку «Спам» или отправьте код ещё раз.</string>
+  <string name="verify_confirmed">Email подтверждён. Спасибо!</string>
+  <string name="confirm_card_text">Подтвердите email — код отправлен на %1$s.</string>
+  <string name="confirm_card_enter">Ввести код</string>
+  <string name="confirm_card_later">Позже</string>
+  <string name="verify_submit">Подтвердить</string>
+  <string name="verify_change_email">Ошиблись адресом? Изменить email</string>
+  <string name="verify_new_email_label">Новый email</string>
+  <string name="verify_save_email">Отправить код туда</string>
+
+  <!-- Главный экран: с аккаунтом -->
+  <string name="tab_play">Играть</string>
+  <string name="tab_friends">Друзья</string>
+  <string name="tab_groups">Группы</string>
+  <string name="tab_profile">Профиль</string>
+  <string name="play_hello">Привет, %1$s!</string>
+  <string name="invites_title">Приглашения</string>
+  <string name="invite_from">%1$s зовёт вас в игру</string>
+  <string name="invite_from_group">%1$s зовёт группу «%2$s» в игру</string>
+  <string name="invite_accept">Присоединиться</string>
+  <string name="invite_dismiss">Скрыть</string>
+  <string name="profile_nickname">Ник</string>
+  <string name="profile_email">Email</string>
+  <string name="profile_email_unconfirmed">не подтверждён</string>
+  <string name="profile_confirm_email">Подтвердить</string>
+  <string name="profile_change_password">Сменить пароль</string>
+  <string name="profile_current_password">Текущий пароль</string>
+  <string name="profile_save_password">Сохранить пароль</string>
+  <string name="profile_password_changed">Пароль изменён. На других устройствах вы вышли из аккаунта.</string>
+  <string name="profile_delete">Удалить аккаунт</string>
+  <string name="profile_delete_warning">Аккаунт удалится навсегда: ник, email, друзья и группы. Отменить это нельзя.</string>
+  <string name="profile_delete_confirm">Удалить навсегда</string>
+
+  <!-- Друзья и группы -->
+  <string name="action_close">Закрыть</string>
+  <string name="action_accept">Принять</string>
+  <string name="action_decline">Отклонить</string>
+  <string name="action_save">Сохранить</string>
+  <string name="friends_add_title">Добавить друга</string>
+  <string name="friends_nickname_label">Ник</string>
+  <string name="friends_add">Отправить заявку в друзья</string>
+  <string name="friends_nickname_missing">Введите ник друга.</string>
+  <string name="friends_request_sent">Заявка для %1$s отправлена. Вы станете друзьями, когда её примут.</string>
+  <string name="friends_now_friends">Теперь вы с %1$s друзья.</string>
+  <string name="friends_incoming">Заявки в друзья</string>
+  <string name="friends_list">Друзья</string>
+  <string name="friends_outgoing">Ваши заявки</string>
+  <string name="friends_blocked">Заблокированные</string>
+  <string name="friends_empty">Друзей пока нет. Добавьте их по нику здесь или в игре, где вы играете вместе.</string>
+  <string name="friends_withdraw">Отозвать</string>
+  <string name="friends_remove">Удалить из друзей</string>
+  <string name="friends_block">Заблокировать</string>
+  <string name="friends_block_hint">Блокировка также убирает игрока из ваших групп, скрывает его сообщения в чате и останавливает его заявки и приглашения.</string>
+  <string name="friends_unblock">Разблокировать</string>
+  <string name="groups_hint">Группа — это компания друзей, с которой вы играете: одно нажатие зовёт в игру всех сразу.</string>
+  <string name="groups_empty">Групп пока нет.</string>
+  <string name="group_new">Новая группа</string>
+  <string name="group_name_label">Название группы</string>
+  <string name="group_pick_friends">Друзья в группе</string>
+  <string name="group_no_friends">Сначала добавьте друзей, чтобы позвать их в группу.</string>
+  <string name="group_create">Создать группу</string>
+  <string name="group_members">Участников: %1$d</string>
+  <string name="group_owner">владелец</string>
+  <string name="group_play">Играть с группой</string>
+  <string name="group_play_hint">Создаёт игру там, где вы сейчас, и зовёт в неё всю группу.</string>
+  <string name="group_add_members">Добавить друзей</string>
+  <string name="group_add_confirm">Добавить в группу</string>
+  <string name="group_all_friends_in">Все ваши друзья уже в группе.</string>
+  <string name="group_rename">Переименовать</string>
+  <string name="group_delete">Удалить группу</string>
+  <string name="group_delete_text">Удалить «%1$s» для всех участников?</string>
+  <string name="group_delete_confirm">Удалить</string>
+  <string name="group_leave">Выйти из группы</string>
+  <string name="group_leave_owner_hint">Если вы выйдете, владельцем станет участник, который в группе дольше всех.</string>
+  <string name="group_remove_member">Убрать</string>
+
+  <!-- Создание игры и вход в неё -->
   <string name="home_name_label">Ваше имя</string>
   <string name="home_create">Создать игру здесь</string>
   <string name="home_create_hint">Центр игровой зоны — ваше текущее местоположение.</string>
@@ -30,11 +168,8 @@
   <string name="home_locating">Определяем ваше местоположение…</string>
   <string name="home_connecting">Подключаемся к серверу…</string>
   <string name="home_location_note">Во время раунда игровой сервер получает ваше точное местоположение, в том числе при заблокированном экране. После игры оно удаляется.</string>
-  <string name="home_server_label">Адрес сервера</string>
-  <string name="home_server_hint">Игровой сервер, например https://name.trycloudflare.com</string>
   <string name="problem_name_missing">Введите имя.</string>
   <string name="problem_code_missing">Введите код игры.</string>
-  <string name="problem_server_missing">Введите адрес сервера внизу экрана.</string>
   <string name="problem_location_denied">Игре нужно ваше точное местоположение. Разрешите его в настройках системы.</string>
   <string name="problem_no_location_fix">Не удалось точно определить местоположение. Выйдите на открытое место и попробуйте снова.</string>
 
@@ -48,6 +183,34 @@
   <string name="lobby_pick_seekers">Выберите, кто ищет. Остальные прячутся.</string>
   <string name="lobby_start">Начать игру</string>
   <string name="lobby_waiting">Ждём, пока организатор начнёт игру…</string>
+  <string name="lobby_invite">Позвать друзей</string>
+  <string name="invite_title">Приглашение в игру</string>
+  <string name="invite_groups">Группы</string>
+  <string name="invite_friends">Друзья</string>
+  <string name="invite_in_game">уже в игре</string>
+  <string name="invite_send">Отправить приглашения</string>
+  <string name="invite_nobody">Звать пока некого: нет ни друзей, ни групп. Добавьте друзей на главном экране.</string>
+  <string name="invites_sent">Приглашения отправлены. Друзья увидят их на вкладке «Играть».</string>
+  <string name="player_guest">гость</string>
+  <string name="player_add_friend">В друзья</string>
+  <string name="player_accept_friend">Принять заявку</string>
+  <string name="player_request_sent">заявка отправлена</string>
+  <string name="player_friend">друг</string>
+  <string name="player_blocked">заблокирован</string>
+
+  <!-- Чат -->
+  <string name="chat_title">Чат</string>
+  <string name="chat_open">Чат</string>
+  <string name="chat_to_all">Всем</string>
+  <string name="chat_to_team">Команде</string>
+  <string name="chat_input_label">Сообщение</string>
+  <string name="chat_send">Отправить</string>
+  <string name="chat_empty">Сообщений пока нет. Напишите первым!</string>
+  <string name="chat_hint">Долгое нажатие на сообщение — пожаловаться или заблокировать автора.</string>
+  <string name="chat_team">только команде</string>
+  <string name="chat_report">Пожаловаться</string>
+  <string name="chat_block">Заблокировать</string>
+  <string name="chat_reported">Спасибо, жалоба отправлена модераторам.</string>
 
   <!-- Игра -->
   <string name="phase_hiding">Прячемся</string>
@@ -97,6 +260,7 @@
   <string name="action_leave_game">Выйти из игры</string>
   <string name="leave_title">Выйти из игры?</string>
   <string name="leave_text">Вернуться в этот раунд не получится. Ищущие увидят ваше последнее местоположение.</string>
+  <string name="leave_text_account">Пока вас нет, ищущие видят ваше последнее местоположение. Чтобы вернуться в этот раунд, войдите в игру снова с кодом %1$s.</string>
 
   <!-- Результаты -->
   <string name="results_title">Игра окончена</string>

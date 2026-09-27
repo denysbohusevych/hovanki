@@ -1,0 +1,15 @@
+# The player closes the results screen and lands on UNTIL: the «Play» tab (home_screen) when logged in, the welcome
+# screen (welcome_screen) as a guest.
+appId: ${APP_ID}
+---
+- scrollUntilVisible:
+    element:
+      id: results_back
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    id: results_back
+- extendedWaitUntil:
+    visible:
+      id: ${UNTIL}
+    timeout: 30000

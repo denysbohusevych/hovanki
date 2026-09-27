@@ -34,7 +34,7 @@ class SessionResumeTest {
     private val serverUrl = ServerUrl("http://10.0.2.2:8080")
     private val locations = FakeLocationProvider()
     private val tracker = FakeBackgroundTracker()
-    private val saved = SavedSession("http://192.168.1.10:8080", testSession)
+    private val saved = SavedSession("http://10.0.2.2:8080", testSession)
 
     private fun TestScope.manager(api: GameApi) = GameSessionManager(
         api,
@@ -67,7 +67,6 @@ class SessionResumeTest {
         assertEquals(testSession, resuming.session, "in the game right away: a loading screen, not the start screen")
         assertTrue(resuming.isResuming)
         assertNull(resuming.snapshot)
-        assertEquals("http://192.168.1.10:8080", serverUrl.value, "the server that issued the session")
 
         val resumed = manager.state.first { it.snapshot != null }
         runCurrent()
@@ -78,6 +77,21 @@ class SessionResumeTest {
         assertEquals(1, locations.collectors, "location updates are back")
         assertTrue(manager.state.value.isSharingLocation)
         assertEquals(saved, storage.loadSession(), "still saved: the next restart resumes again")
+    }
+
+    @Test
+    fun aGameOfAnotherServerIsDropped() = runTest {
+        storage.saveSession(SavedSession("http://192.168.1.10:8080", testSession))
+        val api = FakeGameApi { testSnapshot(phase = GamePhase.SEEKING) }
+        val manager = manager(api)
+
+        manager.resumeSavedGame()
+        runCurrent()
+
+        assertEquals(SessionState(), manager.state.value)
+        assertNull(storage.loadSession())
+        assertTrue(api.syncRequests.isEmpty())
+        assertEquals("http://10.0.2.2:8080", serverUrl.value, "the app's server stays")
     }
 
     @Test

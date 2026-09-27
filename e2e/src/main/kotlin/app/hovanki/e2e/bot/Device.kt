@@ -109,7 +109,10 @@ class FakeNetwork(private val onExchange: (Exchange) -> Unit) : Interceptor {
         val response = try {
             chain.proceed(request)
         } catch (e: IOException) {
-            onExchange(Exchange(request.method, request.url.encodedPath, null, elapsedMillis(started), null))
+            // Cancelled by the app itself (it was closed, or left the game mid-poll): not a network failure.
+            if (!chain.call().isCanceled()) {
+                onExchange(Exchange(request.method, request.url.encodedPath, null, elapsedMillis(started), null))
+            }
             throw e
         }
         val body = response.peekBody(MAX_BODY_BYTES).string()

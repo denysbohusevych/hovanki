@@ -1,6 +1,15 @@
-# Profile for end-to-end tests (:e2e, e2e/run-devices.sh): enables the observer endpoint
-# /api/v1/debug/games (DebugController) that exposes every player's position. Never enable it in production.
+# Profile for end-to-end tests (:e2e, e2e/run-devices.sh): enables the observer endpoints /api/v1/debug/...
+# (DebugController) that expose every player's position and every emailed code. Never enable it in production.
 hovanki:
+  # Emails stay in memory; the tests read the codes from /api/v1/debug/emails/{email}.
+  mail:
+    sender: recording
+  # Many bots register and log in from one address.
+  rate-limits:
+    enabled: false
+  accounts:
+    # Fast password hashing: bots register and log in all the time.
+    bcrypt-strength: 4
   games:
     # Tests create many short games; keep finished ones around a little for the report, then free the memory.
     finished-retention: 10m

@@ -53,5 +53,14 @@ class FullRoundTest {
         )
         awaitThat("every phone shows the results") { players.all { it.snapshot?.phase == GamePhase.FINISHED } }
         awaitThat("apps stop background tracking") { players.none { it.backgroundTracker.isRunning } }
+        check(players.none { it.storage.read("session") != null }, "no phone keeps the finished game to resume")
+
+        // The results screen stays and keeps polling (the chat goes on) until the player closes it.
+        val resultsAt = players.associateWith { checkNotNull(it.snapshot).serverTimeMillis }
+        awaitThat("the results keep updating", 10.seconds) {
+            players.all { it.snapshot?.phase == GamePhase.FINISHED && it.snapshot!!.serverTimeMillis > resultsAt[it]!! }
+        }
+        for (player in players) requireOk(player.leave(), "${player.name} closes the results")
+        check(players.all { it.state.session == null }, "every phone is back on the start screen")
     }
 }

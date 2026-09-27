@@ -1,9 +1,11 @@
 package app.hovanki.client.ui.game
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
@@ -56,6 +58,7 @@ import app.hovanki.client.resources.hint_seeker_hiding
 import app.hovanki.client.resources.in_building_revealed
 import app.hovanki.client.resources.in_building_warning
 import app.hovanki.client.resources.leave_text
+import app.hovanki.client.resources.leave_text_account
 import app.hovanki.client.resources.leave_title
 import app.hovanki.client.resources.map_legend
 import app.hovanki.client.resources.no_hiders_to_claim
@@ -79,6 +82,9 @@ import app.hovanki.client.resources.zone_radius
 import app.hovanki.client.resources.zone_shrinking
 import app.hovanki.client.resources.zone_shrinks_in
 import app.hovanki.client.session.CatchCode
+import app.hovanki.client.ui.chat.ChatButton
+import app.hovanki.client.ui.chat.ChatPanel
+import app.hovanki.client.ui.chat.ChatViewModel
 import app.hovanki.client.ui.common.Banner
 import app.hovanki.client.ui.common.LoadingScreen
 import app.hovanki.client.ui.common.ScreenColumn
@@ -97,17 +103,28 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
-fun GameScreen(viewModel: GameViewModel = koinViewModel()) {
+fun GameScreen(viewModel: GameViewModel = koinViewModel(), chat: ChatViewModel = koinViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val chatState by chat.uiState.collectAsStateWithLifecycle()
     val state = uiState
     if (state == null) {
         LoadingScreen()
         return
     }
+    // The chat panel covers the round instead of replacing it: the map keeps its tiles and camera.
+    Box(modifier = Modifier.fillMaxSize()) {
+        GameContent(state, viewModel, chatUnread = chatState.unread, onOpenChat = chat::open)
+        if (chatState.isOpen) ChatPanel(chat)
+    }
+}
+
+@Composable
+private fun GameContent(state: GameUiState, viewModel: GameViewModel, chatUnread: Int, onOpenChat: () -> Unit) {
     var showLeaveDialog by rememberSaveable { mutableStateOf(false) }
 
     ScreenColumn(modifier = Modifier.testTag(TestTags.GAME_SCREEN)) {
         PhaseHeader(state)
+        ChatButton(unread = chatUnread, onClick = onOpenChat, modifier = Modifier.fillMaxWidth())
         SessionBanners(
             connectionStatus = state.connectionStatus,
             isSharingLocation = state.isSharingLocation,
@@ -190,7 +207,15 @@ fun GameScreen(viewModel: GameViewModel = koinViewModel()) {
         AlertDialog(
             onDismissRequest = { showLeaveDialog = false },
             title = { Text(stringResource(Res.string.leave_title)) },
-            text = { Text(stringResource(Res.string.leave_text)) },
+            text = {
+                Text(
+                    if (state.hasAccount) {
+                        stringResource(Res.string.leave_text_account, state.joinCode)
+                    } else {
+                        stringResource(Res.string.leave_text)
+                    },
+                )
+            },
             confirmButton = {
                 TextButton(onClick = viewModel::leave) { Text(stringResource(Res.string.action_leave)) }
             },

@@ -1,4 +1,5 @@
-# The host creates a game from the start screen; name, server and hiding time come from the launch options.
+# The host creates a game from the «Play» tab (logged in: only accounts create games in the app); server, account and
+# hiding time come from the launch options.
 appId: ${APP_ID}
 ---
 - extendedWaitUntil:

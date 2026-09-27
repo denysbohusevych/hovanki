@@ -1,6 +1,8 @@
 package app.hovanki.client.storage
 
 import app.hovanki.client.network.testSession
+import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.protocol.UserProfile
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -10,6 +12,11 @@ import kotlin.test.assertTrue
 class ClientStorageTest {
     private val store = FakeSecureStore()
     private val storage = ClientStorage(store)
+    private val account = SavedAccount(
+        serverUrl = "https://hovanki.example.org",
+        token = "account-token",
+        user = UserProfile(UserId("u1"), "anna", "anna@example.org", emailVerified = true, createdAtMillis = 5),
+    )
 
     @Test
     fun savesLoadsAndClearsTheSession() {
@@ -34,25 +41,61 @@ class ClientStorageTest {
     }
 
     @Test
-    fun remembersTheStartScreenFields() {
-        assertNull(storage.playerName)
-        assertNull(storage.serverUrl)
+    fun savesLoadsAndClearsTheAccount() {
+        assertNull(storage.loadAccount())
 
-        storage.rememberPlayer("Anna", "http://192.168.1.10:8080")
+        storage.saveAccount(account)
+        assertEquals(account, storage.loadAccount())
+        assertEquals(account, ClientStorage(store).loadAccount(), "a new app process reads the same account")
+        assertEquals(setOf("account"), store.values.keys)
+
+        storage.clearAccount()
+        assertNull(storage.loadAccount())
+        assertTrue(store.values.isEmpty())
+    }
+
+    @Test
+    fun unreadableAccountIsDropped() {
+        store.values["account"] = """{"token":"only half of it"}"""
+
+        assertNull(storage.loadAccount())
+        assertFalse("account" in store.values)
+    }
+
+    @Test
+    fun remembersTheGuestName() {
+        assertNull(storage.playerName)
+
+        storage.rememberPlayer("Anna")
 
         assertEquals("Anna", storage.playerName)
-        assertEquals("http://192.168.1.10:8080", storage.serverUrl)
+        assertEquals(setOf("playerName"), store.values.keys, "no server address any more")
+    }
+
+    @Test
+    fun forgetsTheServerAddressOfOlderVersions() {
+        store.values["serverUrl"] = "http://192.168.1.10:8080"
+        store.values["playerName"] = "Anna"
+
+        val storage = ClientStorage(store)
+
+        assertFalse("serverUrl" in store.values)
+        assertEquals("Anna", storage.playerName)
     }
 
     @Test
     fun storeErrorsLookLikeNothingStored() {
         store.failing = true
+        val storage = ClientStorage(store)
 
         storage.saveSession(SavedSession("http://localhost:8080", testSession))
-        storage.rememberPlayer("Anna", "http://localhost:8080")
+        storage.saveAccount(account)
+        storage.rememberPlayer("Anna")
         storage.clearSession()
+        storage.clearAccount()
 
         assertNull(storage.loadSession())
+        assertNull(storage.loadAccount())
         assertNull(storage.playerName)
     }
 }

@@ -8,7 +8,14 @@ appId: ${APP_ID}
     timeout: 30000
 - tapOn:
     id: claim_${HIDER_ID}
+# The code form takes the place of the list of hiders once the server has the claim. With the chat button above the
+# panel, its field can start below the fold of a small screen.
 - extendedWaitUntil:
-    visible:
+    notVisible:
+      id: claim_${HIDER_ID}
+    timeout: 15000
+- scrollUntilVisible:
+    element:
       id: code_input
+    direction: DOWN
     timeout: 15000

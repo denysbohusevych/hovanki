@@ -47,6 +47,11 @@ class DeviceRun(
 
     class Shot(val label: String, val device: String, val file: File)
 
+    private val accountsDelegate = lazy { DeviceAccounts.over(serverUrl, scenario.observer) }
+
+    /** Makes the accounts the devices log in with (the host's). */
+    val accounts: DeviceAccounts by accountsDelegate
+
     /** Players on the devices, in the order of [devices]; the first one hosts. */
     val devicePlayers: List<DevicePlayer> by lazy {
         devices.map { device -> DevicePlayer(device, this).also { it.startGps(gpsScope) } }
@@ -101,6 +106,7 @@ class DeviceRun(
         devices.forEach { device ->
             runCatching { device.saveLogs(File(reportDir, "logs/${device.label}.log").apply { parentFile.mkdirs() }) }
         }
+        if (accountsDelegate.isInitialized()) accounts.close()
         scenario.close()
         writeReport(finalState, failure)
         return failure == null

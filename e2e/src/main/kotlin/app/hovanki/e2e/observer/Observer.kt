@@ -1,19 +1,29 @@
 package app.hovanki.e2e.observer
 
 import app.hovanki.client.network.createHttpClient
+import app.hovanki.shared.debug.DebugEmail
+import app.hovanki.shared.debug.DebugEmails
 import app.hovanki.shared.debug.DebugGameList
 import app.hovanki.shared.debug.DebugGameState
+import app.hovanki.shared.debug.DebugReport
+import app.hovanki.shared.debug.DebugReportList
 import app.hovanki.shared.debug.DebugRoutes
 import app.hovanki.shared.protocol.GameId
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.encodeURLPathPart
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.delay
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 /**
- * Reads the full game state from the server's debug endpoint (Spring profile `e2e`): the ground truth
- * that scenarios check the players' views against.
+ * Reads the server's truth from its debug endpoints (Spring profile `e2e`): the full game state that scenarios check
+ * the players' views against, the emails the server sent (a person reads the code there) and the reported chat
+ * messages.
  */
 class Observer(serverUrl: String) : AutoCloseable {
     private val baseUrl = serverUrl.trimEnd('/')
@@ -22,6 +32,36 @@ class Observer(serverUrl: String) : AutoCloseable {
     suspend fun games(): DebugGameList = get(DebugRoutes.GAMES)
 
     suspend fun game(id: GameId): DebugGameState = get(DebugRoutes.game(id))
+
+    /** Emails sent to [email] so far, oldest first. */
+    suspend fun emails(email: String): List<DebugEmail> =
+        get<DebugEmails>(DebugRoutes.emails(email.encodeURLPathPart())).emails
+
+    /** The newest email sent to [email], if any; sending is asynchronous, see [awaitEmail]. */
+    suspend fun lastEmail(email: String): DebugEmail? = emails(email).lastOrNull()
+
+    /**
+     * Waits for a new email with a code to [email] for [purpose]: one that is not among [known] (what the inbox held
+     * before the action that sends it). The server sends after its transaction commits, on its own threads, so the
+     * email arrives a moment after the response.
+     */
+    suspend fun awaitEmail(
+        email: String,
+        purpose: EmailPurpose,
+        known: List<DebugEmail> = emptyList(),
+        within: Duration = 10.seconds,
+    ): DebugEmail {
+        val deadline = System.currentTimeMillis() + within.inWholeMilliseconds
+        while (true) {
+            val new = emails(email).firstOrNull { it !in known && it.purpose == purpose.name && it.code != null }
+            if (new != null) return new
+            if (System.currentTimeMillis() > deadline) throw AssertionError("No $purpose email to $email in $within")
+            delay(POLL)
+        }
+    }
+
+    /** Reported chat messages, newest first. */
+    suspend fun reports(): List<DebugReport> = get<DebugReportList>(DebugRoutes.REPORTS).reports
 
     private suspend inline fun <reified T> get(path: String): T {
         val response = client.get(baseUrl + path)
@@ -33,4 +73,11 @@ class Observer(serverUrl: String) : AutoCloseable {
     }
 
     override fun close() = client.close()
+
+    private companion object {
+        val POLL = 200.milliseconds
+    }
 }
+
+/** What an email the server sends is for ([DebugEmail.purpose]). */
+enum class EmailPurpose { VERIFY_EMAIL, RESET_PASSWORD }

@@ -1,7 +1,8 @@
 // End-to-end tests (docs/e2e.md): headless bots run the app's client code (:clientCore over Ktor/OkHttp, as on
 // Android) with simulated GPS, clock and network, and play whole games against a real server.
-// `./gradlew :e2e:test` starts the server in-process on a random port; HOVANKI_E2E_SERVER_URL points the same
-// scenarios at an external server started with the Spring profile `e2e`. Not part of `check` (see `unitTest`).
+// `./gradlew :e2e:test` starts the server in-process on a random port, on a fresh PostgreSQL database (TestPostgres
+// from the server's test fixtures: HOVANKI_TEST_DATABASE_URL or an embedded server); HOVANKI_E2E_SERVER_URL points the
+// same scenarios at an external server started with the Spring profile `e2e`. Not part of `check` (see `unitTest`).
 import java.util.Properties
 
 plugins {
@@ -24,8 +25,16 @@ dependencies {
     implementation(projects.clientCore)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.kotlinx.coroutines.core)
+    // The device runs' server jar gets an embedded PostgreSQL next to it (LocalPostgres); it brings the JDBC driver.
+    // The BOM moves every platform's binaries to the same PostgreSQL version.
+    implementation(platform(libs.embedded.postgres.binaries.bom))
+    implementation(libs.embedded.postgres)
+    runtimeOnly(libs.embedded.postgres.binaries.darwin.arm64v8)
+    runtimeOnly(libs.embedded.postgres.binaries.linux.arm64v8)
 
     testImplementation(projects.server)
+    // TestPostgres: the in-process server's database (E2eServer).
+    testImplementation(testFixtures(projects.server))
     testImplementation(platform(libs.spring.boot.bom))
     testImplementation(libs.spring.boot)
     testImplementation(libs.kotlin.test)
@@ -42,7 +51,8 @@ tasks.register<JavaExec>("route") {
 
 // `./gradlew :e2e:devices`: the device scenarios on the emulators already running on this machine, e.g. from Android
 // Studio (run configurations in .run/). Builds the server jar and the debug APK, installs the app on every running
-// emulator, starts the server with the `e2e` profile, runs Maestro and the bots; the emulators stay as they were.
+// emulator, starts the server with the `e2e` profile next to an embedded PostgreSQL (LocalServer), runs Maestro and the
+// bots; the emulators stay as they were.
 // Options: -Pe2e.scenario=full-round|restart|all -Pe2e.bots=3 -Pe2e.emulators=auto|emulator-5554,... -Pe2e.port=8080
 // -Pe2e.failFast=true -Pe2e.maestro=<path> -Pe2e.location=<lat,lon> (default: where the first emulator is)
 // -Pe2e.buildings=overpass|fake|off (default overpass: real buildings around the game).

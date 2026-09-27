@@ -5,9 +5,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Base URL of the game server. Editable on the start screen: a real phone reaches a development machine through
- * its LAN address or an HTTPS tunnel. The app starts with its default (`defaultServerUrl()` in :composeApp),
- * which is empty in non-debug builds until a server is deployed.
+ * Base URL of the game server: the build's server (`BuildConstants.SERVER_URL` in :composeApp), or in debug builds the
+ * development machine or [app.hovanki.client.automation.LaunchOptions.serverUrl]. Set before the saved game and
+ * account are restored: those of another server are dropped.
  */
 class ServerUrl(initial: String) {
     private val url = MutableStateFlow(normalize(initial))

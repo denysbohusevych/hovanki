@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -45,6 +46,31 @@ class PollingGameConnectionTest {
             outbox.add(testSample(3))
             awaitItem()
             assertEquals(listOf(testSample(3)), api.syncRequests[1].samples)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun asksForTheChatCursorBeforeEverySync() = runTest {
+        val api = FakeGameApi { testSnapshot() }
+        var cursor = 0L
+
+        PollingGameConnection(api).connect(testSession, LocationOutbox(), chatAfter = { cursor }).test {
+            awaitItem()
+            cursor = 17
+            awaitItem()
+            assertEquals(listOf<Long?>(0, 17), api.syncRequests.map { it.chatAfter })
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun withoutACursorNoChatIsAskedFor() = runTest {
+        val api = FakeGameApi { testSnapshot() }
+
+        PollingGameConnection(api).connect(testSession, LocationOutbox()).test {
+            awaitItem()
+            assertNull(api.syncRequests.single().chatAfter)
             cancelAndIgnoreRemainingEvents()
         }
     }

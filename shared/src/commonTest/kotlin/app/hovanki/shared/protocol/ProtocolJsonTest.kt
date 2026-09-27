@@ -76,8 +76,100 @@ class ProtocolJsonTest {
     }
 
     @Test
+    fun anUnknownErrorReasonIsReadAsNone() {
+        val json = """{"code":"WRONG_STATE","message":"Later","reason":"SOMETHING_NEWER"}"""
+        assertEquals(ApiError(ErrorCode.WRONG_STATE, "Later"), protocolJson.decodeFromString<ApiError>(json))
+
+        val known = ApiError(ErrorCode.FORBIDDEN, "Wrong login or password", ErrorReason.WRONG_CREDENTIALS)
+        assertEquals(known, protocolJson.decodeFromString<ApiError>(protocolJson.encodeToString(known)))
+    }
+
+    /** What the first app versions know of an error: no `reason`. */
+    @Serializable
+    private data class FirstVersionApiError(val code: ErrorCode, val message: String)
+
+    @Test
+    fun theFirstAppVersionsReadErrorsWithAReason() {
+        val error = ApiError(ErrorCode.UNAUTHORIZED, "Log in again", ErrorReason.SESSION_EXPIRED)
+        val json = protocolJson.encodeToString(error)
+        assertEquals(
+            FirstVersionApiError(ErrorCode.UNAUTHORIZED, "Log in again"),
+            protocolJson.decodeFromString<FirstVersionApiError>(json),
+        )
+    }
+
+    @Test
+    fun aSyncOfTheFirstAppVersionsAsksForNoChat() {
+        val request = protocolJson.decodeFromString<SyncRequest>("""{"samples":[]}""")
+        assertEquals(SyncRequest(samples = emptyList(), chatAfter = null), request)
+        assertEquals(null, request.chatAfter)
+    }
+
+    @Test
+    fun chatAndAccountsDefaultForTheFirstServers() {
+        // A snapshot without chat and a player without an account, as servers without accounts send them.
+        val json = protocolJson.encodeToString(snapshot)
+        val decoded = protocolJson.decodeFromString<GameSnapshot>(json)
+        assertEquals(emptyList(), decoded.chat)
+        assertEquals(null, decoded.players.single().userId)
+    }
+
+    @Test
+    fun anUnknownChatChannelIsReadAsEveryone() {
+        val json = """{"seq":3,"playerId":"p1","text":"hi","sentAtMillis":1,"channel":"SOMETHING_NEWER"}"""
+        assertEquals(
+            ChatMessage(3, PlayerId("p1"), "hi", 1, ChatChannel.ALL),
+            protocolJson.decodeFromString<ChatMessage>(json),
+        )
+    }
+
+    @Test
+    fun chatAndUserIdsRoundTrip() {
+        val withChat = snapshot.copy(
+            players = listOf(PlayerView(me, "Denys", Role.HIDER, PlayerStatus.ACTIVE, userId = UserId("u1"))),
+            chat = listOf(ChatMessage(1, me, "Here", 1_700_000_000_000, ChatChannel.HIDERS)),
+        )
+        val json = protocolJson.encodeToString(withChat)
+        assertTrue(""""userId":"u1"""" in json, json)
+        assertEquals(withChat, protocolJson.decodeFromString<GameSnapshot>(json))
+    }
+
+    @Test
+    fun socialResponsesRoundTrip() {
+        val friend = UserSummary(UserId("u2"), "olena")
+        val inbox = Inbox(
+            invites = listOf(
+                GameInvite(
+                    id = InviteId("i1"),
+                    gameId = GameId("g1"),
+                    joinCode = "ABC123",
+                    from = friend,
+                    groupId = GroupId("gr1"),
+                    groupName = "Park crew",
+                    createdAtMillis = 1,
+                    expiresAtMillis = 2,
+                ),
+            ),
+            friendRequests = listOf(friend),
+        )
+        assertEquals(inbox, protocolJson.decodeFromString<Inbox>(protocolJson.encodeToString(inbox)))
+        assertEquals(FriendsResponse(), protocolJson.decodeFromString<FriendsResponse>("{}"))
+        val session = AccountSession("t", UserProfile(UserId("u1"), "denys", "d@example.com", false, 1))
+        assertEquals(session, protocolJson.decodeFromString<AccountSession>(protocolJson.encodeToString(session)))
+    }
+
+    @Test
     fun routesAreFilled() {
         assertEquals("/api/v1/games/g1/catches/c1/confirm", ApiRoutes.catchConfirm(GameId("g1"), CatchId("c1")))
         assertEquals("/api/v1/games/g1/buildings", ApiRoutes.buildings(GameId("g1")))
+        assertEquals("/api/v1/games/g1/chat/42/report", ApiRoutes.chatReport(GameId("g1"), 42))
+        assertEquals("/api/v1/games/g1/invites", ApiRoutes.gameInvites(GameId("g1")))
+        assertEquals("/api/v1/me/invites/i1/dismiss", ApiRoutes.inviteDismiss(InviteId("i1")))
+        assertEquals("/api/v1/friends/requests/u1/accept", ApiRoutes.friendRequestAccept(UserId("u1")))
+        assertEquals(
+            "/api/v1/groups/gr1/members/u1/remove",
+            ApiRoutes.groupMemberRemove(GroupId("gr1"), UserId("u1")),
+        )
+        assertEquals("/api/v1/users/u1/block", ApiRoutes.userBlock(UserId("u1")))
     }
 }

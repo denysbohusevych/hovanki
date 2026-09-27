@@ -1,9 +1,11 @@
-# Joins the game whose code the launch options prefilled.
+# Joins the game whose code the launch options prefilled: a guest from the welcome screen (the name is prefilled too),
+# a logged-in player from the «Play» tab. The button may be below the fold on the welcome screen.
 appId: ${APP_ID}
 ---
-- extendedWaitUntil:
-    visible:
+- scrollUntilVisible:
+    element:
       id: home_join
+    direction: DOWN
     timeout: 30000
 - tapOn:
     id: home_join

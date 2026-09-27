@@ -1,0 +1,134 @@
+package app.hovanki.client.ui.main
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.hovanki.client.automation.TestTags
+import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.ic_friends
+import app.hovanki.client.resources.ic_groups
+import app.hovanki.client.resources.ic_play
+import app.hovanki.client.resources.ic_profile
+import app.hovanki.client.resources.tab_friends
+import app.hovanki.client.resources.tab_groups
+import app.hovanki.client.resources.tab_play
+import app.hovanki.client.resources.tab_profile
+import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.friends.FriendsTab
+import app.hovanki.client.ui.groups.GroupPanel
+import app.hovanki.client.ui.groups.GroupsTab
+import app.hovanki.client.ui.groups.GroupsViewModel
+import app.hovanki.client.ui.play.PlayTab
+import app.hovanki.client.ui.profile.ProfileTab
+import app.hovanki.client.ui.verify.EmailConfirmedNotice
+import app.hovanki.client.ui.verify.VerifyEmailPanel
+import app.hovanki.client.ui.verify.VerifyEmailViewModel
+import org.jetbrains.compose.resources.DrawableResource
+import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.viewmodel.koinViewModel
+
+/**
+ * Logged in (the email confirmed or not), not in a game: «Play», «Friends», «Groups» and «Profile» in a navigation bar,
+ * or a panel over all of it (confirming the email, a group). While it is shown, the inbox (game invites, friend
+ * requests) is polled for the tabs and their badges.
+ */
+@Composable
+fun MainScreen(
+    viewModel: MainViewModel = koinViewModel(),
+    groupsViewModel: GroupsViewModel = koinViewModel(),
+    verifyViewModel: VerifyEmailViewModel = koinViewModel(),
+) {
+    val inbox by viewModel.inbox.collectAsStateWithLifecycle()
+    val groups by groupsViewModel.groups.collectAsStateWithLifecycle()
+    if (verifyViewModel.isOpen) {
+        VerifyEmailPanel(verifyViewModel)
+        return
+    }
+    val openGroup = groupsViewModel.openGroupId?.let { id -> groups?.groups?.firstOrNull { it.id == id } }
+    if (openGroup != null) {
+        GroupPanel(group = openGroup, viewModel = groupsViewModel)
+        return
+    }
+
+    val tab = viewModel.tab
+    // Back from another tab goes to «Play»; from «Play» it leaves the app as usual.
+    SystemBackHandler(enabled = tab != MainTab.PLAY, onBack = { viewModel.select(MainTab.PLAY) })
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (verifyViewModel.showConfirmed) {
+            EmailConfirmedNotice(
+                onDismiss = verifyViewModel::dismissConfirmed,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            )
+        }
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            when (tab) {
+                MainTab.PLAY -> PlayTab(invites = inbox.invites, verify = verifyViewModel)
+                MainTab.FRIENDS -> FriendsTab()
+                MainTab.GROUPS -> GroupsTab(groupsViewModel)
+                MainTab.PROFILE -> ProfileTab(verify = verifyViewModel)
+            }
+        }
+        NavigationBar {
+            MainTab.entries.forEach { item ->
+                val badge = when (item) {
+                    MainTab.PLAY -> inbox.invites.size
+                    MainTab.FRIENDS -> inbox.friendRequests.size
+                    MainTab.GROUPS, MainTab.PROFILE -> 0
+                }
+                NavigationBarItem(
+                    selected = item == tab,
+                    onClick = { viewModel.select(item) },
+                    icon = { TabIcon(item.icon(), badge) },
+                    label = { Text(stringResource(item.title())) },
+                    modifier = Modifier.testTag(item.tag()),
+                )
+            }
+        }
+    }
+}
+
+/** The tab's icon, with the number of new things in it. */
+@Composable
+private fun TabIcon(icon: DrawableResource, badge: Int) {
+    BadgedBox(badge = { if (badge > 0) Badge { Text(badge.toString()) } }) {
+        Icon(painter = painterResource(icon), contentDescription = null)
+    }
+}
+
+private fun MainTab.title(): StringResource = when (this) {
+    MainTab.PLAY -> Res.string.tab_play
+    MainTab.FRIENDS -> Res.string.tab_friends
+    MainTab.GROUPS -> Res.string.tab_groups
+    MainTab.PROFILE -> Res.string.tab_profile
+}
+
+private fun MainTab.icon(): DrawableResource = when (this) {
+    MainTab.PLAY -> Res.drawable.ic_play
+    MainTab.FRIENDS -> Res.drawable.ic_friends
+    MainTab.GROUPS -> Res.drawable.ic_groups
+    MainTab.PROFILE -> Res.drawable.ic_profile
+}
+
+private fun MainTab.tag(): String = when (this) {
+    MainTab.PLAY -> TestTags.TAB_PLAY
+    MainTab.FRIENDS -> TestTags.TAB_FRIENDS
+    MainTab.GROUPS -> TestTags.TAB_GROUPS
+    MainTab.PROFILE -> TestTags.TAB_PROFILE
+}

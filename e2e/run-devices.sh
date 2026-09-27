@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Device e2e (docs/e2e.md): the server with the Spring profile e2e, N Android emulators and/or M iOS simulators with
-# the debug app, headless bots, Maestro for the UI. Report: e2e/build/reports/devices/ (index.md, <scenario>/index.html).
+# Device e2e (docs/e2e.md): the server with the Spring profile e2e on a fresh PostgreSQL, N Android emulators and/or
+# M iOS simulators with the debug app, headless bots, Maestro for the UI. Report: e2e/build/reports/devices/ (index.md,
+# <scenario>/index.html).
 #
 #   e2e/run-devices.sh --android 2 --bots 3 --scenario full-round
 #   e2e/run-devices.sh --ios 2 --bots 3 --scenario all            # macOS with Xcode
@@ -32,7 +33,7 @@ IMAGE_TAG=${HOVANKI_E2E_IMAGE_TAG:-google_atd}
 EMULATOR_GPU=${HOVANKI_E2E_EMULATOR_GPU:-swiftshader_indirect}
 
 usage() {
-  sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
   cat <<'USAGE'
 Options:
   --android N              start N Android emulators (AVDs hovanki-e2e-N are created if missing)
@@ -86,9 +87,7 @@ fi
 
 STARTED_EMULATORS=()
 CREATED_SIMULATORS=()
-SERVER_PID=
 cleanup() {
-  [[ -n $SERVER_PID ]] && kill "$SERVER_PID" 2>/dev/null || true
   if ((KEEP)); then return; fi
   for serial in ${STARTED_EMULATORS[@]+"${STARTED_EMULATORS[@]}"}; do adb -s "$serial" emu kill >/dev/null 2>&1 || true; done
   for udid in ${CREATED_SIMULATORS[@]+"${CREATED_SIMULATORS[@]}"}; do
@@ -160,20 +159,11 @@ export E2E_OPTS=${E2E_OPTS:--Xmx768m}
 export MAESTRO_OPTS=${MAESTRO_OPTS:--Xmx1g}
 
 # ---- Server ----
-log "starting the server on :$PORT (profile e2e, buildings: $BUILDINGS)"
-# The access log (request line, status, time; no headers, so no tokens) shows which device requests reached the server.
-java -Xmx512m -jar server/build/libs/hovanki-server.jar --spring.profiles.active=e2e --server.port="$PORT" \
-  --hovanki.buildings.source="$BUILDINGS" \
-  --server.tomcat.accesslog.enabled=true --server.tomcat.accesslog.directory="$PWD/$REPORT/logs" \
-  --server.tomcat.accesslog.prefix=access --server.tomcat.accesslog.suffix=.log \
-  --server.tomcat.accesslog.pattern='%t %a "%r" %s %{ms}Tms' >"$REPORT/logs/server.log" 2>&1 &
-SERVER_PID=$!
-for _ in $(seq 1 90); do
-  curl -sf "http://localhost:$PORT/actuator/health" >/dev/null && break
-  kill -0 "$SERVER_PID" 2>/dev/null || { tail -50 "$REPORT/logs/server.log"; exit 1; }
-  sleep 1
-done
-curl -sf "http://localhost:$PORT/actuator/health" >/dev/null || { echo "Server did not start" >&2; exit 1; }
+# `e2e devices` starts the server jar itself (--server-jar below) once the devices are ready: profile e2e, a fresh
+# PostgreSQL next to it (embedded; HOVANKI_TEST_DATABASE_URL: a new database on that server), the log and the access
+# log (request line, status, time; no headers, so no tokens) in $REPORT/logs. It stops both at the end.
+SERVER_JAR=server/build/libs/hovanki-server.jar
+[[ -f $SERVER_JAR ]] || { echo "No $SERVER_JAR: run without --skip-build" >&2; exit 2; }
 
 # ---- Android emulators ----
 boot_failed() {
@@ -287,7 +277,8 @@ for udid in ${IOS_UDIDS[@]+"${IOS_UDIDS[@]}"}; do
 done
 
 # ---- Scenarios ----
-args=(devices --port "$PORT" --bots "$BOTS" --scenario "$SCENARIO" --report "$REPORT" --flows e2e/maestro)
+args=(devices --port "$PORT" --bots "$BOTS" --scenario "$SCENARIO" --report "$REPORT" --flows e2e/maestro
+  --server-jar "$SERVER_JAR" --buildings "$BUILDINGS")
 ((FAIL_FAST)) && args+=(--fail-fast true)
 [[ -n $LOCATION ]] && args+=(--location "$LOCATION")
 ((${#ANDROID_SERIALS[@]})) && args+=(--android "$(IFS=,; echo "${ANDROID_SERIALS[*]}")")
@@ -303,12 +294,10 @@ for report in "$REPORT"/*/report.md; do
   [[ -f $report ]] && { echo "===== $report"; cat "$report"; }
 done
 if ((status != 0)); then
-  # Who answers on the server port: the devices must reach this server and nothing else.
-  echo "===== listeners on :$PORT"
+  # `e2e devices` has stopped its server by now: anything still listening on the port is someone else's, which the
+  # devices may have reached instead.
+  echo "===== listeners on :$PORT after the run"
   lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || netstat -an 2>/dev/null | grep "[.:]$PORT " || true
-  for host in 127.0.0.1 '[::1]'; do
-    echo "--- http://$host:$PORT/actuator/health: $(curl -sS -m 5 "http://$host:$PORT/actuator/health" 2>&1 | head -c 200)"
-  done
   echo "===== requests other than the observer's (access log)"
   grep -hv "/api/v1/debug/\|/actuator/" "$REPORT"/logs/access*.log 2>/dev/null | tail -40 || true
   echo "===== memory"
