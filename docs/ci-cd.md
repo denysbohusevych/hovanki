@@ -44,7 +44,7 @@
 4. Приложение под этот адрес. Поля адреса в приложении нет, поэтому:
    - тестовая сборка Android под туннель: `./gradlew :androidApp:assemblePreview -Phovanki.serverUrl=https://<слова>.trycloudflare.com` и разослать APK;
    - debug-сборка — параметр запуска `server`: на Android `adb shell am start -n app.hovanki/app.hovanki.android.MainActivity --es hovanki.server https://<слова>.trycloudflare.com`, на iPhone из Xcode — `-hovanki.server https://…` в аргументах схемы ([iosApp/README.md](../iosApp/README.md#сервер)).
-5. Коды подтверждения email локальный сервер не отправляет, а пишет в свой лог (`hovanki.mail.sender: log`): при регистрации их нужно переслать игрокам. Для настоящих писем — SMTP, как на сервере в AWS ([deploy.md](deploy.md)).
+5. Коды из писем (подтверждение email, сброс пароля) локальный сервер не отправляет, а пишет в свой лог (`hovanki.mail.sender: log`). Подтверждать email необязательно, аккаунт работает сразу; код для сброса пароля нужно переслать игроку. Для настоящих писем — SMTP, как на сервере в AWS ([deploy.md](deploy.md)).
 
 Что важно знать:
 

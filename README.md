@@ -3,7 +3,7 @@
 [![CI](https://github.com/denysbohusevych/hovanki/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/denysbohusevych/hovanki/actions/workflows/ci.yml?query=branch%3Amain)
 [![Nightly](https://github.com/denysbohusevych/hovanki/actions/workflows/nightly.yml/badge.svg?event=schedule)](https://github.com/denysbohusevych/hovanki/actions/workflows/nightly.yml?query=event%3Aschedule)
 
-Уличные прятки для Android и iOS: сужающаяся зона, геолокация игроков через сервер, находка подтверждается одноразовым кодом с телефона прячущегося (QR или 4 цифры). Сервер решает, кто кого видит, и раскрывает подозрительных игроков вместо наказаний. Аккаунты с подтверждением email, друзья, группы-«компании» с приглашением в игру и чат внутри игры — всем или своей команде.
+Уличные прятки для Android и iOS: сужающаяся зона, геолокация игроков через сервер, находка подтверждается одноразовым кодом с телефона прячущегося (QR или 4 цифры). Сервер решает, кто кого видит, и раскрывает подозрительных игроков вместо наказаний. Аккаунты по нику, email и паролю (email можно подтвердить позже), друзья, группы-«компании» с приглашением в игру и чат внутри игры — всем или своей команде.
 
 ## Стек
 
@@ -112,7 +112,7 @@ open iosApp/iosApp.xcodeproj
 - [E2E-тесты](docs/e2e.md): боты, приложение на эмуляторах и симуляторах, как написать сценарий и читать отчёт.
 - [Локальный запуск e2e](docs/e2e-local.md): пошагово из Android Studio и терминала — подготовка эмуляторов и Maestro, параметры, отчёты, частые проблемы.
 - [CI/CD](docs/ci-cd.md): как поставить сборку на телефон (Android pre-release, TestFlight, Xcode по кабелю, туннель к своему серверу), быстрые проверки на push, ночные e2e, что запускать перед PR, тестовые сборки, релиз по тегу, секреты подписи, образ сервера, защита веток.
-- [Деплой сервера](docs/deploy.md): одна машина в AWS (EC2, Франкфурт), Docker Compose, PostgreSQL, Caddy с Let's Encrypt, почта, обновление и откат, бэкапы базы.
+- [Деплой сервера](docs/deploy.md): одна машина в AWS (EC2, Франкфурт), Docker Compose, Caddy с Let's Encrypt, база в Amazon RDS, почта, обновление и откат, бэкапы и восстановление базы.
 - [Roadmap](docs/roadmap.md): что уже сделано и что дальше.
 - [ADR 0001: выбор стека](docs/adr/0001-stack.md).
 - [ADR 0002: сессия на устройстве, возврат в игру после перезапуска](docs/adr/0002-session-storage.md).

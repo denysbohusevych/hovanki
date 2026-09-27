@@ -85,21 +85,18 @@ flowchart LR
 stateDiagram-v2
     [*] --> Loading: аккаунт восстанавливается
     Loading --> Welcome: не вошёл
-    Loading --> VerifyEmail: email не подтверждён
     Loading --> Main: вошёл
-    Welcome --> VerifyEmail: регистрация
-    Welcome --> Main: вход, сброс пароля
+    Welcome --> Main: регистрация, вход, сброс пароля
     Welcome --> Game: гостевой вход по коду
-    VerifyEmail --> Main: код из письма
     Main --> Game: создать игру, войти по коду или по приглашению
     Game --> Main: «Назад» с итогов, выход из игры
 ```
 
 - **Игра** (есть сессия) — экраны фаз: лобби, прятки/поиск, итоги. Они показываются поверх всего остального, в том числе гостю.
 - **`WelcomeScreen`** — вход (email или ник + пароль), регистрация, «Забыли пароль?» и гостевой вход по коду.
-- **`VerifyEmailScreen`** — код из письма, повторная отправка с таймером, смена email (опечатка при регистрации), выход.
-- **`MainScreen`** — вкладки «Играть» (создать игру, войти по коду, входящие приглашения), «Друзья», «Группы», «Профиль».
-- Чат, приглашение друзей в лобби и карточка группы — полноэкранные панели в том же окне, а не `BottomSheet` или `Dialog`: Maestro на Android не видит теги в отдельных окнах. Кнопка «Назад» на Android закрывает панель (`SystemBackHandler`).
+- **`MainScreen`** — вкладки «Играть» (создать игру, войти по коду, входящие приглашения), «Друзья», «Группы», «Профиль». Аккаунт работает сразу после регистрации; пока email не подтверждён, на «Играть» — карточка «Подтвердите email» («Ввести код» или «Позже»), в профиле — статус email и «Подтвердить».
+- **`VerifyEmailPanel`** — необязательное подтверждение email: код из письма, повторная отправка с таймером, смена email (опечатка при регистрации, нужен текущий пароль).
+- Чат, приглашение друзей в лобби, карточка группы и подтверждение email — полноэкранные панели в том же окне, а не `BottomSheet` или `Dialog`: Maestro на Android не видит теги в отдельных окнах. Кнопка «Назад» на Android закрывает панель (`SystemBackHandler`).
 
 ## Раунд: поток данных
 
@@ -152,11 +149,11 @@ stateDiagram-v2
 - Аккаунты, сессии аккаунтов, коды из писем, друзья, заявки, блокировки, группы и жалобы — в PostgreSQL. Доступ — `JdbcClient` в репозиториях (`UserRepository`, `FriendRepository`, `GroupRepository`, `ReportRepository`…), транзакции — `TransactionTemplate` в сервисах. Время в базе — `timestamptz`, значения берутся из `Clock`, а не из SQL `now()`, поэтому тесты двигают время. Схема — миграции Flyway в `server/src/main/resources/db/migration`, они только дописываются.
 - Опрос игры (`sync`) и другие игровые запросы в базу не ходят. База нужна для создания игры и входа в неё с аккаунтом, приглашений и жалоб; жалоба пишется после снятия блокировки игры.
 - Приглашения в игру (`InviteRegistry`) живут в памяти: 30 минут или пока игра в лобби. `GameJanitor` вычищает их вместе с играми.
-- `DataRetention` раз в сутки удаляет неиспользуемые сессии, неподтверждённые аккаунты, старые жалобы и заявки, истёкшие коды ([сроки](adr/0004-accounts-friends-chat.md#11-сроки-хранения-и-gdpr)).
+- `DataRetention` раз в сутки удаляет неиспользуемые сессии, старые жалобы и заявки, истёкшие коды ([сроки](adr/0004-accounts-friends-chat.md#11-сроки-хранения-и-gdpr)).
 - Здания зоны `GameService` заказывает у `BuildingLoader` при создании игры. Для Overpass загрузка идёт в отдельном пуле потоков, пока игроки в лобби; результат попадает в игру под той же блокировкой (`game.onBuildingsLoaded` / `onBuildingsUnavailable`). Источник — `hovanki.buildings.source`: `overpass` (по умолчанию), `fake` (тестовый квартал `DebugBuildings`, в тестах и профиле `e2e`), `off`.
 - Аутентификация — два вида токенов, оба в `Authorization: Bearer <token>` ([ADR 0004](adr/0004-accounts-friends-chat.md#3-два-вида-токенов)):
   - **игровой** — при создании игры или входе сервер выдаёт `PlayerSession`. Токен привязан к одной игре и одному игроку, живёт в памяти вместе с игрой; игровые маршруты получают `PlayerRef` через `PlayerRefArgumentResolver`;
-  - **аккаунтный** — при регистрации, входе и сбросе пароля (`AccountSession`). В базе хранится только SHA-256. Маршруты аккаунта получают `AuthenticatedUser` через `UserArgumentResolver`: параметр без `?` — аккаунт обязателен, с `?` — необязателен (создание игры и вход в неё). С неподтверждённым email работают только методы с `@AllowUnverifiedEmail`, остальные отвечают 403 `EMAIL_NOT_VERIFIED`.
+  - **аккаунтный** — при регистрации, входе и сбросе пароля (`AccountSession`). В базе хранится только SHA-256. Маршруты аккаунта получают `AuthenticatedUser` через `UserArgumentResolver`: параметр без `?` — аккаунт обязателен, с `?` — необязателен (создание игры и вход в неё). Подтверждённый email не нужен ни одному маршруту.
 
 ## Модель времени
 
@@ -295,23 +292,23 @@ sequenceDiagram
 | POST | `/api/v1/games/{gameId}/chat/{seq}/report` | игровой | любой игрок, на чужое сообщение, которое он видит | — | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/invites` | игровой | игрок с аккаунтом, в LOBBY: своих друзей или свою группу | `InviteRequest` | `GameSnapshot` |
 
-**Аккаунт.** С неподтверждённым email работают только маршруты, отмеченные «можно без подтверждения».
+**Аккаунт.** Подтверждать email необязательно: аккаунт работает сразу после регистрации, все маршруты — и без подтверждения.
 
 | Метод | Путь | Токен | Тело запроса | Ответ |
 |---|---|---|---|---|
-| POST | `/api/v1/accounts` | — | `RegisterRequest` | `AccountSession`, email не подтверждён, код уходит письмом |
+| POST | `/api/v1/accounts` | — | `RegisterRequest` | `AccountSession`: аккаунт работает сразу; email не подтверждён, код уходит письмом |
 | POST | `/api/v1/accounts/login` | — | `LoginRequest` (email или ник) | `AccountSession` |
-| POST | `/api/v1/accounts/logout` | аккаунт, можно без подтверждения | — | 204 |
+| POST | `/api/v1/accounts/logout` | аккаунт | — | 204 |
 | POST | `/api/v1/accounts/password-reset` | — | `PasswordResetRequest` | 204 всегда |
 | POST | `/api/v1/accounts/password-reset/confirm` | — | `PasswordResetConfirmRequest` | `AccountSession`; остальные сессии отозваны, email подтверждён |
-| GET | `/api/v1/me` | аккаунт, можно без подтверждения | — | `UserProfile` |
-| POST | `/api/v1/me/email/verify` | аккаунт, можно без подтверждения | `VerifyEmailRequest` | `UserProfile` |
-| POST | `/api/v1/me/email/resend` | аккаунт, можно без подтверждения | — | 204 |
-| POST | `/api/v1/me/email` | аккаунт, только пока email не подтверждён | `ChangeEmailRequest` | `UserProfile` |
-| POST | `/api/v1/me/password` | аккаунт, можно без подтверждения | `ChangePasswordRequest` | 204; остальные сессии отозваны |
-| POST | `/api/v1/me/delete` | аккаунт, можно без подтверждения | `DeleteAccountRequest` | 204 |
+| GET | `/api/v1/me` | аккаунт | — | `UserProfile` |
+| POST | `/api/v1/me/email/verify` | аккаунт | `VerifyEmailRequest` | `UserProfile` |
+| POST | `/api/v1/me/email/resend` | аккаунт | — | 204 |
+| POST | `/api/v1/me/email` | аккаунт, только пока email не подтверждён | `ChangeEmailRequest` (новый email и текущий пароль) | `UserProfile`; код уходит на новый адрес |
+| POST | `/api/v1/me/password` | аккаунт | `ChangePasswordRequest` | 204; остальные сессии отозваны |
+| POST | `/api/v1/me/delete` | аккаунт | `DeleteAccountRequest` | 204 |
 
-**Друзья, группы, входящие.** Токен — аккаунт с подтверждённым email.
+**Друзья, группы, входящие.** Токен — аккаунт.
 
 | Метод | Путь | Тело запроса | Ответ |
 |---|---|---|---|
@@ -340,7 +337,7 @@ sequenceDiagram
 |---|---|---|---|
 | `BAD_REQUEST` | 400 | Некорректное тело, путь или настройки, неверное имя, больше 100 точек в `sync` | `INVALID_NICKNAME`, `INVALID_EMAIL`, `INVALID_PASSWORD`, `INVALID_GROUP_NAME`, `INVALID_MESSAGE` |
 | `UNAUTHORIZED` | 401 | Нет токена, игра уже удалена вместе с токенами, аккаунт-токен отозван или истёк | `SESSION_EXPIRED` |
-| `FORBIDDEN` | 403 | Действие не для этой роли / игрока, токен от другой игры, неверный логин или пароль, email не подтверждён | `WRONG_CREDENTIALS`, `EMAIL_NOT_VERIFIED`, `ACCOUNT_REQUIRED`, `NOT_FRIENDS`, `NOT_GROUP_OWNER`, `NOT_GROUP_MEMBER` |
+| `FORBIDDEN` | 403 | Действие не для этой роли / игрока, токен от другой игры, неверный логин или пароль | `WRONG_CREDENTIALS`, `ACCOUNT_REQUIRED`, `NOT_FRIENDS`, `NOT_GROUP_OWNER`, `NOT_GROUP_MEMBER` |
 | `NOT_FOUND` | 404 | Нет игры, игрока, заявки, пользователя, группы | `USER_NOT_FOUND` |
 | `WRONG_STATE` | 409 | Не та фаза, заявка закрыта, игра заполнена, ник или email заняты, лимит | `NICKNAME_TAKEN`, `EMAIL_TAKEN`, `LIMIT_REACHED`, `BLOCKED_BY_YOU` |
 | `WRONG_STATE` | 429 | Слишком много запросов; `Retry-After` — через сколько секунд повторить | `TOO_MANY_REQUESTS` |
@@ -360,7 +357,7 @@ sequenceDiagram
 ### Новый эндпоинт
 
 1. `:shared` — путь в `ApiRoutes` (шаблон + функция-построитель), DTO запроса в `Messages.kt` (`@Serializable`, новые поля с дефолтами). Тест сериализации в `commonTest`, если формат нетривиальный.
-2. `:server` — метод доменного объекта `Game` (время параметром, ошибки через `GameException(ErrorCode, ...)`, точная причина — `reason`) и юнит-тест на него; метод `GameService` через `update(caller, gameId) { game, now -> ... }`, чтобы получить блокировку, `advance(now)` и снапшот; маппинг в контроллере. Маршрут аккаунта — параметр `AuthenticatedUser` в контроллере (`@AllowUnverifiedEmail`, если он нужен до подтверждения email), логика — в сервисе пакета `account/` или `social/`, тест — MockMvc (`AccountApiTest`, `SocialApiTest`).
+2. `:server` — метод доменного объекта `Game` (время параметром, ошибки через `GameException(ErrorCode, ...)`, точная причина — `reason`) и юнит-тест на него; метод `GameService` через `update(caller, gameId) { game, now -> ... }`, чтобы получить блокировку, `advance(now)` и снапшот; маппинг в контроллере. Маршрут аккаунта — параметр `AuthenticatedUser` в контроллере, логика — в сервисе пакета `account/` или `social/`, тест — MockMvc (`AccountApiTest`, `SocialApiTest`).
 3. `:clientCore` — метод в `GameApi`/`HttpGameApi` и команда в `GameSessionManager` (ответ-снапшот — в ту же точку, куда приходят снапшоты синхронизации); `:composeApp` — вызов из состояния экрана.
 4. Обновить таблицу API выше.
 
