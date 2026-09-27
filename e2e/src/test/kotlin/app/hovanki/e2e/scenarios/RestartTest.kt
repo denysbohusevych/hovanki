@@ -99,4 +99,121 @@ class RestartTest {
         }
         check(anna.storage.read("session") == null, "the finished game is no longer saved on the phone")
     }
+
+    /** Apps killed in the lobby come back to it: the host is still the host and starts the game, nobody is doubled. */
+    @Test
+    fun relaunchedInTheLobby() = scenario("App relaunched in the lobby") {
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK.offset(northMeters = 30.0))
+        val boris = player("Boris", at = PARK.offset(northMeters = -40.0))
+
+        sam.createsGame(GameSetups.fast())
+        join(anna, boris)
+        sam.killApp()
+        anna.killApp()
+        sam.launchApp()
+        anna.launchApp()
+        awaitThat("both relaunched apps are back in the lobby", 10.seconds) {
+            listOf(sam, anna).all { it.snapshot?.phase == GamePhase.LOBBY && !it.state.isResuming }
+        }
+        check(sam.state.session?.playerId == sam.id && anna.state.session?.playerId == anna.id, "the same players")
+        check(sam.snapshot?.hostId == sam.id, "Sam is still the host")
+        check(state().players.size == 3, "nobody was added")
+
+        sam.startsGame(seekers = listOf(sam))
+        awaitPhase(GamePhase.HIDING)
+        awaitThat("Anna's relaunched app has her catch code") { anna.snapshot?.me?.catchCodeSecret != null }
+    }
+
+    /** The hider's app dies right after a claim: relaunched, it shows the code again, and the code catches. */
+    @Test
+    fun hiderRelaunchedDuringAClaim() = scenario("Hider relaunched during a claim") {
+        val codeTimeout = 30
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK.offset(eastMeters = 15.0))
+        val boris = player("Boris", at = PARK.offset(eastMeters = -60.0))
+
+        sam.createsGame(GameSetups.fast(rules = rules.copy(catchCodeTimeoutSeconds = codeTimeout)))
+        join(anna, boris)
+        sam.startsGame(seekers = listOf(sam))
+        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+
+        sam.claimsCatch(anna)
+        awaitThat("Anna sees the claim") { anna.snapshot?.catches?.any { it.hiderId == anna.id } == true }
+        anna.killApp()
+        delay(5.seconds)
+        anna.launchApp()
+        awaitThat("Anna's relaunched app is back in the game", 10.seconds) {
+            anna.snapshot?.phase == GamePhase.SEEKING && !anna.state.isResuming
+        }
+        sam.entersCodeShownBy(anna)
+        val claim = awaitCatch(anna, CatchStatus.CONFIRMED)
+        check(
+            claim.deadlineMillis < claim.createdAtMillis + codeTimeout * 1000L,
+            "confirmed by the code, before the code timeout",
+        )
+    }
+
+    /** The seeker's app dies right after the claim: relaunched, it shows the open claim and takes the code. */
+    @Test
+    fun seekerRelaunchedAfterClaiming() = scenario("Seeker relaunched after claiming") {
+        val codeTimeout = 30
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK.offset(eastMeters = 15.0))
+        val boris = player("Boris", at = PARK.offset(eastMeters = -60.0))
+
+        sam.createsGame(GameSetups.fast(rules = rules.copy(catchCodeTimeoutSeconds = codeTimeout)))
+        join(anna, boris)
+        sam.startsGame(seekers = listOf(sam))
+        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+
+        sam.claimsCatch(anna)
+        sam.killApp()
+        delay(3.seconds)
+        sam.launchApp()
+        awaitThat("Sam's relaunched app shows the open claim", 10.seconds) {
+            sam.snapshot?.catches?.any { it.hiderId == anna.id && it.status == CatchStatus.AWAITING_CODE } == true
+        }
+        sam.entersCodeShownBy(anna)
+        val claim = awaitCatch(anna, CatchStatus.CONFIRMED)
+        check(
+            claim.deadlineMillis < claim.createdAtMillis + codeTimeout * 1000L,
+            "confirmed by the code, before the code timeout",
+        )
+    }
+
+    /**
+     * The app starts without network: it keeps the saved game and keeps trying, like a running game. Once the network
+     * is back it is in the game and fresh fixes hide the player again.
+     */
+    @Test
+    fun relaunchedOffline() = scenario("App relaunched offline") {
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK.offset(northMeters = 30.0))
+        val boris = player("Boris", at = PARK.offset(northMeters = -60.0))
+
+        sam.createsGame(GameSetups.fast())
+        join(anna, boris)
+        sam.startsGame(seekers = listOf(sam))
+        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+        delay(2.seconds)
+
+        anna.killApp()
+        anna.losesNetwork()
+        anna.launchApp()
+        awaitThat("Anna's app resumes the saved game") { anna.state.isResuming }
+        holdsFor("Anna's app keeps the saved game and keeps trying", 20.seconds) {
+            anna.state.session?.playerId == anna.id && anna.storage.read("session") != null
+        }
+        awaitReveal(anna, VisibilityReason.STALE_SIGNAL, to = sam, within = 5.seconds)
+
+        anna.regainsNetwork()
+        awaitThat("Anna's app is back in the game", 20.seconds) {
+            anna.snapshot?.phase == GamePhase.SEEKING && !anna.state.isResuming
+        }
+        awaitThat("fresh fixes hide Anna from Sam again", 10.seconds) {
+            sam.snapshot?.players?.single { it.id == anna.id }?.location == null
+        }
+        check(anna.backgroundTracker.isRunning, "background tracking is back")
+    }
 }

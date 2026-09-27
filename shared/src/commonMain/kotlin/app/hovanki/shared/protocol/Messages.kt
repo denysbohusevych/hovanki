@@ -6,7 +6,16 @@ import kotlinx.serialization.Serializable
 data class CreateGameRequest(val playerName: String, val settings: GameSettings)
 
 @Serializable
-data class JoinGameRequest(val joinCode: String, val playerName: String)
+data class JoinGameRequest(
+    val joinCode: String,
+    val playerName: String,
+    /**
+     * Made up by the app for one press of "Join" and sent again when that press got no answer
+     * ([app.hovanki.shared.rules.RequestIds]): the server gives back the player it created for it, instead of a second
+     * one. Null (older apps): every request is a new player.
+     */
+    val requestId: String? = null,
+)
 
 /** Credentials of one player in one game; the token goes to `Authorization: Bearer <token>`. */
 @Serializable
@@ -45,6 +54,11 @@ data class SendChatRequest(
     val team: Boolean = false,
     /** Chat cursor like [SyncRequest.chatAfter]: the response brings the new messages, including this one. */
     val chatAfter: Long? = null,
+    /**
+     * Made up by the app for the message and sent again when sending got no answer
+     * ([app.hovanki.shared.rules.RequestIds]): the server keeps the message once. Null (older apps): no check.
+     */
+    val clientMessageId: String? = null,
 )
 
 /** Invites friends into the game (lobby only): [userIds] and/or every member of [groupId]. */

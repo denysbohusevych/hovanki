@@ -8,7 +8,7 @@
 | Медленный | приложение на Android-эмуляторах и iOS-симуляторах + боты | локально (в том числе из Android Studio) и nightly (`nightly.yml`, job'ы `Android emulators`, `iOS simulator`) | `./gradlew :e2e:devices` (свои эмуляторы) или `e2e/run-devices.sh --android 2 --bots 3` |
 
 Оба слоя на push не запускаются: `ci.yml` остаётся быстрым, а `./gradlew check` не зависит от `:e2e:test`. Поэтому:
-- меняете правила, протокол или поведение клиент–сервер — перед PR сами запустите `./gradlew :e2e:test` (~3 мин, работает и в облачном контейнере без KVM);
+- меняете правила, протокол или поведение клиент–сервер — перед PR сами запустите `./gradlew :e2e:test` (~5 мин, работает и в облачном контейнере без KVM);
 - меняете UI или платформенный код — запустите сценарии на своих эмуляторах из Android Studio ([e2e-local.md](e2e-local.md)) или ночной workflow вручную на своей ветке (`suite=devices`, [ниже](#ci)).
 
 Подробности и таблица «что запускать» — [ci-cd.md](ci-cd.md#что-запускать-перед-pr). Как запустить оба слоя у себя, пошагово и с разбором частых проблем, — [e2e-local.md](e2e-local.md).
@@ -34,7 +34,7 @@ flowchart LR
 ### Запуск
 
 ```bash
-./gradlew :e2e:test                               # все сценарии, ~3 мин
+./gradlew :e2e:test                               # все сценарии, ~5 мин
 ./gradlew :e2e:test --tests '*ZoneTest*'          # один класс
 ./gradlew :e2e:test --tests '*NetworkTest.networkOutageOf30Seconds'
 ```
@@ -92,6 +92,8 @@ HOVANKI_E2E_SERVER_URL=http://localhost:8080 ./gradlew :e2e:test
 
 Нарушение валит сценарий.
 
+**Сервер не падает.** Ни один ответ боту в любом сценарии не может быть 5xx: после проверки приватности `checkNoServerErrors` валит сценарий со списком таких запросов (наблюдатель падает на любой ошибке сам).
+
 ### Наблюдатель
 
 Проверки идут по правде сервера, а не по тому, что видят боты. Debug-эндпоинт `GET /api/v1/debug/games` и `/api/v1/debug/games/{gameId}` (`DebugController`, DTO — `app.hovanki.shared.debug`) отдаёт полное состояние:
@@ -118,6 +120,11 @@ HOVANKI_E2E_SERVER_URL=http://localhost:8080 ./gradlew :e2e:test
 | Класс | Сценарий | Что проверяет |
 |---|---|---|
 | `FullRoundTest` | Full round | Лобби по коду, старт с одним ищущим, прячущиеся расходятся (один с «городским» шумом), зона сужается, три находки по коду, игра заканчивается, когда пойманы все; фоновый трекинг включается и выключается. Итоги остаются на экране и продолжают обновляться (ради чата), пока игрок их не закроет (`leave`); сохранённой сессии уже нет |
+| `PhasesTest` | Seeking time runs out | Никого не поймали: FINISHED ровно по концу поиска; открытая в этот момент заявка → `REJECTED`, прячущиеся не пойманы; итоги у всех, фон выключен, сессии нет |
+| | No hiding time | `hidingSeconds = 0`: старт сразу отвечает SEEKING, зона стартует вместе с игрой, находка работает |
+| | Lobby mistakes | Неизвестный код → `NOT_FOUND`, код строчными и с пробелами работает; старт не хостом → `FORBIDDEN`, без ищущих и «все ищущие» → `BAD_REQUEST`; заявка в HIDING → `WRONG_STATE` |
+| | A ghost from the lobby | «Выйти» только локально: вышедший из лобби остаётся прячущимся без игрока. Ищущий видит его `STALE_SIGNAL` в точке из лобби, игра не кончается, пока его не заявят «вслепую» с любого расстояния и молчание не подтвердит. Фиксирует текущее поведение до выхода на сервере ([roadmap](roadmap.md)) |
+| `SeekersTest` | Two seekers | Ищущие видят друг друга `TEAMMATE` в HIDING и SEEKING; двое одновременно заявляют одного прячущегося — принята ровно одна заявка; ищущий с открытой заявкой не может открыть вторую |
 | `AccountTest` | Sign up, confirm the email later | Регистрация: вход сразу, email не подтверждён, а аккаунт уже работает (друзья и входящие грузятся); письмо на языке приложения; ник и email заняты без учёта регистра; неверный код → `INVALID_CODE` без `reason`; повторная отправка — новый код заменяет старый; подтверждение |
 | | An account plays before confirming its email | Аккаунт с неподтверждённым email создаёт игру и играет под ником (`PlayerView.userId`) вплоть до итогов, гость — с `userId = null`; на экране итогов вошедший подтверждает email кодом из письма при регистрации, игра этого не замечает |
 | | Log in by nickname and by email | Новые телефоны: неверный пароль и неизвестный ник — одинаковый `WRONG_CREDENTIALS`; вход по нику и по неподтверждённому email без учёта регистра; перезапущенное приложение снова в аккаунте; выход на одном телефоне не трогает другие |
@@ -142,15 +149,34 @@ HOVANKI_E2E_SERVER_URL=http://localhost:8080 ./gradlew :e2e:test
 | | Dispute without votes, close | Рядом, голосов нет → `CONFIRMED` |
 | | Claim from far away | 150 м → `TOO_FAR`, заявка не создаётся |
 | | Claim without seeker location | GPS ищущего выключен с начала → `NO_LOCATION` |
+| | Wrong codes | 4 неверных кода, потом верный → `CONFIRMED`; 5 неверных → `REJECTED`, прячущийся в игре, новая заявка на него принимается |
+| | Code read aloud late | Период кода 10 с: код прошлого периода принимается, код двумя периодами раньше — `INVALID_CODE` |
+| | Hider without GPS | У прячущегося ни одной точки: заявка с 150 м принимается (GPS нечем опровергнуть), спор без голосов → `CONFIRMED` |
+| | Invalid claims | Заявка на пойманного и на выбывшего → `WRONG_STATE`, от прячущегося → `FORBIDDEN`; код чужой заявки и спор чужой заявки → `FORBIDDEN`; спор закрытой заявки → `WRONG_STATE` |
+| `DisputeTest` | Frozen during a dispute | Прячущийся оспорил и ушёл за зону дольше окна решений — ни предупреждения, ни раскрытия, ни выбывания; спор отклонён — правило зоны снова действует |
+| | Dispute one on one | Двое в игре: голосовать некому, спор решается сразу правилом по умолчанию |
+| | Who votes in a dispute | Голосуют второй ищущий, прячущийся и пойманный; участники спора — `FORBIDDEN`; `canVote` / `myVote` на экранах; спор закрывается последним голосом по большинству; голос после — `WRONG_STATE` |
+| | A tie falls back to GPS | Голоса 1 : 1 — правило по умолчанию сразу после последнего голоса (рядом → `CONFIRMED`) |
 | `ZoneTest` | Out of the zone and back | Предупреждение, раскрытие `OUT_OF_ZONE`, возврат снимает предупреждение, после старого дедлайна игрок в игре |
 | | Out of the zone for good | `ELIMINATED` только после grace-периода |
 | | One bad fix outside the border | Одна принятая точка за границей (прыжок) — ни предупреждения, ни раскрытия |
 | | One bad fix inside the border | Одна точка «внутри» не снимает предупреждение и не сбрасывает таймер |
+| | The zone shrinks onto a hider | Зона сужается и смещается от стоящего прячущегося: предупреждение не раньше, чем круг оставил его уверенно снаружи, и в пределах пары sync после; телефоны получают то же расписание и начало зоны, что у сервера; ушедший вместе с зоной не предупреждён |
+| | Outside the zone while hiding | В HIDING зона не действует: ни предупреждений, ни раскрытий; кто остался снаружи к началу поиска — предупреждён сразу и выбывает по grace; вернувшийся вовремя — никогда не предупреждён |
 | `FairPlayTest` | GPS off, app keeps syncing | Молчание GPS при живом sync → `STALE_SIGNAL` через `staleLocationRevealSeconds`, в последней известной точке |
 | | Mock location | Мок-точки → `MOCK_LOCATION`; в трек не попадают, ищущий видит последнюю честную точку |
 | | Teleport | Скачок на ~1 км → точки отброшены как невозможные, зона не решает, затем `STALE_SIGNAL` в настоящей точке |
+| | GPS off since the hiding phase | GPS выключен в начале пряток: в HIDING не раскрыт, в SEEKING `STALE_SIGNAL` через `staleLocationRevealSeconds` от последней точки (через несколько секунд поиска, а не от его начала) |
+| | Mock location while hiding | Mock-точки в прятках: в HIDING не раскрыт, с началом поиска — `MOCK_LOCATION`, через минуту после последней mock-точки снова скрыт |
 | `NetworkTest` | Network outage for 30 s | Во время обрыва — `STALE_SIGNAL`; после — `LocationOutbox` отдаёт всё накопленное без потерь и отбраковки, состояние сходится |
 | | Device clocks off by ±2 min | Точки в порядке и во времени сервера, обратный отсчёт верный, код по `ServerClock` принимается, код по часам телефона — нет |
+| | Claim response lost | Сервер создал заявку, ответ потерян: повторное «нашёл» → `WRONG_STATE`, следующий опрос показывает заявку, код принимается, ошибки на экране нет |
+| | Join response lost | Гость вошёл, ответ потерян, он жмёт «Войти» ещё раз: тот же `requestId` — тот же игрок, в лобби одна Анна, и она играет как обычно |
+| | Other responses lost | Потерянные ответы на код (повтор — отказ, экраны сходятся к `CONFIRMED`), голос (повтор не добавляет голос) и сообщение чата (тот же `clientMessageId` — одна копия); чат у всех совпадает с сервером |
+| | Network outage for 150 s | Дольше, чем держит outbox (100 точек): доходят только последние, ни одного 400; приложение снова синхронизируется в пределах ~5 с после появления сети (пауза между попытками не больше 5 с), свежие точки снимают `STALE_SIGNAL` |
+| | Commands offline | Заявка, код и чат без сети — `Failed` и `SessionError.Network`, на сервере ничего; с сетью тот же шаг проходит |
+| | Phone clock jumps mid-game | Часы телефона +1 ч, потом −90 мин посреди игры: теряются не больше пары точек до следующего опроса, `STALE_SIGNAL` нет, `ServerClock` верный, код принимается |
+| | Slow and flaky network | У всех 2 с на запрос и 20 % отказов, игроки жмут повторно: точки доходят, никого не раскрыли как молчащего (порог — боевые 45 с: опрос после неудач ждёт 1, 2, 4, потом по 5 с), находка проходит, чат у всех полный, по порядку, без дублей |
 | `BuildingsTest` | Hiding in a building | Приложение хоста загрузило здания, которые рисует карта (`GET /buildings`). Прячущийся заходит в квартал: предупреждение с временем раскрытия, ищущий его пока не видит; через `insideBuildingRevealSeconds` — раскрытие с `cause = INSIDE_BUILDING` и `reason = OUT_OF_ZONE` для старых клиентов, игрок не выбывает; вышел — раскрытие и предупреждение сняты |
 | | One GPS jump into a building | Одна принятая точка на 18 м внутрь квартала — ни предупреждения, ни раскрытия |
 | | Out of a building before the reveal | Вышел до раскрытия — предупреждение снято, ищущий его так и не увидел |
@@ -160,6 +186,10 @@ HOVANKI_E2E_SERVER_URL=http://localhost:8080 ./gradlew :e2e:test
 | `PrivacyTest` | Privacy through a whole game | Партия со всеми раскрытиями: ищущие видели ровно `TEAMMATE`, `MOCK_LOCATION`, `STALE_SIGNAL`, `OUT_OF_ZONE` нужных игроков, прячущиеся — никого |
 | `RestartTest` | App killed and relaunched mid-round | Пока приложение мертво, сервер держит игрока и раскрывает его как `STALE_SIGNAL`. Перезапущенное приложение возвращается в игру по сохранённой сессии: тот же игрок, снова есть секрет кода и фоновый трекинг, свежие точки снимают `STALE_SIGNAL`. Заявка подтверждается кодом с экрана, до таймаута |
 | | App relaunched after the game ended | Приложение убито, игра тем временем закончилась. Перезапущенное находит сохранённую сессию, узнаёт у сервера `FINISHED`, стирает её и показывает главный экран с `SavedGameFinished` |
+| | App relaunched in the lobby | Хост и гость убиты в лобби и запущены: снова в лобби теми же игроками, хост стартует игру, никого не добавилось |
+| | Hider relaunched during a claim | Прячущийся убит сразу после заявки: после запуска снова показывает код, находка по коду до таймаута |
+| | Seeker relaunched after claiming | Ищущий убит после заявки: после запуска видит открытую заявку и вводит код |
+| | App relaunched offline | Запуск без сети: сохранённая игра не стирается, приложение повторяет попытки; с сетью — снова в игре, раскрытие снято |
 | `LoadTest` | Load: 3 games x 30 bots | 3 параллельные игры по `Game.MAX_PLAYERS`, sync раз в 3 с, 40 с игры: ноль ошибок, все точки доходят, p95 `/sync` < 500 мс |
 
 ### Как написать новый сценарий
@@ -187,11 +217,13 @@ class MyTest {
 
 - `scenario(name) { ... }` (в `e2e/src/test`) запускает партию против `E2eServer`, пишет отчёт и проверяет приватность.
 - Игроки: `player(name, at, noise, behavior, clockSkew)`.
-- Действия бота: `walksTo`, `arrives`, `follows(route)`, `teleportsTo`, `turnsGpsOff/On`, `startsMockingLocation`, `losesNetwork/regainsNetwork`, `claimsCatch`, `entersCodeShownBy`, `catches`, `killApp/launchApp`, `vote`, `dispute`, `leave`.
+- Действия бота: `walksTo`, `arrives`, `follows(route)`, `teleportsTo`, `turnsGpsOff/On`, `startsMockingLocation`, `losesNetwork/regainsNetwork`, `claimsCatch`, `entersCodeShownBy`, `catches`, `killApp/launchApp`, `vote`, `dispute`, `leave`, `changesClockBy(duration)`.
+- Плохая сеть (`FakeNetwork`): `losesResponseTo(path)` — сервер получил запрос и ответил, ответ потерян; `hasSlowNetwork(latency)`; `hasFlakyNetwork(rate)` — доля запросов падает, не дойдя до сервера; `hasGoodNetwork()`. Человек на плохой сети жмёт ещё раз: `pressesUntilOk(what) { ... }`.
+- Заявки и споры чужих игроков (то, что приложение не предлагает, а изменённое может прислать): `confirmCatch(claimId, code)`, `dispute(claimId)`.
 - Аккаунты: `newAccount(name)` — уникальные ник и email (сценарии идут параллельно на одном сервере), `bot.signsUp()` — регистрация: аккаунт работает сразу, email остаётся неподтверждённым, как у большинства игроков; `bot.confirmsEmail()` — код из письма, когда сценарию нужно подтверждение; `bot.logsIn(account, login)`, `bot.resetsPassword(account, newPassword)`, `bot.newPhone()`, `emailedCode(email, purpose, known)`. Кнопки по отдельности — у `BotPlayer`: `register`, `verifyEmail`, `resendCode`, `changeEmail(email, password)`, `logIn`, `logOut`, `requestPasswordReset`, `resetPassword`, `changePassword`, `deleteAccount`, `refreshAccount`; состояние — `accountState` (`hasUnconfirmedEmail` / `hasConfirmedEmail`), `userId`.
 - Друзья, группы, приглашения и чат (`BotPlayer`, через `SocialManager` и `GameSessionManager`): `sendFriendRequest(nickname | userId)`, `acceptFriendRequest`, `block`, `createGroup`, `addGroupMembers`, `refreshInbox` / `inbox`, `invite(userIds, groupId)`, `sendChat(text, team)`, `reportChat(seq)`, `chat` (строки, как в панели чата). В сценарии: `bot.befriends(other)` — заявка по нику и принятие, `bot.createsGroup(name, members)`.
 - Правда сервера: `state()`, `bot.onServer()`, `lastClaimOn(hider)`.
-- Ожидания: `awaitPhase`, `awaitCatch`, `awaitStatus`, `awaitReveal(hider, reason, to = seeker)`, общее `eventually { ... }` / `awaitThat { ... }`, `holdsFor(period) { ... }` — «всё это время».
+- Ожидания: `awaitPhase`, `awaitCatch`, `awaitStatus`, `awaitReveal(hider, reason, to = seeker)`, `awaitServerTime(millis)`, общее `eventually { ... }` / `awaitThat { ... }`, `holdsFor(period) { ... }` — «всё это время».
 - Проверки: `check(condition, what)`, `requireOk(result, what)`, `expectRejected(result, ErrorCode.X, what)` или `expectRejected(result, ErrorReason.X, what)`. Каждая успешная проверка попадает в таймлайн с «✓».
 
 Советы:

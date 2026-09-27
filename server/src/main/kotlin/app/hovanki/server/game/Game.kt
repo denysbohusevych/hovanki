@@ -54,6 +54,9 @@ class Game(
 ) {
     private val rules = settings.rules
     private val players = LinkedHashMap<PlayerId, Player>()
+
+    /** Players by the join request that created them (`JoinGameRequest.requestId`), see [playerOfJoinRequest]. */
+    private val playersByJoinRequest = HashMap<String, PlayerId>()
     private val catches = LinkedHashMap<CatchId, CatchClaim>()
 
     /** The last [ChatRules.HISTORY_SIZE] chat messages, oldest first. */
@@ -94,16 +97,26 @@ class Game(
         return buildings.copy(state = buildingsState)
     }
 
-    /** A new player, only in the lobby; [userId] is their account (null: a guest), at most one player per account. */
-    fun addPlayer(id: PlayerId, name: String, nowMillis: Long, userId: UserId? = null) {
+    /**
+     * A new player, only in the lobby; [userId] is their account (null: a guest), at most one player per account.
+     * [joinRequestId]: the app's id for the join request, see [playerOfJoinRequest].
+     */
+    fun addPlayer(id: PlayerId, name: String, nowMillis: Long, userId: UserId? = null, joinRequestId: String? = null) {
         requirePhase(GamePhase.LOBBY)
         if (players.size >= MAX_PLAYERS) throw GameException(ErrorCode.WRONG_STATE, "The game is full")
         if (userId != null && playerOf(userId) != null) {
             throw GameException(ErrorCode.WRONG_STATE, "This account already plays in this game")
         }
         players[id] = Player(id, name, LocationTrack(rules), userId)
+        if (joinRequestId != null) playersByJoinRequest[joinRequestId] = id
         lastActivityMillis = nowMillis
     }
+
+    /**
+     * The player that join request [requestId] created, if any: the app sent the request again because the answer got
+     * lost, and gets that player back instead of a second one.
+     */
+    fun playerOfJoinRequest(requestId: String): PlayerId? = playersByJoinRequest[requestId]
 
     /** The player of the account [userId] in this game, if it has one. */
     fun playerOf(userId: UserId): PlayerId? = players.values.firstOrNull { it.userId == userId }?.id
@@ -216,9 +229,18 @@ class Game(
      * A chat message by [playerId], in any phase (the results screen has a chat too): to everybody, or with [team] to
      * the sender's team only (not in the lobby, see [ChatRules.channelFor]). [text] is cleaned ([ChatRules.clean]);
      * at most [ChatRules.RATE_LIMIT_MESSAGES] per player within [ChatRules.RATE_LIMIT_WINDOW_MILLIS].
+     * [clientMessageId]: the app's id for the message; sent again (the answer got lost), the message is kept once and
+     * returned as it was, without counting towards the limit.
      */
-    fun sendChat(playerId: PlayerId, text: String, team: Boolean, nowMillis: Long): ChatMessage {
+    fun sendChat(
+        playerId: PlayerId,
+        text: String,
+        team: Boolean,
+        nowMillis: Long,
+        clientMessageId: String? = null,
+    ): ChatMessage {
         val sender = player(playerId)
+        clientMessageId?.let { sender.chatByClientId[it] }?.let { return it }
         val cleaned = ChatRules.clean(text)
         if (cleaned.length !in 1..ChatRules.MAX_LENGTH) {
             throw GameException(
@@ -246,6 +268,11 @@ class Game(
         )
         chat.addLast(message)
         while (chat.size > ChatRules.HISTORY_SIZE) chat.removeFirst()
+        if (clientMessageId != null) {
+            val byClientId = sender.chatByClientId
+            byClientId[clientMessageId] = message
+            if (byClientId.size > CHAT_IDS_KEPT) byClientId.remove(byClientId.keys.first())
+        }
         lastActivityMillis = nowMillis
         return message
     }
@@ -582,6 +609,9 @@ class Game(
 
         /** When the player's recent chat messages were sent, oldest first (the chat's rate limit). */
         val chatSentAtMillis = ArrayDeque<Long>()
+
+        /** The player's last [CHAT_IDS_KEPT] messages by the app's id for them (`SendChatRequest.clientMessageId`). */
+        val chatByClientId = LinkedHashMap<String, ChatMessage>()
     }
 
     private class CatchClaim(
@@ -602,6 +632,9 @@ class Game(
         const val MAX_PLAYERS = 30
         private const val MAX_CATCHES_IN_SNAPSHOT = 20
         private const val MOCK_REVEAL_MILLIS = 60_000L
+
+        /** A message is sent again within seconds of the first try: a few ids per player are plenty. */
+        private const val CHAT_IDS_KEPT = 20
     }
 }
 

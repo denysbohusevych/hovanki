@@ -4,7 +4,7 @@
 
 | Слой | Что проверяет | Что нужно | Время | Как запустить |
 |---|---|---|---|---|
-| Боты | правила, протокол, клиент–сервер: целые партии headless-ботов на коде `:clientCore` | только JDK | ~3 мин | конфигурация `E2E bots (no emulators)` или `./gradlew :e2e:test` |
+| Боты | правила, протокол, клиент–сервер: целые партии headless-ботов на коде `:clientCore` | только JDK | ~5 мин | конфигурация `E2E bots (no emulators)` или `./gradlew :e2e:test` |
 | Устройства | настоящее приложение на эмуляторах вместе с ботами: экраны, тапы, фон, перезапуск | Android SDK, 1–2 эмулятора, Maestro | несколько минут на сценарий | конфигурации `E2E emulators: …` или `./gradlew :e2e:devices` |
 | Устройства, iOS | то же на iOS-симуляторе | Mac, Xcode 26.4+, Maestro | ~20 мин | `e2e/run-devices.sh --ios 1` |
 
@@ -68,7 +68,7 @@ adb devices                        # запущенные эмуляторы: em
 ### Из терминала
 
 ```bash
-./gradlew :e2e:test                                           # все сценарии, ~3 мин
+./gradlew :e2e:test                                           # все сценарии, ~5 мин
 ./gradlew :e2e:test --tests '*ZoneTest*'                      # один класс
 ./gradlew :e2e:test --tests '*NetworkTest.networkOutageOf30Seconds'
 ```

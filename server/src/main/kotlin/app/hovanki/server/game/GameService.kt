@@ -28,6 +28,7 @@ import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VoteRequest
+import app.hovanki.shared.rules.RequestIds
 import app.hovanki.shared.rules.boundingCircle
 import org.springframework.stereotype.Service
 import java.time.Clock
@@ -73,10 +74,12 @@ class GameService(
     /**
      * Joins the game of [JoinGameRequest.joinCode] as a new player, in the lobby only. [user]: the caller's account
      * (null: a guest). An account that already has a player in the game gets that player back instead, in any phase (a
-     * reinstalled app, a second phone): a new token, and the player's old tokens stop working. Either way, the account's
-     * invitation into the game is answered.
+     * reinstalled app, a second phone): a new token, and the player's old tokens stop working. So does a join request
+     * sent again ([JoinGameRequest.requestId]: its answer got lost), guest or not. Either way, the account's invitation
+     * into the game is answered.
      */
     fun join(request: JoinGameRequest, user: AuthenticatedUser? = null): SessionResponse {
+        val requestId = request.requestId?.let(::validRequestId)
         // The nickname comes from the database, outside the game's lock: the game's other requests never wait for it.
         val name = playerName(request.playerName, user)
         val game = registry.findByJoinCode(request.joinCode.trim())
@@ -84,12 +87,13 @@ class GameService(
         val session = synchronized(game) {
             val now = clock.millis()
             game.advance(now)
-            val returning = user?.let { game.playerOf(it.userId) }
+            // The account's player, or the one this very join request created before its answer got lost.
+            val returning = user?.let { game.playerOf(it.userId) } ?: requestId?.let(game::playerOfJoinRequest)
             val playerId = if (returning != null) {
                 registry.revokeTokens(game.id, returning)
                 returning
             } else {
-                ids.playerId().also { game.addPlayer(it, name, now, user?.userId) }
+                ids.playerId().also { game.addPlayer(it, name, now, user?.userId, requestId) }
             }
             newSession(game, playerId, now)
         }
@@ -110,10 +114,12 @@ class GameService(
     }
 
     /** A chat message; the snapshot brings the messages after the request's cursor, this one included. */
-    fun sendChat(caller: PlayerRef, gameId: GameId, request: SendChatRequest): GameSnapshot =
-        update(caller, gameId, request.chatAfter) { game, now ->
-            game.sendChat(caller.playerId, request.text, request.team, now)
+    fun sendChat(caller: PlayerRef, gameId: GameId, request: SendChatRequest): GameSnapshot {
+        val clientMessageId = request.clientMessageId?.let(::validRequestId)
+        return update(caller, gameId, request.chatAfter) { game, now ->
+            game.sendChat(caller.playerId, request.text, request.team, now, clientMessageId)
         }
+    }
 
     /**
      * Reports chat message [seq] to the moderators ([Game.reportedMessage] says which ones can be). The message is
@@ -226,6 +232,11 @@ class GameService(
             throw GameException(ErrorCode.BAD_REQUEST, "Name must be 1..$MAX_NAME_LENGTH characters")
         }
         return trimmed
+    }
+
+    private fun validRequestId(id: String): String {
+        if (!RequestIds.isValid(id)) throw GameException(ErrorCode.BAD_REQUEST, "Invalid request id")
+        return id
     }
 
     private fun validate(settings: GameSettings) {

@@ -453,6 +453,15 @@ class GameTest {
         game.addPlayer(hider, "Guest", now)
     }
 
+    @Test
+    fun aJoinRequestSentAgainFindsItsPlayer() {
+        game.addPlayer(host, "Host", now)
+        game.addPlayer(hider, "Anna", now, joinRequestId = "join-request-0001")
+
+        assertEquals(hider, game.playerOfJoinRequest("join-request-0001"))
+        assertNull(game.playerOfJoinRequest("join-request-0002"))
+    }
+
     // ---- Chat ----
 
     /** [player] says [text], 2 s after the previous message: never too fast. */
@@ -550,6 +559,27 @@ class GameTest {
         game.sendChat(host, "again", false, now + 10_000)
         assertFailsWith<GameException> { game.sendChat(host, "and again", false, now + 10_500) }
         assertEquals(7, game.debugState(now).chat.size)
+    }
+
+    @Test
+    fun aMessageSentAgainIsKeptOnce() {
+        lobby()
+        val first = game.sendChat(host, "hi", false, now, clientMessageId = "message-id-0001")
+        val again = game.sendChat(host, "hi", false, now + 500, clientMessageId = "message-id-0001")
+        assertEquals(first, again)
+        assertEquals(listOf(first), game.debugState(now).chat)
+
+        // Ids are per player; another id is another message, even with the same text.
+        game.sendChat(seeker, "hi", false, now, clientMessageId = "message-id-0001")
+        game.sendChat(host, "hi", false, now + 1_000, clientMessageId = "message-id-0002")
+        assertEquals(3, game.debugState(now).chat.size)
+
+        // The message sent again didn't count towards the limit: three more make five.
+        repeat(3) { game.sendChat(host, "more $it", false, now + 2_000 + it, clientMessageId = "message-id-100$it") }
+        val tooFast = assertFailsWith<GameException> { game.sendChat(host, "one more", false, now + 3_000) }
+        assertEquals(ErrorReason.TOO_MANY_REQUESTS, tooFast.reason)
+        // Still the first message, even past the limit.
+        assertEquals(first, game.sendChat(host, "hi", false, now + 3_000, clientMessageId = "message-id-0001"))
     }
 
     @Test

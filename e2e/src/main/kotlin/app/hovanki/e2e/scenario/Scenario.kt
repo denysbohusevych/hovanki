@@ -47,6 +47,7 @@ fun runScenario(name: String, serverUrl: String, timeout: Duration = 3.minutes, 
             withTimeout(timeout) {
                 scenario.block()
                 scenario.checkPrivacy()
+                scenario.checkNoServerErrors()
             }
         }
     } catch (e: Throwable) {
@@ -254,6 +255,37 @@ class Scenario(val name: String, val serverUrl: String) {
         log("network up")
     }
 
+    /** The server gets the next request to [pathSuffix] and answers, the answer never reaches the phone. */
+    fun BotPlayer.losesResponseTo(pathSuffix: String, times: Int = 1) {
+        network.loseResponseTo(pathSuffix, times)
+        log("the next ${if (times == 1) "response" else "$times responses"} to …$pathSuffix will be lost")
+    }
+
+    /** Every request waits [latency] before it goes out. */
+    fun BotPlayer.hasSlowNetwork(latency: Duration) {
+        network.latency = latency
+        log("slow network: +$latency per request")
+    }
+
+    /** [rate] of the requests fail before reaching the server (drawn from [seed]). */
+    fun BotPlayer.hasFlakyNetwork(rate: Double, seed: Long = name.hashCode().toLong()) {
+        network.failRequests(rate, seed)
+        log("flaky network: ${(rate * 100).roundToInt()} % of requests fail")
+    }
+
+    /** No latency and no failures any more. */
+    fun BotPlayer.hasGoodNetwork() {
+        network.latency = Duration.ZERO
+        network.failRequests(0.0)
+        log("good network again")
+    }
+
+    /** The phone's clock is set [by] further (a manual change, a time zone mistake, an NTP correction). */
+    fun BotPlayer.changesClockBy(by: Duration) {
+        clock.skewMillis += by.inWholeMilliseconds
+        log("phone clock moved by $by (now off by ${clock.skewMillis.milliseconds})")
+    }
+
     // ---- Catches ----
 
     suspend fun BotPlayer.claimsCatch(hider: BotPlayer) = requireOk(claimCatch(hider), "$name claims ${hider.name}")
@@ -285,6 +317,12 @@ class Scenario(val name: String, val serverUrl: String) {
     suspend fun BotPlayer.onServer(): DebugPlayer = state().players.single { it.id == id }
 
     suspend fun lastClaimOn(hider: BotPlayer): DebugCatch? = state().catches.lastOrNull { it.hiderId == hider.id }
+
+    /** Waits until the server's clock reaches [atMillis] (server time, as in every timestamp of the game). */
+    suspend fun awaitServerTime(atMillis: Long) {
+        val left = atMillis - state().serverTimeMillis
+        if (left > 0) delay(left.milliseconds)
+    }
 
     suspend fun awaitPhase(phase: GamePhase, within: Duration = 30.seconds): DebugGameState =
         eventually("phase $phase", within) { state().takeIf { it.phase == phase } }
@@ -339,6 +377,21 @@ class Scenario(val name: String, val serverUrl: String) {
         if (result != CommandResult.Ok) throw AssertionError("$what: expected success, got $result")
     }
 
+    /**
+     * Presses again while the network fails ([CommandResult.Failed]), like a person on a bad network; a refusal by the
+     * server or [attempts] failures in a row fail the scenario.
+     */
+    suspend fun pressesUntilOk(what: String, attempts: Int = 10, action: suspend () -> CommandResult) {
+        repeat(attempts) {
+            when (val result = action()) {
+                CommandResult.Ok -> return
+                is CommandResult.Failed -> delay(1.seconds)
+                is CommandResult.Rejected -> throw AssertionError("$what: expected success, got $result")
+            }
+        }
+        throw AssertionError("$what: still failing after $attempts attempts")
+    }
+
     fun expectRejected(result: CommandResult, code: ErrorCode, what: String) {
         check(result is CommandResult.Rejected && result.code == code, "$what: rejected with $code (got $result)")
     }
@@ -354,6 +407,15 @@ class Scenario(val name: String, val serverUrl: String) {
             throw AssertionError("Privacy violations:\n" + violations.distinct().joinToString("\n"))
         }
         note("✓ privacy: no bot received a position or a chat message it may not see")
+    }
+
+    /** The server never failed: no bot got a 5xx (the observer fails on any error by itself). After [checkPrivacy]. */
+    fun checkNoServerErrors() {
+        val errors = metrics.serverErrors
+        if (errors.isNotEmpty()) {
+            throw AssertionError("The server failed ${errors.size} times:\n" + errors.distinct().joinToString("\n"))
+        }
+        note("✓ no server errors (5xx)")
     }
 
     fun close() {
