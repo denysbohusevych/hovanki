@@ -106,6 +106,17 @@ class ProtocolJsonTest {
     }
 
     @Test
+    fun requestsOfOlderAppsHaveNoRequestIds() {
+        val join = protocolJson.decodeFromString<JoinGameRequest>("""{"joinCode":"ABC234","playerName":"Anna"}""")
+        assertEquals(JoinGameRequest("ABC234", "Anna", requestId = null), join)
+        val chat = protocolJson.decodeFromString<SendChatRequest>("""{"text":"hi","chatAfter":3}""")
+        assertEquals(SendChatRequest("hi", chatAfter = 3, clientMessageId = null), chat)
+        // Older servers ignore the ids: the requests stay readable for them.
+        val withIds = protocolJson.encodeToString(JoinGameRequest("ABC234", "Anna", requestId = "0123456789abcdef"))
+        assertTrue(""""requestId":"0123456789abcdef"""" in withIds, withIds)
+    }
+
+    @Test
     fun chatAndAccountsDefaultForTheFirstServers() {
         // A snapshot without chat and a player without an account, as servers without accounts send them.
         val json = protocolJson.encodeToString(snapshot)
