@@ -16,6 +16,8 @@ import okhttp3.Response
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.random.Random
+import kotlin.time.Duration
 
 // The simulated phone around the real client code: clock, GPS, network, the OS background service and storage.
 // Everything here survives an app restart (BotPlayer.killApp), like the hardware does.
@@ -92,20 +94,63 @@ class FakeGps(start: GeoPoint, private val noise: GpsNoise, private val clock: D
     }
 }
 
-/** One HTTP exchange as seen by the phone. [status] is null when the request failed with an I/O error. */
-class Exchange(val method: String, val path: String, val status: Int?, val durationMillis: Long, val body: String?)
+/**
+ * One HTTP exchange as seen by the phone. [status] is null when the request failed with an I/O error; with
+ * [isResponseLost] the server answered [status] but the answer never reached the app.
+ */
+class Exchange(
+    val method: String,
+    val path: String,
+    val status: Int?,
+    val durationMillis: Long,
+    val body: String?,
+    val isResponseLost: Boolean = false,
+)
 
 /**
- * The phone's network, as an OkHttp interceptor under the app's real Ktor/OkHttp client:
- * can be switched off (requests fail with an [IOException] like in a tunnel) and reports every exchange.
+ * The phone's network, as an OkHttp interceptor under the app's real Ktor/OkHttp client. Reports every exchange and
+ * breaks like a mobile network does:
+ * - [isOnline] off: requests fail with an [IOException] before reaching the server, like in a tunnel;
+ * - [loseResponseTo]: the server gets the request and answers, the answer is lost on the way back;
+ * - [latency]: every request waits this long before it goes out;
+ * - [failRequests]: a share of requests fails before reaching the server.
  */
 class FakeNetwork(private val onExchange: (Exchange) -> Unit) : Interceptor {
     @Volatile var isOnline: Boolean = true
+
+    @Volatile var latency: Duration = Duration.ZERO
+
+    private class LostResponses(val pathSuffix: String, var left: Int)
+
+    private val lostResponses = mutableListOf<LostResponses>()
+
+    private class Flakiness(val rate: Double, val random: Random)
+
+    @Volatile private var flakiness: Flakiness? = null
+
+    /** The next [times] responses to requests whose path ends with [pathSuffix] are lost after the server answered. */
+    fun loseResponseTo(pathSuffix: String, times: Int = 1) {
+        require(times > 0)
+        synchronized(lostResponses) { lostResponses += LostResponses(pathSuffix, times) }
+    }
+
+    /** From now on, [rate] of the requests (0..1, drawn from [seed]) fail before reaching the server; 0 stops it. */
+    fun failRequests(rate: Double, seed: Long = 0) {
+        require(rate in 0.0..1.0)
+        flakiness = if (rate == 0.0) null else Flakiness(rate, Random(seed))
+    }
 
     override fun intercept(chain: Interceptor.Chain): Response {
         if (!isOnline) throw IOException("No network (simulated outage)")
         val request = chain.request()
         val started = System.nanoTime()
+        val wait = latency
+        if (wait.isPositive()) Thread.sleep(wait.inWholeMilliseconds)
+        val flaky = flakiness
+        if (flaky != null && synchronized(flaky) { flaky.random.nextDouble() } < flaky.rate) {
+            onExchange(Exchange(request.method, request.url.encodedPath, null, elapsedMillis(started), null))
+            throw IOException("Request failed (simulated bad network)")
+        }
         val response = try {
             chain.proceed(request)
         } catch (e: IOException) {
@@ -115,9 +160,29 @@ class FakeNetwork(private val onExchange: (Exchange) -> Unit) : Interceptor {
             }
             throw e
         }
+        if (takeLostResponse(request.url.encodedPath)) {
+            response.close()
+            onExchange(
+                Exchange(
+                    request.method,
+                    request.url.encodedPath,
+                    response.code,
+                    elapsedMillis(started),
+                    body = null,
+                    isResponseLost = true,
+                ),
+            )
+            throw IOException("Response lost (simulated)")
+        }
         val body = response.peekBody(MAX_BODY_BYTES).string()
         onExchange(Exchange(request.method, request.url.encodedPath, response.code, elapsedMillis(started), body))
         return response
+    }
+
+    private fun takeLostResponse(path: String): Boolean = synchronized(lostResponses) {
+        val rule = lostResponses.firstOrNull { path.endsWith(it.pathSuffix) } ?: return false
+        if (--rule.left == 0) lostResponses -= rule
+        true
     }
 
     private fun elapsedMillis(startedNanos: Long) = (System.nanoTime() - startedNanos) / 1_000_000

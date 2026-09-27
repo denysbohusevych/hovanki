@@ -139,12 +139,23 @@ class BotPlayer(
         return command("enters code $code") { it.confirmCatch(claim.id, code) }
     }
 
+    /**
+     * Sends [code] for claim [claimId], whoever's it is: what the app never offers for another seeker's claim, and a
+     * modified app could still send.
+     */
+    suspend fun confirmCatch(claimId: CatchId, code: String): CommandResult =
+        command("enters code $code for claim ${claimId.value}") { it.confirmCatch(claimId, code) }
+
     /** Presses "Dispute" on the claim against this hider. */
     suspend fun dispute(): CommandResult {
         val claim = snapshot?.catches?.lastOrNull { it.hiderId == playerId && it.status == CatchStatus.AWAITING_CODE }
             ?: return CommandResult.Rejected(null, "$name has no claim to dispute")
         return command("disputes the claim") { it.dispute(claim.id) }
     }
+
+    /** Disputes claim [claimId], whoever it is against (see [confirmCatch] with a claim id). */
+    suspend fun dispute(claimId: CatchId): CommandResult =
+        command("disputes claim ${claimId.value}") { it.dispute(claimId) }
 
     suspend fun vote(claimId: CatchId, confirm: Boolean): CommandResult =
         command(if (confirm) "votes to confirm" else "votes to reject") { it.vote(claimId, confirm) }
