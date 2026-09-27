@@ -2,7 +2,7 @@
 
 Hovanki: street hide-and-seek for Android + iOS. Kotlin Multiplatform + Compose Multiplatform client, Spring Boot server, shared Kotlin module for protocol and rules. Docs are in Russian (`docs/`), code and comments in English.
 
-Read first: `docs/architecture.md` (how it works), `docs/adr/` (why: 0001 stack and game rules, 0002 session storage, 0003 map and buildings, 0004 accounts, friends, groups and chat), `docs/roadmap.md` (what is missing).
+Read first: `docs/architecture.md` (how it works), `docs/adr/` (why: 0001 stack and game rules, 0002 session storage, 0003 map and buildings, 0004 accounts, friends, groups and chat; 0005 is a draft for the future: game modes and other games on one platform, not implemented), `docs/roadmap.md` (what is missing).
 
 ## Layout
 
@@ -63,4 +63,5 @@ iOS (framework, app, simulator tests) builds only on macOS with Xcode 26.4+; on 
 
 - New endpoint: `ApiRoutes` + DTO in `:shared` → `Game`/`GameService` (or an account/social service with an `AuthenticatedUser` parameter) + controller in `:server` → `GameApi`/`AccountApi`/`SocialApi` + `GameSessionManager`/`AccountManager`/`SocialManager` in `:clientCore` → UI in `:composeApp` → API table in `docs/architecture.md`. New errors: an `ErrorReason` on the existing `ErrorCode` (`ApiError.reason`), never a new `ErrorCode`.
 - Behavior, commands or setup changed → update `README.md` / `docs/`. Big decisions → new ADR in `docs/adr/NNNN-*.md`.
+- Something a player can see or do is new (a feature, a milestone) → add an entry at the end of `docs/devlog.md`, the marketing log: Russian, plain words, what the player gets, with a 🎬 hint how to film it; see its «Как добавить запись». Not working on a phone yet → its «Пока нет» section.
 - Recipes for endpoints, platform services and screens: `docs/architecture.md`, section «Как добавить…».
