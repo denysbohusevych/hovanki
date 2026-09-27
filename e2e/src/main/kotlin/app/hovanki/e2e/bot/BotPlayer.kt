@@ -46,6 +46,7 @@ import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -288,6 +289,23 @@ class BotPlayer(
 
     suspend fun refreshInbox(): CommandResult = socialCommand("checks the inbox") { it.refreshInbox() }
 
+    /**
+     * Keeps a screen with the inbox open (the start screen): while it is open, the app polls the inbox by itself, like
+     * the real one ([closesInbox]). Gone with the app process.
+     */
+    fun opensInbox() {
+        val running = app ?: return
+        running.inboxScreen?.cancel()
+        running.inboxScreen = running.scope.launch { running.social.inbox.collect {} }
+        log("opens the inbox")
+    }
+
+    fun closesInbox() {
+        app?.inboxScreen?.cancel()
+        app?.inboxScreen = null
+        log("closes the inbox")
+    }
+
     /** By the exact nickname, as typed into the friends screen. */
     suspend fun sendFriendRequest(nickname: String): CommandResult =
         socialCommand("asks $nickname to be friends") { it.sendFriendRequest(nickname) }
@@ -477,6 +495,9 @@ class BotPlayer(
         )
 
         @Volatile var showingCodeFor: CatchId? = null
+
+        /** A screen that shows the inbox, while open ([opensInbox]). */
+        @Volatile var inboxScreen: Job? = null
         private val handledClaims = HashSet<CatchId>()
         private val handledVotes = HashSet<CatchId>()
         private var previous = SessionState()
