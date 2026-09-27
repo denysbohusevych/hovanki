@@ -1,6 +1,6 @@
 # Updates the Hovanki server to the newest image of HOVANKI_TAG (.env; `main` follows every push to main) with
-# hovanki-update.sh: pulls the image and, only when it is new, dumps the database and restarts the server. Only the
-# server: Caddy and Postgres are updated by hand. Started by hovanki-update.timer; see docs/deploy.md.
+# hovanki-update.sh: pulls the image and, only when it is new, restarts the server. Only the server: Caddy is updated
+# by hand. Started by hovanki-update.timer; see docs/deploy.md.
 [Unit]
 Description=Update the Hovanki server to the newest image of its tag
 Wants=network-online.target
