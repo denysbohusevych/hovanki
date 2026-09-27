@@ -75,9 +75,9 @@
    DATABASE_PASSWORD=<пароль пользователя hovanki из шага «База»>
    SPRING_MAIL_HOST=smtp.gmail.com
    SPRING_MAIL_PORT=587
-   SPRING_MAIL_USERNAME=hovanki.app@gmail.com
-   SPRING_MAIL_PASSWORD=abcdefghijklmnop
-   HOVANKI_MAIL_FROM=hovanki.app@gmail.com
+   SPRING_MAIL_USERNAME=<адрес Gmail>
+   SPRING_MAIL_PASSWORD=<пароль приложения Gmail: 16 букв без пробелов>
+   HOVANKI_MAIL_FROM=<адрес Gmail>
    EOF
    chmod 600 .env
    docker compose config --quiet     # молчит, если всё на месте
@@ -204,9 +204,9 @@
    DATABASE_PASSWORD=<пароль пользователя hovanki>
    SPRING_MAIL_HOST=smtp.gmail.com
    SPRING_MAIL_PORT=587
-   SPRING_MAIL_USERNAME=hovanki.app@gmail.com
-   SPRING_MAIL_PASSWORD=abcdefghijklmnop
-   HOVANKI_MAIL_FROM=hovanki.app@gmail.com
+   SPRING_MAIL_USERNAME=<адрес Gmail>
+   SPRING_MAIL_PASSWORD=<пароль приложения Gmail: 16 букв без пробелов>
+   HOVANKI_MAIL_FROM=<адрес Gmail>
    EOF
    chmod 600 .env
    docker compose config --quiet     # молчит, если всё на месте
