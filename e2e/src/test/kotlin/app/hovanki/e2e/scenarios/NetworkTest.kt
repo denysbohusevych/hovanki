@@ -17,7 +17,6 @@ import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.totp.catchCodeTotp
 import kotlinx.coroutines.delay
-import org.junit.jupiter.api.Disabled
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.hours
@@ -155,11 +154,11 @@ class NetworkTest {
     }
 
     /**
-     * A guest's join goes through, the answer is lost, the guest presses "Join" again. There must be one such player
-     * in the lobby, not a second one next to a player nobody plays.
+     * A guest's join goes through, the answer is lost, the guest presses "Join" again: the app sends the same request
+     * id, and the server gives back the player it created. One Anna in the lobby, not a second one next to a player
+     * nobody plays; she plays the game as usual.
      */
     @Test
-    @Disabled("Two players after a lost answer; waiting for a decision: docs/e2e-plan.md, open question 2")
     fun joinResponseLost() = scenario("Join response lost") {
         val sam = player("Sam", at = PARK)
         val anna = player("Anna", at = PARK.offset(eastMeters = 15.0))
@@ -167,14 +166,23 @@ class NetworkTest {
         sam.createsGame(GameSetups.fast())
         anna.losesResponseTo("/join")
         check(anna.join(joinCode) is CommandResult.Failed, "Anna's phone got no answer")
+        val created = state().players.single { it.name == "Anna" }
         requireOk(anna.join(joinCode), "Anna presses Join again")
         val players = state().players
-        check(players.count { it.name == "Anna" } == 1, "one Anna in the lobby (${players.map { it.name }})")
+        check(players.map { it.name } == listOf("Sam", "Anna"), "one Anna in the lobby (${players.map { it.name }})")
+        check(anna.id == created.id, "Anna's phone got the player the lost answer was about")
+
+        sam.startsGame(seekers = listOf(sam))
+        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+        sam.claimsCatch(anna)
+        sam.entersCodeShownBy(anna)
+        awaitCatch(anna, CatchStatus.CONFIRMED)
+        awaitPhase(GamePhase.FINISHED)
     }
 
     /**
      * Answers lost after the server acted on a code, a vote and a chat message. Pressing again never breaks the game,
-     * and every phone ends up with the server's state.
+     * a message sent again is kept once, and every phone ends up with the server's state.
      */
     @Test
     fun otherResponsesLost() = scenario("Other responses lost") {
@@ -219,9 +227,7 @@ class NetworkTest {
         vera.losesResponseTo("/chat")
         check(vera.sendChat("well played") is CommandResult.Failed, "Vera's phone got no answer")
         requireOk(vera.sendChat("well played"), "Vera sends it again")
-        val onServer = state().chat.count { it.text == "well played" }
-        note("the server keeps $onServer copies of Vera's message (docs/e2e-plan.md, open question 3)")
-        check(onServer in 1..2, "the message is there")
+        check(state().chat.count { it.text == "well played" } == 1, "the server keeps the message once")
         awaitThat("every phone shows the server's chat, in order") {
             val seqs = state().chat.map { it.seq }
             players.all { p -> p.state.chat.map { it.seq } == seqs }
@@ -230,7 +236,7 @@ class NetworkTest {
 
     /**
      * Longer offline than the outbox holds (100 fixes, one per second): only the newest ones reach the server, the
-     * request is never too big, and fresh fixes hide the player again.
+     * request is never too big, the app is back within seconds of the network, and fresh fixes hide the player again.
      */
     @Test
     fun longOutage() = scenario("Network outage for 150 s", timeout = 4.minutes) {
@@ -258,7 +264,13 @@ class NetworkTest {
         check(emittedOffline > 120, "more fixes than the outbox holds ($emittedOffline)")
 
         anna.regainsNetwork()
-        awaitThat("Anna is hidden again", within = 25.seconds) {
+        val back = state().serverTimeMillis
+        // The polling waits at most 5 s between attempts, however long the outage was.
+        val synced = eventually("Anna's app syncs again", within = 8.seconds) {
+            anna.onServer().lastFixReceivedMillis?.takeIf { it > back }
+        }
+        check(synced - back <= 7_000, "back ${(synced - back) / 1000.0} s after the network")
+        awaitThat("Anna is hidden again", within = 5.seconds) {
             sam.snapshot?.players?.single { it.id == anna.id }?.location == null
         }
         val arrived = anna.onServer().fixes.accepted - acceptedBefore
@@ -343,8 +355,9 @@ class NetworkTest {
     /**
      * Every phone on a slow and flaky network: 2 s per request, 20 % of the requests fail. Players press again when
      * something fails. The game still converges: fixes arrive, nobody is taken for silent (with the production
-     * threshold of 45 s: the polling backs off exponentially up to 15 s, so a few failures in a row already mean 20 s
-     * without a sync), the catch works, the chat has no gaps or duplicates.
+     * threshold of 45 s: after a failure the polling waits 1, 2, 4, then 5 s, plus the 2 s of every attempt, so a
+     * few failures in a row are a quarter of a minute without a sync), the catch works, the chat has no gaps or
+     * duplicates.
      */
     @Test
     fun slowAndFlakyNetwork() = scenario("Slow and flaky network") {
