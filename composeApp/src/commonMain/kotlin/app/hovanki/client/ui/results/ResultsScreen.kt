@@ -58,6 +58,7 @@ import app.hovanki.client.ui.common.PopCard
 import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.rememberReduceMotion
+import app.hovanki.client.ui.history.SaveRoutesOffer
 import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
@@ -88,6 +89,7 @@ fun ResultsScreen(
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
+    val saveRoutes by viewModel.saveRoutes.collectAsStateWithLifecycle()
     val chatState by chat.uiState.collectAsStateWithLifecycle()
     if (chatState.isOpen) {
         ChatPanel(chat)
@@ -180,6 +182,7 @@ fun ResultsScreen(
                     }
                 }
             }
+            SaveRoutesOffer(saveRoutes = saveRoutes, isBusy = isBusy, onSave = viewModel::turnOnSaveRoutes)
             CommandStatus(
                 isBusy = false,
                 message = message,

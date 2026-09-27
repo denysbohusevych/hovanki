@@ -32,19 +32,19 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Lets a round go on when Hovanki is in the background. Your location goes only to the game server and is deleted when the game ends."
+            "value" : "Lets a round go on when Hovanki is in the background. Your location goes only to the game server and is deleted when the game ends, unless you turn on «Save my routes» in your profile."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Позволяет раунду продолжаться, когда Hovanki в фоне. Местоположение получает только игровой сервер, после игры оно удаляется."
+            "value" : "Позволяет раунду продолжаться, когда Hovanki в фоне. Местоположение получает только игровой сервер, после игры оно удаляется, если вы сами не включили «Сохранять мои маршруты» в профиле."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Дозволяє раунду тривати, коли Hovanki у фоні. Місцезнаходження отримує лише ігровий сервер, після гри воно видаляється."
+            "value" : "Дозволяє раунду тривати, коли Hovanki у фоні. Місцезнаходження отримує лише ігровий сервер, після гри воно видаляється, якщо ви самі не ввімкнули «Зберігати мої маршрути» в профілі."
           }
         }
       }
@@ -56,19 +56,19 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "During a round the game server receives your location, also while the screen is locked (blue indicator in the status bar), to check the game zone and confirm catches. It is deleted when the game ends."
+            "value" : "During a round the game server receives your location, also while the screen is locked (blue indicator in the status bar), to check the game zone and confirm catches. It is deleted when the game ends, unless you turn on «Save my routes» in your profile."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Во время раунда игровой сервер получает ваше местоположение, в том числе при заблокированном экране (синий индикатор в строке состояния), чтобы проверять игровую зону и подтверждать находки. После игры оно удаляется."
+            "value" : "Во время раунда игровой сервер получает ваше местоположение, в том числе при заблокированном экране (синий индикатор в строке состояния), чтобы проверять игровую зону и подтверждать находки. После игры оно удаляется, если вы сами не включили «Сохранять мои маршруты» в профиле."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Під час раунду ігровий сервер отримує ваше місцезнаходження, зокрема коли екран заблоковано (синій індикатор у рядку стану), щоб перевіряти ігрову зону й підтверджувати знахідки. Після гри воно видаляється."
+            "value" : "Під час раунду ігровий сервер отримує ваше місцезнаходження, зокрема коли екран заблоковано (синій індикатор у рядку стану), щоб перевіряти ігрову зону й підтверджувати знахідки. Після гри воно видаляється, якщо ви самі не ввімкнули «Зберігати мої маршрути» в профілі."
           }
         }
       }

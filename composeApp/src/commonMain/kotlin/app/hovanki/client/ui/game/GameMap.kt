@@ -324,22 +324,26 @@ fun GameMap(
             // building outlines (OpenStreetMap too). MapLibre's expanding one would repeat it.
             overlay = { include(MapOverlay.None) },
         )
-        val uriHandler = LocalUriHandler.current
-        Text(
-            text = MapStyle.ATTRIBUTION,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-            color = Palette.Ink2,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(attributionPadding)
-                .padding(4.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(Color.White.copy(alpha = 0.8f))
-                .clickable { uriHandler.openUri(MapStyle.COPYRIGHT_URL) }
-                .padding(horizontal = 4.dp, vertical = 1.dp)
-                .testTag(TestTags.MAP_ATTRIBUTION),
-        )
+        MapCredit(Modifier.align(Alignment.BottomStart).padding(attributionPadding))
     }
+}
+
+/** The credit the tile provider and the OpenStreetMap license require, on every map; leads to the license. */
+@Composable
+internal fun MapCredit(modifier: Modifier = Modifier) {
+    val uriHandler = LocalUriHandler.current
+    Text(
+        text = MapStyle.ATTRIBUTION,
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+        color = Palette.Ink2,
+        modifier = modifier
+            .padding(4.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color.White.copy(alpha = 0.8f))
+            .clickable { uriHandler.openUri(MapStyle.COPYRIGHT_URL) }
+            .padding(horizontal = 4.dp, vertical = 1.dp)
+            .testTag(TestTags.MAP_ATTRIBUTION),
+    )
 }
 
 /** How the zone looks at the moment: what blinks, pulses and pops. */
@@ -457,7 +461,7 @@ private fun interpolate(from: GeoPoint, to: GeoPoint, fraction: Float): GeoPoint
     GeoPoint(from.lat + (to.lat - from.lat) * fraction, from.lon + (to.lon - from.lon) * fraction)
 }
 
-private const val SHADE_OPACITY = 0.18f
+internal const val SHADE_OPACITY = 0.18f
 private const val BAND_MIN = 0.14f
 private const val BAND_MAX = 0.5f
 private const val BAND_SHRINKING = 0.3f
@@ -465,8 +469,8 @@ private const val PULSE_MILLIS = 1_600
 private const val PING_MILLIS = 2_400
 private const val MARKER_GLIDE_MILLIS = 800
 private const val SNAP_METERS = 150.0
-private val RING_CASING_WIDTH = 8.dp
-private val RING_CORE_WIDTH = 4.dp
+internal val RING_CASING_WIDTH = 8.dp
+internal val RING_CORE_WIDTH = 4.dp
 private val MARKER_RADIUS = 9.dp
 
 /** Tiles and their credits: one place to switch providers (docs/adr/0003-map-and-buildings.md). */
@@ -530,9 +534,9 @@ private fun corridor(passage: Passage): List<List<Position>> = passage.path.zipW
     (corners + corners.first()).map { it.toPosition() }
 }.filterNotNull()
 
-private fun GeoPoint.toPosition() = Position(longitude = lon, latitude = lat)
+internal fun GeoPoint.toPosition() = Position(longitude = lon, latitude = lat)
 
-private fun features(geometry: Geometry): FeatureCollection<Geometry, JsonObject?> =
+internal fun features(geometry: Geometry): FeatureCollection<Geometry, JsonObject?> =
     FeatureCollection(listOf(Feature(geometry, null)))
 
 private fun points(
@@ -545,17 +549,17 @@ private fun points(
     },
 )
 
-private fun circle(zone: ZoneCircle): List<Position> = circle(zone.center, zone.radiusMeters)
+internal fun circle(zone: ZoneCircle): List<Position> = circle(zone.center, zone.radiusMeters)
 
 /** A closed ring approximating a circle of [radiusMeters] around [center], counterclockwise. */
-private fun circle(center: GeoPoint, radiusMeters: Double, segments: Int = 64): List<Position> =
+internal fun circle(center: GeoPoint, radiusMeters: Double, segments: Int = 64): List<Position> =
     (0..segments).map { step ->
         val angle = 2 * PI * (step % segments) / segments
         center.moveBy(eastMeters = radiusMeters * cos(angle), northMeters = radiusMeters * sin(angle)).toPosition()
     }
 
 /** A counterclockwise square far around [zone]: «the world» that the shade outside the zone covers. */
-private fun around(zone: ZoneCircle): List<Position> {
+internal fun around(zone: ZoneCircle): List<Position> {
     val c = zone.center
     return listOf(
         GeoPoint(c.lat - WORLD_DEGREES, c.lon - WORLD_DEGREES),
@@ -569,7 +573,7 @@ private fun around(zone: ZoneCircle): List<Position> {
 private const val WORLD_DEGREES = 0.5
 
 /** Zoom at which [zone] fills a phone-sized map (~360 dp wide) with a small margin. */
-private fun zoomToFit(zone: ZoneCircle): Double {
+internal fun zoomToFit(zone: ZoneCircle): Double {
     val metersPerDp = 2.4 * zone.radiusMeters / 360
     // At zoom 0 a 512 dp tile covers the equator (40 075 km); meters per dp shrink by cos(latitude).
     val metersPerDpAtZoom0 = 40_075_016.7 / 512 * cos(zone.center.lat * PI / 180)

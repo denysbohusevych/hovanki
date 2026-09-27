@@ -8,6 +8,7 @@ import app.hovanki.shared.protocol.DeleteAccountRequest
 import app.hovanki.shared.protocol.LoginRequest
 import app.hovanki.shared.protocol.PasswordResetConfirmRequest
 import app.hovanki.shared.protocol.PasswordResetRequest
+import app.hovanki.shared.protocol.PrivacyRequest
 import app.hovanki.shared.protocol.RegisterRequest
 import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.VerifyEmailRequest
@@ -48,6 +49,12 @@ interface AccountApi {
     suspend fun changePassword(token: String, currentPassword: String, newPassword: String)
 
     suspend fun deleteAccount(token: String, password: String)
+
+    /**
+     * Keep the routes of my games, or not (docs/adr/0007-game-history-and-routes.md). Off deletes every route saved so
+     * far; on also keeps the games that just finished (the results screen).
+     */
+    suspend fun setSaveRoutes(token: String, enabled: Boolean): UserProfile
 }
 
 /** [AccountApi] over HTTP/JSON. */
@@ -94,4 +101,7 @@ class HttpAccountApi(client: HttpClient, serverUrl: ServerUrl) : AccountApi {
     override suspend fun deleteAccount(token: String, password: String) {
         http.post<DeleteAccountRequest, Unit>(ApiRoutes.ME_DELETE, token, DeleteAccountRequest(password))
     }
+
+    override suspend fun setSaveRoutes(token: String, enabled: Boolean): UserProfile =
+        http.post(ApiRoutes.ME_PRIVACY, token, PrivacyRequest(enabled))
 }
