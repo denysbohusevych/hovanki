@@ -56,7 +56,7 @@ class AccountApiTest(
     private val emails = emailSender as RecordingEmailSender
 
     @Test
-    fun registerConfirmTheEmailAndUseTheAccount() {
+    fun anAccountWorksRightAwayAndConfirmsItsEmailLater() {
         val nickname = uniqueName()
         val email = "$nickname@Example.com"
         val session = register(nickname, email, language = "uk-UA").ok<AccountSession>()
@@ -64,9 +64,9 @@ class AccountApiTest(
         assertEquals(email, session.user.email)
         assertFalse(session.user.emailVerified)
 
-        // Only the verification routes work until the email is confirmed.
+        // The account works right away, before the email is confirmed (confirming is optional) ...
         assertEquals(session.user, getRaw(ApiRoutes.ME, session.token).ok<UserProfile>())
-        getRaw(TestRoutes.VERIFIED, session.token).error(403, ErrorCode.FORBIDDEN, ErrorReason.EMAIL_NOT_VERIFIED)
+        assertEquals(session.user.id.value, getRaw(TestRoutes.ACCOUNT, session.token).expect(200).body)
 
         emails.awaitCode(email)
         val sent = emails.sentTo(email).single().email
@@ -76,10 +76,11 @@ class AccountApiTest(
         val verified = verify(session, sent.code).ok<UserProfile>()
         assertTrue(verified.emailVerified)
 
-        assertEquals(session.user.id.value, getRaw(TestRoutes.VERIFIED, session.token).expect(200).body)
+        // ... and after, with the same session.
+        assertEquals(session.user.id.value, getRaw(TestRoutes.ACCOUNT, session.token).expect(200).body)
         assertEquals(verified, getRaw(ApiRoutes.ME, session.token).ok<UserProfile>())
         // Once confirmed, the email stays: changing it is not possible (yet).
-        postRaw(ApiRoutes.ME_EMAIL, ChangeEmailRequest("other-$email").toJson(), session.token)
+        postRaw(ApiRoutes.ME_EMAIL, ChangeEmailRequest("other-$email", PASSWORD).toJson(), session.token)
             .error(409, ErrorCode.WRONG_STATE)
     }
 
@@ -177,25 +178,35 @@ class AccountApiTest(
     }
 
     @Test
-    fun fixAMistypedEmail() {
+    fun fixAMistypedEmailWithThePassword() {
         val (session, oldEmail) = register()
         val oldCode = emails.awaitCode(oldEmail)
         val (_, takenEmail) = register()
-
-        postRaw(ApiRoutes.ME_EMAIL, ChangeEmailRequest(takenEmail.uppercase()).toJson(), session.token)
-            .error(409, ErrorCode.WRONG_STATE, ErrorReason.EMAIL_TAKEN)
         val newEmail = "${uniqueName()}@example.com"
-        val changed = postRaw(
-            ApiRoutes.ME_EMAIL,
-            ChangeEmailRequest(newEmail).toJson(),
-            session.token,
-        ).ok<UserProfile>()
+        fun change(email: String, password: String) =
+            postRaw(ApiRoutes.ME_EMAIL, ChangeEmailRequest(email, password).toJson(), session.token)
+
+        // The password comes first: a session alone can't send the account's emails elsewhere.
+        for (password in listOf("", "not-$PASSWORD")) {
+            change(newEmail, password).error(403, ErrorCode.FORBIDDEN, ErrorReason.WRONG_CREDENTIALS)
+            change(takenEmail, password).error(403, ErrorCode.FORBIDDEN, ErrorReason.WRONG_CREDENTIALS)
+        }
+        // A request without the password (the field is required) is malformed.
+        postRaw(ApiRoutes.ME_EMAIL, """{"email":"$newEmail"}""", session.token).error(400, ErrorCode.BAD_REQUEST)
+        change("not-an-email", PASSWORD).error(400, ErrorCode.BAD_REQUEST, ErrorReason.INVALID_EMAIL)
+        change(takenEmail.uppercase(), PASSWORD).error(409, ErrorCode.WRONG_STATE, ErrorReason.EMAIL_TAKEN)
+        assertEquals(oldEmail, getRaw(ApiRoutes.ME, session.token).ok<UserProfile>().email)
+
+        val changed = change(newEmail, PASSWORD).ok<UserProfile>()
         assertEquals(newEmail, changed.email)
         assertFalse(changed.emailVerified)
 
-        // The code sent to the old address no longer confirms anything.
+        // The code sent to the old address no longer confirms anything; the one sent to the new address does.
         verify(session, oldCode).error(422, ErrorCode.INVALID_CODE)
         assertTrue(verify(session, emails.awaitCode(newEmail)).ok<UserProfile>().emailVerified)
+        assertEquals(1, emails.sentTo(newEmail).size)
+        // Confirmed: no more changes, even with the password.
+        change("${uniqueName()}@example.com", PASSWORD).error(409, ErrorCode.WRONG_STATE)
     }
 
     @Test

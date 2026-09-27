@@ -7,13 +7,8 @@ import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
 import java.time.Instant
 
-/** A logged-in device, with what authentication needs of its user. */
-data class SessionRecord(
-    val tokenHash: String,
-    val userId: UserId,
-    val emailVerified: Boolean,
-    val lastUsedAt: Instant,
-)
+/** A logged-in device. */
+data class SessionRecord(val tokenHash: String, val userId: UserId, val lastUsedAt: Instant)
 
 /** `account_sessions`: one row per logged-in device, keyed by the SHA-256 of its token ([AccountKeys.tokenHash]). */
 @Repository
@@ -26,24 +21,18 @@ class AccountSessionRepository(private val jdbc: JdbcClient) {
             .update()
     }
 
-    fun find(tokenHash: String): SessionRecord? = jdbc.sql(
-        """
-        SELECT s.token_hash, s.user_id, s.last_used_at, u.email_verified_at IS NOT NULL AS email_verified
-        FROM account_sessions s JOIN users u ON u.id = s.user_id
-        WHERE s.token_hash = :h
-        """.trimIndent(),
-    )
-        .param("h", tokenHash)
-        .query { rs, _ ->
-            SessionRecord(
-                tokenHash = rs.getString("token_hash"),
-                userId = UserId(rs.getString("user_id")),
-                emailVerified = rs.getBoolean("email_verified"),
-                lastUsedAt = rs.getInstant("last_used_at"),
-            )
-        }
-        .optional()
-        .orElse(null)
+    fun find(tokenHash: String): SessionRecord? =
+        jdbc.sql("SELECT token_hash, user_id, last_used_at FROM account_sessions WHERE token_hash = :h")
+            .param("h", tokenHash)
+            .query { rs, _ ->
+                SessionRecord(
+                    tokenHash = rs.getString("token_hash"),
+                    userId = UserId(rs.getString("user_id")),
+                    lastUsedAt = rs.getInstant("last_used_at"),
+                )
+            }
+            .optional()
+            .orElse(null)
 
     fun touch(tokenHash: String, now: Instant) {
         jdbc.sql("UPDATE account_sessions SET last_used_at = :t WHERE token_hash = :h")

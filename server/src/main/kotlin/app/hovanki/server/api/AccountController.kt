@@ -34,7 +34,6 @@ class AccountController(private val accounts: AccountService) {
     fun login(@RequestBody request: LoginRequest, http: HttpServletRequest): AccountSession =
         accounts.login(request, http.remoteAddr)
 
-    @AllowUnverifiedEmail
     @PostMapping(ApiRoutes.LOGOUT)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun logout(user: AuthenticatedUser) = accounts.logout(user)
@@ -49,33 +48,28 @@ class AccountController(private val accounts: AccountService) {
     fun confirmPasswordReset(@RequestBody request: PasswordResetConfirmRequest): AccountSession =
         accounts.confirmPasswordReset(request)
 
-    @AllowUnverifiedEmail
     @GetMapping(ApiRoutes.ME)
     fun me(user: AuthenticatedUser): UserProfile = accounts.me(user)
 
-    @AllowUnverifiedEmail
+    /** Confirming the email is optional: the account works either way. */
     @PostMapping(ApiRoutes.ME_EMAIL_VERIFY)
     fun verifyEmail(user: AuthenticatedUser, @RequestBody request: VerifyEmailRequest): UserProfile =
         accounts.verifyEmail(user, request)
 
-    @AllowUnverifiedEmail
     @PostMapping(ApiRoutes.ME_EMAIL_RESEND)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun resendCode(user: AuthenticatedUser) = accounts.resendCode(user)
 
-    /** Only while the email is unconfirmed (a typo at registration); 409 afterwards. */
-    @AllowUnverifiedEmail
+    /** Needs the current password; only while the email is unconfirmed (a typo at registration), 409 afterwards. */
     @PostMapping(ApiRoutes.ME_EMAIL)
     fun changeEmail(user: AuthenticatedUser, @RequestBody request: ChangeEmailRequest): UserProfile =
         accounts.changeEmail(user, request)
 
-    @AllowUnverifiedEmail
     @PostMapping(ApiRoutes.ME_PASSWORD)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun changePassword(user: AuthenticatedUser, @RequestBody request: ChangePasswordRequest) =
         accounts.changePassword(user, request)
 
-    @AllowUnverifiedEmail
     @PostMapping(ApiRoutes.ME_DELETE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun delete(user: AuthenticatedUser, @RequestBody request: DeleteAccountRequest) = accounts.delete(user, request)

@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 
 /**
- * Friends, blocks, groups and the inbox: account token with a confirmed email on every route. All logic lives in
+ * Friends, blocks, groups and the inbox: an account token on every route (confirmed email or not). All logic lives in
  * [FriendService], [GroupService] and [InviteService]; each call answers with the caller's fresh list.
  */
 @RestController

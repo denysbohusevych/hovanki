@@ -14,8 +14,6 @@ data class AccountProperties(
     val codeMaxAttempts: Int = 5,
     /** Logged-in devices unused for this long are logged out (and their sessions deleted by DataRetention). */
     val sessionIdleRetention: Duration = Duration.ofDays(180),
-    /** Accounts whose email was never confirmed are deleted after this, freeing the nickname and the email. */
-    val unverifiedRetention: Duration = Duration.ofDays(7),
     /** Unanswered friend requests are deleted after this. */
     val requestRetention: Duration = Duration.ofDays(90),
 )

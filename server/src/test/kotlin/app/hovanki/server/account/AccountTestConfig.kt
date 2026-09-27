@@ -49,9 +49,9 @@ class DeletionRecorder : BeforeAccountDeletion {
 @TestComponent
 @RestController
 class TestRoutes {
-    /** Needs an account with a confirmed email, like most of the account routes will. */
-    @GetMapping(VERIFIED)
-    fun verified(user: AuthenticatedUser): String = user.userId.value
+    /** Needs an account, confirmed email or not, like the account and social routes. */
+    @GetMapping(ACCOUNT)
+    fun account(user: AuthenticatedUser): String = user.userId.value
 
     /** Works with or without an account, like creating or joining a game. */
     @GetMapping(OPTIONAL)
@@ -61,7 +61,7 @@ class TestRoutes {
     fun number(@PathVariable n: Long): String = n.toString()
 
     companion object {
-        const val VERIFIED = "/api/v1/test/verified"
+        const val ACCOUNT = "/api/v1/test/account"
         const val OPTIONAL = "/api/v1/test/optional"
         const val NUMBER = "/api/v1/test/numbers/{n}"
     }

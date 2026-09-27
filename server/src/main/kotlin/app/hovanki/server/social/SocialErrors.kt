@@ -9,7 +9,6 @@ import app.hovanki.shared.rules.GroupRules
 object SocialErrors {
     fun badRequest(message: String) = GameException(ErrorCode.BAD_REQUEST, message)
 
-    /** Also for accounts whose email is not confirmed: nobody can find them. */
     fun userNotFound() = GameException(ErrorCode.NOT_FOUND, "No such user", ErrorReason.USER_NOT_FOUND)
 
     fun notFound(message: String) = GameException(ErrorCode.NOT_FOUND, message)

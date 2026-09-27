@@ -19,7 +19,7 @@ data class TestUser(val id: UserId, val nickname: String, val token: String) {
     val summary get() = UserSummary(id, nickname)
 
     /** What the routes pass to the services. */
-    val auth get() = AuthenticatedUser(id, AccountKeys.tokenHash(token), emailVerified = true)
+    val auth get() = AuthenticatedUser(id, AccountKeys.tokenHash(token))
 }
 
 /**

@@ -31,8 +31,9 @@ import java.time.Duration
 import java.time.Instant
 
 /**
- * Accounts (docs/adr/0004-accounts-friends-chat.md): registration with an emailed code, login by email or nickname,
- * password reset, account deletion, and [authenticate] for every request with an account token.
+ * Accounts (docs/adr/0004-accounts-friends-chat.md): registration, confirming the email with an emailed code (optional:
+ * an account works right away), login by email or nickname, password reset, account deletion, and [authenticate] for
+ * every request with an account token.
  *
  * Transactions are explicit ([TransactionTemplate]) and short: BCrypt runs outside them (it takes ~100 ms, the pool
  * has 5 connections), and so does counting an attempt at an emailed code (a wrong code rolls nothing back).
@@ -54,7 +55,10 @@ class AccountService(
 ) {
     private val transactions = TransactionTemplate(transactionManager)
 
-    /** A new account with an unconfirmed email: sends the code there and logs the device in. */
+    /**
+     * A new account, usable right away, and this device logged in. Its email is unconfirmed: a code goes there, and
+     * entering it ([verifyEmail]) is optional.
+     */
     fun register(request: RegisterRequest, clientIp: String): AccountSession {
         rateLimiter.acquire(RateLimit.REGISTER_PER_IP, clientIp)
         val nickname = AccountKeys.normalizeNickname(request.nickname)
@@ -145,7 +149,10 @@ class AccountService(
         }
     }
 
-    /** Confirms the email with the code sent to it; an already confirmed email just returns the profile. */
+    /**
+     * Confirms the email with the code sent to it: optional, it only shows that the address reaches its owner (who can
+     * then count on it for a password reset). An already confirmed email just returns the profile.
+     */
     fun verifyEmail(user: AuthenticatedUser, request: VerifyEmailRequest): UserProfile {
         val record = userOf(user)
         if (record.emailVerified) return record.toProfile()
@@ -166,9 +173,14 @@ class AccountService(
         transactions.executeWithoutResult { sendCode(record, EmailPurpose.VERIFY_EMAIL, now) }
     }
 
-    /** Fixes a mistyped, unconfirmed email and sends a new code there; a confirmed email can't be changed (yet). */
+    /**
+     * Fixes a mistyped, unconfirmed email and sends a new code there; a confirmed email can't be changed (yet). Needs
+     * the current password, checked first: an unconfirmed account lives on, and whoever controls its email can take
+     * it over with a password reset, so a stolen session alone must not be enough to point it at another address.
+     */
     fun changeEmail(user: AuthenticatedUser, request: ChangeEmailRequest): UserProfile {
         val record = userOf(user)
+        checkPassword(record, request.password)
         if (record.emailVerified) throw GameException(ErrorCode.WRONG_STATE, "The email is already confirmed")
         val email = validEmail(request.email)
         val now = clock.instant()
@@ -212,8 +224,8 @@ class AccountService(
 
     /**
      * The account of an account token: [UserArgumentResolver][app.hovanki.server.api.UserArgumentResolver] calls it
-     * for every request with one. Throws 401 [ErrorReason.SESSION_EXPIRED] for an unknown, revoked or idle token.
-     * Whether the email must be confirmed is the caller's decision ([AuthenticatedUser.emailVerified]).
+     * for every request with one. Throws 401 [ErrorReason.SESSION_EXPIRED] for an unknown, revoked or idle token;
+     * a confirmed email or not makes no difference.
      */
     fun authenticate(token: String): AuthenticatedUser {
         val tokenHash = AccountKeys.tokenHash(token)
@@ -225,7 +237,7 @@ class AccountService(
         }
         // No write per request: the idle limit is months, an hour of precision is plenty.
         if (Duration.between(session.lastUsedAt, now) >= TOUCH_INTERVAL) sessions.touch(tokenHash, now)
-        return AuthenticatedUser(session.userId, tokenHash, session.emailVerified)
+        return AuthenticatedUser(session.userId, tokenHash)
     }
 
     private fun userOf(user: AuthenticatedUser): UserRecord = users.findById(user.userId) ?: throw sessionExpired()
@@ -260,7 +272,9 @@ class AccountService(
         throw wrongCode()
     }
 
-    /** The current password for changing it or deleting the account; failures count like failed logins. */
+    /**
+     * The current password for changing it or the email, or deleting the account; failures count like failed logins.
+     */
     private fun checkPassword(user: UserRecord, password: String) {
         val key = "user:${user.id.value}"
         rateLimiter.check(RateLimit.LOGIN_PER_LOGIN, key)

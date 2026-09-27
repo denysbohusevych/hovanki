@@ -1,9 +1,6 @@
 package app.hovanki.server.api
 
-import app.hovanki.server.account.awaitCode
 import app.hovanki.server.account.uniqueName
-import app.hovanki.server.mail.EmailSender
-import app.hovanki.server.mail.RecordingEmailSender
 import app.hovanki.server.moderation.ReportRepository
 import app.hovanki.shared.debug.DebugBuildings
 import app.hovanki.shared.protocol.AccountSession
@@ -32,8 +29,6 @@ import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
-import app.hovanki.shared.protocol.UserProfile
-import app.hovanki.shared.protocol.VerifyEmailRequest
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.ChatRules
 import app.hovanki.shared.rules.shrinkingZone
@@ -56,12 +51,7 @@ import kotlin.test.assertTrue
 /** Full HTTP round trips with the shared DTOs and the shared JSON settings, exactly as the app talks to the server. */
 @SpringBootTest
 @AutoConfigureMockMvc
-class GameApiTest(
-    @Autowired private val mvc: MockMvc,
-    @Autowired emailSender: EmailSender,
-    @Autowired private val reports: ReportRepository,
-) {
-    private val emails = emailSender as RecordingEmailSender
+class GameApiTest(@Autowired private val mvc: MockMvc, @Autowired private val reports: ReportRepository) {
     private val park = GeoPoint(50.4501, 30.5234)
     private val settings = GameSettings(zone = shrinkingZone(park), hidingSeconds = 0)
 
@@ -144,17 +134,18 @@ class GameApiTest(
     }
 
     // ---- Accounts (docs/adr/0004-accounts-friends-chat.md) ----
+    // None of them confirmed its email (register()): confirming is optional, an account plays right away.
 
     @Test
     fun loggedInPlayersAreNamedByTheirNickname() {
-        val alice = registerVerified()
+        val alice = register()
         val created = createGame(alice.token)
         val host = created.snapshot.players.single()
         assertEquals(alice.user.nickname, host.name)
         assertEquals(alice.user.id, host.userId)
 
         // The typed name doesn't matter, not even an empty one.
-        val bob = registerVerified()
+        val bob = register()
         val joined = join(created.snapshot.joinCode, bob.token, name = "")
         assertEquals(bob.user.id, joined.snapshot.players.single { it.id == joined.session.playerId }.userId)
         // Guests as before: the name they typed, no account.
@@ -167,7 +158,7 @@ class GameApiTest(
 
     @Test
     fun aLoggedInPlayerComesBackOnAnotherPhone() {
-        val alice = registerVerified()
+        val alice = register()
         val created = createGame()
         val host = created.session
         val joinCode = created.snapshot.joinCode
@@ -177,7 +168,7 @@ class GameApiTest(
 
         // Too late for anybody new, the game is running.
         postRaw(ApiRoutes.JOIN, JoinGameRequest(joinCode, "Late").toJson(), session = null, expectedStatus = 409)
-        postRaw(ApiRoutes.JOIN, JoinGameRequest(joinCode, "").toJson(), registerVerified().token, expectedStatus = 409)
+        postRaw(ApiRoutes.JOIN, JoinGameRequest(joinCode, "").toJson(), register().token, expectedStatus = 409)
 
         // Alice on her new phone, logged in there with a token of its own: the same player, with a new game token.
         val secondPhone = post<AccountSession>(ApiRoutes.LOGIN, LoginRequest(alice.user.nickname, PASSWORD).toJson())
@@ -196,7 +187,7 @@ class GameApiTest(
 
     @Test
     fun aFinishedGameCanBeRejoinedToo() {
-        val alice = registerVerified()
+        val alice = register()
         val created = createGame()
         val first = join(created.snapshot.joinCode, alice.token)
         playUntilTheHostIsCaught(created.session, seeker = first.session)
@@ -207,17 +198,14 @@ class GameApiTest(
     }
 
     @Test
-    fun accountTokensOnCreateAndJoin() {
+    fun unknownAccountTokensOnCreateAndJoin() {
         val joinCode = createGame().snapshot.joinCode
-        val unverified = register()
         val unknown = "0".repeat(64)
         val requests = mapOf(
             ApiRoutes.GAMES to CreateGameRequest("X", settings).toJson(),
             ApiRoutes.JOIN to JoinGameRequest(joinCode, "X").toJson(),
         )
         for ((path, json) in requests) {
-            val notVerified = postRaw(path, json, unverified.token, expectedStatus = 403)
-            assertError(notVerified, ErrorCode.FORBIDDEN, ErrorReason.EMAIL_NOT_VERIFIED)
             val unknownToken = postRaw(path, json, unknown, expectedStatus = 401)
             assertError(unknownToken, ErrorCode.UNAUTHORIZED, ErrorReason.SESSION_EXPIRED)
         }
@@ -267,7 +255,7 @@ class GameApiTest(
 
     @Test
     fun reportingChatMessages() {
-        val alice = registerVerified()
+        val alice = register()
         val created = createGame(alice.token)
         val host = created.session
         val guest = join(created.snapshot.joinCode, accountToken = null, name = "Guest").session
@@ -341,18 +329,11 @@ class GameApiTest(
     private fun join(joinCode: String, accountToken: String?, name: String = ""): SessionResponse =
         postAs(accountToken, ApiRoutes.JOIN, JoinGameRequest(joinCode, name).toJson())
 
-    /** A new account with an unconfirmed email. */
+    /** A new account, its email not confirmed: confirming is optional, the account plays right away. */
     private fun register(): AccountSession {
         val nickname = uniqueName("game")
-        return post(ApiRoutes.ACCOUNTS, RegisterRequest(nickname, "$nickname@example.com", PASSWORD).toJson())
-    }
-
-    /** A new account, its email confirmed with the emailed code. */
-    private fun registerVerified(): AccountSession {
-        val session = register()
-        val code = emails.awaitCode(session.user.email)
-        val profile = postAs<UserProfile>(session.token, ApiRoutes.ME_EMAIL_VERIFY, VerifyEmailRequest(code).toJson())
-        return session.copy(user = profile)
+        val request = RegisterRequest(nickname, "$nickname@example.com", PASSWORD)
+        return post<AccountSession>(ApiRoutes.ACCOUNTS, request.toJson()).also { assertFalse(it.user.emailVerified) }
     }
 
     private fun sync(session: PlayerSession, chatAfter: Long? = null): GameSnapshot {

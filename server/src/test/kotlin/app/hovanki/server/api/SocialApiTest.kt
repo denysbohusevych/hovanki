@@ -51,8 +51,7 @@ class SocialApiTest(
     private val testUsers = TestUsers(users, sessions, hasher, ids, jdbc, clock)
 
     @Test
-    fun everyRouteNeedsAConfirmedAccount() {
-        val unconfirmed = testUsers.create(verified = false)
+    fun everyRouteNeedsAnAccount() {
         val someone = UserId("someone")
         val group = GroupId("group")
         val calls: List<(String?) -> Response> = listOf(
@@ -73,8 +72,30 @@ class SocialApiTest(
         for (call in calls) {
             call(null).error(401, ErrorCode.UNAUTHORIZED)
             call("nope").error(401, ErrorCode.UNAUTHORIZED, ErrorReason.SESSION_EXPIRED)
-            call(unconfirmed.token).error(403, ErrorCode.FORBIDDEN, ErrorReason.EMAIL_NOT_VERIFIED)
         }
+    }
+
+    @Test
+    fun accountsWithoutAConfirmedEmailTakePart() {
+        // Confirming the email is optional: such accounts find others, are found, befriend, group and block.
+        val alice = testUsers.create(verified = false)
+        val bob = testUsers.create(verified = false)
+        val carol = testUsers.create(verified = false)
+
+        post(ApiRoutes.FRIEND_REQUESTS, SendFriendRequest(nickname = bob.nickname).toJson(), alice.token).expect(200)
+        val friends = post(ApiRoutes.friendRequestAccept(alice.id), null, bob.token).ok<FriendsResponse>()
+        assertEquals(FriendsResponse(friends = listOf(alice.summary)), friends)
+        val asked = post(ApiRoutes.FRIEND_REQUESTS, SendFriendRequest(userId = carol.id).toJson(), alice.token)
+            .ok<FriendsResponse>()
+        assertEquals(listOf(carol.summary), asked.outgoing)
+
+        val group = post(ApiRoutes.GROUPS, CreateGroupRequest("Crew", listOf(bob.id)).toJson(), alice.token)
+            .ok<GroupsResponse>().groups.single()
+        assertEquals(listOf(alice.summary, bob.summary), group.members)
+        assertEquals(listOf(group), get(ApiRoutes.GROUPS, bob.token).ok<GroupsResponse>().groups)
+
+        val blocked = post(ApiRoutes.userBlock(carol.id), null, alice.token).ok<FriendsResponse>()
+        assertEquals(listOf(carol.summary), blocked.blocked)
     }
 
     @Test

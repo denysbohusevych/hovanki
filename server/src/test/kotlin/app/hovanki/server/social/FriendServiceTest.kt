@@ -130,10 +130,9 @@ class FriendServiceTest(
     }
 
     @Test
-    fun requestsNeedExactlyOneKnownConfirmedUser() {
+    fun requestsNeedExactlyOneKnownUser() {
         val alice = testUsers.create()
         val bob = testUsers.create()
-        val unconfirmed = testUsers.create(verified = false)
 
         assertError(ErrorCode.BAD_REQUEST, null) { service.sendRequest(alice.id, SendFriendRequest()) }
         assertError(ErrorCode.BAD_REQUEST, null) {
@@ -150,12 +149,22 @@ class FriendServiceTest(
             // No prefix search.
             SendFriendRequest(nickname = bob.nickname.dropLast(1)),
             SendFriendRequest(userId = UserId("nobody")),
-            SendFriendRequest(nickname = unconfirmed.nickname),
-            SendFriendRequest(userId = unconfirmed.id),
         )) {
             assertError(ErrorCode.NOT_FOUND, ErrorReason.USER_NOT_FOUND) { service.sendRequest(alice.id, request) }
         }
         assertEquals(FriendsResponse(), service.friends(alice.id))
+    }
+
+    @Test
+    fun accountsWithoutAConfirmedEmailAreFound() {
+        // Confirming the email is optional: it doesn't matter on either side.
+        val alice = testUsers.create(verified = false)
+        val (bob, carol) = List(2) { testUsers.create(verified = false) }
+
+        service.sendRequest(alice.id, SendFriendRequest(nickname = bob.nickname.uppercase()))
+        val sent = service.sendRequest(alice.id, SendFriendRequest(userId = carol.id))
+        assertEquals(setOf(bob.id, carol.id), sent.outgoing.map { it.id }.toSet())
+        assertEquals(FriendsResponse(friends = listOf(alice.summary)), service.accept(bob.id, alice.id))
     }
 
     @Test
@@ -237,9 +246,10 @@ class FriendServiceTest(
 
         assertError(ErrorCode.BAD_REQUEST, null) { service.block(alice.id, alice.id) }
         assertError(ErrorCode.NOT_FOUND, ErrorReason.USER_NOT_FOUND) { service.block(alice.id, UserId("nobody")) }
-        assertError(ErrorCode.NOT_FOUND, ErrorReason.USER_NOT_FOUND) { service.block(alice.id, unconfirmed.id) }
         // Unblocking someone who isn't blocked is fine.
         assertEquals(FriendsResponse(), service.unblock(alice.id, UserId("nobody")))
+        // Whether their email is confirmed doesn't matter.
+        assertEquals(FriendsResponse(blocked = listOf(unconfirmed.summary)), service.block(alice.id, unconfirmed.id))
     }
 
     @Test

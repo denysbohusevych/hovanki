@@ -56,8 +56,6 @@ hovanki:
     code-max-attempts: 5
     # Logged-in devices unused for this long are logged out.
     session-idle-retention: 180d
-    # Accounts whose email was never confirmed are deleted after this, freeing the nickname and the email.
-    unverified-retention: 7d
     # Unanswered friend requests.
     request-retention: 90d
   moderation:

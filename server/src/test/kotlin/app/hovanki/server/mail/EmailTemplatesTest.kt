@@ -43,6 +43,22 @@ class EmailTemplatesTest {
     }
 
     @Test
+    fun confirmingTheEmailIsOptionalAndHelpsWithThePassword() {
+        val optional = mapOf(
+            "en" to listOf("Confirming is optional", "reset your password"),
+            "ru" to listOf("Подтверждать адрес необязательно", "восстановить пароль"),
+            "uk" to listOf("Підтверджувати адресу необов’язково", "відновити пароль"),
+        )
+        for ((language, phrases) in optional) {
+            val verify = EmailTemplates.render("a@b.co", EmailPurpose.VERIFY_EMAIL, language, "123456", fifteenMinutes)
+            for (phrase in phrases) assertContains(verify.text, phrase)
+            // Only in the confirmation email.
+            val reset = EmailTemplates.render("a@b.co", EmailPurpose.RESET_PASSWORD, language, "123456", fifteenMinutes)
+            assertTrue(phrases.first() !in reset.text, reset.text)
+        }
+    }
+
+    @Test
     fun otherLanguagesGetEnglish() {
         assertEquals("en", render("de").language)
         assertEquals("en", render("").language)

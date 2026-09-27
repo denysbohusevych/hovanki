@@ -15,9 +15,10 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** The schema itself (V1__accounts_social.sql) on the test database (TestPostgres): keys, cascades, retention. */
+/** The schema itself (db/migration) on the test database (TestPostgres): keys, cascades, retention. */
 @SpringBootTest
 class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
     private val now = Instant.parse("2026-06-01T12:00:00Z")
@@ -28,10 +29,16 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             .query(String::class.java)
             .list()
         assertContains(applied, "1")
+        assertContains(applied, "2")
         val tables = jdbc.sql("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
             .query(String::class.java)
             .set()
         for (table in EXPECTED_TABLES) assertContains(tables, table)
+        // V2: unconfirmed accounts are no longer looked up by age.
+        val indexes = jdbc.sql("SELECT indexname FROM pg_indexes WHERE tablename = 'users'")
+            .query(String::class.java)
+            .set()
+        assertFalse("users_unverified_created_at" in indexes, "$indexes")
     }
 
     @Test
@@ -105,10 +112,10 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         val deleted = retention.run()
 
         // Other tests share the database: at least ours went, and the fresh rows stay.
-        assertTrue(deleted.unverifiedAccounts >= 1 && deleted.sessions >= 1 && deleted.emailCodes >= 1, "$deleted")
-        assertTrue(deleted.friendRequests >= 1, "$deleted")
+        assertTrue(deleted.sessions >= 1 && deleted.emailCodes >= 1 && deleted.friendRequests >= 1, "$deleted")
+        // Accounts stay, however old, confirmed or not: confirming the email is optional.
         val users = jdbc.sql("SELECT id FROM users WHERE id IN (:a, :b)").ids(oldUnverified, newUnverified)
-        assertEquals(listOf(newUnverified), users)
+        assertEquals(setOf(oldUnverified, newUnverified), users.toSet())
         assertEquals(listOf(oldVerified), jdbc.sql("SELECT id FROM users WHERE id = :a").ids(oldVerified))
         val sessions = jdbc.sql("SELECT token_hash FROM account_sessions WHERE user_id = :a").ids(oldVerified)
         assertEquals(listOf(activeSession), sessions)

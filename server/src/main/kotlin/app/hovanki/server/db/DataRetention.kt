@@ -11,8 +11,9 @@ import java.time.Duration
 
 /**
  * Deletes stored data once its retention period is over (GDPR, docs/adr/0004-accounts-friends-chat.md): idle
- * sessions, accounts whose email was never confirmed, old reports and friend requests, expired email codes.
- * Runs once a day (`hovanki.retention.cron`); logs only counts.
+ * sessions, old reports and friend requests, expired email codes. Accounts stay until their owners delete them,
+ * whether their email is confirmed or not (confirming is optional). Runs once a day (`hovanki.retention.cron`); logs
+ * only counts.
  */
 @Component
 class DataRetention(
@@ -23,13 +24,7 @@ class DataRetention(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    data class Deleted(
-        val sessions: Int,
-        val unverifiedAccounts: Int,
-        val reports: Int,
-        val friendRequests: Int,
-        val emailCodes: Int,
-    )
+    data class Deleted(val sessions: Int, val reports: Int, val friendRequests: Int, val emailCodes: Int)
 
     @Scheduled(cron = "\${hovanki.retention.cron:0 17 3 * * *}")
     fun run(): Deleted {
@@ -41,12 +36,6 @@ class DataRetention(
                 "DELETE FROM account_sessions WHERE last_used_at < :t",
                 before(accounts.sessionIdleRetention),
             ),
-            // An unconfirmed account has no friends, groups or games (they all need a confirmed email): a plain
-            // delete is enough, no BeforeAccountDeletion.
-            unverifiedAccounts = delete(
-                "DELETE FROM users WHERE email_verified_at IS NULL AND created_at < :t",
-                before(accounts.unverifiedRetention),
-            ),
             reports = delete("DELETE FROM reports WHERE created_at < :t", before(moderation.reportRetention)),
             friendRequests = delete(
                 "DELETE FROM friend_requests WHERE created_at < :t",
@@ -55,10 +44,8 @@ class DataRetention(
             emailCodes = delete("DELETE FROM email_codes WHERE expires_at < :t", now.toTimestamptz()),
         )
         log.info(
-            "Data retention: deleted {} idle sessions, {} unconfirmed accounts, {} reports, {} friend requests, " +
-                "{} expired email codes",
+            "Data retention: deleted {} idle sessions, {} reports, {} friend requests, {} expired email codes",
             deleted.sessions,
-            deleted.unverifiedAccounts,
             deleted.reports,
             deleted.friendRequests,
             deleted.emailCodes,

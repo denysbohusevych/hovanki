@@ -16,20 +16,16 @@ import org.springframework.web.method.support.ModelAndViewContainer
  * ([UserArgumentResolver]):
  * - non-null parameter: the route needs an account. No token → 401 `UNAUTHORIZED`;
  * - nullable parameter: the account is optional (game create/join). No token → null;
- * - either way, an unknown, revoked or expired token → 401 [ErrorReason.SESSION_EXPIRED], and an unconfirmed email →
- *   403 [ErrorReason.EMAIL_NOT_VERIFIED] unless the handler is annotated [AllowUnverifiedEmail].
+ * - either way, an unknown, revoked or expired token → 401 [ErrorReason.SESSION_EXPIRED].
+ *
+ * Whether the account's email is confirmed doesn't matter: confirming it is optional, an account works right after
+ * registration (docs/adr/0004-accounts-friends-chat.md).
  */
 data class AuthenticatedUser(
     val userId: UserId,
     /** Identifies this device's session (logout, "log out the other devices"). */
     val tokenHash: String,
-    val emailVerified: Boolean,
 )
-
-/** The handler also serves accounts whose email is not confirmed yet (me, verify, resend, logout, ...). */
-@Target(AnnotationTarget.FUNCTION)
-@Retention(AnnotationRetention.RUNTIME)
-annotation class AllowUnverifiedEmail
 
 class UserArgumentResolver(private val accounts: AccountService) : HandlerMethodArgumentResolver {
     override fun supportsParameter(parameter: MethodParameter): Boolean =
@@ -47,10 +43,6 @@ class UserArgumentResolver(private val accounts: AccountService) : HandlerMethod
             if (parameter.isOptional) return null
             throw GameException(ErrorCode.UNAUTHORIZED, "Missing bearer token")
         }
-        val user = accounts.authenticate(token)
-        if (!user.emailVerified && !parameter.hasMethodAnnotation(AllowUnverifiedEmail::class.java)) {
-            throw GameException(ErrorCode.FORBIDDEN, "Confirm your email first", ErrorReason.EMAIL_NOT_VERIFIED)
-        }
-        return user
+        return accounts.authenticate(token)
     }
 }

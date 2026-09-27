@@ -19,7 +19,7 @@ import java.time.Instant
 
 /**
  * Friends and blocks (docs/adr/0004-accounts-friends-chat.md). Every command answers with the caller's fresh
- * [FriendsResponse]; the callers are accounts with a confirmed email (the routes require it).
+ * [FriendsResponse]. Any account takes part, whether its email is confirmed or not (confirming is optional).
  *
  * Nobody learns that they were blocked: a friend request to someone who blocked the caller is stored like any other
  * (the caller sees it among their outgoing requests, it counts towards their limit), but the one who blocked never
@@ -52,9 +52,7 @@ class FriendService(
         if ((nickname == null) == (request.userId == null)) throw badRequest("Either a nickname or a user id")
         // Counts failures too: it also slows down guessing which nicknames exist.
         rateLimiter.acquire(RateLimit.FRIEND_REQUESTS, userId.value)
-        // Unconfirmed accounts can't be found: they may be gone in a few days (DataRetention).
         val target = (nickname?.let(users::findByNickname) ?: request.userId?.let(users::findById))
-            ?.takeIf { it.emailVerified }
             ?: throw userNotFound()
         if (target.id == userId) throw badRequest("You can't be your own friend")
         return inTransaction {
@@ -109,7 +107,6 @@ class FriendService(
      */
     fun block(userId: UserId, target: UserId): FriendsResponse {
         if (target == userId) throw badRequest("You can't block yourself")
-        if (users.findById(target)?.emailVerified != true) throw userNotFound()
         return inTransaction {
             if (target !in users.lock(listOf(userId, target))) throw userNotFound()
             blocks.block(userId, target, clock.instant())

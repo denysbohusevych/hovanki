@@ -287,23 +287,37 @@ class InviteApiTest(
     }
 
     @Test
-    fun theInboxNeedsAConfirmedAccount() {
-        val unconfirmed = testUsers.create(verified = false)
+    fun theInboxNeedsAnAccount() {
         for (call in listOf<(String?) -> Response>(
             { get(ApiRoutes.INBOX, it) },
             { post(ApiRoutes.inviteDismiss(InviteId("invite")), null, it) },
         )) {
             call(null).error(401, ErrorCode.UNAUTHORIZED)
             call("nope").error(401, ErrorCode.UNAUTHORIZED, ErrorReason.SESSION_EXPIRED)
-            call(unconfirmed.token).error(403, ErrorCode.FORBIDDEN, ErrorReason.EMAIL_NOT_VERIFIED)
         }
         // Inviting takes a game token.
-        post(ApiRoutes.gameInvites(GameId("game")), InviteRequest(listOf(unconfirmed.id)).toJson(), null)
+        post(ApiRoutes.gameInvites(GameId("game")), InviteRequest(listOf(UserId("someone"))).toJson(), null)
             .error(401, ErrorCode.UNAUTHORIZED)
     }
 
-    private fun friendOf(user: TestUser): TestUser {
-        val friend = testUsers.create()
+    @Test
+    fun accountsWithoutAConfirmedEmailInviteAndAreInvited() {
+        // Confirming the email is optional: neither did.
+        val host = testUsers.create(verified = false)
+        val friend = friendOf(host, verified = false)
+        val game = createGame(host)
+        assertEquals(host.id, game.snapshot.players.single().userId)
+
+        invite(game.session, InviteRequest(listOf(friend.id))).ok<GameSnapshot>()
+        val invitation = inbox(friend).ok<Inbox>().invites.single()
+        assertEquals(host.summary, invitation.from)
+        val joined = join(invitation.joinCode, friend).ok<SessionResponse>()
+        assertEquals(friend.id, joined.snapshot.players.single { it.id == joined.session.playerId }.userId)
+        assertEquals(Inbox(), inbox(friend).ok())
+    }
+
+    private fun friendOf(user: TestUser, verified: Boolean = true): TestUser {
+        val friend = testUsers.create(verified = verified)
         friendService.sendRequest(user.id, SendFriendRequest(userId = friend.id))
         friendService.accept(friend.id, user.id)
         return friend

@@ -4,6 +4,7 @@ import app.hovanki.server.account.uniqueName
 import app.hovanki.shared.protocol.AccountSession
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.ChangeEmailRequest
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
@@ -54,6 +55,20 @@ class RateLimitApiTest(@Autowired private val mvc: MockMvc) {
         }
         // Another login is not locked.
         assertEquals(403, login(uniqueName(), "wrong password").status)
+    }
+
+    @Test
+    fun wrongPasswordsWhenChangingTheEmailCountLikeFailedLogins() {
+        val session = register()
+        fun changeEmail(password: String) = post(
+            ApiRoutes.ME_EMAIL,
+            protocolJson.encodeToString(ChangeEmailRequest("${uniqueName()}@example.com", password)),
+            session.token,
+        )
+        repeat(3) { assertEquals(403, changeEmail("wrong password").status) }
+
+        // Locked, even with the right password: a stolen session can't try passwords one after another.
+        assertTrue(assertTooManyRequests(changeEmail(PASSWORD)) in 1..15 * 60)
     }
 
     @Test

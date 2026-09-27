@@ -76,14 +76,17 @@ class AccountServiceTest(
     }
 
     @Test
-    fun authenticationKnowsWhetherTheEmailIsConfirmed() {
+    fun confirmingTheEmailIsOptional() {
         val nickname = uniqueName()
         val session = register(nickname)
         val user = accounts.authenticate(session.token)
-        assertFalse(user.emailVerified)
+        assertEquals(session.user.id, user.userId)
+        assertFalse(accounts.me(user).emailVerified)
 
         accounts.verifyEmail(user, VerifyEmailRequest(emails.awaitCode("$nickname@example.com")))
-        assertTrue(accounts.authenticate(session.token).emailVerified)
+        assertTrue(accounts.me(user).emailVerified)
+        // The same session before and after.
+        assertEquals(user, accounts.authenticate(session.token))
     }
 
     @Test
@@ -115,7 +118,7 @@ class AccountServiceTest(
         val code = emails.awaitCode("$nickname@example.com", purpose = EmailPurpose.RESET_PASSWORD)
 
         val newEmail = "${uniqueName()}@example.com"
-        accounts.changeEmail(user, ChangeEmailRequest(newEmail))
+        accounts.changeEmail(user, ChangeEmailRequest(newEmail, PASSWORD))
         val refused = assertFailsWith<GameException> {
             accounts.confirmPasswordReset(PasswordResetConfirmRequest(newEmail, code, "new-$PASSWORD"))
         }
