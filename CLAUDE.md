@@ -23,6 +23,7 @@ Read first: `docs/architecture.md` (how it works), `docs/adr/` (why: 0001 stack 
 ./gradlew check                            # all tests + checks available on this OS, without the e2e scenarios
 ./gradlew :shared:jvmTest :clientCore:jvmTest :server:test   # fast feedback loop
 ./gradlew :e2e:test                        # e2e scenarios: bots play whole games (~6 min); reports in e2e/build/reports/e2e/
+./gradlew :e2e:test -Pe2e.slow=true        # plus the slow ones (tag `slow`, default rules in real time), as nightly
 ./gradlew :e2e:devices                     # app on the emulators already running (Android Studio) + bots; needs Maestro
 e2e/run-devices.sh --android 2 --bots 3    # app on 2 emulators + bots (needs KVM + Maestro; --ios 1 on macOS); ~15 min in CI
 docker compose -f deploy/compose.dev.yaml up -d   # local PostgreSQL for bootRun (tests bring their own)

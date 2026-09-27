@@ -181,7 +181,7 @@ PR из той же репы проверяются push-запуском на �
 
 | Job | Раннер | Время | Что делает |
 |---|---|---|---|
-| `E2E bots` | `ubuntu-latest` | ~8 мин | `./gradlew :e2e:test`: headless-боты играют партии против сервера ([e2e.md](e2e.md#быстрый-слой-боты)) |
+| `E2E bots` | `ubuntu-latest` | ~8 мин | `./gradlew :e2e:test -Pe2e.slow=true`: headless-боты играют партии против сервера, вместе с долгими сценариями (тег `slow`) ([e2e.md](e2e.md#быстрый-слой-боты)) |
 | `Android emulators` | `ubuntu-latest` + KVM | ~15 мин | `e2e/run-devices.sh --android 2`: два эмулятора, системный образ в кэше |
 | `iOS simulator` | `macos-26` | ~20 мин | `e2e/run-devices.sh --ios 1`: один симулятор, второй на раннере грузится слишком долго |
 | `Nightly issue` | `ubuntu-latest` | секунды | только по расписанию: issue при падении, закрытие при зелёном прогоне (ниже) |

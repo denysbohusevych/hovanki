@@ -63,7 +63,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
 
       - name: End-to-end scenarios
-        run: ./gradlew :e2e:test
+        # With the slow ones (the default rules, several minutes of real game time): nightly only.
+        run: ./gradlew :e2e:test -Pe2e.slow=true
 
       - name: Upload e2e scenario reports
         if: always()
