@@ -932,6 +932,7 @@ class Game(
             disputes = catches.values.count { it.wasDisputed },
             chatMessages = lastChatSeq.toInt(),
             buildings = buildingsState,
+            streetZone = streetZone?.stages,
             results = players.values.mapNotNull { player ->
                 val userId = player.userId ?: return@mapNotNull null
                 val route = checkNotNull(player.route)
