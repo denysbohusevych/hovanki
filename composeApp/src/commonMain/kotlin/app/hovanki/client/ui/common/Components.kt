@@ -299,7 +299,9 @@ fun StartProblem.describe(): String = when (this) {
 @Composable
 fun SessionError.describe(): String = when (this) {
     // The exact cause when the server sent one (rate limit, logged out, not friends...).
-    is SessionError.Rejected -> reason?.let { reasonNotice(it, retryAfterSeconds).text() } ?: when (code) {
+    is SessionError.Rejected -> reason?.let {
+        reasonNotice(it, retryAfterSeconds, untilMillis = untilMillis).text()
+    } ?: when (code) {
         ErrorCode.NOT_FOUND -> stringResource(Res.string.error_not_found)
 
         ErrorCode.TOO_FAR -> stringResource(Res.string.error_too_far)

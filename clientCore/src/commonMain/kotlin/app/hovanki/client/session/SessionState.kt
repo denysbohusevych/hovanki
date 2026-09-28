@@ -48,6 +48,8 @@ sealed interface SessionError {
         val message: String,
         val reason: ErrorReason? = null,
         val retryAfterSeconds: Long? = null,
+        /** When a chat ban ends ([ErrorReason.CHAT_MUTED]); null: forever, or not a chat ban. */
+        val untilMillis: Long? = null,
     ) : SessionError
 
     /** The server could not be reached or answered with something unreadable. */

@@ -49,6 +49,8 @@ curl http://localhost:8080/actuator/health   # {"status":"UP",...}
 
 Подойдёт и любой свой PostgreSQL с такими базой, пользователем и паролем. Письма с кодами (подтверждение email, сброс пароля) локальный сервер не отправляет, а пишет в свой лог.
 
+Админка ([ADR 0008](docs/adr/0008-admin.md)) локально: запустить сервер с ключом — `HOVANKI_ADMIN_SECRETKEY=$(openssl rand -base64 32) ./gradlew :server:bootRun`, сделать свой аккаунт админом — `psql -h localhost -U hovanki -c "UPDATE users SET role = 'ADMIN' WHERE email_key = lower('you@example.com')"` — и открыть <http://localhost:8080/admin> в Chrome или Firefox (cookie сессии `Secure`: без HTTPS браузеры принимают её только на `localhost`). Коды из писем — в логе сервера. На сервере в AWS — [deploy.md](docs/deploy.md#админка).
+
 Тестам (`:server:test`, `:e2e:test`) своя база не нужна: они сами поднимают встроенный PostgreSQL 17 (без Docker, бинарники из Maven Central). Уже запущенный сервер PostgreSQL можно подставить через `HOVANKI_TEST_DATABASE_URL='jdbc:postgresql://localhost:5432/hovanki?user=hovanki&password=hovanki'` (пользователю нужно право `CREATEDB`: тесты создают отдельную базу на каждый запуск и потом удаляют). В облачных сессиях Claude Code переменную выставляет SessionStart-хук [`.claude/hooks/session-start.sh`](.claude/hooks/session-start.sh), если в контейнере есть свой PostgreSQL.
 
 **2. Android**

@@ -1,7 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Code shared by the mobile client and the server. Pure Kotlin, no platform APIs:
-// wire protocol (kotlinx.serialization), catch codes (TOTP), geo math and game rules.
+// wire protocol (kotlinx.serialization), catch codes (TOTP), QR codes, geo math and game rules.
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
@@ -34,6 +34,10 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+        }
+        jvmTest.dependencies {
+            // Reference QR encoder/decoder for QrCodeZxingTest; the main code has no QR dependency.
+            implementation(libs.zxing.core)
         }
     }
 }

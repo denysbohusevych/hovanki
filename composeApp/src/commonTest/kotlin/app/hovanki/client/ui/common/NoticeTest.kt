@@ -2,6 +2,9 @@ package app.hovanki.client.ui.common
 
 import app.hovanki.client.network.ApiResult
 import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.error_account_banned
+import app.hovanki.client.resources.error_account_banned_forever
+import app.hovanki.client.resources.error_chat_muted
 import app.hovanki.client.resources.error_network
 import app.hovanki.client.resources.error_nickname_taken
 import app.hovanki.client.resources.error_too_many_requests
@@ -42,6 +45,17 @@ class NoticeTest {
 
         assertEquals(Notice.Text(Res.string.error_too_many_requests_wait, listOf("1:15")), limited.notice())
         assertEquals(Notice.Text(Res.string.error_too_many_requests), limited.copy(retryAfterSeconds = null).notice())
+    }
+
+    @Test
+    fun aBanSaysUntilWhen() {
+        val until = 1_800_000_000_000
+        val banned = ApiResult.Rejected(ErrorCode.FORBIDDEN, ErrorReason.ACCOUNT_BANNED, "Banned", untilMillis = until)
+
+        assertEquals(Notice.Text(Res.string.error_account_banned, listOf(formatDateTime(until))), banned.notice())
+        assertEquals(Notice.Text(Res.string.error_account_banned_forever), banned.copy(untilMillis = null).notice())
+        val muted = reasonNotice(ErrorReason.CHAT_MUTED, untilMillis = until)
+        assertEquals(Notice.Text(Res.string.error_chat_muted, listOf(formatDateTime(until))), muted)
     }
 
     @Test

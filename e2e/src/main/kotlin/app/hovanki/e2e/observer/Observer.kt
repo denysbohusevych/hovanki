@@ -8,11 +8,18 @@ import app.hovanki.shared.debug.DebugGameState
 import app.hovanki.shared.debug.DebugReport
 import app.hovanki.shared.debug.DebugReportList
 import app.hovanki.shared.debug.DebugRoutes
+import app.hovanki.shared.debug.DebugSetRole
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.protocol.UserRole
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.get
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.http.encodeURLPathPart
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.delay
@@ -63,6 +70,15 @@ class Observer(serverUrl: String) : AutoCloseable {
     /** Reported chat messages, newest first. */
     suspend fun reports(): List<DebugReport> = get<DebugReportList>(DebugRoutes.REPORTS).reports
 
+    /** Makes [userId] staff (docs/adr/0008-admin.md), as the operator does with SQL on a real server. */
+    suspend fun setRole(userId: UserId, role: UserRole) {
+        val response = client.post(baseUrl + DebugRoutes.userRole(userId)) {
+            contentType(ContentType.Application.Json)
+            setBody(DebugSetRole(role))
+        }
+        check(response.status.isSuccess()) { "Observer: setting the role of $userId: HTTP ${response.status}" }
+    }
+
     private suspend inline fun <reified T> get(path: String): T {
         val response = client.get(baseUrl + path)
         if (response.status == HttpStatusCode.NotFound && path == DebugRoutes.GAMES) {
@@ -80,4 +96,4 @@ class Observer(serverUrl: String) : AutoCloseable {
 }
 
 /** What an email the server sends is for ([DebugEmail.purpose]). */
-enum class EmailPurpose { VERIFY_EMAIL, RESET_PASSWORD }
+enum class EmailPurpose { VERIFY_EMAIL, RESET_PASSWORD, STAFF_ENROLL }

@@ -503,7 +503,13 @@ class BotPlayer(
             } else {
                 when (val error = running.session.state.value.lastError) {
                     is SessionError.Rejected ->
-                        CommandResult.Rejected(error.code, error.message, error.reason, error.retryAfterSeconds)
+                        CommandResult.Rejected(
+                            error.code,
+                            error.message,
+                            error.reason,
+                            error.retryAfterSeconds,
+                            error.untilMillis,
+                        )
 
                     is SessionError.Network -> CommandResult.Failed(error.details)
 
@@ -536,7 +542,13 @@ class BotPlayer(
             is ApiResult.Success -> CommandResult.Ok
 
             is ApiResult.Rejected ->
-                CommandResult.Rejected(outcome.code, outcome.message, outcome.reason, outcome.retryAfterSeconds)
+                CommandResult.Rejected(
+                    outcome.code,
+                    outcome.message,
+                    outcome.reason,
+                    outcome.retryAfterSeconds,
+                    outcome.untilMillis,
+                )
 
             is ApiResult.Network -> CommandResult.Failed(outcome.details)
         }
@@ -733,6 +745,8 @@ sealed interface CommandResult {
         val message: String,
         val reason: ErrorReason? = null,
         val retryAfterSeconds: Long? = null,
+        /** When a ban or a chat ban ends; null: forever, or not one. */
+        val untilMillis: Long? = null,
     ) : CommandResult
 
     /** Network or local failure. */

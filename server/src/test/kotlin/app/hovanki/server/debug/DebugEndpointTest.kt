@@ -5,6 +5,7 @@ import app.hovanki.shared.debug.DebugGameList
 import app.hovanki.shared.debug.DebugGameState
 import app.hovanki.shared.debug.DebugReportList
 import app.hovanki.shared.debug.DebugRoutes
+import app.hovanki.shared.debug.DebugSetRole
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.CreateGameRequest
@@ -21,6 +22,7 @@ import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.protocol.UserRole
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.AccountRules
 import app.hovanki.shared.rules.shrinkingZone
@@ -62,6 +64,12 @@ class DebugEndpointAbsentTest(@Autowired private val mvc: MockMvc, @Autowired pr
             val body = mvc.get(path).andExpect { status { isNotFound() } }.andReturn().response.contentAsString
             assertEquals(ErrorCode.NOT_FOUND, protocolJson.decodeFromString<ApiError>(body).code, body)
         }
+        // Nobody makes themselves staff on a normal server.
+        val setRole = mvc.post(DebugRoutes.userRole(UserId("anyone"))) {
+            contentType = MediaType.APPLICATION_JSON
+            content = protocolJson.encodeToString(DebugSetRole(UserRole.ADMIN))
+        }.andExpect { status { isNotFound() } }.andReturn().response.contentAsString
+        assertEquals(ErrorCode.NOT_FOUND, protocolJson.decodeFromString<ApiError>(setRole).code, setRole)
     }
 }
 

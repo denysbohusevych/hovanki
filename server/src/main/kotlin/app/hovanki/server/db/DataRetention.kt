@@ -1,6 +1,7 @@
 package app.hovanki.server.db
 
 import app.hovanki.server.account.AccountProperties
+import app.hovanki.server.admin.AdminProperties
 import app.hovanki.server.history.HistoryProperties
 import app.hovanki.server.moderation.ModerationProperties
 import org.slf4j.LoggerFactory
@@ -12,8 +13,9 @@ import java.time.Duration
 
 /**
  * Deletes stored data once its retention period is over (GDPR, docs/adr/0004-accounts-friends-chat.md,
- * docs/adr/0007-game-history-and-routes.md): idle sessions, old reports, friend requests and saved routes, expired
- * email codes. Accounts, and the history and statistics of their games, stay until their owners delete them, whether
+ * docs/adr/0007-game-history-and-routes.md, docs/adr/0008-admin.md): idle sessions, old reports, friend requests and
+ * saved routes, expired email codes, ended admin sessions, bans and chat bans a year after their end, the audit log
+ * after a year. Accounts, and the history and statistics of their games, stay until their owners delete them, whether
  * their email is confirmed or not (confirming is optional). Runs once a day (`hovanki.retention.cron`); logs only
  * counts.
  */
@@ -23,6 +25,7 @@ class DataRetention(
     private val accounts: AccountProperties,
     private val moderation: ModerationProperties,
     private val history: HistoryProperties,
+    private val admin: AdminProperties,
     private val clock: Clock,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -33,6 +36,9 @@ class DataRetention(
         val friendRequests: Int,
         val emailCodes: Int,
         val routes: Int,
+        val adminSessions: Int = 0,
+        val sanctions: Int = 0,
+        val auditEntries: Int = 0,
     )
 
     @Scheduled(cron = "\${hovanki.retention.cron:0 17 3 * * *}")
@@ -52,15 +58,27 @@ class DataRetention(
             ),
             emailCodes = delete("DELETE FROM email_codes WHERE expires_at < :t", now.toTimestamptz()),
             routes = delete("DELETE FROM game_routes WHERE saved_at < :t", before(history.routeRetention)),
+            adminSessions = delete(
+                "DELETE FROM admin_sessions WHERE created_at < :t",
+                before(admin.sessionMax),
+            ),
+            sanctions = delete(
+                "DELETE FROM sanctions WHERE coalesce(lifted_at, until) < :t",
+                before(admin.auditRetention),
+            ),
+            auditEntries = delete("DELETE FROM admin_audit WHERE at < :t", before(admin.auditRetention)),
         )
         log.info(
             "Data retention: deleted {} idle sessions, {} reports, {} friend requests, {} expired email codes, " +
-                "{} saved routes",
+                "{} saved routes, {} admin sessions, {} ended sanctions, {} audit entries",
             deleted.sessions,
             deleted.reports,
             deleted.friendRequests,
             deleted.emailCodes,
             deleted.routes,
+            deleted.adminSessions,
+            deleted.sanctions,
+            deleted.auditEntries,
         )
         return deleted
     }

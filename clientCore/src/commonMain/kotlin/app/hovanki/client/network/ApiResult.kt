@@ -21,6 +21,8 @@ sealed interface ApiResult<out T> {
         val message: String,
         /** Rate limits ([ErrorReason.TOO_MANY_REQUESTS]): seconds until it may be tried again, if the server said. */
         val retryAfterSeconds: Long? = null,
+        /** When a ban ends ([ErrorReason.ACCOUNT_BANNED]); null: forever, or not a ban. */
+        val untilMillis: Long? = null,
     ) : ApiResult<Nothing>
 
     /** The server could not be reached or answered with something unreadable. */
@@ -36,7 +38,13 @@ internal suspend fun <T> apiResult(onRejected: (ApiException) -> Unit = {}, call
     throw e
 } catch (e: ApiException) {
     onRejected(e)
-    ApiResult.Rejected(e.error?.code, e.reason, e.error?.message ?: e.message.orEmpty(), e.retryAfterSeconds)
+    ApiResult.Rejected(
+        e.error?.code,
+        e.reason,
+        e.error?.message ?: e.message.orEmpty(),
+        e.retryAfterSeconds,
+        e.error?.untilMillis,
+    )
 } catch (e: Exception) {
     ApiResult.Network(e.message)
 }

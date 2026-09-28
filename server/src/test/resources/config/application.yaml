@@ -13,3 +13,6 @@ hovanki:
   accounts:
     # Fast password hashing.
     bcrypt-strength: 4
+  # The admin is on in tests; a test-only key, never used anywhere else.
+  admin:
+    secret-key: "khhmZ2aNOlQzfjpPJ9CnfdZt5I6Rysi5J2fFKitQL5M="

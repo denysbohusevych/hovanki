@@ -6,9 +6,11 @@ import app.hovanki.server.buildings.BuildingLoader
 import app.hovanki.server.history.HistoryWriter
 import app.hovanki.server.moderation.NewReport
 import app.hovanki.server.moderation.ReportRepository
+import app.hovanki.server.moderation.SanctionService
 import app.hovanki.server.ratelimit.RateLimit
 import app.hovanki.server.ratelimit.RateLimiter
 import app.hovanki.server.social.InviteRegistry
+import app.hovanki.shared.protocol.AdminGame
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ClaimCatchRequest
@@ -47,6 +49,7 @@ class GameService(
     private val rateLimiter: RateLimiter,
     private val invites: InviteRegistry,
     private val history: HistoryWriter,
+    private val sanctions: SanctionService,
 ) {
     /**
      * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
@@ -118,9 +121,15 @@ class GameService(
         }
     }
 
-    /** A chat message; the snapshot brings the messages after the request's cursor, this one included. */
+    /**
+     * A chat message; the snapshot brings the messages after the request's cursor, this one included. A player whose
+     * account is banned or may not chat gets [ErrorReason.CHAT_MUTED] (docs/adr/0008-admin.md), checked in the database
+     * before the game's lock.
+     */
     fun sendChat(caller: PlayerRef, gameId: GameId, request: SendChatRequest): GameSnapshot {
         val clientMessageId = request.clientMessageId?.let(::validRequestId)
+        val game = gameOf(caller, gameId)
+        synchronized(game) { game.userIdOf(caller.playerId) }?.let(sanctions::checkCanChat)
         return update(caller, gameId, request.chatAfter) { game, now ->
             game.sendChat(caller.playerId, request.text, request.team, now, clientMessageId)
         }
@@ -175,6 +184,26 @@ class GameService(
     fun <T> withGame(caller: PlayerRef, gameId: GameId, block: (Game, Long) -> T): T {
         val game = gameOf(caller, gameId)
         return locked(game) { now -> block(game, now) }
+    }
+
+    /** Every game in memory as staff see it (docs/adr/0008-admin.md), newest first. */
+    fun adminGames(): List<AdminGame> =
+        registry.all().map { game -> locked(game) { game.adminView() } }.sortedByDescending { it.createdAtMillis }
+
+    /**
+     * Staff end game [gameId] (docs/adr/0008-admin.md): a started one finishes now, its players see the results; one
+     * in the lobby is removed with its tokens. False: no such game.
+     */
+    fun endByStaff(gameId: GameId): Boolean {
+        val game = registry.get(gameId) ?: return false
+        val inLobby = locked(game) { now ->
+            val lobby = game.phase == GamePhase.LOBBY
+            if (!lobby) game.endNow(now)
+            lobby
+        }
+        // Its invitations go with the janitor's next sweep.
+        if (inLobby) registry.removeIf { it.id == gameId }
+        return true
     }
 
     /** Whether [userId] can still join game [gameId] as a new player: it is in its lobby and has no player of theirs. */

@@ -29,6 +29,8 @@ services:
       SPRING_MAIL_USERNAME: ${SPRING_MAIL_USERNAME:-}
       SPRING_MAIL_PASSWORD: ${SPRING_MAIL_PASSWORD:-}
       HOVANKI_MAIL_FROM: ${HOVANKI_MAIL_FROM:?set HOVANKI_MAIL_FROM in .env}
+      # The admin (docs/adr/0008-admin.md): off while empty. Spring reads it as hovanki.admin.secret-key.
+      HOVANKI_ADMIN_SECRETKEY: ${HOVANKI_ADMIN_SECRET_KEY:-}
     volumes:
       # Missing file: `docker compose` stops with an error instead of creating an empty directory in its place.
       - type: bind

@@ -27,7 +27,7 @@ class EmailTemplatesTest {
                 subjects += email.subject
             }
         }
-        assertEquals(6, subjects.size, "$subjects")
+        assertEquals(validity.size * EmailPurpose.entries.size, subjects.size, "$subjects")
     }
 
     @Test
@@ -40,6 +40,10 @@ class EmailTemplatesTest {
         assertContains(reset.text, "пароль залишиться тим самим")
         val english = EmailTemplates.render("a@b.co", EmailPurpose.RESET_PASSWORD, "en", "123456", fifteenMinutes)
         assertContains(english.text, "just ignore this email")
+        // Staff who didn't log in: someone knows their password (docs/adr/0008-admin.md).
+        val staff = EmailTemplates.render("a@b.co", EmailPurpose.STAFF_ENROLL, "ru", "123456", fifteenMinutes)
+        assertContains(staff.text, "странице админки")
+        assertContains(staff.text, "кто-то знает ваш пароль")
     }
 
     @Test

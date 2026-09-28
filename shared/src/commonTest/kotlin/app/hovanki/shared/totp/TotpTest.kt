@@ -3,6 +3,7 @@ package app.hovanki.shared.totp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TotpTest {
@@ -35,6 +36,19 @@ class TotpTest {
         assertTrue(totp.verify(totp.codeAt(now + 30_000), now), "a slightly fast clock is tolerated")
         assertFalse(totp.verify(totp.codeAt(now - 90_000), now), "old codes expire")
         assertFalse(totp.verify("123", now))
+    }
+
+    @Test
+    fun matchingStepSaysWhichPeriodTheCodeBelongsTo() {
+        val totp = Totp("00112233445566778899aabbccddeeff00112233".hexToBytes())
+        val now = 1_700_000_000_000L
+        val step = totp.stepAt(now)
+
+        assertEquals(step, totp.matchingStep(totp.codeAt(now), now))
+        assertEquals(step - 1, totp.matchingStep(totp.codeAt(now - 30_000), now))
+        assertEquals(step + 1, totp.matchingStep(totp.codeAt(now + 30_000), now))
+        assertNull(totp.matchingStep(totp.codeAt(now - 90_000), now))
+        assertNull(totp.matchingStep("12345", now))
     }
 
     @Test

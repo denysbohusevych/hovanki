@@ -1,4 +1,4 @@
-package app.hovanki.client.catchcode
+package app.hovanki.shared.qr
 
 import kotlin.math.abs
 import kotlin.test.Test

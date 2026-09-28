@@ -1,5 +1,6 @@
 package app.hovanki.server.debug
 
+import app.hovanki.server.account.UserRepository
 import app.hovanki.server.game.GameException
 import app.hovanki.server.game.GameRegistry
 import app.hovanki.server.mail.EmailSender
@@ -13,14 +14,19 @@ import app.hovanki.shared.debug.DebugGameSummary
 import app.hovanki.shared.debug.DebugReport
 import app.hovanki.shared.debug.DebugReportList
 import app.hovanki.shared.debug.DebugRoutes
+import app.hovanki.shared.debug.DebugSetRole
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.UserId
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Profile
+import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import java.time.Clock
 
@@ -36,6 +42,7 @@ class DebugController(
     private val clock: Clock,
     private val emailSender: EmailSender,
     private val reports: ReportRepository,
+    private val users: UserRepository,
 ) {
     init {
         LoggerFactory.getLogger(javaClass)
@@ -100,6 +107,13 @@ class DebugController(
             )
         },
     )
+
+    /** Makes an account staff for the admin's e2e tests, as the operator does with SQL on a real server. */
+    @PostMapping(DebugRoutes.USER_ROLE)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun setRole(@PathVariable userId: String, @RequestBody request: DebugSetRole) {
+        if (!users.setRole(UserId(userId), request.role)) throw GameException(ErrorCode.NOT_FOUND, "No such account")
+    }
 
     companion object {
         const val PROFILE = "e2e"

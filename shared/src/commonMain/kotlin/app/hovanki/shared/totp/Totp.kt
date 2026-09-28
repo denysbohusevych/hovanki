@@ -21,15 +21,26 @@ class Totp(private val secret: ByteArray, val periodSeconds: Int = 30, val digit
      * Accepts codes from up to [window] periods before and after [epochMillis],
      * to tolerate clock skew and the time it takes to scan or read out the code.
      */
-    fun verify(code: String, epochMillis: Long, window: Int = 1): Boolean {
+    fun verify(code: String, epochMillis: Long, window: Int = 1): Boolean =
+        matchingStep(code, epochMillis, window) != null
+
+    /**
+     * Like [verify], but says which time step (counter: epoch seconds / [periodSeconds]) [code] belongs to, the latest
+     * one if several match; null if none does. A server that remembers the last accepted step can refuse a code seen
+     * twice (staff login, docs/adr/0008-admin.md).
+     */
+    fun matchingStep(code: String, epochMillis: Long, window: Int = 1): Long? {
         val counter = epochMillis.floorDiv(periodMillis)
-        var matched = false
+        var matched: Long? = null
         for (offset in -window..window) {
             // No early exit: keep the timing independent of which window matched.
-            if (constantTimeEquals(codeForCounter(counter + offset), code)) matched = true
+            if (constantTimeEquals(codeForCounter(counter + offset), code)) matched = counter + offset
         }
         return matched
     }
+
+    /** The time step of [epochMillis]. */
+    fun stepAt(epochMillis: Long): Long = epochMillis.floorDiv(periodMillis)
 
     internal fun codeForCounter(counter: Long): String {
         val message = ByteArray(8) { i -> (counter ushr (56 - 8 * i)).toByte() }

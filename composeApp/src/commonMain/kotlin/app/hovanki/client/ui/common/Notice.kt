@@ -3,9 +3,14 @@ package app.hovanki.client.ui.common
 import androidx.compose.runtime.Composable
 import app.hovanki.client.network.ApiResult
 import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.error_account_banned
+import app.hovanki.client.resources.error_account_banned_forever
 import app.hovanki.client.resources.error_account_required
 import app.hovanki.client.resources.error_blocked_by_you
+import app.hovanki.client.resources.error_chat_muted
+import app.hovanki.client.resources.error_chat_muted_forever
 import app.hovanki.client.resources.error_code_expired
+import app.hovanki.client.resources.error_email_not_verified
 import app.hovanki.client.resources.error_email_taken
 import app.hovanki.client.resources.error_invalid_email
 import app.hovanki.client.resources.error_invalid_group_name
@@ -56,16 +61,20 @@ fun ApiResult<*>.notice(wrongCredentials: StringResource = Res.string.error_wron
 
     is ApiResult.Network -> Notice.Text(Res.string.error_network)
 
-    is ApiResult.Rejected -> reason?.let { reasonNotice(it, retryAfterSeconds, wrongCredentials) }
+    is ApiResult.Rejected -> reason?.let { reasonNotice(it, retryAfterSeconds, wrongCredentials, untilMillis) }
         // A wrong emailed code is the only refusal without a reason the player can do something about.
         ?: if (code == ErrorCode.INVALID_CODE) Notice.Text(Res.string.error_wrong_code) else Notice.Raw(message)
 }
 
-/** The exact cause of a refusal in the player's words (see [notice] for [wrongCredentials]). */
+/**
+ * The exact cause of a refusal in the player's words (see [notice] for [wrongCredentials]). [untilMillis]: when a ban
+ * or a chat ban ends (docs/adr/0008-admin.md), null forever.
+ */
 fun reasonNotice(
     reason: ErrorReason,
     retryAfterSeconds: Long? = null,
     wrongCredentials: StringResource = Res.string.error_wrong_login,
+    untilMillis: Long? = null,
 ): Notice {
     val resource = when (reason) {
         ErrorReason.NICKNAME_TAKEN -> Res.string.error_nickname_taken
@@ -101,6 +110,16 @@ fun reasonNotice(
         ErrorReason.LIMIT_REACHED -> Res.string.error_limit_reached
 
         ErrorReason.INVALID_MESSAGE -> Res.string.error_invalid_message
+
+        ErrorReason.EMAIL_NOT_VERIFIED -> Res.string.error_email_not_verified
+
+        ErrorReason.ACCOUNT_BANNED -> return untilMillis?.let {
+            Notice.Text(Res.string.error_account_banned, listOf(formatDateTime(it)))
+        } ?: Notice.Text(Res.string.error_account_banned_forever)
+
+        ErrorReason.CHAT_MUTED -> return untilMillis?.let {
+            Notice.Text(Res.string.error_chat_muted, listOf(formatDateTime(it)))
+        } ?: Notice.Text(Res.string.error_chat_muted_forever)
 
         ErrorReason.TOO_MANY_REQUESTS -> {
             val seconds = retryAfterSeconds?.takeIf { it > 0 }

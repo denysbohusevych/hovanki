@@ -381,4 +381,11 @@
   <string name="replay_time">Time of the round</string>
   <string name="replay_play">Play the round</string>
   <string name="replay_pause">Pause</string>
+
+  <!-- Bans and chat bans by the moderators (docs/adr/0008-admin.md) -->
+  <string name="error_account_banned">This account is banned until %1$s for breaking the community rules.</string>
+  <string name="error_account_banned_forever">This account is banned for breaking the community rules.</string>
+  <string name="error_chat_muted">You can\'t write in the chat until %1$s: the moderators muted you for breaking the rules.</string>
+  <string name="error_chat_muted_forever">You can\'t write in the chat: the moderators muted you for breaking the rules.</string>
+  <string name="error_email_not_verified">Confirm your email first.</string>
 </resources>

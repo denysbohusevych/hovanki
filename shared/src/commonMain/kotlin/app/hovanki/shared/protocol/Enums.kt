@@ -139,4 +139,13 @@ enum class ErrorReason {
 
     /** Rate limit hit (HTTP 429): try again later. */
     TOO_MANY_REQUESTS,
+
+    /** The account is banned (403, login and games); until [ApiError.untilMillis], null: forever. */
+    ACCOUNT_BANNED,
+
+    /** The player may not write in the chat (403) until [ApiError.untilMillis], null: forever. */
+    CHAT_MUTED,
+
+    /** Needs a confirmed email first, e.g. setting up the staff authenticator. */
+    EMAIL_NOT_VERIFIED,
 }

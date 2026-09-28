@@ -1,6 +1,7 @@
 package app.hovanki.server.db
 
 import app.hovanki.server.account.AccountProperties
+import app.hovanki.server.admin.AdminProperties
 import app.hovanki.server.history.HistoryProperties
 import app.hovanki.server.moderation.ModerationProperties
 import org.springframework.beans.factory.annotation.Autowired
@@ -111,6 +112,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             accounts,
             ModerationProperties(),
             HistoryProperties(),
+            AdminProperties(),
             Clock.fixed(now, ZoneOffset.UTC),
         )
         val longAgo = now.minus(Duration.ofDays(400))
@@ -129,6 +131,35 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         insertResult(oldVerified, recentGame)
         insertRoute(oldVerified, oldGame, savedAt = now.minus(Duration.ofDays(91)))
         insertRoute(oldVerified, recentGame, savedAt = now.minus(Duration.ofDays(89)))
+        // The admin (docs/adr/0008-admin.md): sessions end after 8 hours, sanctions go a year after their end, the
+        // audit log after a year; a ban forever stays.
+        insertAt(
+            "INSERT INTO admin_sessions VALUES (:a, :b, :t, :t)",
+            unique("old-admin"),
+            oldVerified,
+            at = now.minus(Duration.ofHours(9)),
+        )
+        val adminSession = unique("admin")
+        insertAt("INSERT INTO admin_sessions VALUES (:a, :b, :t, :t)", adminSession, oldVerified, at = now)
+        val sanction = "INSERT INTO sanctions (user_id, kind, reason, created_by, created_at, until) " +
+            "VALUES (:a, :b, 'spam', 'mod', :t, :t)"
+        insertAt(sanction, oldVerified, "MUTE", at = now.minus(Duration.ofDays(366)))
+        insertAt(sanction, oldVerified, "MUTE", at = now.minus(Duration.ofDays(364)))
+        jdbc.sql(
+            "INSERT INTO sanctions (user_id, kind, reason, created_by, created_at) VALUES (:a, 'BAN', 'x', 'mod', :t)",
+        )
+            .param("a", oldVerified)
+            .param("t", longAgo.toTimestamptz())
+            .update()
+        for (daysAgo in listOf(366L, 1L)) {
+            jdbc.sql(
+                "INSERT INTO admin_audit (at, actor_id, actor_name, action, target_user_id) " +
+                    "VALUES (:t, 'admin', 'admin', 'BAN', :a)",
+            )
+                .param("a", oldVerified)
+                .param("t", now.minus(Duration.ofDays(daysAgo)).toTimestamptz())
+                .update()
+        }
 
         val deleted = retention.run()
 
@@ -153,6 +184,17 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         ).ids(oldVerified, newUnverified)
         assertEquals(listOf("VERIFY_EMAIL"), codes)
         assertEquals(emptyList(), jdbc.sql("SELECT to_user FROM friend_requests WHERE from_user = :a").ids(oldVerified))
+        assertEquals(
+            listOf(adminSession),
+            jdbc.sql("SELECT token_hash FROM admin_sessions WHERE user_id = :a").ids(oldVerified),
+        )
+        val sanctions = jdbc.sql("SELECT kind FROM sanctions WHERE user_id = :a ORDER BY kind").ids(oldVerified)
+        assertEquals(listOf("BAN", "MUTE"), sanctions)
+        val entries = jdbc.sql("SELECT count(*) FROM admin_audit WHERE target_user_id = :a")
+            .param("a", oldVerified)
+            .query(Int::class.java)
+            .single()
+        assertEquals(1, entries)
     }
 
     private fun insertUser(

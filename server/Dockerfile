@@ -13,6 +13,9 @@ COPY build/libs/hovanki-server.jar /app/app.jar
 
 USER hovanki
 EXPOSE 8080
+# The commit the image was built from: the admin shows it (docs/adr/0008-admin.md).
+ARG REVISION=dev
+ENV HOVANKI_REVISION=$REVISION
 # Size the heap from the container memory limit, not from the host RAM.
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75"
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

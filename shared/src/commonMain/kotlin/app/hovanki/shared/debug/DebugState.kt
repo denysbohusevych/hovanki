@@ -12,6 +12,7 @@ import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.protocol.UserRole
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.ZoneCircle
 import kotlinx.serialization.Serializable
@@ -32,10 +33,18 @@ object DebugRoutes {
     /** Chat messages reported to the moderators. */
     const val REPORTS = "/api/v1/debug/reports"
 
+    /** POST [DebugSetRole]: makes an account staff, as the operator does on the server (docs/deploy.md). */
+    const val USER_ROLE = "/api/v1/debug/users/{userId}/role"
+
     fun game(gameId: GameId): String = GAME.replace("{gameId}", gameId.value)
 
     fun emails(email: String): String = EMAILS.replace("{email}", email)
+
+    fun userRole(userId: UserId): String = USER_ROLE.replace("{userId}", userId.value)
 }
+
+@Serializable
+data class DebugSetRole(val role: UserRole)
 
 @Serializable
 data class DebugGameList(val serverTimeMillis: Long, val games: List<DebugGameSummary>)

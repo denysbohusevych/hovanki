@@ -34,6 +34,9 @@ enum class RateLimit {
 
     /** Chat reports per account (or per player for guests). */
     REPORTS,
+
+    /** Codes of the authenticator app per staff member, right or wrong (docs/adr/0008-admin.md). */
+    ADMIN_TOTP,
 }
 
 /** `hovanki.rate-limits.*`. Tests and the `e2e` profile turn them off ([enabled]); one test context turns them on. */
@@ -52,6 +55,7 @@ data class RateLimitProperties(
     val friendRequests: Limit = Limit(30, Duration.ofHours(1)),
     val invites: Limit = Limit(30, Duration.ofHours(1)),
     val reports: Limit = Limit(10, Duration.ofHours(1)),
+    val adminTotp: Limit = Limit(10, Duration.ofMinutes(15)),
 ) {
     /** At most [count] events per key within any [window]. */
     data class Limit(val count: Int, val window: Duration)
@@ -67,5 +71,6 @@ data class RateLimitProperties(
         RateLimit.FRIEND_REQUESTS -> friendRequests
         RateLimit.INVITES -> invites
         RateLimit.REPORTS -> reports
+        RateLimit.ADMIN_TOTP -> adminTotp
     }
 }

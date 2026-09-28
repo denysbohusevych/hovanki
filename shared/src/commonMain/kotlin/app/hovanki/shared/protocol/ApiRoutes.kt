@@ -87,6 +87,42 @@ object ApiRoutes {
     const val GROUP_RENAME = "$GROUPS/{groupId}/rename"
     const val GROUP_DELETE = "$GROUPS/{groupId}/delete"
 
+    // Staff admin (docs/adr/0008-admin.md): the /admin web page. Every route needs the [ADMIN_HEADER] and, after the
+    // login, the admin session cookie [ADMIN_COOKIE]; the account token of the app gives no admin rights.
+    const val ADMIN = "/api/v1/admin"
+    const val ADMIN_LOGIN = "$ADMIN/login"
+    const val ADMIN_LOGIN_TOTP = "$ADMIN_LOGIN/totp"
+    const val ADMIN_ENROLL = "$ADMIN/enroll"
+    const val ADMIN_ENROLL_CONFIRM = "$ADMIN_ENROLL/confirm"
+    const val ADMIN_LOGOUT = "$ADMIN/logout"
+    const val ADMIN_ME = "$ADMIN/me"
+    const val ADMIN_REPORTS = "$ADMIN/reports"
+    const val ADMIN_REPORT_RESOLVE = "$ADMIN_REPORTS/{reportId}/resolve"
+    const val ADMIN_USERS = "$ADMIN/users"
+    const val ADMIN_USERS_BY_EMAIL = "$ADMIN_USERS/find-by-email"
+    const val ADMIN_USER = "$ADMIN_USERS/{userId}"
+    const val ADMIN_USER_EMAIL = "$ADMIN_USER/email"
+    const val ADMIN_USER_BAN = "$ADMIN_USER/ban"
+    const val ADMIN_USER_UNBAN = "$ADMIN_USER/unban"
+    const val ADMIN_USER_MUTE = "$ADMIN_USER/mute"
+    const val ADMIN_USER_UNMUTE = "$ADMIN_USER/unmute"
+    const val ADMIN_USER_RENAME = "$ADMIN_USER/rename"
+    const val ADMIN_USER_LOGOUT = "$ADMIN_USER/logout"
+    const val ADMIN_USER_DELETE = "$ADMIN_USER/delete"
+    const val ADMIN_USER_ROLE = "$ADMIN_USER/role"
+    const val ADMIN_USER_RESET_TOTP = "$ADMIN_USER/reset-totp"
+    const val ADMIN_GAMES = "$ADMIN/games"
+    const val ADMIN_GAME_END = "$ADMIN_GAMES/{gameId}/end"
+    const val ADMIN_STATS = "$ADMIN/stats"
+    const val ADMIN_STAFF = "$ADMIN/staff"
+    const val ADMIN_AUDIT = "$ADMIN/audit"
+
+    /** Every admin request carries `X-Hovanki-Admin: 1`: another site can't send it without CORS (CSRF). */
+    const val ADMIN_HEADER = "X-Hovanki-Admin"
+
+    /** The admin session: `HttpOnly`, `Secure`, `SameSite=Strict`; `__Host-`: only from this host, path `/`. */
+    const val ADMIN_COOKIE = "__Host-hovanki-admin"
+
     const val AUTH_SCHEME = "Bearer"
 
     fun start(gameId: GameId): String = START.fill("gameId" to gameId.value)
@@ -133,6 +169,16 @@ object ApiRoutes {
     fun userBlock(userId: UserId): String = USER_BLOCK.fill("userId" to userId.value)
 
     fun userUnblock(userId: UserId): String = USER_UNBLOCK.fill("userId" to userId.value)
+
+    fun adminReportResolve(reportId: Long): String = ADMIN_REPORT_RESOLVE.fill("reportId" to reportId.toString())
+
+    /** [ADMIN_USER] and the actions under it: `adminUser(id)`, `adminUser(id, "ban")`. */
+    fun adminUser(userId: UserId, action: String? = null): String {
+        val user = ADMIN_USER.fill("userId" to userId.value)
+        return if (action == null) user else "$user/$action"
+    }
+
+    fun adminGameEnd(gameId: GameId): String = ADMIN_GAME_END.fill("gameId" to gameId.value)
 
     fun groupMembers(groupId: GroupId): String = GROUP_MEMBERS.fill("groupId" to groupId.value)
 

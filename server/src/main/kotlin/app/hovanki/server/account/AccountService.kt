@@ -6,6 +6,7 @@ import app.hovanki.server.game.IdGenerator
 import app.hovanki.server.mail.EmailPurpose
 import app.hovanki.server.mail.EmailTemplates
 import app.hovanki.server.mail.Mailer
+import app.hovanki.server.moderation.SanctionService
 import app.hovanki.server.ratelimit.RateLimit
 import app.hovanki.server.ratelimit.RateLimiter
 import app.hovanki.shared.protocol.AccountSession
@@ -51,6 +52,7 @@ class AccountService(
     private val rateLimiter: RateLimiter,
     private val mailer: Mailer,
     private val beforeDeletion: ObjectProvider<BeforeAccountDeletion>,
+    private val sanctions: SanctionService,
     transactionManager: PlatformTransactionManager,
 ) {
     private val transactions = TransactionTemplate(transactionManager)
@@ -90,9 +92,14 @@ class AccountService(
 
     /**
      * By email or nickname. An unknown login, a wrong password and a locked login all answer
-     * [ErrorReason.WRONG_CREDENTIALS] after the same BCrypt work; failures count per login and per IP.
+     * [ErrorReason.WRONG_CREDENTIALS] after the same BCrypt work; failures count per login and per IP. A banned
+     * account, with the right password, gets [ErrorReason.ACCOUNT_BANNED] and when the ban ends.
      */
-    fun login(request: LoginRequest, clientIp: String): AccountSession {
+    fun login(request: LoginRequest, clientIp: String): AccountSession =
+        newSession(checkLogin(request, clientIp), clock.instant())
+
+    /** The account of [request] if the password is right; the checks and limits of [login], no session. */
+    fun checkLogin(request: LoginRequest, clientIp: String): UserRecord {
         val loginKey = AccountKeys.loginKey(request.login)
         rateLimiter.check(RateLimit.LOGIN_PER_IP, clientIp)
         rateLimiter.check(RateLimit.LOGIN_PER_LOGIN, loginKey)
@@ -102,7 +109,7 @@ class AccountService(
             rateLimiter.record(RateLimit.LOGIN_PER_LOGIN, loginKey)
             throw wrongCredentials("Wrong login or password")
         }
-        return newSession(user, clock.instant())
+        return user
     }
 
     fun logout(user: AuthenticatedUser) {
@@ -216,10 +223,31 @@ class AccountService(
     fun delete(user: AuthenticatedUser, request: DeleteAccountRequest) {
         val record = userOf(user)
         checkPassword(record, request.password)
-        transactions.executeWithoutResult {
-            beforeDeletion.orderedStream().forEach { it.beforeDelete(record.id) }
-            users.delete(record.id)
-        }
+        transactions.executeWithoutResult { deleteAccount(record.id) }
+    }
+
+    /**
+     * Inside a transaction: runs every [BeforeAccountDeletion], then deletes the user and everything of theirs. Also
+     * for staff deleting an account on its owner's written request (docs/adr/0008-admin.md).
+     */
+    fun deleteAccount(userId: UserId) {
+        beforeDeletion.orderedStream().forEach { it.beforeDelete(userId) }
+        users.delete(userId)
+    }
+
+    /**
+     * Emails [user] the code that proves a staff member sets up their own authenticator (docs/adr/0008-admin.md).
+     * Rate-limited like every code.
+     */
+    fun sendStaffEnrollCode(user: UserRecord) {
+        val now = clock.instant()
+        transactions.executeWithoutResult { sendCode(user, EmailPurpose.STAFF_ENROLL, now) }
+    }
+
+    /** Checks and uses up the code of [sendStaffEnrollCode]: wrong, 422 `INVALID_CODE`; used up or expired too. */
+    fun useStaffEnrollCode(userId: UserId, code: String) {
+        val hash = checkCode(userId, EmailPurpose.STAFF_ENROLL, code, clock.instant())
+        if (!codes.consume(userId, EmailPurpose.STAFF_ENROLL, hash)) throw codeExpired()
     }
 
     /**
@@ -242,7 +270,9 @@ class AccountService(
 
     private fun userOf(user: AuthenticatedUser): UserRecord = users.findById(user.userId) ?: throw sessionExpired()
 
+    /** A banned account gets no session: [ErrorReason.ACCOUNT_BANNED] (after its password or code was right). */
     private fun newSession(user: UserRecord, now: Instant): AccountSession {
+        sanctions.checkNotBanned(user.id)
         val token = ids.token()
         sessions.create(AccountKeys.tokenHash(token), user.id, now)
         return AccountSession(token, user.toProfile())

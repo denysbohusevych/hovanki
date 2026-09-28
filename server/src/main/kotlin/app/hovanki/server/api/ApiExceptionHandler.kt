@@ -23,7 +23,7 @@ class ApiExceptionHandler {
 
     @ExceptionHandler(GameException::class)
     fun gameError(e: GameException): ResponseEntity<ApiError> {
-        val body = ApiError(e.code, e.message.orEmpty(), e.reason)
+        val body = ApiError(e.code, e.message.orEmpty(), e.reason, e.untilMillis)
         if (e.reason != ErrorReason.TOO_MANY_REQUESTS) return ResponseEntity.status(e.code.httpStatus()).body(body)
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
             .header(HttpHeaders.RETRY_AFTER, (e.retryAfterSeconds ?: 1).toString())

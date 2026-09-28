@@ -84,6 +84,18 @@ hovanki:
     friend-requests: { count: 30, window: 1h }
     invites: { count: 30, window: 1h }
     reports: { count: 10, window: 1h }
+    admin-totp: { count: 10, window: 15m }
+  # Staff admin, the /admin page (docs/adr/0008-admin.md). Off without a secret key: HOVANKI_ADMIN_SECRET_KEY in .env
+  # (deploy/compose.yaml passes it on), base64 of 32 random bytes (openssl rand -base64 32); it encrypts the staff's
+  # authenticator secrets.
+  admin:
+    secret-key: ""
+    session-idle: 30m
+    session-max: 8h
+    challenge-ttl: 5m
+    challenge-max-attempts: 5
+    # The audit log, and bans and chat bans after they ended.
+    audit-retention: 365d
   games:
     # Game data (all positions, chat) is kept in memory only and deleted after the game (GDPR); only what the history
     # keeps (docs/adr/0007-game-history-and-routes.md) is saved when the game ends.
