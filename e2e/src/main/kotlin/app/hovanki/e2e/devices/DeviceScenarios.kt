@@ -23,6 +23,7 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /** Scenarios on emulators/simulators, by the name `e2e/run-devices.sh --scenario` takes. */
@@ -41,6 +42,12 @@ private const val HIDING_SECONDS = 60
 
 /** How far the backgrounded app is moved to see that its locations flow before the walk is measured. */
 private const val FIRST_STEP_METERS = 5.0
+
+/** A seeker this close to the hider by their fixes has caught up (the server allows 40 m). */
+private const val CAUGHT_UP_METERS = 15.0
+
+/** A fix the server got within this long is fresh: the app sends one every few seconds. */
+private const val FRESH_FIX_MILLIS = 8_000L
 
 /** Who plays what: the first device hosts; the seeker is a device if there is one for it, otherwise a bot. */
 private class Lineup(
@@ -76,14 +83,14 @@ private suspend fun DeviceRun.fullRound() = with(scenario) {
     lineup.deviceHiders.firstOrNull()?.let { checkMyCode(it) }
 
     for (bot in lineup.botHiders) {
-        seeker.catchesUpWith(bot.gps.truePosition)
+        catchUp(seeker, bot.gps.truePosition)
         seeker.flowRetryingLostTap("claim-catch", TestTags.claimButton(bot.id), "HIDER_ID" to bot.id.value)
         val code = eventually("${bot.name} shows the code") { bot.shownCode() }
         seeker.flow("enter-code", "CODE" to code.code)
         awaitClaim(bot.id, CatchStatus.CONFIRMED)
     }
     for (hider in lineup.deviceHiders) {
-        seeker.catchesUpWith(hider.truePosition)
+        catchUp(seeker, hider.truePosition)
         seeker.flowRetryingLostTap("claim-catch", TestTags.claimButton(hider.id), "HIDER_ID" to hider.id.value)
         hider.awaitVisible(TestTags.CATCH_CODE)
         val shown = checkNotNull(hider.readText(TestTags.CATCH_CODE)) {
@@ -155,7 +162,7 @@ private suspend fun DeviceRun.restartMidRound() = with(scenario) {
     val seekerDevice = lineup.seekerDevice
     val seekerBot = lineup.seekerBot
     if (seekerDevice != null) {
-        seekerDevice.catchesUpWith(host.truePosition)
+        catchUp(seekerDevice, host.truePosition)
         seekerDevice.flowRetryingLostTap("claim-catch", TestTags.claimButton(host.id), "HIDER_ID" to host.id.value)
     } else {
         val bot = checkNotNull(seekerBot)
@@ -455,10 +462,25 @@ private suspend fun DeviceRun.checkMap() = with(scenario) {
     for (player in devicePlayers) player.scrollAlongEdgeTo(TestTags.phase(GamePhase.SEEKING), down = false)
 }
 
-private suspend fun DevicePlayer.catchesUpWith(target: GeoPoint) {
-    walkToAndArrive(target, speed = 4.0)
-    // A few fixes of the new position have to reach the server before the claim.
-    delay(6.seconds)
+/**
+ * [seeker] walks up to [target] and waits until the server has their fresh fixes there: it judges a claim by the
+ * seeker's fixes of the last seconds. Waits for them rather than for a fixed time: on a busy macOS runner
+ * `simctl location set` can hang for a minute, and meanwhile the simulator reports nothing new.
+ */
+private suspend fun DeviceRun.catchUp(seeker: DevicePlayer, target: GeoPoint) {
+    seeker.walkToAndArrive(target, speed = 4.0)
+    scenario.eventually("${seeker.name}'s fresh fixes by the hider reach the server", within = 3.minutes) {
+        val state = scenario.state()
+        val me = state.players.single { it.id == seeker.id }
+        val fix = me.latestUsableFix ?: return@eventually null
+        val received = me.lastFixReceivedMillis ?: return@eventually null
+        fix.takeIf {
+            fix.point.distanceTo(target) < CAUGHT_UP_METERS &&
+                state.serverTimeMillis - received < FRESH_FIX_MILLIS
+        }
+    }
+    // One more fix after it: the server's decision takes a few.
+    delay(3.seconds)
 }
 
 private suspend fun DeviceRun.playerOnServer(id: PlayerId): DebugPlayer = scenario.state().players.single {
