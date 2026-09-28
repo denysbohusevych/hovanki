@@ -102,9 +102,15 @@ hovanki:
     finished-retention: 30m
     idle-retention: 6h
     cleanup-interval: 1m
-  # The "no hiding in buildings" rule (docs/adr/0003-map-and-buildings.md): OpenStreetMap through Overpass.
+  # The "no hiding in buildings" rule (docs/adr/0003-map-and-buildings.md): the building layer of the players' map
+  # tiles (tiles), or OpenStreetMap through Overpass (overpass: the public instances refuse servers in AWS), fake, off.
   buildings:
-    source: overpass
+    source: tiles
     overpass-urls:
       - https://overpass-api.de/api/interpreter
       - https://overpass.kumi.systems/api/interpreter
+  # The vector tiles of the players' map (OpenFreeMap): buildings, and the streets of the zone by streets
+  # (docs/adr/0009-game-setup-glow-streets.md; streets: tiles, fake or off).
+  map:
+    tiles-url: https://tiles.openfreemap.org/planet
+    streets: tiles

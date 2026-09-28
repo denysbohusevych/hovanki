@@ -244,8 +244,8 @@
   <string name="vote_done">You voted. Waiting for the others.</string>
   <string name="action_leave_game">Leave the game</string>
   <string name="leave_title">Leave the game?</string>
-  <string name="leave_text">You cannot come back to this round. Your last position will be revealed to the seekers.</string>
-  <string name="leave_text_account">While you are away, the seekers see your last position. To come back into this round, join it again with the code %1$s.</string>
+  <string name="leave_text">You will be out of this round for good: a hider is out, a seeker seeks no more.</string>
+  <string name="leave_text_account">You will be out of this round for good: a hider is out, a seeker seeks no more. The game code was %1$s.</string>
 
   <!-- Results -->
   <string name="results_title">Game over</string>
@@ -279,7 +279,7 @@
   <string name="flash_seekers_out">The seekers are out!</string>
   <string name="catch_auto_in">Counts by itself in %1$s</string>
   <string name="catch_or_say">Or read out the digits</string>
-  <string name="catch_seeker_hint">Found someone? Tap «Found!» and scan the QR code on their screen. The camera won\'t read it: tap their name, they show 4 digits.</string>
+  <string name="catch_seeker_hint">Found someone? Tap «Found!» and scan the QR code on their screen. The camera won’t read it: tap their name, they show 4 digits.</string>
   <string name="lobby_title">Lobby</string>
   <string name="lobby_random">Random</string>
   <string name="lobby_chip_zone">Zone %1$d m</string>
@@ -298,7 +298,7 @@
   <string name="back_in_zone">You are in the zone</string>
   <string name="consent_title">Location for the game</string>
   <string name="consent_text">Hide-and-seek on the street needs your precise location during the round.</string>
-  <string name="consent_who">Who sees it: the game server. Seekers see each other; hiders only when the rules reveal them: out of the zone, inside a building, no signal. After the round, the players of the game see everybody\'s way on the map.</string>
+  <string name="consent_who">Who sees it: the game server. Seekers see each other; hiders only when the rules reveal them: out of the zone, inside a building, no signal. After the round, the players of the game see everybody’s way on the map.</string>
   <string name="consent_when">When it is deleted: with the game, half an hour after the round at the latest. If you turn on «Save my routes» in your profile: after 90 days, and only you see them. Nothing is kept on your phone.</string>
   <string name="consent_pocket">In your pocket: the game keeps sending your location with the screen off, otherwise hiding would not work.</string>
   <string name="consent_allow">Allow location</string>
@@ -309,7 +309,7 @@
   <string name="scanner_close">Close the camera</string>
   <string name="scanner_hint">Point the camera at the QR code on their screen</string>
   <string name="scanner_no_camera">No access to the camera. Type the digits instead.</string>
-  <string name="hider_qr">QR code for the seeker\'s camera</string>
+  <string name="hider_qr">QR code for the seeker’s camera</string>
   <string name="alert_channel">Game alerts</string>
   <string name="alert_out_of_zone_title">Back into the zone!</string>
   <string name="alert_out_of_zone_text">Otherwise you are out of the round.</string>
@@ -365,7 +365,7 @@
   <string name="my_code_close">Hide the code</string>
   <string name="zone_arrow">The way back into the zone</string>
   <string name="lobby_share">Share</string>
-  <string name="lobby_share_text">Let\'s play hide-and-seek in Hovanki! The game code: %1$s</string>
+  <string name="lobby_share_text">Let’s play hide-and-seek in Hovanki! The game code: %1$s</string>
   <string name="results_into_search">%1$s into the search</string>
   <string name="results_to_the_end">Until the end</string>
   <string name="results_finds">Finds: %1$d</string>
@@ -385,7 +385,49 @@
   <!-- Bans and chat bans by the moderators (docs/adr/0008-admin.md) -->
   <string name="error_account_banned">This account is banned until %1$s for breaking the community rules.</string>
   <string name="error_account_banned_forever">This account is banned for breaking the community rules.</string>
-  <string name="error_chat_muted">You can\'t write in the chat until %1$s: the moderators muted you for breaking the rules.</string>
-  <string name="error_chat_muted_forever">You can\'t write in the chat: the moderators muted you for breaking the rules.</string>
+  <string name="error_chat_muted">You can’t write in the chat until %1$s: the moderators muted you for breaking the rules.</string>
+  <string name="error_chat_muted_forever">You can’t write in the chat: the moderators muted you for breaking the rules.</string>
   <string name="error_email_not_verified">Confirm your email first.</string>
+  <string name="lobby_you_seek">You seek</string>
+  <string name="lobby_you_hide">You hide</string>
+  <string name="lobby_roles_by_host">The host picks who seeks.</string>
+  <string name="lobby_offline">not connected</string>
+  <string name="lobby_chip_streets">Zone %1$d m, streets</string>
+  <string name="lobby_chip_glow">Glow every %1$d min</string>
+  <string name="lobby_buildings_loading">Loading the buildings…</string>
+  <string name="lobby_buildings_ready">Buildings: %1$d</string>
+  <string name="lobby_streets_loading">Building the zone by streets…</string>
+  <string name="lobby_start_wait_streets">The zone by streets is almost there</string>
+  <string name="lobby_settings">Game settings</string>
+  <string name="street_zone_off">No zone by streets here: the game uses the circle.</string>
+  <string name="settings_title">Game settings</string>
+  <string name="settings_zone">Zone</string>
+  <string name="settings_meters">%1$d m</string>
+  <string name="settings_shape_circle">Circle</string>
+  <string name="settings_shape_streets">By streets</string>
+  <string name="settings_shape_streets_hint">The border runs along the streets: whole blocks, as much area as the circle. It shrinks block by block.</string>
+  <string name="settings_shrinks">The zone shrinks</string>
+  <string name="settings_hiding">Time to hide</string>
+  <string name="settings_seeking">Search time</string>
+  <string name="settings_minutes">%1$d min</string>
+  <string name="settings_glow">Glow</string>
+  <string name="settings_glow_hint">Now and then the seekers see every hider for a moment, and afterwards the spot.</string>
+  <string name="settings_glow_every">Every</string>
+  <string name="settings_glow_for">For</string>
+  <string name="settings_seconds">%1$d s</string>
+  <string name="settings_save">Save</string>
+  <string name="hud_glow_in">Glow in %1$s</string>
+  <string name="hud_glowing">Glowing! %1$s</string>
+  <string name="reason_glow">glow</string>
+  <string name="reason_glow_mark">was here %1$s ago</string>
+  <string name="alert_glow_soon_title">The seekers will see you!</string>
+  <string name="alert_glow_soon_text">A glow in a few seconds.</string>
+  <string name="alert_glowing_title">The seekers see you now</string>
+  <string name="alert_glowing_text">Afterwards they see where the glow found you.</string>
+  <string name="invite_go">Go</string>
+  <string name="error_in_another_game">You are still playing another game.</string>
+  <string name="error_zone_not_ready">The zone by streets is still being built. Try again in a moment.</string>
+  <string name="action_leave_other_game">Leave it and go on</string>
+  <string name="invite_in_round">%1$s invites you to another game.</string>
+  <string name="action_leave_and_go">Leave and go</string>
 </resources>

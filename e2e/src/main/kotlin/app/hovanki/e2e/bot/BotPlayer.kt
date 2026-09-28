@@ -124,17 +124,30 @@ class BotPlayer(
 
     // ---- Game ----
 
-    suspend fun createGame(settings: GameSettings): CommandResult =
-        command("creates a game") { it.create(name, settings) }.also(::onEntered)
+    /** [leaveOtherGame]: the player confirmed leaving a round in progress elsewhere (their account plays one game). */
+    suspend fun createGame(settings: GameSettings, leaveOtherGame: Boolean = false): CommandResult =
+        command("creates a game") { it.create(name, settings, leaveOtherGame) }.also(::onEntered)
 
     /** Also how an invite is accepted: its join code, while logged in. */
-    suspend fun join(joinCode: String): CommandResult =
-        command("joins with code $joinCode") { it.join(joinCode, name) }.also(::onEntered)
+    suspend fun join(joinCode: String, leaveOtherGame: Boolean = false): CommandResult =
+        command("joins with code $joinCode") { it.join(joinCode, name, leaveOtherGame) }.also(::onEntered)
 
     suspend fun startGame(seekers: Collection<BotPlayer>): CommandResult =
         command("starts the game, seekers: ${seekers.joinToString { it.name }}") { session ->
             session.start(seekers.map { it.id })
         }
+
+    /** The host taps the role pills: [seekers] seek, everybody sees it. */
+    suspend fun picksSeekers(seekers: Collection<BotPlayer>): CommandResult =
+        command("picks the seekers: ${seekers.joinToString { it.name }}") { it.setSeekers(seekers.map { p -> p.id }) }
+
+    /** The host taps «Random»: the server draws [count] seekers. */
+    suspend fun drawsSeekers(count: Int): CommandResult =
+        command("draws $count seekers at random") { it.drawSeekers(count) }
+
+    /** The host changes the setup in the lobby. */
+    suspend fun changesSettings(settings: GameSettings): CommandResult =
+        command("changes the settings") { it.updateSettings(settings) }
 
     suspend fun claimCatch(hider: BotPlayer): CommandResult = claimCatch(hider.id, hider.name)
 
@@ -565,9 +578,10 @@ class BotPlayer(
         metrics?.record(exchange)
         val body = exchange.body ?: return
         if (exchange.status != 200 || !exchange.path.startsWith(ApiRoutes.GAMES)) return
-        // Building outlines are public map data, not a snapshot; the tracks come only after the round (the server
-        // refuses them before, see PrivacyTest).
-        if (exchange.path.endsWith("/buildings") || exchange.path.endsWith("/tracks")) return
+        // Building outlines and the zone by streets are map data, not a snapshot; the tracks come only after the
+        // round (the server refuses them before, see PrivacyTest).
+        val notSnapshots = listOf("/buildings", "/street-zone", "/tracks")
+        if (notSnapshots.any(exchange.path::endsWith)) return
         val snapshot = try {
             if (exchange.path == ApiRoutes.GAMES || exchange.path == ApiRoutes.JOIN) {
                 protocolJson.decodeFromString<SessionResponse>(body).snapshot

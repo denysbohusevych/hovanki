@@ -82,14 +82,15 @@ class LocalServer private constructor(private val process: Process, private val 
 
     companion object {
         /**
-         * [buildings]: `hovanki.buildings.source` of the server, `overpass` for real buildings around the game.
+         * [buildings]: `hovanki.buildings.source` of the server, `tiles` for real buildings around the game (as in
+         * production: the building layer of the map tiles).
          * The `e2e` profile keeps the emails in memory for the debug route the device runs read the codes from.
          */
         fun start(
             jar: File,
             port: Int,
             logDir: File,
-            buildings: String = "overpass",
+            buildings: String = "tiles",
             timeout: Duration = 90.seconds,
         ): LocalServer {
             require(jar.isFile) { "No server jar $jar: build it with ./gradlew :server:bootJar" }

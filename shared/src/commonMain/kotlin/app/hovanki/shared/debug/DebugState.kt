@@ -11,10 +11,12 @@ import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserRole
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.ZoneCircle
+import app.hovanki.shared.protocol.ZonePolygon
 import kotlinx.serialization.Serializable
 
 /**
@@ -77,6 +79,14 @@ data class DebugGameState(
     val buildings: BuildingsState? = null,
     /** Every chat message the game keeps, of every channel. */
     val chat: List<ChatMessage> = emptyList(),
+    /** The zone by streets; null for a circle zone. */
+    val streetZone: StreetZoneState? = null,
+    /** The zone in force at [serverTimeMillis] as a polygon (the zone by streets); null otherwise. */
+    val streetZonePolygon: ZonePolygon? = null,
+    val mapRevision: Int = 0,
+    val rolesDrawnAtMillis: Long? = null,
+    /** How many buildings the rule judges by (READY). */
+    val buildingCount: Int = 0,
 )
 
 @Serializable
@@ -110,6 +120,12 @@ data class DebugPlayer(
     val caughtBy: PlayerId? = null,
     /** Points of the player's replay track so far (`GET /tracks` after the game). */
     val replayPoints: Int = 0,
+    /** The player left the game. */
+    val left: Boolean = false,
+    /** Server time of the player's last request. */
+    val lastSeenMillis: Long? = null,
+    /** Where the last glow left this hider (what the seekers see after it); null: no glow yet. */
+    val glowMark: LocationSample? = null,
 )
 
 @Serializable

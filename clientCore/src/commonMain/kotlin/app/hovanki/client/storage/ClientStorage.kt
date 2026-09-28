@@ -3,6 +3,7 @@ package app.hovanki.client.storage
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.protocolJson
+import app.hovanki.shared.rules.GameSetup
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -28,7 +29,7 @@ data class SavedAccount(
 
 /**
  * What the app remembers between launches: the running game and the logged-in account (their tokens are secrets,
- * hence [SecureStore]), and the name a guest entered last time.
+ * hence [SecureStore]), the name a guest entered last time and the game setup the host chose last time.
  *
  * Storage is a convenience, never a reason to crash: a value that can't be read or written (Keystore or Keychain
  * error, data from an older app version) is treated as absent. Location data is never stored.
@@ -65,6 +66,13 @@ class ClientStorage(private val store: SecureStore) {
     /** Remembers the start screen's name once it worked (a game was created or joined with it). */
     fun rememberPlayer(playerName: String) {
         write(PLAYER_NAME, playerName)
+    }
+
+    /** The setup the host chose last time on this phone: sizes and times, never a place. */
+    fun loadGameSetup(): GameSetup? = load(GAME_SETUP, GameSetup.serializer())
+
+    fun saveGameSetup(setup: GameSetup) {
+        save(GAME_SETUP, GameSetup.serializer(), setup)
     }
 
     private fun <T> load(key: String, serializer: KSerializer<T>): T? {
@@ -104,6 +112,7 @@ class ClientStorage(private val store: SecureStore) {
         const val SESSION = "session"
         const val ACCOUNT = "account"
         const val PLAYER_NAME = "playerName"
+        const val GAME_SETUP = "gameSetup"
         const val LEGACY_SERVER_URL = "serverUrl"
     }
 }

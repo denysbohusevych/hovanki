@@ -38,12 +38,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.reason_glow
+import app.hovanki.client.resources.reason_glow_mark
 import app.hovanki.client.resources.reason_inside_building
 import app.hovanki.client.resources.reason_mock_location
 import app.hovanki.client.resources.reason_out_of_zone
 import app.hovanki.client.resources.reason_stale_signal
 import app.hovanki.client.resources.reason_teammate
 import app.hovanki.client.session.ZoneCue
+import app.hovanki.client.ui.common.formatCountdown
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.theme.color
@@ -112,7 +115,9 @@ import kotlin.time.Duration.Companion.milliseconds
  *
  * The zone moves with [cue] (docs/design.md, «Зона — главная анимация»): the part about to go blinks pink before a
  * shrink, the ring turns pink and pulses while it shrinks and snaps back to lime when done. Nothing on the map moves
- * while the zone is calm. [recenterRequests]: each increase moves the camera to our own position. [onCameraBearing]:
+ * while the zone is calm. A zone by streets ([streetZone], docs/adr/0009-game-setup-glow-streets.md) is drawn by its
+ * polygons instead of the circles: it does not shrink smoothly, it switches to the next one when the stage is over.
+ * [recenterRequests]: each increase moves the camera to our own position. [onCameraBearing]:
  * the map's rotation (degrees clockwise from north) whenever the player turns it, for what points somewhere on screen.
  */
 @Composable
@@ -124,6 +129,7 @@ fun GameMap(
     markers: List<MapMarker>,
     buildings: BuildingsResponse?,
     modifier: Modifier = Modifier,
+    streetZone: StreetOutline? = null,
     recenterRequests: Int = 0,
     reduceMotion: Boolean = false,
     attributionPadding: PaddingValues = PaddingValues(0.dp),
@@ -135,11 +141,18 @@ fun GameMap(
         VisibilityReason.OUT_OF_ZONE to stringResource(Res.string.reason_out_of_zone),
         VisibilityReason.MOCK_LOCATION to stringResource(Res.string.reason_mock_location),
         VisibilityReason.INSIDE_BUILDING to stringResource(Res.string.reason_inside_building),
+        VisibilityReason.GLOW to stringResource(Res.string.reason_glow),
     )
     var styleFailed by remember { mutableStateOf(false) }
     val look = zoneLook(cue, reduceMotion)
     val ping = if (markers.any { it.isRevealed } && !reduceMotion) revealPing() else null
     val smoothMarkers = markers.map { marker -> key(marker.id) { marker.copy(point = smoothPoint(marker.point)) } }
+    val labelTexts = markers.associate { marker ->
+        val why = marker.markAgeMillis?.let { age ->
+            key(marker.id) { stringResource(Res.string.reason_glow_mark, formatCountdown(age)) }
+        } ?: reasonLabels[marker.reason].orEmpty()
+        marker.id to "${marker.name} · $why"
+    }
     val me = myLocation?.let { it.copy(point = smoothPoint(it.point)) }
     val myColor = myRole.color
 
@@ -150,8 +163,8 @@ fun GameMap(
             zoom = zoomToFit(zone.current),
         ),
     ) {
-        val current = circle(zone.current)
-        val next = zone.next
+        val current = streetZone?.current?.toCounterclockwiseRing() ?: circle(zone.current)
+        val next = if (streetZone != null) streetZone.next?.toCounterclockwiseRing() else zone.next?.let(::circle)
 
         // Outside the zone is darker: the world with the zone cut out.
         val shade = rememberGeoJsonSource(
@@ -162,9 +175,7 @@ fun GameMap(
         // The part of the zone about to go: blinks before a shrink, stays pink while it shrinks.
         if (next != null) {
             val band =
-                rememberGeoJsonSource(
-                    GeoJsonData.Features(features(Polygon(listOf(current, circle(next).asReversed())))),
-                )
+                rememberGeoJsonSource(GeoJsonData.Features(features(Polygon(listOf(current, next.asReversed())))))
             FillLayer(id = "zone-band", source = band, color = const(Palette.Pink), opacity = const(look.bandOpacity))
         }
 
@@ -185,7 +196,7 @@ fun GameMap(
         }
 
         if (next != null) {
-            val nextSource = rememberGeoJsonSource(GeoJsonData.Features(features(LineString(circle(next)))))
+            val nextSource = rememberGeoJsonSource(GeoJsonData.Features(features(LineString(next))))
             LineLayer(
                 id = "zone-next",
                 source = nextSource,
@@ -280,7 +291,7 @@ fun GameMap(
         )
         val labels = rememberGeoJsonSource(
             GeoJsonData.Features(
-                points(smoothMarkers) { marker -> "${marker.name} · ${reasonLabels[marker.reason].orEmpty()}" },
+                points(smoothMarkers) { marker -> labelTexts[marker.id] },
             ),
         )
         SymbolLayer(
@@ -517,7 +528,9 @@ internal object MapStyle {
 }
 
 private val MapMarker.isTeammate: Boolean get() = reason == VisibilityReason.TEAMMATE
-private val MapMarker.isStale: Boolean get() = reason == VisibilityReason.STALE_SIGNAL
+
+/** Where a player was, not where they are: an old fix, or the spot the last glow left. */
+private val MapMarker.isStale: Boolean get() = reason == VisibilityReason.STALE_SIGNAL || markAgeMillis != null
 private val MapMarker.isRevealed: Boolean get() = !isTeammate && !isStale
 
 private fun List<GeoPoint>.toRing(): List<Position> = map { it.toPosition() }.let { ring ->
@@ -559,6 +572,17 @@ private fun points(
 )
 
 internal fun circle(zone: ZoneCircle): List<Position> = circle(zone.center, zone.radiusMeters)
+
+/**
+ * A polygon's border as a closed ring turning counterclockwise, like [circle]: the map cuts a ring out of another only
+ * when the two turn opposite ways, whichever way the server sent it.
+ */
+internal fun List<GeoPoint>.toCounterclockwiseRing(): List<Position> {
+    val ring = toRing()
+    // The shoelace sum in degrees: positive turns counterclockwise (east is x, north is y).
+    val twiceArea = ring.zipWithNext { a, b -> a.longitude * b.latitude - b.longitude * a.latitude }.sum()
+    return if (twiceArea < 0) ring.asReversed() else ring
+}
 
 /** A closed ring approximating a circle of [radiusMeters] around [center], counterclockwise. */
 internal fun circle(center: GeoPoint, radiusMeters: Double, segments: Int = 64): List<Position> =

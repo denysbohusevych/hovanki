@@ -160,7 +160,12 @@ fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: 
         }
         SecondaryText(stringResource(Res.string.home_location_note))
 
-        StartStatusBanners(status = status, sessionError = sessionError, onDismiss = viewModel::dismissProblems)
+        StartStatusBanners(
+            status = status,
+            sessionError = sessionError,
+            onDismiss = viewModel::dismissProblems,
+            onLeaveOtherGame = viewModel::leaveOtherGameAndRetry,
+        )
         CommandStatus(
             isBusy = false,
             message = message,

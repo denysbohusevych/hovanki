@@ -16,27 +16,32 @@ data class ZoneState(
     val isShrinking: Boolean,
     /** Time until the current hold or shrink ends; null after the last stage. */
     val millisUntilChange: Long?,
+    /**
+     * How many stages are over: the index of the zone by streets in force (`StreetZone.stages`); [next] is the one
+     * after it. A zone by streets switches when a stage is over, it does not shrink smoothly.
+     */
+    val stage: Int = 0,
 )
 
 /** Zone state [elapsedMillis] after the zone schedule started. */
 fun ZoneSchedule.stateAt(elapsedMillis: Long): ZoneState {
     var current = initial
     var remaining = elapsedMillis.coerceAtLeast(0)
-    for (stage in stages) {
+    for ((index, stage) in stages.withIndex()) {
         val holdMillis = stage.holdSeconds * 1000L
         if (remaining < holdMillis) {
-            return ZoneState(current, stage.target, isShrinking = false, millisUntilChange = holdMillis - remaining)
+            return ZoneState(current, stage.target, isShrinking = false, holdMillis - remaining, stage = index)
         }
         remaining -= holdMillis
         val shrinkMillis = stage.shrinkSeconds * 1000L
         if (remaining < shrinkMillis) {
             val circle = interpolate(current, stage.target, remaining.toDouble() / shrinkMillis)
-            return ZoneState(circle, stage.target, isShrinking = true, millisUntilChange = shrinkMillis - remaining)
+            return ZoneState(circle, stage.target, isShrinking = true, shrinkMillis - remaining, stage = index)
         }
         remaining -= shrinkMillis
         current = stage.target
     }
-    return ZoneState(current, next = null, isShrinking = false, millisUntilChange = null)
+    return ZoneState(current, next = null, isShrinking = false, millisUntilChange = null, stage = stages.size)
 }
 
 fun ZoneSchedule.circleAt(elapsedMillis: Long): ZoneCircle = stateAt(elapsedMillis).current
@@ -78,21 +83,33 @@ fun shrinkingZone(
     )
 }
 
-/** Zone checks with a margin for GPS error: when in doubt, the player is inside. */
+/**
+ * Zone checks with a margin for GPS error: when in doubt, the player is inside. The same for a circle and for the
+ * zone by streets ([ZoneArea]): what counts is how far outside the border the whole accuracy circle is.
+ */
 object ZoneRules {
+    fun isClearlyOutside(fix: LocationSample, zone: ZoneArea, rules: GameRules): Boolean =
+        zone.signedDistanceMeters(fix.point) - fix.accuracyMeters > rules.zoneBorderMarginMeters
+
     fun isClearlyOutside(fix: LocationSample, zone: ZoneCircle, rules: GameRules): Boolean =
-        fix.point.distanceTo(zone.center) - fix.accuracyMeters > zone.radiusMeters + rules.zoneBorderMarginMeters
+        isClearlyOutside(fix, ZoneArea.Circle(zone), rules)
 
     /** True only when there are enough recent usable fixes and all of them are clearly outside. */
-    fun isConfidentlyOutside(recentUsableFixes: List<LocationSample>, zone: ZoneCircle, rules: GameRules): Boolean =
+    fun isConfidentlyOutside(recentUsableFixes: List<LocationSample>, zone: ZoneArea, rules: GameRules): Boolean =
         recentUsableFixes.size >= rules.minFixesForDecision &&
             recentUsableFixes.all { isClearlyOutside(it, zone, rules) }
+
+    fun isConfidentlyOutside(recentUsableFixes: List<LocationSample>, zone: ZoneCircle, rules: GameRules): Boolean =
+        isConfidentlyOutside(recentUsableFixes, ZoneArea.Circle(zone), rules)
 
     /**
      * Back after an out-of-zone warning: the latest [GameRules.minFixesForDecision] usable fixes are all not clearly
      * outside. The counterpart of [isConfidentlyOutside]: one fix that jumps inside lifts no warning either.
      */
-    fun isConfidentlyBack(recentUsableFixes: List<LocationSample>, zone: ZoneCircle, rules: GameRules): Boolean =
+    fun isConfidentlyBack(recentUsableFixes: List<LocationSample>, zone: ZoneArea, rules: GameRules): Boolean =
         recentUsableFixes.size >= rules.minFixesForDecision &&
             recentUsableFixes.takeLast(rules.minFixesForDecision).none { isClearlyOutside(it, zone, rules) }
+
+    fun isConfidentlyBack(recentUsableFixes: List<LocationSample>, zone: ZoneCircle, rules: GameRules): Boolean =
+        isConfidentlyBack(recentUsableFixes, ZoneArea.Circle(zone), rules)
 }

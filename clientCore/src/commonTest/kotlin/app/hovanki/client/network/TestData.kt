@@ -21,9 +21,12 @@ import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.StartGameRequest
+import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.rules.shrinkingZone
@@ -80,8 +83,39 @@ class FakeGameApi(
     private val onClaim: suspend (PlayerId, String?) -> GameSnapshot = { _, _ -> unused() },
     private val onConfirm: suspend (CatchId, String) -> GameSnapshot = { _, _ -> unused() },
     private val onTracks: suspend () -> TracksResponse = { unused() },
+    private val onRoles: suspend (RolesRequest) -> GameSnapshot = { unused() },
+    private val onSettings: suspend (SettingsRequest) -> GameSnapshot = { unused() },
+    private val onStreetZone: suspend () -> StreetZoneResponse = { unused() },
+    private val onLeave: suspend () -> Unit = {},
     private val onSync: suspend (SyncRequest) -> GameSnapshot,
 ) : GameApi {
+    val rolesRequests = mutableListOf<RolesRequest>()
+    val settingsRequests = mutableListOf<SettingsRequest>()
+    var streetZoneRequests = 0
+
+    /** Sessions the app left the game with. */
+    val leaves = mutableListOf<PlayerSession>()
+
+    override suspend fun setRoles(session: PlayerSession, request: RolesRequest): GameSnapshot {
+        rolesRequests += request
+        return onRoles(request)
+    }
+
+    override suspend fun updateSettings(session: PlayerSession, request: SettingsRequest): GameSnapshot {
+        settingsRequests += request
+        return onSettings(request)
+    }
+
+    override suspend fun leave(session: PlayerSession) {
+        leaves += session
+        onLeave()
+    }
+
+    override suspend fun streetZone(session: PlayerSession): StreetZoneResponse {
+        streetZoneRequests++
+        return onStreetZone()
+    }
+
     var buildingsRequests = 0
 
     val syncRequests = mutableListOf<SyncRequest>()

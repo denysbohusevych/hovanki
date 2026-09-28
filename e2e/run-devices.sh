@@ -23,7 +23,7 @@ SKIP_BUILD=0
 REPORT=e2e/build/reports/devices
 LOCATION=
 DEVICE_LOCATION=
-BUILDINGS=overpass
+BUILDINGS=tiles
 ANDROID_SERIALS=()
 IOS_UDIDS=()
 # Automated Test Device image: made for headless CI, without SystemUI, Settings and bundled apps, with the Google APIs
@@ -46,8 +46,9 @@ Options:
   --location LAT,LON       play there (default: where the first device is, its own location)
   --device-location LAT,LON  put the devices there before the run, as Extended Controls → Location would: the
                            scenarios still take the host's own location (CI: fresh devices have none worth playing at)
-  --buildings SOURCE       overpass: real OpenStreetMap buildings around the game (default); fake: the test
-                           quarter next to the zone center; off: no building rule
+  --buildings SOURCE       tiles: real buildings around the game from the map tiles, as in production (default);
+                           overpass: from OpenStreetMap's Overpass API; fake: the test quarter next to the zone
+                           center; off: no building rule
   --skip-build             reuse the server jar, APK/app and e2e CLI from the last build
   --keep                   leave emulators/simulators running
   --fail-fast              skip the remaining scenarios after a failed one

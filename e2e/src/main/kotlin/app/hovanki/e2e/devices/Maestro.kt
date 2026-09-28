@@ -171,6 +171,9 @@ class UiTree(val root: Node) {
         /** `[x1,y1][x2,y2]` in screen points/pixels as Maestro reports them, where it taps the element. */
         val bounds: String? get() = attributes["bounds"]?.takeIf(String::isNotBlank)
 
+        /** The element's top edge ([bounds]' y1); null without bounds. */
+        val top: Double? get() = bounds?.let { NUMBER.findAll(it).drop(1).firstOrNull()?.value?.toDoubleOrNull() }
+
         /** States that explain an ignored tap: a disabled element, a focused text field. */
         fun flags(): String = buildString {
             if (attributes["enabled"] == "false") append(" (disabled)")
@@ -214,6 +217,7 @@ class UiTree(val root: Node) {
     }
 
     companion object {
+        private val NUMBER = Regex("-?\\d+(\\.\\d+)?")
         private val ID_KEYS = listOf("resource-id", "identifier", "id")
         private val TEXT_KEYS = listOf("text", "accessibilityText", "value", "label")
 

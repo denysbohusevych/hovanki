@@ -7,7 +7,7 @@ import java.time.Duration
 /** `hovanki.buildings.*`: where the building rule gets its data (docs/adr/0003-map-and-buildings.md). */
 @ConfigurationProperties("hovanki.buildings")
 data class BuildingProperties(
-    val source: Source = Source.OVERPASS,
+    val source: Source = Source.TILES,
     /**
      * Tried in order until one answers with data: the main public instance, then another public one (a busy
      * instance answers 429, 504 or an error instead of data). A self-hosted one first when the load grows.
@@ -33,7 +33,13 @@ data class BuildingProperties(
     val fakeDelay: Duration = Duration.ZERO,
 ) {
     enum class Source {
-        /** OpenStreetMap buildings through the Overpass API. */
+        /**
+         * The `building` layer of the players' map tiles (OpenFreeMap, `hovanki.map.*`): no key, no limits, reachable
+         * from cloud servers. The default since the public Overpass instances stopped answering the server in AWS.
+         */
+        TILES,
+
+        /** OpenStreetMap buildings through the Overpass API: more tags (roofs, arches), public instances are flaky. */
         OVERPASS,
 
         /** The fixed test quarter ([FakeBuildingSource]); tests and the `e2e` profile. */

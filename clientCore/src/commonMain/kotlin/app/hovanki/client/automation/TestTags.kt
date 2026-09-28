@@ -216,6 +216,34 @@ object TestTags {
     const val LOBBY_START = "lobby_start"
     const val LOBBY_WAITING = "lobby_waiting"
 
+    /** «Random»: the host has the server draw the seekers. */
+    const val LOBBY_RANDOM = "lobby_random"
+
+    /** A player who is not the host: the role the host gave them («You seek» / «You hide»). */
+    const val LOBBY_MY_ROLE = "lobby_my_role"
+
+    /** The zone's buildings (loading or how many) and the zone by streets being built. */
+    const val LOBBY_BUILDINGS = "lobby_buildings"
+    const val LOBBY_STREETS = "lobby_streets"
+
+    /** The host's game settings: the button in the lobby, the panel, its «Save». */
+    const val LOBBY_SETTINGS = "lobby_settings"
+    const val SETTINGS_PANEL = "settings_panel"
+    const val SETTINGS_SAVE = "settings_save"
+    const val SETTINGS_SHAPE_CIRCLE = "settings_shape_circle"
+    const val SETTINGS_SHAPE_STREETS = "settings_shape_streets"
+    const val SETTINGS_SHRINKS = "settings_shrinks"
+    const val SETTINGS_GLOW = "settings_glow"
+
+    /** An invite into another game, over the lobby and the results: go there, or dismiss it. */
+    const val INVITE_BANNER = "invite_banner"
+    const val INVITE_BANNER_GO = "invite_banner_go"
+    const val INVITE_BANNER_DISMISS = "invite_banner_dismiss"
+
+    /** In a round: the invitation's badge on «More», and «Leave and go» in its dialog. */
+    const val ROUND_INVITE = "round_invite"
+    const val LEAVE_AND_GO = "leave_and_go"
+
     const val GAME_SCREEN = "game_screen"
     const val GAME_TIMER = "game_timer"
     const val GAME_OUT_OF_ZONE = "game_out_of_zone"
@@ -225,6 +253,10 @@ object TestTags {
     const val MAP_ATTRIBUTION = "map_attribution"
     const val GAME_IN_BUILDING = "game_in_building"
     const val BUILDING_RULE_OFF = "building_rule_off"
+
+    /** The glow's countdown (or «glowing») in the HUD, and the notice that the zone by streets fell back to circles. */
+    const val GLOW_CHIP = "glow_chip"
+    const val STREET_ZONE_OFF = "street_zone_off"
     const val CATCH_CODE = "catch_code"
     const val CATCH_DISPUTE = "catch_dispute"
     const val CODE_INPUT = "code_input"
@@ -261,6 +293,19 @@ object TestTags {
     fun lobbyPlayer(id: PlayerId) = "lobby_player_${id.value}"
 
     fun seekerSwitch(id: PlayerId) = "seeker_switch_${id.value}"
+
+    /** A player's role in the lobby as the others see it (only the host can switch it: [seekerSwitch]). */
+    fun lobbyRole(id: PlayerId) = "lobby_role_${id.value}"
+
+    /** «Not connected» next to a player in the lobby. */
+    fun lobbyOffline(id: PlayerId) = "lobby_offline_${id.value}"
+
+    /** A setting's value in the settings panel, and its − and + buttons (e.g. `radius`, `hiding`, `glow_every`). */
+    fun settingValue(name: String) = "setting_${name}_value"
+
+    fun settingMinus(name: String) = "setting_${name}_minus"
+
+    fun settingPlus(name: String) = "setting_${name}_plus"
 
     /** Title of the game screen; changes with the phase, so a flow can wait for the next phase. */
     fun phase(phase: GamePhase) = "phase_${phase.name.lowercase()}"

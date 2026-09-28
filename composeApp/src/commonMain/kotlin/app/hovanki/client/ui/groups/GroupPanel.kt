@@ -103,7 +103,12 @@ private fun GroupOverview(group: GroupView, viewModel: GroupsViewModel, isBusy: 
         modifier = Modifier.fillMaxWidth().testTag(TestTags.GROUP_PLAY),
     )
     SecondaryText(stringResource(Res.string.group_play_hint))
-    StartStatusBanners(status = startStatus, sessionError = sessionError, onDismiss = viewModel::dismissMessage)
+    StartStatusBanners(
+        status = startStatus,
+        sessionError = sessionError,
+        onDismiss = viewModel::dismissMessage,
+        onLeaveOtherGame = viewModel::leaveOtherGameAndRetry,
+    )
     HorizontalDivider()
 
     SectionTitle(stringResource(Res.string.group_members, group.members.size))

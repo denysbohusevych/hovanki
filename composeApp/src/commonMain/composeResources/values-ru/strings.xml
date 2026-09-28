@@ -244,8 +244,8 @@
   <string name="vote_done">Вы проголосовали. Ждём остальных.</string>
   <string name="action_leave_game">Выйти из игры</string>
   <string name="leave_title">Выйти из игры?</string>
-  <string name="leave_text">Вернуться в этот раунд не получится. Ищущие увидят ваше последнее местоположение.</string>
-  <string name="leave_text_account">Пока вас нет, ищущие видят ваше последнее местоположение. Чтобы вернуться в этот раунд, войдите в игру снова с кодом %1$s.</string>
+  <string name="leave_text">Вы выйдете из раунда насовсем: прячущийся выбывает, ищущий больше не ищет.</string>
+  <string name="leave_text_account">Вы выйдете из раунда насовсем: прячущийся выбывает, ищущий больше не ищет. Код игры был %1$s.</string>
 
   <!-- Результаты -->
   <string name="results_title">Игра окончена</string>
@@ -388,4 +388,46 @@
   <string name="error_chat_muted">Писать в чат нельзя до %1$s: модераторы запретили за нарушение правил.</string>
   <string name="error_chat_muted_forever">Писать в чат нельзя: модераторы запретили за нарушение правил.</string>
   <string name="error_email_not_verified">Сначала подтвердите email.</string>
+  <string name="lobby_you_seek">Вы ищете</string>
+  <string name="lobby_you_hide">Вы прячетесь</string>
+  <string name="lobby_roles_by_host">Кто ищет, выбирает организатор.</string>
+  <string name="lobby_offline">не на связи</string>
+  <string name="lobby_chip_streets">Зона %1$d м, по улицам</string>
+  <string name="lobby_chip_glow">Свечение раз в %1$d мин</string>
+  <string name="lobby_buildings_loading">Загружаем здания…</string>
+  <string name="lobby_buildings_ready">Зданий: %1$d</string>
+  <string name="lobby_streets_loading">Строим зону по улицам…</string>
+  <string name="lobby_start_wait_streets">Зона по улицам почти готова</string>
+  <string name="lobby_settings">Настройки игры</string>
+  <string name="street_zone_off">Зона по улицам здесь не получилась: играем кругом.</string>
+  <string name="settings_title">Настройки игры</string>
+  <string name="settings_zone">Зона</string>
+  <string name="settings_meters">%1$d м</string>
+  <string name="settings_shape_circle">Круг</string>
+  <string name="settings_shape_streets">По улицам</string>
+  <string name="settings_shape_streets_hint">Граница идёт по улицам: целые кварталы, площадь как у круга. Сужается кварталами.</string>
+  <string name="settings_shrinks">Зона сужается</string>
+  <string name="settings_hiding">Время на прятки</string>
+  <string name="settings_seeking">Время поиска</string>
+  <string name="settings_minutes">%1$d мин</string>
+  <string name="settings_glow">Свечение</string>
+  <string name="settings_glow_hint">Время от времени ищущие на миг видят всех прячущихся, а потом — место, где их застало свечение.</string>
+  <string name="settings_glow_every">Раз в</string>
+  <string name="settings_glow_for">На</string>
+  <string name="settings_seconds">%1$d с</string>
+  <string name="settings_save">Сохранить</string>
+  <string name="hud_glow_in">Свечение через %1$s</string>
+  <string name="hud_glowing">Свечение! %1$s</string>
+  <string name="reason_glow">свечение</string>
+  <string name="reason_glow_mark">был здесь %1$s назад</string>
+  <string name="alert_glow_soon_title">Скоро вас увидят!</string>
+  <string name="alert_glow_soon_text">Свечение через несколько секунд.</string>
+  <string name="alert_glowing_title">Ищущие вас видят</string>
+  <string name="alert_glowing_text">Потом они увидят, где вас застало свечение.</string>
+  <string name="invite_go">Перейти</string>
+  <string name="error_in_another_game">Вы ещё играете в другой игре.</string>
+  <string name="error_zone_not_ready">Зона по улицам ещё строится. Попробуйте через минутку.</string>
+  <string name="action_leave_other_game">Выйти из неё и продолжить</string>
+  <string name="invite_in_round">%1$s зовёт вас в другую игру.</string>
+  <string name="action_leave_and_go">Выйти и перейти</string>
 </resources>

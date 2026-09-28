@@ -25,6 +25,9 @@ class GameStarter(
     private val mutableStatus = MutableStateFlow(StartStatus())
     val status: StateFlow<StartStatus> = mutableStatus.asStateFlow()
 
+    /** The last create or join once more, leaving the round of another game: see [leaveOtherGameAndRetry]. */
+    private var retryLeavingOtherGame: (suspend () -> Unit)? = null
+
     /**
      * The zone is centered on the host, so a game can only be created with a GPS fix. [onCreated] runs once the player
      * is in the new game's lobby, e.g. to invite a group. [playerName] is only used for guests.
@@ -38,15 +41,30 @@ class GameStarter(
                 return@launchWork
             }
             mutableStatus.update { it.copy(activity = StartActivity.CONNECTING) }
-            if (sessionManager.create(playerName, gameSettings(fix.point))) onCreated()
+            val settings = gameSettings(fix.point)
+            retryLeavingOtherGame = {
+                if (sessionManager.create(playerName, settings, leaveOtherGame = true)) onCreated()
+            }
+            if (sessionManager.create(playerName, settings)) onCreated()
         }
     }
 
     /** Joining works without location too, but the lobby keeps asking for it. [onJoined] runs in the lobby. */
     fun join(code: String, playerName: String, onJoined: () -> Unit = {}) {
+        retryLeavingOtherGame = { if (sessionManager.join(code, playerName, leaveOtherGame = true)) onJoined() }
         launchWork(StartActivity.CONNECTING) {
             if (sessionManager.join(code, playerName)) onJoined()
         }
+    }
+
+    /**
+     * The server refused the last create or join because the account still plays a round of another game
+     * ([app.hovanki.shared.protocol.ErrorReason.IN_ANOTHER_GAME]), and the player chose to leave that round: the same
+     * again, leaving it (a hider there is out).
+     */
+    fun leaveOtherGameAndRetry() {
+        val retry = retryLeavingOtherGame ?: return
+        launchWork(StartActivity.CONNECTING) { retry() }
     }
 
     /** Shows [problem] unless [condition] holds (a form check before asking for the location permission). */
@@ -60,8 +78,9 @@ class GameStarter(
         sessionManager.clearError()
     }
 
+    /** The host's last setup on this phone (the defaults the first time) around [center]. */
     private fun gameSettings(center: GeoPoint): GameSettings {
-        val defaults = GameSessionManager.defaultSettings(center)
+        val defaults = sessionManager.lastGameSetup().settings(center)
         // Debug builds under UI automation don't wait the default hiding time (see LaunchOptions).
         val hidingSeconds = launchOptions.options.value?.hidingSeconds ?: return defaults
         return defaults.copy(hidingSeconds = hidingSeconds)

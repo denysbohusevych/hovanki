@@ -571,7 +571,7 @@ async function gamesView() {
   show(el("h1", {}, `Игры сейчас: ${games.length}`),
     el("p", { class: "muted small" }, "Без центра зоны, позиций и чата: только числа."),
     games.length ? el("table", {},
-      el("tr", {}, ["Игра", "Фаза", "Хост", "Игроки (гости, ищущие)", "Создана", "В фазе с", "Активность", "Зона", "Чат", ""]
+      el("tr", {}, ["Игра", "Фаза", "Хост", "Игроки (гости, ищущие)", "Создана", "В фазе с", "Активность", "Зона", "Карта", "Чат", ""]
         .map((t) => el("th", {}, t))),
       games.map((game) => el("tr", {},
         el("td", { class: "mono" }, game.gameId),
@@ -582,6 +582,7 @@ async function gamesView() {
         el("td", {}, fmt.ago(game.phaseStartedAtMillis)),
         el("td", {}, fmt.ago(game.lastActivityMillis)),
         el("td", {}, `${Math.round(game.zoneRadiusMeters)} м`),
+        el("td", {}, mapSummary(game)),
         el("td", {}, game.chatMessages),
         el("td", {}, isAdmin() && game.phase !== "FINISHED" ? el("button", {
           class: "danger",
@@ -594,6 +595,18 @@ async function gamesView() {
             gamesView();
           },
         }, "Завершить") : null)))) : el("p", { class: "muted" }, "Сейчас никто не играет."));
+}
+
+const BUILDINGS = { LOADING: "грузятся", READY: "есть", UNAVAILABLE: "нет данных, правило выключено" };
+const STREET_ZONE = { LOADING: "строится", READY: "по улицам", UNAVAILABLE: "улиц нет, круг" };
+
+/** The game's map data: whether the building rule is on (and on how many buildings), and the zone's shape. */
+function mapSummary(game) {
+  const buildings = game.buildings === "READY"
+    ? `здания: ${game.buildingCount ?? 0}`
+    : `здания: ${BUILDINGS[game.buildings] ?? "—"}`;
+  const zone = game.zoneShape === "STREETS" ? `зона: ${STREET_ZONE[game.streetZone] ?? "по улицам"}` : "зона: круг";
+  return `${buildings} · ${zone}`;
 }
 
 // Numbers

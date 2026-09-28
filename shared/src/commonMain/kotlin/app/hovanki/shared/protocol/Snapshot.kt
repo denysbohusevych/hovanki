@@ -31,6 +31,18 @@ data class GameSnapshot(
     val chat: List<ChatMessage> = emptyList(),
     /** When the round ended (FINISHED); null before, and from older servers. */
     val finishedAtMillis: Long? = null,
+    /**
+     * The zone by streets ([ZoneShape.STREETS]): being built, ready at `ApiRoutes.streetZone`, or unavailable (the game
+     * uses the circles). Null: a circle zone, or an older server.
+     */
+    val streetZone: StreetZoneState? = null,
+    /**
+     * Goes up whenever the host changes the zone in the lobby: the buildings and the zone by streets are loaded again,
+     * the ones of an older revision no longer apply.
+     */
+    val mapRevision: Int = 0,
+    /** When the host last drew the roles at random: every phone rolls the dice once for it. Null: never. */
+    val rolesDrawnAtMillis: Long? = null,
 )
 
 @Serializable
@@ -47,6 +59,10 @@ data class PlayerView(
     val outAtMillis: Long? = null,
     /** The seeker whose claim caught this hider; null unless [PlayerStatus.CAUGHT]. */
     val caughtBy: PlayerId? = null,
+    /** Server time of the player's last request; the lobby shows who is not connected. Null from older servers. */
+    val lastSeenMillis: Long? = null,
+    /** The player left the game (the round goes on without them): a hider is out, a seeker seeks no more. */
+    val left: Boolean = false,
 )
 
 @Serializable

@@ -62,6 +62,12 @@ enum class VisibilityReason {
      * [VisibleLocation.cause], never in [VisibleLocation.reason]: older clients would fail to read it there.
      */
     INSIDE_BUILDING,
+
+    /**
+     * The glow (docs/adr/0009-game-setup-glow-streets.md): during a glow the seekers see every active hider live,
+     * afterwards the spot where the last glow left them. Only in [VisibleLocation.cause], like [INSIDE_BUILDING].
+     */
+    GLOW,
 }
 
 @Serializable
@@ -148,4 +154,13 @@ enum class ErrorReason {
 
     /** Needs a confirmed email first, e.g. setting up the staff authenticator. */
     EMAIL_NOT_VERIFIED,
+
+    /**
+     * The account still plays in a round of another game: leave it first (`CreateGameRequest.leaveOtherGame`). Lobbies
+     * of other games are left by themselves.
+     */
+    IN_ANOTHER_GAME,
+
+    /** The zone by streets is still being built: the game can start once it is ready (or given up on). */
+    ZONE_NOT_READY,
 }

@@ -27,19 +27,27 @@ import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerTrack
 import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.StreetZoneResponse
+import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.VisibleLocation
+import app.hovanki.shared.protocol.ZonePolygon
+import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.BuildingMap
 import app.hovanki.shared.rules.BuildingRules
 import app.hovanki.shared.rules.CatchRules
 import app.hovanki.shared.rules.ChatRules
+import app.hovanki.shared.rules.Glow
 import app.hovanki.shared.rules.LocationTrack
 import app.hovanki.shared.rules.RouteRecorder
+import app.hovanki.shared.rules.StreetZone
 import app.hovanki.shared.rules.ZoneRules
+import app.hovanki.shared.rules.areaAt
 import app.hovanki.shared.rules.circleAt
 import app.hovanki.shared.rules.isUsable
+import app.hovanki.shared.rules.stateAt
 import app.hovanki.shared.totp.catchCodeTotp
 import java.time.Duration
 
@@ -53,10 +61,17 @@ import java.time.Duration
 class Game(
     val id: GameId,
     val joinCode: String,
-    val hostId: PlayerId,
-    val settings: GameSettings,
+    hostId: PlayerId,
+    settings: GameSettings,
     private val createdAtMillis: Long,
 ) {
+    /** Starts and sets up the game; when they leave the lobby, the player who joined after them takes over. */
+    var hostId: PlayerId = hostId
+        private set
+
+    /** The setup; the host may change it in the lobby ([updateSettings]), the thresholds ([rules]) excepted. */
+    var settings: GameSettings = settings
+        private set
     private val rules = settings.rules
     private val players = LinkedHashMap<PlayerId, Player>()
 
@@ -88,25 +103,78 @@ class Game(
     private var buildings = BuildingsResponse()
     private var buildingMap: BuildingMap? = null
 
-    /** The zone's buildings arrived (see `BuildingLoader`): the rule is on from now on. */
-    fun onBuildingsLoaded(areas: List<BuildingArea>, passages: List<Passage>) {
+    /**
+     * Goes up whenever the host changes the zone in the lobby: the buildings and the zone by streets are loaded again,
+     * and whatever arrives for an older revision is dropped.
+     */
+    var mapRevision: Int = 0
+        private set
+
+    /** The zone by streets (docs/adr/0009-game-setup-glow-streets.md); null for a circle zone. */
+    var streetZoneState: StreetZoneState? = null
+        private set
+    private var streetZone: StreetZone? = null
+
+    /** Since when the zone by streets is being built: after [STREET_ZONE_PATIENCE_MILLIS] the game uses the circles. */
+    private var streetZoneSinceMillis = createdAtMillis
+
+    /** When the host last drew the roles at random ([drawRoles]). */
+    private var rolesDrawnAtMillis: Long? = null
+
+    /** The last glow that left its marks on the hiders ([updateGlow]); 0: none yet. */
+    private var glowMarksOf = 0
+
+    init {
+        if (settings.zoneShape == ZoneShape.STREETS) streetZoneState = StreetZoneState.LOADING
+    }
+
+    /** The zone's buildings of [revision] arrived (see `BuildingLoader`): the rule is on from now on. */
+    fun onBuildingsLoaded(areas: List<BuildingArea>, passages: List<Passage>, revision: Int = mapRevision) {
+        if (revision != mapRevision) return
         buildingsState = BuildingsState.READY
         buildings = BuildingsResponse(BuildingsState.READY, areas, passages)
         buildingMap = BuildingMap(areas, passages, settings.zone.initial.center)
     }
 
     /** The zone's buildings can't be loaded: the game runs without the rule, and the players are told. */
-    fun onBuildingsUnavailable() {
+    fun onBuildingsUnavailable(revision: Int = mapRevision) {
+        if (revision != mapRevision) return
         buildingsState = BuildingsState.UNAVAILABLE
         buildings = BuildingsResponse(BuildingsState.UNAVAILABLE)
         buildingMap = null
+    }
+
+    /** The zone by streets of [revision] is built: one polygon for the start and one per stage of the schedule. */
+    fun onStreetZoneBuilt(stages: List<ZonePolygon>, revision: Int = mapRevision) {
+        if (revision != mapRevision || settings.zoneShape != ZoneShape.STREETS) return
+        if (stages.size != settings.zone.stages.size + 1 || stages.any { it.outline.size < 4 }) {
+            onStreetZoneUnavailable(revision)
+            return
+        }
+        streetZone = StreetZone(stages)
+        streetZoneState = StreetZoneState.READY
+    }
+
+    /**
+     * No zone by streets for [revision] (no streets, map data down): the game uses the circles, the players are told.
+     */
+    fun onStreetZoneUnavailable(revision: Int = mapRevision) {
+        if (revision != mapRevision || settings.zoneShape != ZoneShape.STREETS) return
+        streetZone = null
+        streetZoneState = StreetZoneState.UNAVAILABLE
+    }
+
+    /** The zone by streets for [viewerId] to draw exactly what the rules check. */
+    fun streetZoneFor(viewerId: PlayerId): StreetZoneResponse {
+        player(viewerId)
+        return StreetZoneResponse(streetZoneState, mapRevision, streetZone?.let { zone -> zone.stages }.orEmpty())
     }
 
     /** The buildings the rule judges by, for [viewerId] to draw exactly those on the map. */
     fun buildingsFor(viewerId: PlayerId, nowMillis: Long): BuildingsResponse {
         val viewer = player(viewerId)
         if (buildingsState == BuildingsState.READY) viewer.buildingsLoadedAtMillis = nowMillis
-        return buildings.copy(state = buildingsState)
+        return buildings.copy(state = buildingsState, mapRevision = mapRevision)
     }
 
     /**
@@ -137,9 +205,113 @@ class Game(
     /** The account of [playerId]; null for a guest. */
     fun userIdOf(playerId: PlayerId): UserId? = player(playerId).userId
 
+    /**
+     * The host picks the seekers in the lobby; everybody sees the roles ([PlayerView.role]), and the start takes them
+     * as the app sends them. Any choice is fine here; the start needs at least one seeker and one hider.
+     */
+    fun setRoles(by: PlayerId, seekers: Set<PlayerId>, nowMillis: Long) {
+        requirePhase(GamePhase.LOBBY)
+        requireHost(by, "pick the roles")
+        if (!players.keys.containsAll(seekers)) {
+            throw GameException(ErrorCode.BAD_REQUEST, "Pick seekers among the players")
+        }
+        for (player in players.values) player.role = if (player.id in seekers) Role.SEEKER else Role.HIDER
+        lastActivityMillis = nowMillis
+    }
+
+    /** [count] seekers drawn with [random] among the players; every phone rolls the dice for it. */
+    fun drawRoles(by: PlayerId, count: Int, random: java.util.Random, nowMillis: Long) {
+        requirePhase(GamePhase.LOBBY)
+        requireHost(by, "draw the roles")
+        if (players.size < 2) throw GameException(ErrorCode.WRONG_STATE, "A draw needs at least two players")
+        if (count !in 1..<players.size) {
+            throw GameException(ErrorCode.BAD_REQUEST, "Draw 1..${players.size - 1} seekers")
+        }
+        setRoles(by, players.keys.shuffled(random).take(count).toSet(), nowMillis)
+        rolesDrawnAtMillis = nowMillis
+    }
+
+    /**
+     * The host changes the setup in the lobby; the thresholds stay those the game was created with. True when the
+     * zone changed: its map data has to be loaded again, for the new [mapRevision].
+     */
+    fun updateSettings(by: PlayerId, newSettings: GameSettings, nowMillis: Long): Boolean {
+        requirePhase(GamePhase.LOBBY)
+        requireHost(by, "change the settings")
+        val next = newSettings.copy(rules = rules)
+        val mapChanged = next.zone != settings.zone || next.zoneShape != settings.zoneShape
+        settings = next
+        lastActivityMillis = nowMillis
+        if (mapChanged) {
+            mapRevision++
+            buildingsState = BuildingsState.LOADING
+            buildings = BuildingsResponse()
+            buildingMap = null
+            streetZone = null
+            streetZoneState = if (next.zoneShape == ZoneShape.STREETS) StreetZoneState.LOADING else null
+            streetZoneSinceMillis = nowMillis
+        }
+        return mapChanged
+    }
+
+    /**
+     * [playerId] leaves for good. In the lobby they are gone, and a leaving host hands the game to the player who
+     * joined after them. In a round a hider is out (caught, when a claim against them is open: leaving is no answer),
+     * a seeker's open claims are dropped; the round ends when no hider or no seeker is left. True when the lobby is
+     * empty now: the game is to be removed.
+     */
+    fun leave(playerId: PlayerId, nowMillis: Long): Boolean {
+        val player = player(playerId)
+        lastActivityMillis = nowMillis
+        when (phase) {
+            GamePhase.LOBBY -> {
+                players.remove(playerId)
+                playersByJoinRequest.values.removeAll { it == playerId }
+                if (players.isEmpty()) return true
+                if (hostId == playerId) hostId = players.keys.first()
+            }
+
+            GamePhase.HIDING, GamePhase.SEEKING -> {
+                if (player.left) return false
+                player.left = true
+                if (player.role == Role.HIDER && player.status == PlayerStatus.ACTIVE) {
+                    val open = catches.values.firstOrNull { it.isOpen && it.hiderId == playerId }
+                    if (open != null) {
+                        resolve(open, confirmed = true, nowMillis)
+                    } else {
+                        player.status = PlayerStatus.ELIMINATED
+                        player.outAtMillis = nowMillis
+                        player.outOfZoneSinceMillis = null
+                        player.insideBuildingSinceMillis = null
+                        if (players.values.none { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
+                            finish(nowMillis)
+                        }
+                    }
+                } else if (player.role == Role.SEEKER) {
+                    catches.values.filter { it.isOpen && it.seekerId == playerId }
+                        .forEach { resolve(it, confirmed = false, nowMillis) }
+                    if (players.values.none { it.role == Role.SEEKER && !it.left }) finish(nowMillis)
+                }
+            }
+
+            GamePhase.FINISHED -> player.left = true
+        }
+        return false
+    }
+
+    /** Whether [playerId] still plays a round: an active hider or a seeker who has not left. */
+    fun isPlaying(playerId: PlayerId): Boolean {
+        val player = players[playerId] ?: return false
+        if ((phase != GamePhase.HIDING && phase != GamePhase.SEEKING) || player.left) return false
+        return player.role == Role.SEEKER || player.status == PlayerStatus.ACTIVE
+    }
+
     fun start(by: PlayerId, seekers: Set<PlayerId>, newCatchCodeSecret: () -> String, nowMillis: Long) {
         requirePhase(GamePhase.LOBBY)
-        if (by != hostId) throw GameException(ErrorCode.FORBIDDEN, "Only the host can start the game")
+        requireHost(by, "start the game")
+        if (settings.zoneShape == ZoneShape.STREETS && streetZoneState == StreetZoneState.LOADING) {
+            throw GameException(ErrorCode.WRONG_STATE, "The zone by streets is being built", ErrorReason.ZONE_NOT_READY)
+        }
         if (seekers.isEmpty() || !players.keys.containsAll(seekers)) {
             throw GameException(ErrorCode.BAD_REQUEST, "Pick at least one seeker among the players")
         }
@@ -331,6 +503,10 @@ class Game(
 
     /** Applies everything that happens by itself as time passes. */
     fun advance(nowMillis: Long) {
+        val streetZoneOverdue = nowMillis - streetZoneSinceMillis >= STREET_ZONE_PATIENCE_MILLIS
+        if (streetZoneState == StreetZoneState.LOADING && streetZoneOverdue) {
+            onStreetZoneUnavailable()
+        }
         if (phase == GamePhase.HIDING) {
             val hidingEnds = phaseStartedAtMillis + settings.hidingSeconds * 1000L
             if (nowMillis >= hidingEnds) {
@@ -350,6 +526,7 @@ class Game(
         }
         checkZone(nowMillis)
         checkBuildings(nowMillis)
+        updateGlow(nowMillis)
         val seekingEnds = phaseStartedAtMillis + settings.seekingSeconds * 1000L
         if (phase == GamePhase.SEEKING && nowMillis >= seekingEnds) finish(seekingEnds)
     }
@@ -386,6 +563,8 @@ class Game(
      */
     fun snapshotFor(viewerId: PlayerId, nowMillis: Long, chatAfter: Long? = null): GameSnapshot {
         val viewer = player(viewerId)
+        // Every request ends in a snapshot for its player: the lobby shows who is connected.
+        viewer.lastSeenMillis = nowMillis
         return GameSnapshot(
             gameId = id,
             joinCode = joinCode,
@@ -405,6 +584,8 @@ class Game(
                     player.userId,
                     player.outAtMillis,
                     player.caughtBy,
+                    lastSeenMillis = player.lastSeenMillis,
+                    left = player.left,
                 )
             },
             me = MyState(
@@ -425,6 +606,9 @@ class Game(
                 chat.filter { it.seq > after && ChatRules.canSee(it.channel, viewer.role) }
                     .takeLast(ChatRules.MAX_PER_RESPONSE)
             }.orEmpty(),
+            streetZone = streetZoneState,
+            mapRevision = mapRevision,
+            rolesDrawnAtMillis = rolesDrawnAtMillis,
         )
     }
 
@@ -443,6 +627,10 @@ class Game(
         lastActivityMillis = lastActivityMillis,
         zoneRadiusMeters = settings.zone.initial.radiusMeters,
         chatMessages = lastChatSeq.toInt(),
+        buildings = buildingsState,
+        buildingCount = buildings.buildings.size.takeIf { buildingsState == BuildingsState.READY },
+        zoneShape = settings.zoneShape,
+        streetZone = streetZoneState,
     )
 
     /**
@@ -478,6 +666,15 @@ class Game(
             } else {
                 null
             },
+            streetZone = streetZoneState,
+            streetZonePolygon = streetZone?.let { zone ->
+                val stage = zoneStart?.takeIf { phase == GamePhase.SEEKING }
+                    ?.let { settings.zone.stateAt(nowMillis - it).stage }
+                zone.areaAt(stage ?: 0).polygon
+            },
+            mapRevision = mapRevision,
+            rolesDrawnAtMillis = rolesDrawnAtMillis,
+            buildingCount = buildings.buildings.size,
             finishedAtMillis = finishedAtMillis,
             players = players.values.map { player ->
                 DebugPlayer(
@@ -493,7 +690,8 @@ class Game(
                     outOfZoneDeadlineMillis = player.outOfZoneDeadlineMillis(),
                     insideBuildingSinceMillis = player.insideBuildingSinceMillis,
                     buildingsLoadedAtMillis = player.buildingsLoadedAtMillis,
-                    revealedToSeekers = revealReason(player, nowMillis),
+                    revealedToSeekers = revealReason(player, nowMillis)
+                        ?: VisibilityReason.GLOW.takeIf { glowMarkShown(player) },
                     catchCodeSecret = player.catchCodeSecret,
                     fixes = DebugFixCounts(
                         accepted = player.fixResults[LocationTrack.Result.ACCEPTED] ?: 0,
@@ -505,6 +703,9 @@ class Game(
                     outAtMillis = player.outAtMillis,
                     caughtBy = player.caughtBy,
                     replayPoints = player.replay.size,
+                    left = player.left,
+                    lastSeenMillis = player.lastSeenMillis,
+                    glowMark = player.glowMark,
                 )
             },
             catches = catches.values.map { claim ->
@@ -527,9 +728,15 @@ class Game(
 
     private fun visibleLocation(viewer: Player, target: Player, nowMillis: Long): VisibleLocation? {
         if (viewer.id == target.id || viewer.role != Role.SEEKER) return null
-        val fix = target.track.latest ?: return null
-        val reason = revealReason(target, nowMillis) ?: return null
-        return VisibleLocation(fix.point, fix.accuracyMeters, fix.timestampMillis, reason.forFirstClients(), reason)
+        val reason = revealReason(target, nowMillis)
+        // Between glows: where the last glow left the hider, not where they are now.
+        val fix = when {
+            reason != null -> target.track.latest
+            glowMarkShown(target) -> target.glowMark
+            else -> null
+        } ?: return null
+        val cause = reason ?: VisibilityReason.GLOW
+        return VisibleLocation(fix.point, fix.accuracyMeters, fix.timestampMillis, cause.forFirstClients(), cause)
     }
 
     /**
@@ -537,20 +744,46 @@ class Game(
      * later goes to `cause` and, in `reason`, becomes the closest one they know.
      */
     private fun VisibilityReason.forFirstClients(): VisibilityReason = when (this) {
-        VisibilityReason.INSIDE_BUILDING -> VisibilityReason.OUT_OF_ZONE
+        VisibilityReason.INSIDE_BUILDING, VisibilityReason.GLOW -> VisibilityReason.OUT_OF_ZONE
         else -> this
     }
 
-    /** Why seekers may see [target] right now, or null when it stays hidden from them. */
+    /** Why seekers may see [target] right now (live), or null when it stays hidden from them. */
     private fun revealReason(target: Player, nowMillis: Long): VisibilityReason? = when {
         phase != GamePhase.HIDING && phase != GamePhase.SEEKING -> null
+        target.left -> null
         target.role == Role.SEEKER -> VisibilityReason.TEAMMATE
         phase != GamePhase.SEEKING || target.status != PlayerStatus.ACTIVE -> null
         target.outOfZoneSinceMillis != null -> VisibilityReason.OUT_OF_ZONE
         target.recentlyMocked(nowMillis) -> VisibilityReason.MOCK_LOCATION
         target.isStale(nowMillis) -> VisibilityReason.STALE_SIGNAL
         target.isRevealedInsideBuilding(nowMillis) -> VisibilityReason.INSIDE_BUILDING
+        isGlowing(nowMillis) -> VisibilityReason.GLOW
         else -> null
+    }
+
+    /** A glow is on: the seekers see every active hider live (docs/adr/0009-game-setup-glow-streets.md). */
+    private fun isGlowing(nowMillis: Long): Boolean {
+        val seekingStart = zoneStartedAtMillis ?: return false
+        return phase == GamePhase.SEEKING && Glow.openAt(settings, seekingStart, nowMillis) != null
+    }
+
+    /** Between glows the seekers see the spot where the last one left an active hider. */
+    private fun glowMarkShown(target: Player): Boolean = phase == GamePhase.SEEKING && !target.left &&
+        target.role == Role.HIDER && target.status == PlayerStatus.ACTIVE && target.glowMark != null
+
+    /**
+     * Once a glow is over, where it left each active hider: the last fix taken during it (or before), which the seekers
+     * see until the next glow. A hider with no fix at all is seen by the stale-signal rule anyway.
+     */
+    private fun updateGlow(nowMillis: Long) {
+        val seekingStart = zoneStartedAtMillis ?: return
+        val last = Glow.lastStarted(settings, seekingStart, nowMillis) ?: return
+        if (last.isOpenAt(nowMillis) || last.index <= glowMarksOf) return
+        glowMarksOf = last.index
+        for (hider in players.values.filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
+            hider.track.latestAtOrBefore(last.endMillis - 1)?.let { hider.glowMark = it }
+        }
     }
 
     private fun phaseEndsAtMillis(): Long? = when (phase) {
@@ -566,7 +799,8 @@ class Game(
 
     private fun checkZone(nowMillis: Long) {
         val zoneStart = zoneStartedAtMillis ?: return
-        val zone = settings.zone.circleAt(nowMillis - zoneStart)
+        // The zone by streets when it was built, else the circle (also when building it failed).
+        val zone = settings.zone.areaAt(nowMillis - zoneStart, streetZone)
         var lastOutMillis: Long? = null
         for (hider in players.values.filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
             // Players in an open catch claim or dispute are frozen until it is resolved.
@@ -671,7 +905,9 @@ class Game(
         return atMillis in start..<end
     }
 
-    private fun eligibleVoters(claim: CatchClaim): Set<PlayerId> = players.keys - setOf(claim.seekerId, claim.hiderId)
+    /** Everybody but the two in the claim and those who left. */
+    private fun eligibleVoters(claim: CatchClaim): Set<PlayerId> =
+        players.values.filter { !it.left }.mapTo(HashSet()) { it.id } - setOf(claim.seekerId, claim.hiderId)
 
     private fun buildRecord(): GameRecord {
         val finishedAt = checkNotNull(finishedAtMillis)
@@ -751,6 +987,10 @@ class Game(
     private fun catch(id: CatchId): CatchClaim =
         catches[id] ?: throw GameException(ErrorCode.NOT_FOUND, "Unknown catch claim")
 
+    private fun requireHost(by: PlayerId, what: String) {
+        if (by != hostId) throw GameException(ErrorCode.FORBIDDEN, "Only the host can $what")
+    }
+
     private fun requirePhase(expected: GamePhase) {
         if (phase != expected) throw GameException(ErrorCode.WRONG_STATE, "Not possible in phase $phase")
     }
@@ -777,6 +1017,15 @@ class Game(
         var lastFixReceivedMillis: Long? = null
         var outOfZoneSinceMillis: Long? = null
         var insideBuildingSinceMillis: Long? = null
+
+        /** Left the game for good (the leave button, or joining another game). */
+        var left = false
+
+        /** Server time of the player's last request. */
+        var lastSeenMillis: Long? = null
+
+        /** Where the last glow left this hider: what the seekers see between glows. */
+        var glowMark: LocationSample? = null
 
         /**
          * The whole round, thinned, for the replay right after it: every player, only in memory (unlike [route], which
@@ -813,6 +1062,9 @@ class Game(
     companion object {
         const val MAX_PLAYERS = 30
         private const val MAX_CATCHES_IN_SNAPSHOT = 20
+
+        /** The zone by streets is given up on (circles instead) after this long; the loader gives up well before. */
+        const val STREET_ZONE_PATIENCE_MILLIS = 120_000L
         private const val MOCK_REVEAL_MILLIS = 60_000L
 
         /** A message is sent again within seconds of the first try: a few ids per player are plenty. */

@@ -169,6 +169,12 @@ class DevicePlayer(val device: Device, private val run: DeviceRun) {
     /** Text of the element with test tag [id] on the current screen. */
     suspend fun readText(id: String): String? = run.maestro.hierarchy(device).textOf(id)
 
+    /** The top edge of the element with test tag [id] on the current screen; null when it is not there. */
+    suspend fun topOf(id: String): Double? = run.maestro.hierarchy(device).find(id)?.top
+
+    /** Where the top of [startScreen] was when the scenario first saw it: the screen must not move after a round. */
+    @Volatile var startScreenTop: Double? = null
+
     fun log(text: String) = run.timeline.log(name, text)
 }
 

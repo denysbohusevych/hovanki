@@ -20,6 +20,18 @@ object ApiRoutes {
     /** GET: the buildings of the game's zone where hiding is not allowed ([BuildingsResponse]). */
     const val BUILDINGS = "$GAMES/{gameId}/buildings"
 
+    /** GET: the zone by streets, one polygon per stage ([StreetZoneResponse]). */
+    const val STREET_ZONE = "$GAMES/{gameId}/street-zone"
+
+    /** POST [RolesRequest]: the host picks or draws the roles in the lobby. */
+    const val ROLES = "$GAMES/{gameId}/roles"
+
+    /** POST [SettingsRequest]: the host changes the setup in the lobby. */
+    const val SETTINGS = "$GAMES/{gameId}/settings"
+
+    /** POST, no body, 204: the player leaves the game for good; their token stops working. */
+    const val LEAVE = "$GAMES/{gameId}/leave"
+
     /** GET: every player's track of the round ([TracksResponse]), once the game is FINISHED. */
     const val TRACKS = "$GAMES/{gameId}/tracks"
 
@@ -141,6 +153,14 @@ object ApiRoutes {
         CATCH_VOTE.fill("gameId" to gameId.value, "catchId" to catchId.value)
 
     fun buildings(gameId: GameId): String = BUILDINGS.fill("gameId" to gameId.value)
+
+    fun streetZone(gameId: GameId): String = STREET_ZONE.fill("gameId" to gameId.value)
+
+    fun roles(gameId: GameId): String = ROLES.fill("gameId" to gameId.value)
+
+    fun settings(gameId: GameId): String = SETTINGS.fill("gameId" to gameId.value)
+
+    fun leave(gameId: GameId): String = LEAVE.fill("gameId" to gameId.value)
 
     fun tracks(gameId: GameId): String = TRACKS.fill("gameId" to gameId.value)
 

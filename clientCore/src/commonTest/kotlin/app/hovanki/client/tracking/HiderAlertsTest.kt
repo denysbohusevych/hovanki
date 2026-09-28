@@ -122,4 +122,27 @@ class HiderAlertsTest {
         assertEquals(setOf(AlertKind.OUT_OF_ZONE, AlertKind.IN_BUILDING), repeats.clear())
         assertTrue(repeats.update(emptyList(), 6_000L).ended.isEmpty(), "nothing left after clear()")
     }
+
+    @Test
+    fun theGlowWarnsThenShows() {
+        val settings = testSnapshot().settings.copy(glowEverySeconds = 120, glowForSeconds = 5)
+        fun at(millis: Long) = testSnapshot(phase = GamePhase.SEEKING, serverTimeMillis = millis)
+            .copy(settings = settings, zoneStartedAtMillis = 0L, me = me())
+
+        assertEquals(emptyList(), at(100_000).hiderAlerts())
+        assertEquals(listOf(HiderAlert(AlertKind.GLOW_SOON, 120_000)), at(111_000).hiderAlerts())
+        assertEquals(listOf(HiderAlert(AlertKind.GLOWING, 125_000)), at(121_000).hiderAlerts())
+        assertEquals(emptyList(), at(126_000).hiderAlerts())
+    }
+
+    @Test
+    fun onceEachForTheGlow() {
+        val repeats = AlertRepeats()
+
+        assertEquals(1, repeats.update(listOf(HiderAlert(AlertKind.GLOW_SOON, 120_000)), 111_000).buzz.size)
+        assertEquals(0, repeats.update(listOf(HiderAlert(AlertKind.GLOW_SOON, 120_000)), 115_000).buzz.size)
+        val glowing = repeats.update(listOf(HiderAlert(AlertKind.GLOWING, 125_000)), 121_000)
+        assertEquals(listOf(AlertKind.GLOWING), glowing.buzz.map { it.kind })
+        assertEquals(setOf(AlertKind.GLOW_SOON), glowing.ended)
+    }
 }

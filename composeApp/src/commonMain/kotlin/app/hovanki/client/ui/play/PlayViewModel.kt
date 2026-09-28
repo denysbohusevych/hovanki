@@ -71,6 +71,9 @@ class PlayViewModel(
 
     fun dismissInvite(invite: GameInvite) = commands.execute({ social.dismissInvite(invite.id) })
 
+    /** The account still plays a round elsewhere: leave it, and create or join as just tried. */
+    fun leaveOtherGameAndRetry() = starter.leaveOtherGameAndRetry()
+
     fun dismissProblems() {
         starter.dismissProblems()
         commands.dismiss()

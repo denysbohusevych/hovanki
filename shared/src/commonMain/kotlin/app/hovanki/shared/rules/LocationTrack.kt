@@ -45,6 +45,9 @@ class LocationTrack(private val rules: GameRules, private val retentionMillis: L
 
     fun latestUsable(): LocationSample? = fixes.lastOrNull { it.isUsable(rules) }
 
+    /** The last accepted fix taken at or before [atMillis], within the kept history; null when there is none. */
+    fun latestAtOrBefore(atMillis: Long): LocationSample? = fixes.lastOrNull { it.timestampMillis <= atMillis }
+
     /** Usable fixes within the decision window that ends at [nowMillis]. */
     fun recentUsableFixes(nowMillis: Long): List<LocationSample> {
         val since = nowMillis - rules.decisionWindowSeconds * 1000L

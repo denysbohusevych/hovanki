@@ -29,8 +29,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -68,6 +66,7 @@ import app.hovanki.client.resources.action_cancel
 import app.hovanki.client.resources.action_confirm
 import app.hovanki.client.resources.action_dispute
 import app.hovanki.client.resources.action_leave
+import app.hovanki.client.resources.action_leave_and_go
 import app.hovanki.client.resources.back_in_zone
 import app.hovanki.client.resources.building_rule_off
 import app.hovanki.client.resources.catch_auto_in
@@ -98,6 +97,7 @@ import app.hovanki.client.resources.ic_navigation
 import app.hovanki.client.resources.ic_qr
 import app.hovanki.client.resources.in_building_revealed
 import app.hovanki.client.resources.in_building_warning
+import app.hovanki.client.resources.invite_in_round
 import app.hovanki.client.resources.leave_text
 import app.hovanki.client.resources.leave_text_account
 import app.hovanki.client.resources.leave_title
@@ -112,6 +112,7 @@ import app.hovanki.client.resources.scanner_open
 import app.hovanki.client.resources.seeker_found_title
 import app.hovanki.client.resources.status_caught
 import app.hovanki.client.resources.status_eliminated
+import app.hovanki.client.resources.street_zone_off
 import app.hovanki.client.resources.vote_confirm
 import app.hovanki.client.resources.vote_done
 import app.hovanki.client.resources.vote_reject
@@ -135,14 +136,18 @@ import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SessionBanners
 import app.hovanki.client.ui.common.SystemBackHandler
 import app.hovanki.client.ui.common.Toast
+import app.hovanki.client.ui.common.appSafeDrawing
+import app.hovanki.client.ui.common.appSafeDrawingPadding
 import app.hovanki.client.ui.common.formatCountdown
 import app.hovanki.client.ui.common.rememberHaptics
 import app.hovanki.client.ui.common.rememberReduceMotion
 import app.hovanki.client.ui.common.rememberToastVisible
+import app.hovanki.client.ui.invite.InviteBannerViewModel
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
+import app.hovanki.shared.protocol.GameInvite
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
@@ -158,9 +163,15 @@ import org.koin.compose.viewmodel.koinViewModel
  * code to show.
  */
 @Composable
-fun GameScreen(viewModel: GameViewModel = koinViewModel(), chat: ChatViewModel = koinViewModel()) {
+fun GameScreen(
+    viewModel: GameViewModel = koinViewModel(),
+    chat: ChatViewModel = koinViewModel(),
+    invites: InviteBannerViewModel = koinViewModel(),
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val chatState by chat.uiState.collectAsStateWithLifecycle()
+    // An invitation into another game: no banner in a round, only a badge on «More» (see the leave dialog).
+    val invite by invites.invite.collectAsStateWithLifecycle()
     val state = uiState
     if (state == null) {
         LoadingScreen()
@@ -168,10 +179,20 @@ fun GameScreen(viewModel: GameViewModel = koinViewModel(), chat: ChatViewModel =
     }
     // The chat panel covers the round instead of replacing it: the map keeps its tiles and camera.
     Box(modifier = Modifier.fillMaxSize()) {
-        GameContent(state, viewModel, chatUnread = chatState.unread, onOpenChat = chat::open)
+        GameContent(
+            state,
+            viewModel,
+            chatUnread = chatState.unread,
+            onOpenChat = chat::open,
+            invite = invite,
+            onGoToInvite = { invites.go(it, leaveRound = true) },
+        )
         if (chatState.isOpen) {
             Box(
-                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .appSafeDrawingPadding(),
             ) {
                 ChatPanel(chat)
             }
@@ -180,7 +201,14 @@ fun GameScreen(viewModel: GameViewModel = koinViewModel(), chat: ChatViewModel =
 }
 
 @Composable
-private fun GameContent(state: GameUiState, viewModel: GameViewModel, chatUnread: Int, onOpenChat: () -> Unit) {
+private fun GameContent(
+    state: GameUiState,
+    viewModel: GameViewModel,
+    chatUnread: Int,
+    onOpenChat: () -> Unit,
+    invite: GameInvite?,
+    onGoToInvite: (GameInvite) -> Unit,
+) {
     var showLeaveDialog by rememberSaveable { mutableStateOf(false) }
     var recenter by remember { mutableIntStateOf(0) }
     val reduceMotion = rememberReduceMotion()
@@ -233,7 +261,7 @@ private fun GameContent(state: GameUiState, viewModel: GameViewModel, chatUnread
     val bottomInset = if (hasSheet) {
         PaddingValues(0.dp)
     } else {
-        WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).asPaddingValues()
+        WindowInsets.appSafeDrawing.only(WindowInsetsSides.Bottom).asPaddingValues()
     }
 
     Box(modifier = Modifier.fillMaxSize().testTag(TestTags.GAME_SCREEN)) {
@@ -246,6 +274,7 @@ private fun GameContent(state: GameUiState, viewModel: GameViewModel, chatUnread
                     myRole = state.myRole,
                     markers = state.markers,
                     buildings = state.buildings,
+                    streetZone = state.streetZone,
                     recenterRequests = recenter,
                     reduceMotion = reduceMotion,
                     attributionPadding = bottomInset,
@@ -279,7 +308,7 @@ private fun GameContent(state: GameUiState, viewModel: GameViewModel, chatUnread
                             .align(Alignment.TopCenter)
                             .onGloballyPositioned { hudBottom = it.boundsInParent().bottom.toInt() }
                             .windowInsetsPadding(
-                                WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                                WindowInsets.appSafeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                             ),
                     )
                 }
@@ -295,6 +324,7 @@ private fun GameContent(state: GameUiState, viewModel: GameViewModel, chatUnread
                     onRecenter = { recenter++ },
                     canRecenter = state.myLocation != null,
                     onMore = { showLeaveDialog = true },
+                    moreBadge = if (invite != null) 1 else 0,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottomInset)
@@ -387,16 +417,37 @@ private fun GameContent(state: GameUiState, viewModel: GameViewModel, chatUnread
             onDismissRequest = { showLeaveDialog = false },
             title = { Text(stringResource(Res.string.leave_title)) },
             text = {
-                Text(
-                    if (state.hasAccount) {
-                        stringResource(Res.string.leave_text_account, state.joinCode)
-                    } else {
-                        stringResource(Res.string.leave_text)
-                    },
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        if (state.hasAccount) {
+                            stringResource(Res.string.leave_text_account, state.joinCode)
+                        } else {
+                            stringResource(Res.string.leave_text)
+                        },
+                    )
+                    // The invitation behind the badge on «More»: leaving this round can take the player there.
+                    invite?.let {
+                        Text(
+                            text = stringResource(Res.string.invite_in_round, it.from.nickname),
+                            color = Palette.PinkInk,
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                    }
+                }
             },
             confirmButton = {
-                TextButton(onClick = viewModel::leave) { Text(stringResource(Res.string.action_leave)) }
+                Row {
+                    invite?.let {
+                        TextButton(
+                            onClick = {
+                                showLeaveDialog = false
+                                onGoToInvite(it)
+                            },
+                            modifier = Modifier.testTag(TestTags.LEAVE_AND_GO),
+                        ) { Text(stringResource(Res.string.action_leave_and_go)) }
+                    }
+                    TextButton(onClick = viewModel::leave) { Text(stringResource(Res.string.action_leave)) }
+                }
             },
             dismissButton = {
                 TextButton(onClick = { showLeaveDialog = false }) { Text(stringResource(Res.string.action_cancel)) }
@@ -446,6 +497,12 @@ private fun TopHud(state: GameUiState, viewModel: GameViewModel, modifier: Modif
                 modifier = Modifier.testTag(TestTags.BUILDING_RULE_OFF),
             )
         }
+        if (state.isStreetZoneOff) {
+            Banner(
+                text = stringResource(Res.string.street_zone_off),
+                modifier = Modifier.testTag(TestTags.STREET_ZONE_OFF),
+            )
+        }
     }
 }
 
@@ -493,6 +550,7 @@ private fun BottomControls(
     canRecenter: Boolean,
     onMore: () -> Unit,
     modifier: Modifier = Modifier,
+    moreBadge: Int = 0,
 ) {
     Row(
         modifier = modifier,
@@ -529,6 +587,8 @@ private fun BottomControls(
             icon = Res.drawable.ic_exit,
             label = stringResource(Res.string.hud_more),
             onClick = onMore,
+            badge = moreBadge,
+            badgeTag = TestTags.ROUND_INVITE,
         )
     }
 }
@@ -557,7 +617,7 @@ private fun BottomSheet(state: GameUiState, viewModel: GameViewModel, onOpenScan
             modifier = Modifier
                 .fillMaxWidth()
                 .windowInsetsPadding(
-                    WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+                    WindowInsets.appSafeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
                 )
                 .padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -868,7 +928,7 @@ private fun CodeLayer(
         modifier = modifier
             .fillMaxSize()
             .background(Palette.Violet)
-            .safeDrawingPadding()
+            .appSafeDrawingPadding()
             .padding(horizontal = 24.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -963,7 +1023,7 @@ private fun ScannerLayer(onScanned: (String) -> Boolean, onClose: () -> Unit, ma
                 .border(4.dp, Palette.Lime, RoundedCornerShape(28.dp)),
         )
         Column(
-            modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp),
+            modifier = Modifier.fillMaxSize().appSafeDrawingPadding().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -995,7 +1055,8 @@ private fun ScannerLayer(onScanned: (String) -> Boolean, onClose: () -> Unit, ma
 /**
  * Vibration for what happens in the round (docs/design.md, «Вибрация и звук»): the zone about to shrink (then 3-2-1)
  * and done shrinking, the seekers going out, alerts (on entering, then every 10 s, every second at the end), a claim
- * against the hider, a hider caught.
+ * against the hider, a hider caught, the glow (a hider still playing feels it coming, 3-2-1, and starting; a seeker
+ * feels it starting).
  */
 @Composable
 private fun GameHaptics(state: GameUiState) {
@@ -1034,6 +1095,16 @@ private fun GameHaptics(state: GameUiState) {
     }
     LaunchedEffect(buildingSeconds) {
         if (buildingSeconds != null && buildingSeconds % IN_BUILDING_EVERY == 0L) play(Haptic.TICK)
+    }
+
+    val isHiding = state.myRole == Role.HIDER && state.myStatus == PlayerStatus.ACTIVE
+    val glowing = state.glow?.isGlowing == true
+    LaunchedEffect(glowing) {
+        if (glowing) play(if (isHiding) Haptic.ERROR else Haptic.SUCCESS)
+    }
+    val secondsToGlow = state.glow?.takeIf { !it.isGlowing && isHiding }?.let { (it.millisLeft + 999) / 1000 }
+    LaunchedEffect(secondsToGlow) {
+        if (secondsToGlow != null && secondsToGlow <= COUNTDOWN_TICKS) play(Haptic.TICK)
     }
 
     val claimAgainstMe = state.claimAgainstMe?.takeIf { it.status == CatchStatus.AWAITING_CODE }?.id

@@ -78,7 +78,7 @@ private fun runDevices(options: CliArgs): Int {
         }
         if (serverJar != null) {
             val log = File(reportRoot, "logs/server.log")
-            val buildings = options.single("buildings") ?: "overpass"
+            val buildings = options.single("buildings") ?: "tiles"
             println(
                 "[devices] starting the server on :$port (profile e2e, buildings: $buildings, a fresh PostgreSQL " +
                     "database), log: $log",
@@ -184,7 +184,7 @@ private val USAGE = """
                   [--scenario full-round|restart|all] [--fail-fast true] [--maestro-mode auto|mcp|cli]
                   [--maestro <path>] [--install-apk androidApp-debug.apk] [--server-jar hovanki-server.jar]
                   [--port 8080] [--server http://localhost:8080] [--flows e2e/maestro] [--report e2e/build/reports/devices]
-                  [--location <lat,lon>] [--buildings overpass|fake|off]
+                  [--location <lat,lon>] [--buildings tiles|overpass|fake|off]
       e2e route   --to <lat,lon> [--to <lat,lon> ...] [--from <lat,lon>] [--speed 1.5] [--interval 1000] [--hold 0]
                   [--noise none|open-sky|city] [--seed 1] [--format csv|geo-fix] [--adb <serial> | --simctl <udid>]
 """.trimIndent()
