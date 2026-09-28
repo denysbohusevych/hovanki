@@ -222,8 +222,9 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
                     )
                 }
             },
-            hidersLeft = hiders.count { it.status == PlayerStatus.ACTIVE },
-            hidersTotal = hiders.size,
+            // A big game lists only some players: how many there are in all comes with the snapshot.
+            hidersLeft = snapshot.counts?.hidersActive ?: hiders.count { it.status == PlayerStatus.ACTIVE },
+            hidersTotal = snapshot.counts?.let { it.players - it.seekers } ?: hiders.size,
             huntableHiders = if (canClaim) {
                 val claimedHiders = openClaims.map { it.hiderId }.toSet()
                 hiders.filter { it.status == PlayerStatus.ACTIVE && it.id !in claimedHiders }

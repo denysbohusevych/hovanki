@@ -5,13 +5,17 @@ import app.hovanki.server.api.AuthenticatedUser
 import app.hovanki.server.buildings.BuildingLoader
 import app.hovanki.server.history.HistoryWriter
 import app.hovanki.server.map.StreetZoneLoader
+import app.hovanki.server.map.TerrainLoader
 import app.hovanki.server.moderation.NewReport
 import app.hovanki.server.moderation.ReportRepository
 import app.hovanki.server.moderation.SanctionService
 import app.hovanki.server.ratelimit.RateLimit
 import app.hovanki.server.ratelimit.RateLimiter
+import app.hovanki.server.social.FriendRepository
 import app.hovanki.server.social.InviteRegistry
 import app.hovanki.shared.protocol.AdminGame
+import app.hovanki.shared.protocol.AreaNorms
+import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ClaimCatchRequest
@@ -23,6 +27,7 @@ import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
+import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
@@ -36,12 +41,14 @@ import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VoteRequest
+import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.RequestIds
 import app.hovanki.shared.rules.SettingsLimits
 import app.hovanki.shared.rules.boundingCircle
 import org.springframework.stereotype.Service
 import java.time.Clock
+import java.time.Instant
 
 /** Application layer: auth checks, id generation and per-game locking around the [Game] domain object. */
 @Service
@@ -57,6 +64,9 @@ class GameService(
     private val history: HistoryWriter,
     private val sanctions: SanctionService,
     private val streetZoneLoader: StreetZoneLoader,
+    private val terrainLoader: TerrainLoader,
+    private val capacity: CapacityProperties,
+    private val friends: FriendRepository,
 ) {
     /**
      * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
@@ -70,7 +80,7 @@ class GameService(
         val hostId = ids.playerId()
         var game: Game
         do {
-            game = Game(ids.gameId(), ids.joinCode(), hostId, request.settings, now)
+            game = Game(ids.gameId(), ids.joinCode(), hostId, request.settings, now, capacity.norms())
         } while (!registry.add(game))
         return synchronized(game) {
             game.addPlayer(hostId, name, now, user?.userId)
@@ -87,7 +97,7 @@ class GameService(
 
     /** Every player's track of the round, for the replay: only once the game is over ([Game.tracks]). */
     fun tracks(caller: PlayerRef, gameId: GameId): TracksResponse =
-        withGame(caller, gameId) { game, _ -> game.tracks() }
+        withGame(caller, gameId) { game, _ -> game.tracks(caller.playerId) }
 
     /**
      * Joins the game of [JoinGameRequest.joinCode] as a new player, in the lobby only. [user]: the caller's account
@@ -101,6 +111,8 @@ class GameService(
         // The nickname comes from the database, outside the game's lock: the game's other requests never wait for it.
         val name = playerName(request.playerName, user)
         val game = registry.findByJoinCode(request.joinCode.trim())
+            // A big game is joined from its card, by those who signed up (docs/adr/0010-big-games.md).
+            ?.takeIf { synchronized(it) { !it.isServerHosted } }
             ?: throw GameException(ErrorCode.NOT_FOUND, "No game with this code")
         if (user != null) leaveOtherGames(user, except = game.id, leaveRound = request.leaveOtherGame)
         val session = locked(game) { now ->
@@ -117,6 +129,102 @@ class GameService(
         if (user != null) invites.removeInvitee(game.id, user.userId)
         return session
     }
+
+    /**
+     * A big game's lobby (docs/adr/0010-big-games.md), hosted by the server: the zone drawn by the admin ([stages]: the
+     * figure at the start and after each stage), up to [maxPlayers]. Loads the buildings and the ground like any game.
+     */
+    fun openBigGame(
+        info: BigGameInfo,
+        settings: GameSettings,
+        stages: List<ZonePolygon>,
+        maxPlayers: Int,
+        norms: AreaNorms,
+    ): GameId {
+        val now = clock.millis()
+        var game: Game
+        do {
+            game = Game(ids.gameId(), ids.joinCode(), Game.SERVER_HOST, settings, now, norms, info, maxPlayers)
+        } while (!registry.add(game))
+        synchronized(game) {
+            game.onStreetZoneBuilt(stages)
+            loadMap(game)
+        }
+        return game.id
+    }
+
+    /**
+     * [user] comes into big game [gameId]'s lobby (the service checked the sign-up), or back to their player in any
+     * phase; the same one-game rule and retries as [join].
+     */
+    fun joinBigGame(gameId: GameId, user: AuthenticatedUser, request: JoinBigGameRequest): SessionResponse {
+        val requestId = request.requestId?.let(::validRequestId)
+        val name = playerName("", user)
+        val game = registry.get(gameId)?.takeIf { synchronized(it) { it.isServerHosted } }
+            ?: throw GameException(ErrorCode.NOT_FOUND, "The lobby is not open")
+        leaveOtherGames(user, except = game.id, leaveRound = request.leaveOtherGame)
+        // Its snapshot shows the player's friends: read now, outside the game's lock.
+        val friendIds = friends.friends(user.userId).mapTo(HashSet()) { it.id }
+        return locked(game) { now ->
+            val returning = game.playerOf(user.userId) ?: requestId?.let(game::playerOfJoinRequest)
+            val playerId = if (returning != null) {
+                registry.revokeTokens(game.id, returning)
+                returning
+            } else {
+                ids.playerId().also { game.addPlayer(it, name, now, user.userId, requestId) }
+            }
+            game.setFriends(playerId, friendIds)
+            newSession(game, playerId, now)
+        }
+    }
+
+    /**
+     * The server starts big game [gameId]'s round: [seekers] drawn among the players in the lobby. False: not enough
+     * players yet (or not in the lobby any more).
+     */
+    fun startBigGame(gameId: GameId, seekers: Int): Boolean {
+        val game = registry.get(gameId) ?: return false
+        return locked(game) { now ->
+            if (game.phase != GamePhase.LOBBY || game.playerCount() < 2) return@locked false
+            game.startByServer(seekers, ids.drawRandom, ids::catchCodeSecret, now)
+            true
+        }
+    }
+
+    /**
+     * An admin changed big game [gameId] before its round: the news for the lobby, and with [settings] a new zone
+     * ([stages]) whose buildings and ground are loaded again.
+     */
+    fun updateBigGame(
+        gameId: GameId,
+        info: BigGameInfo,
+        maxPlayers: Int,
+        norms: AreaNorms,
+        settings: GameSettings? = null,
+        stages: List<ZonePolygon> = emptyList(),
+    ) {
+        val game = registry.get(gameId) ?: return
+        locked(game) { now ->
+            game.updateBigGame(info, maxPlayers, norms)
+            if (settings != null && game.phase == GamePhase.LOBBY &&
+                game.updateSettings(Game.SERVER_HOST, settings, now)
+            ) {
+                game.onStreetZoneBuilt(stages)
+                loadMap(game)
+            }
+        }
+    }
+
+    /** Where big game [gameId]'s round is: its phase, or null when it is gone from memory (a restart, the janitor). */
+    fun phaseOf(gameId: GameId): GamePhase? = registry.get(gameId)?.let { game -> locked(game) { game.phase } }
+
+    /** When big game [gameId]'s round ends (or ended); null in the lobby or when it is gone. */
+    fun roundEndsAt(gameId: GameId): Instant? =
+        registry.get(gameId)?.let { game -> locked(game) { game.roundEndsAtMillis() } }?.let(Instant::ofEpochMilli)
+
+    /** How many players are in game [gameId]; null when it is gone. */
+    fun playersIn(gameId: GameId): Int? =
+        registry.get(gameId)?.let { game -> synchronized(game) { game.playerCount() } }
 
     fun start(caller: PlayerRef, gameId: GameId, request: StartGameRequest): GameSnapshot =
         update(caller, gameId) { game, now ->
@@ -144,6 +252,13 @@ class GameService(
         if (mapChanged) registry.get(gameId)?.let { game -> synchronized(game) { loadMap(game) } }
         return snapshot
     }
+
+    /**
+     * The host plays anyway in a zone that fits fewer players than there are, or has few places to hide
+     * (docs/adr/0010-big-games.md): the lobby warns no more in this game.
+     */
+    fun acceptCrowding(caller: PlayerRef, gameId: GameId): GameSnapshot =
+        update(caller, gameId) { game, now -> game.acceptCrowding(caller.playerId, now) }
 
     /**
      * The caller leaves the game for good ([Game.leave]); their token stops working. An empty lobby is removed with its
@@ -291,12 +406,21 @@ class GameService(
     }
 
     /**
-     * The buildings and, for a zone by streets, the streets of [game]'s zone at its current map revision (call under the
-     * game's lock). Results of an older revision are dropped by the game.
+     * The buildings, the ground and, for a zone by streets, the streets of [game]'s zone at its current map revision
+     * (call under the game's lock). Results of an older revision are dropped by the game.
      */
     private fun loadMap(game: Game) {
         val revision = game.mapRevision
         val settings = game.settings
+        terrainLoader.load(game.id.value, settings.zone.boundingCircle()) { grid ->
+            val current = registry.get(game.id) ?: return@load
+            synchronized(current) {
+                when (grid) {
+                    null -> current.onTerrainUnavailable(revision)
+                    else -> current.onTerrainLoaded(grid, revision)
+                }
+            }
+        }
         val area = settings.zone.boundingCircle(BUILDINGS_MARGIN_METERS)
         buildingLoader.load(game.id.value, area) { loaded ->
             // The game may be gone meanwhile (the janitor, a failed create).

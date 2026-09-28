@@ -129,6 +129,7 @@ fun Banner(
     isError: Boolean = false,
     actionLabel: String? = null,
     onAction: () -> Unit = {},
+    actionModifier: Modifier = Modifier,
 ) {
     PopSurface(
         modifier = modifier.fillMaxWidth(),
@@ -154,7 +155,9 @@ fun Banner(
                 )
             }
             if (actionLabel != null) {
-                TextButton(onClick = onAction) { Text(actionLabel, style = MaterialTheme.typography.labelLarge) }
+                TextButton(onClick = onAction, modifier = actionModifier) {
+                    Text(actionLabel, style = MaterialTheme.typography.labelLarge)
+                }
             }
         }
     }

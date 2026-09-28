@@ -40,12 +40,26 @@ data class Award(val kind: AwardKind, val playerId: PlayerId, val value: Long)
 /** How long into the search [atMillis] was (the zone starts with the search); null before it started. */
 fun GameSnapshot.searchMillisAt(atMillis: Long): Long? = zoneStartedAtMillis?.let { (atMillis - it).coerceAtLeast(0) }
 
+/** How the hiders ended the round: the headline and the numbers of the results. */
+data class HiderTally(val caught: Int, val survived: Int, val eliminated: Int)
+
+/** [HiderTally] from the server's counts in a big game (its list of players is partial), else from the list. */
+fun GameSnapshot.hiderTally(): HiderTally {
+    counts?.let { return HiderTally(it.hidersCaught, it.hidersActive, it.hidersEliminated) }
+    val hiders = players.filter { it.role == Role.HIDER }
+    return HiderTally(
+        caught = hiders.count { it.status == PlayerStatus.CAUGHT },
+        survived = hiders.count { it.status == PlayerStatus.ACTIVE },
+        eliminated = hiders.count { it.status == PlayerStatus.ELIMINATED },
+    )
+}
+
 /** How many hiders [seekerId] caught. */
 fun GameSnapshot.catchesBy(seekerId: PlayerId): Int = players.count { it.caughtBy == seekerId }
 
 /**
  * The badges of a finished game, in the order the results show them; ties give nobody the badge. [tracks]: the replay
- * once loaded; badges that need it come with it.
+ * once loaded; badges that need it come with it. A big game (a partial list of players): only who was never found.
  */
 fun GameSnapshot.awards(tracks: TracksResponse? = null): List<Award> {
     if (phase != GamePhase.FINISHED) return emptyList()
@@ -70,6 +84,8 @@ fun GameSnapshot.awards(tracks: TracksResponse? = null): List<Award> {
         }
     }
 
+    // A big game lists only some players: who was first, most or last can't be told from them.
+    if (this.counts != null) return awards.filter { it.kind == AwardKind.SURVIVOR }
     if (tracks != null) {
         val lengths = tracks.tracks.associate { it.playerId to it.points.lengthMeters() }
         lengths.entries.uniqueMaxBy { it.value }?.takeIf { it.value >= MARATHON_MIN_METERS }?.let { (player, meters) ->

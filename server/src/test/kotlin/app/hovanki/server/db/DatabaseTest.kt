@@ -2,6 +2,7 @@ package app.hovanki.server.db
 
 import app.hovanki.server.account.AccountProperties
 import app.hovanki.server.admin.AdminProperties
+import app.hovanki.server.bigGames.BigGameProperties
 import app.hovanki.server.history.HistoryProperties
 import app.hovanki.server.moderation.ModerationProperties
 import org.springframework.beans.factory.annotation.Autowired
@@ -113,6 +114,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             ModerationProperties(),
             HistoryProperties(),
             AdminProperties(),
+            BigGameProperties(),
             Clock.fixed(now, ZoneOffset.UTC),
         )
         val longAgo = now.minus(Duration.ofDays(400))

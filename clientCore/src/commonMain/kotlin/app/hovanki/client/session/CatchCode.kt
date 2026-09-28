@@ -41,7 +41,8 @@ fun GameSnapshot.catchQr(code: CatchCode): String = CatchCodePayload(gameId, me.
 fun GameSnapshot.catchableScan(text: String): CatchCodePayload? {
     val payload = CatchCodePayload.decode(text) ?: return null
     if (payload.gameId != gameId) return null
-    val hider = players.firstOrNull { it.id == payload.hiderId } ?: return null
+    // A big game's snapshot lists only some players ([GameSnapshot.counts]): one not in it is the server's to judge.
+    val hider = players.firstOrNull { it.id == payload.hiderId } ?: return payload.takeIf { counts != null }
     return payload.takeIf { hider.role == Role.HIDER && hider.status == PlayerStatus.ACTIVE }
 }
 

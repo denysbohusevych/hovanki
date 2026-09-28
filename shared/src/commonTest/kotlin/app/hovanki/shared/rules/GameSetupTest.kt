@@ -7,15 +7,17 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class GameSetupTest {
     private val center = GeoPoint(50.4501, 30.5234)
 
     @Test
-    fun theDefaultIsTheZoneAppsCreatedBeforeWithTheGlowOn() {
+    fun theDefaultIsTheZoneAppsCreatedBeforeWithTheGlowOnAndTheSqueeze() {
         val settings = GameSetup().settings(center)
 
-        assertEquals(shrinkingZone(center), settings.zone)
+        assertEquals(shrinkingZone(center).withEndgame(1800), settings.zone)
+        assertEquals(shrinkingZone(center).stages, settings.zone.stages.take(3))
         assertEquals(300, settings.hidingSeconds)
         assertEquals(1800, settings.seekingSeconds)
         assertEquals(300, settings.glowEverySeconds)
@@ -27,11 +29,38 @@ class GameSetupTest {
     fun theZoneShrinksOverMostOfTheSearch() {
         val settings = GameSetup(radiusMeters = 1000, seekingMinutes = 60).settings(center)
 
-        val stages = settings.zone.stages
-        assertEquals(3, stages.size)
+        val stages = settings.zone.stages.take(GameSetup.SHRINK_STEPS)
         assertEquals(200.0, stages.last().target.radiusMeters)
         val shrinking = stages.sumOf { it.holdSeconds + it.shrinkSeconds }
         assertEquals(0.7, shrinking / 3600.0, 0.01)
+    }
+
+    @Test
+    fun andKeepsSqueezingAlmostToTheEnd() {
+        for (radius in listOf(150, 500, 1500)) {
+            val settings = GameSetup(radiusMeters = radius, seekingMinutes = 30).settings(center)
+            val zone = settings.zone
+
+            assertEquals(GameSetup.SHRINK_STEPS + Endgame.STEPS, zone.stages.size, "$radius m")
+            val end = zone.stages.sumOf { it.holdSeconds + it.shrinkSeconds }
+            assertEquals(Endgame.END_SHARE, end / 1800.0, 0.01)
+            assertEquals(Endgame.finalRadiusMeters(radius.toDouble()), zone.stages.last().target.radiusMeters, 0.01)
+            assertTrue(zone.stages.zipWithNext().all { (a, b) -> b.target.radiusMeters < a.target.radiusMeters })
+            // The last minutes: the zone no larger than about a catch.
+            val atTheEnd = zone.stateAt(1750 * 1000L)
+            assertEquals(Endgame.finalRadiusMeters(radius.toDouble()), atTheEnd.current.radiusMeters, 0.01)
+            assertNull(SettingsLimits.problem(settings))
+        }
+        assertEquals(30.0, Endgame.finalRadiusMeters(500.0))
+        assertEquals(75.0, Endgame.finalRadiusMeters(1500.0))
+    }
+
+    @Test
+    fun aScheduleThatReachesTheEndStaysAsItIs() {
+        val short = shrinkingZone(center, steps = 3, holdSeconds = 500, shrinkSeconds = 100)
+
+        assertEquals(short, short.withEndgame(1800))
+        assertEquals(shrinkingZone(center, steps = 0), shrinkingZone(center, steps = 0).withEndgame(1800))
     }
 
     @Test

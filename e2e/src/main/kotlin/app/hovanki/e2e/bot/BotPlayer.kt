@@ -2,11 +2,13 @@ package app.hovanki.e2e.bot
 
 import app.hovanki.client.account.AccountManager
 import app.hovanki.client.account.AccountState
+import app.hovanki.client.bigGames.BigGameManager
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.history.HistoryState
 import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.ApiResult
 import app.hovanki.client.network.HttpAccountApi
+import app.hovanki.client.network.HttpBigGameApi
 import app.hovanki.client.network.HttpGameApi
 import app.hovanki.client.network.HttpHistoryApi
 import app.hovanki.client.network.HttpSocialApi
@@ -29,6 +31,8 @@ import app.hovanki.client.storage.ClientStorage
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.scenario.Timeline
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.BigGameCard
+import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.ErrorCode
@@ -148,6 +152,9 @@ class BotPlayer(
     /** The host changes the setup in the lobby. */
     suspend fun changesSettings(settings: GameSettings): CommandResult =
         command("changes the settings") { it.updateSettings(settings) }
+
+    /** The host taps «Play anyway» on the warning of a crowded zone (docs/adr/0010-big-games.md). */
+    suspend fun playsAnyway(): CommandResult = command("plays anyway in a crowded zone") { it.acceptCrowding() }
 
     suspend fun claimCatch(hider: BotPlayer): CommandResult = claimCatch(hider.id, hider.name)
 
@@ -371,6 +378,24 @@ class BotPlayer(
 
     suspend fun deleteRoute(gameId: GameId): CommandResult =
         apiCommand("deletes the route of game ${gameId.value}") { it.history.deleteRoute(gameId) }
+
+    // ---- Big games (docs/adr/0010-big-games.md) ----
+
+    /** The big games as the «Play» tab last loaded them ([refreshBigGames]). */
+    val bigGames: List<BigGameCard> get() = app?.bigGames?.state?.value?.games.orEmpty()
+
+    suspend fun refreshBigGames(): CommandResult = apiCommand("opens the big games") { it.bigGames.refresh() }
+
+    suspend fun signsUpFor(id: BigGameId): CommandResult =
+        apiCommand("signs up for big game ${id.value}") { it.bigGames.signUp(id) }
+
+    suspend fun cancelsSignup(id: BigGameId): CommandResult =
+        apiCommand("takes back the sign-up for big game ${id.value}") { it.bigGames.cancelSignup(id) }
+
+    /** «Into the lobby» on the big game's card. */
+    suspend fun joinBigGame(id: BigGameId, leaveOtherGame: Boolean = false): CommandResult =
+        command("comes into the lobby of big game ${id.value}") { it.joinBigGame(id, leaveOtherGame) }
+            .also(::onEntered)
 
     // ---- Friends, groups, invites ----
 
@@ -610,6 +635,7 @@ class BotPlayer(
         val account = AccountManager(HttpAccountApi(httpClient, url), clientStorage, url, scope)
         val social = SocialManager(HttpSocialApi(httpClient, url), account, scope)
         val history = HistoryManager(HttpHistoryApi(httpClient, url), account, scope)
+        val bigGames = BigGameManager(HttpBigGameApi(httpClient, url), account, scope)
         val session = GameSessionManager(
             api,
             PollingGameConnection(api),

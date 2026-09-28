@@ -5,8 +5,9 @@ import java.net.URI
 import java.time.Duration
 
 /**
- * `hovanki.map.*`: the vector tiles the server reads the zone's buildings and streets from (the map the players see,
- * OpenFreeMap), and where the streets for the zone by streets come from (docs/adr/0009-game-setup-glow-streets.md).
+ * `hovanki.map.*`: the vector tiles the server reads the zone's buildings, streets and ground from (the map the players
+ * see, OpenFreeMap), where the streets for the zone by streets come from (docs/adr/0009-game-setup-glow-streets.md), and
+ * the ground for the zone's capacity (docs/adr/0010-big-games.md).
  */
 @ConfigurationProperties("hovanki.map")
 data class MapProperties(
@@ -26,6 +27,8 @@ data class MapProperties(
     val cacheSize: Int = 48,
     /** Where the zone by streets gets its streets. */
     val streets: StreetsSource = StreetsSource.TILES,
+    /** Where a zone's capacity gets the ground under it (docs/adr/0010-big-games.md). */
+    val terrain: TerrainData = TerrainData.TILES,
 ) {
     enum class StreetsSource {
         /** The streets of the vector tiles. */
@@ -35,6 +38,17 @@ data class MapProperties(
         FAKE,
 
         /** No streets: a zone by streets falls back to the circle. */
+        OFF,
+    }
+
+    enum class TerrainData {
+        /** The houses, water, woods, parks and fields of the vector tiles. */
+        TILES,
+
+        /** Built-up blocks everywhere (tests, the `e2e` profile). */
+        FAKE,
+
+        /** No ground: no estimate of players, no warning. */
         OFF,
     }
 }

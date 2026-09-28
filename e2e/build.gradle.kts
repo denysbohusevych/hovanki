@@ -145,11 +145,15 @@ tasks.check {
 // `-Pe2e.slow=true`: nightly, or by hand.
 val includeSlowScenarios = providers.gradleProperty("e2e.slow").map { it.toBoolean() }.orElse(false)
 
+// `-Pe2e.bigGamePlayers=600`: the size of the big game in BigGameLoadTest (default 300).
+val bigGamePlayers = providers.gradleProperty("e2e.bigGamePlayers").orElse("")
+
 tasks.test {
     useJUnitPlatform {
         if (!includeSlowScenarios.get()) excludeTags("slow")
     }
     inputs.property("includeSlowScenarios", includeSlowScenarios)
+    jvmArgumentProviders += BigGamePlayers(bigGamePlayers)
     // Scenarios run in real time and mostly wait on game timers: run them in parallel (junit-platform.properties).
     maxHeapSize = "2g"
     // A different target server is a different test run.
@@ -165,4 +169,10 @@ tasks.test {
 /** Passes the report directory to the tests and declares it as an output (relocatable, unlike an absolute path). */
 class ReportDir(@get:OutputDirectory val dir: Provider<Directory>) : CommandLineArgumentProvider {
     override fun asArguments(): List<String> = listOf("-Dhovanki.e2e.reportDir=${dir.get().asFile.absolutePath}")
+}
+
+/** The size of the big game in BigGameLoadTest, when given. */
+class BigGamePlayers(@get:Input val players: Provider<String>) : CommandLineArgumentProvider {
+    override fun asArguments(): List<String> =
+        players.get().takeIf { it.isNotEmpty() }?.let { listOf("-Dhovanki.e2e.bigGamePlayers=$it") }.orEmpty()
 }

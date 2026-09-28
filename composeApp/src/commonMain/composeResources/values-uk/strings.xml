@@ -430,4 +430,40 @@
   <string name="action_leave_other_game">Вийти з неї і продовжити</string>
   <string name="invite_in_round">%1$s кличе вас до іншої гри.</string>
   <string name="action_leave_and_go">Вийти й перейти</string>
+  <!-- Скільки гравців уміщує зона (docs/adr/0010-big-games.md). -->
+  <plurals name="lobby_chip_capacity">
+    <item quantity="one">До %1$d гравця</item>
+    <item quantity="few">До %1$d гравців</item>
+    <item quantity="many">До %1$d гравців</item>
+    <item quantity="other">До %1$d гравців</item>
+  </plurals>
+  <plurals name="lobby_crowded">
+    <item quantity="one">Тісно: у зоні місця приблизно для %1$d гравця, а вас %2$d.</item>
+    <item quantity="few">Тісно: у зоні місця приблизно для %1$d гравців, а вас %2$d.</item>
+    <item quantity="many">Тісно: у зоні місця приблизно для %1$d гравців, а вас %2$d.</item>
+    <item quantity="other">Тісно: у зоні місця приблизно для %1$d гравців, а вас %2$d.</item>
+  </plurals>
+  <string name="lobby_few_covers">Мало схованок: майже вся зона — відкрите місце.</string>
+  <string name="lobby_play_anyway">Грати все одно</string>
+  <!-- Великі ігри (docs/adr/0010-big-games.md). -->
+  <string name="big_games_title">Великі ігри</string>
+  <string name="big_game_signed_up">Записалися: %1$d з %2$d</string>
+  <string name="big_game_friends">Друзі: %1$s</string>
+  <string name="big_game_zone">Зона %1$s</string>
+  <string name="big_game_sign_up">Записатися</string>
+  <string name="big_game_cancel_signup">Скасувати запис</string>
+  <string name="big_game_signed_up_note">Ви записані. Лобі відкриється за 30 хвилин до старту.</string>
+  <string name="big_game_join">Увійти в лобі</string>
+  <string name="big_game_full">Місць немає</string>
+  <string name="big_game_status_lobby">Лобі відкрите</string>
+  <string name="big_game_status_running">Триває</string>
+  <string name="unit_ha">%1$s га</string>
+  <string name="unit_km2">%1$s км²</string>
+  <string name="error_big_game_signup_required">Спершу запишіться на гру.</string>
+  <string name="big_lobby_starts_in">Старт через %1$s</string>
+  <string name="big_lobby_starting">Стартуємо…</string>
+  <string name="big_lobby_counts">У лобі: %1$d · записалися: %2$d</string>
+  <string name="big_lobby_roles">Шукачів обере сервер на старті.</string>
+  <string name="big_lobby_friends">Друзі в лобі</string>
+  <string name="big_lobby_no_friends">Друзів у лобі поки немає.</string>
 </resources>

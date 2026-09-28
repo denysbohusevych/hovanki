@@ -6,6 +6,7 @@ import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.error_account_banned
 import app.hovanki.client.resources.error_account_banned_forever
 import app.hovanki.client.resources.error_account_required
+import app.hovanki.client.resources.error_big_game_signup_required
 import app.hovanki.client.resources.error_blocked_by_you
 import app.hovanki.client.resources.error_chat_muted
 import app.hovanki.client.resources.error_chat_muted_forever
@@ -118,6 +119,8 @@ fun reasonNotice(
         ErrorReason.IN_ANOTHER_GAME -> Res.string.error_in_another_game
 
         ErrorReason.ZONE_NOT_READY -> Res.string.error_zone_not_ready
+
+        ErrorReason.BIG_GAME_SIGNUP_REQUIRED -> Res.string.error_big_game_signup_required
 
         ErrorReason.ACCOUNT_BANNED -> return untilMillis?.let {
             Notice.Text(Res.string.error_account_banned, listOf(formatDateTime(it)))

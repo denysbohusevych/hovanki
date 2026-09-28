@@ -4,6 +4,7 @@ import app.hovanki.client.network.testSnapshot
 import app.hovanki.shared.geo.moveBy
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.PlayerCounts
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerTrack
@@ -81,6 +82,30 @@ class ResultsTest {
             "one catch is no hunt; with a survivor there is no «last standing»",
         )
         assertEquals(emptyList(), game.copy(phase = GamePhase.SEEKING).awards(), "only when the game is over")
+    }
+
+    @Test
+    fun aBigGameGivesOnlyTheSurvivorsBadge() {
+        val game = finished(
+            seeker(sam),
+            caught(anna, by = sam, afterSeconds = 300),
+            PlayerView(vera, "Vera", Role.HIDER, PlayerStatus.ACTIVE),
+        ).copy(counts = PlayerCounts(players = 500, seekers = 20, hidersActive = 100, hidersCaught = 380))
+
+        assertEquals(listOf(Award(AwardKind.SURVIVOR, vera, 1_800_000)), game.awards())
+        assertEquals(HiderTally(caught = 380, survived = 100, eliminated = 0), game.hiderTally(), "the server's counts")
+    }
+
+    @Test
+    fun theTallyOfAnOrdinaryGameIsItsList() {
+        val game = finished(
+            seeker(sam),
+            caught(anna, by = sam, afterSeconds = 300),
+            PlayerView(vera, "Vera", Role.HIDER, PlayerStatus.ACTIVE),
+            PlayerView(boris, "Boris", Role.HIDER, PlayerStatus.ELIMINATED),
+        )
+
+        assertEquals(HiderTally(caught = 1, survived = 1, eliminated = 1), game.hiderTally())
     }
 
     private fun walk(player: PlayerId, meters: Int): PlayerTrack {

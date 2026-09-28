@@ -32,6 +32,12 @@ object ApiRoutes {
     /** POST, no body, 204: the player leaves the game for good; their token stops working. */
     const val LEAVE = "$GAMES/{gameId}/leave"
 
+    /**
+     * POST, no body: the host plays anyway in a zone that is too small for the players or has few places to hide; the
+     * lobby warns no more in this game ([ZoneCapacity.accepted]).
+     */
+    const val CROWDING_ACCEPT = "$GAMES/{gameId}/crowding/accept"
+
     /** GET: every player's track of the round ([TracksResponse]), once the game is FINISHED. */
     const val TRACKS = "$GAMES/{gameId}/tracks"
 
@@ -77,6 +83,18 @@ object ApiRoutes {
 
     /** POST: deletes the saved route of this game (the game stays in the history). */
     const val ME_GAME_ROUTE_DELETE = "$ME_GAME_ROUTE/delete"
+
+    // Big games (docs/adr/0010-big-games.md), with the account token.
+
+    /** GET: the big games ahead and going on ([BigGamesResponse]). */
+    const val BIG_GAMES = "/api/v1/big-games"
+
+    /** POST, no body: signs the caller up ([BigGameCard]); `/cancel` takes it back. */
+    const val BIG_GAME_SIGNUP = "$BIG_GAMES/{bigGameId}/signup"
+    const val BIG_GAME_SIGNUP_CANCEL = "$BIG_GAME_SIGNUP/cancel"
+
+    /** POST [JoinBigGameRequest]: into the open lobby of a big game the caller signed up for ([SessionResponse]). */
+    const val BIG_GAME_JOIN = "$BIG_GAMES/{bigGameId}/join"
 
     // Friends and blocks.
     const val FRIENDS = "/api/v1/friends"
@@ -129,6 +147,26 @@ object ApiRoutes {
     const val ADMIN_STAFF = "$ADMIN/staff"
     const val ADMIN_AUDIT = "$ADMIN/audit"
 
+    // Big games (docs/adr/0010-big-games.md): admins only, every change with a reason in the audit log.
+
+    /** GET: [AdminBigGames]; POST [AdminBigGameRequest]: a new big game ([AdminBigGame]). */
+    const val ADMIN_BIG_GAMES = "$ADMIN/big-games"
+
+    /** POST [AdminBigGameRequest]: title, time, place, setup, norms, limit; before the round. */
+    const val ADMIN_BIG_GAME_UPDATE = "$ADMIN_BIG_GAMES/{bigGameId}/update"
+
+    /** POST [AdminReasonRequest]: the round starts now (the lobby must be open). */
+    const val ADMIN_BIG_GAME_START = "$ADMIN_BIG_GAMES/{bigGameId}/start"
+
+    /** POST [AdminReasonRequest]. */
+    const val ADMIN_BIG_GAME_CANCEL = "$ADMIN_BIG_GAMES/{bigGameId}/cancel"
+
+    /** POST [AdminZoneEstimateRequest]: the area of a drawn zone and how many players it fits ([AdminZoneEstimate]). */
+    const val ADMIN_ZONE_ESTIMATE = "$ADMIN/zone-estimate"
+
+    /** GET: a vector tile of the players' map for the admin's map (the page loads nothing from other hosts). */
+    const val ADMIN_TILE = "$ADMIN/tiles/{z}/{x}/{y}"
+
     /** Every admin request carries `X-Hovanki-Admin: 1`: another site can't send it without CORS (CSRF). */
     const val ADMIN_HEADER = "X-Hovanki-Admin"
 
@@ -162,6 +200,8 @@ object ApiRoutes {
 
     fun leave(gameId: GameId): String = LEAVE.fill("gameId" to gameId.value)
 
+    fun crowdingAccept(gameId: GameId): String = CROWDING_ACCEPT.fill("gameId" to gameId.value)
+
     fun tracks(gameId: GameId): String = TRACKS.fill("gameId" to gameId.value)
 
     fun gameInvites(gameId: GameId): String = GAME_INVITES.fill("gameId" to gameId.value)
@@ -170,6 +210,21 @@ object ApiRoutes {
 
     fun chatReport(gameId: GameId, seq: Long): String =
         CHAT_REPORT.fill("gameId" to gameId.value, "seq" to seq.toString())
+
+    fun bigGameSignup(id: BigGameId): String = BIG_GAME_SIGNUP.fill("bigGameId" to id.value)
+
+    fun bigGameSignupCancel(id: BigGameId): String = BIG_GAME_SIGNUP_CANCEL.fill("bigGameId" to id.value)
+
+    fun bigGameJoin(id: BigGameId): String = BIG_GAME_JOIN.fill("bigGameId" to id.value)
+
+    fun adminBigGameUpdate(id: BigGameId): String = ADMIN_BIG_GAME_UPDATE.fill("bigGameId" to id.value)
+
+    fun adminBigGameStart(id: BigGameId): String = ADMIN_BIG_GAME_START.fill("bigGameId" to id.value)
+
+    fun adminBigGameCancel(id: BigGameId): String = ADMIN_BIG_GAME_CANCEL.fill("bigGameId" to id.value)
+
+    fun adminTile(z: Int, x: Int, y: Int): String =
+        ADMIN_TILE.fill("z" to z.toString(), "x" to x.toString(), "y" to y.toString())
 
     fun inviteDismiss(inviteId: InviteId): String = INVITE_DISMISS.fill("inviteId" to inviteId.value)
 

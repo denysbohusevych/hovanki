@@ -1,5 +1,6 @@
 package app.hovanki.client.session
 
+import app.hovanki.client.account.AccountCredentials
 import app.hovanki.client.network.FakeGameApi
 import app.hovanki.client.network.GameApi
 import app.hovanki.client.network.PollingGameConnection
@@ -8,9 +9,13 @@ import app.hovanki.client.network.testSession
 import app.hovanki.client.network.testSnapshot
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.storage.FakeSecureStore
+import app.hovanki.shared.protocol.BigGameId
+import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
+import app.hovanki.shared.protocol.CapacityState
+import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.PlayerId
@@ -18,6 +23,8 @@ import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.StreetZoneState
+import app.hovanki.shared.protocol.TerrainAreas
+import app.hovanki.shared.protocol.ZoneCapacity
 import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.GameSetup
@@ -46,17 +53,27 @@ class LobbySessionTest {
         ),
     )
 
-    private fun TestScope.manager(api: GameApi, storage: ClientStorage = ClientStorage(FakeSecureStore())) =
-        GameSessionManager(
-            api,
-            PollingGameConnection(api),
-            ServerClock { 0L },
-            FakeLocationProvider(),
-            FakeBackgroundTracker(),
-            ServerUrl("http://localhost:8080"),
-            storage,
-            backgroundScope,
-        )
+    private fun TestScope.manager(
+        api: GameApi,
+        storage: ClientStorage = ClientStorage(FakeSecureStore()),
+        account: AccountCredentials = AccountCredentials.None,
+    ) = GameSessionManager(
+        api,
+        PollingGameConnection(api),
+        ServerClock { 0L },
+        FakeLocationProvider(),
+        FakeBackgroundTracker(),
+        ServerUrl("http://localhost:8080"),
+        storage,
+        backgroundScope,
+        account,
+    )
+
+    private object LoggedIn : AccountCredentials {
+        override val accountToken: String = "account-token"
+
+        override fun onTokenRejected(token: String) = Unit
+    }
 
     @Test
     fun rolesGoToTheServer() = runTest {
@@ -108,6 +125,55 @@ class LobbySessionTest {
         manager.updateSettings(setup.settings(GeoPoint(50.0, 30.0)), setup)
 
         assertEquals(GameSetup(), manager.lastGameSetup())
+    }
+
+    @Test
+    fun theHostPlaysAnyway() = runTest {
+        val crowded = ZoneCapacity(CapacityState.READY, players = 2, areas = TerrainAreas(denseSquareMeters = 2_000))
+        val api = FakeGameApi(
+            onJoin = { SessionResponse(testSession, testSnapshot().copy(capacity = crowded)) },
+            onAcceptCrowding = { testSnapshot().copy(capacity = crowded.copy(accepted = true)) },
+        ) { testSnapshot().copy(capacity = crowded.copy(accepted = true)) }
+        val manager = manager(api)
+        manager.join("ABC234", "Anna")
+
+        manager.acceptCrowding()
+
+        assertEquals(1, api.crowdingAccepts)
+        assertEquals(true, manager.state.value.snapshot?.capacity?.accepted)
+    }
+
+    @Test
+    fun intoABigGamesLobby() = runTest {
+        val big = testSnapshot().copy(
+            hostId = PlayerId("server"),
+            bigGame = BigGameInfo(BigGameId("saturday"), "Saturday", 1_900_000_000_000, "Europe/Kyiv", signedUp = 120),
+        )
+        var answers = 0
+        val api = FakeGameApi(onJoinBigGame = { _, _ ->
+            if (answers++ == 0) error("the answer got lost")
+            SessionResponse(testSession, big)
+        }) { big }
+        val manager = manager(api, account = LoggedIn)
+
+        assertEquals(false, manager.joinBigGame(BigGameId("saturday")))
+        assertEquals(true, manager.joinBigGame(BigGameId("saturday")))
+
+        assertEquals("Saturday", manager.state.value.snapshot?.bigGame?.title)
+        val (first, again) = api.bigGameJoins
+        assertEquals("account-token", first.third)
+        assertEquals(first.second.requestId, again.second.requestId, "the same request, sent again")
+    }
+
+    @Test
+    fun aGuestCantComeIntoABigGame() = runTest {
+        val api = FakeGameApi { testSnapshot() }
+        val manager = manager(api)
+
+        assertEquals(false, manager.joinBigGame(BigGameId("saturday")))
+
+        assertEquals(ErrorReason.ACCOUNT_REQUIRED, (manager.state.value.lastError as SessionError.Rejected).reason)
+        assertEquals(emptyList(), api.bigGameJoins)
     }
 
     @Test

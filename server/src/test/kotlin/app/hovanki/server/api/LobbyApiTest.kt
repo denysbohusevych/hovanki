@@ -13,6 +13,7 @@ import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
+import app.hovanki.shared.protocol.CapacityState
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
@@ -33,6 +34,7 @@ import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.protocol.protocolJson
+import app.hovanki.shared.rules.Capacity
 import app.hovanki.shared.rules.shrinkingZone
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -151,6 +153,29 @@ class LobbyApiTest(
             get(ApiRoutes.buildings(host.session.gameId), host.session.token).expect(200).body,
         )
         assertEquals(BuildingsState.READY, buildings.state)
+    }
+
+    @Test
+    fun theHostPlaysAnywayInACrowdedZone() {
+        // 30 m: about 2 800 m² of built-up ground (the test source), 32 cells of 10 m on the grid: 3 players.
+        val tiny = settings.copy(zone = shrinkingZone(park, initialRadiusMeters = 30.0, steps = 0))
+        val host = post(ApiRoutes.GAMES, CreateGameRequest("Host", tiny).toJson(), null).ok<SessionResponse>()
+        val anna = post(ApiRoutes.JOIN, JoinGameRequest(host.snapshot.joinCode, "Anna").toJson(), null)
+            .ok<SessionResponse>().session
+        for (name in listOf("Boris", "Vera")) {
+            post(ApiRoutes.JOIN, JoinGameRequest(host.snapshot.joinCode, name).toJson(), null).ok<SessionResponse>()
+        }
+
+        val crowded = sync(host.session)
+        assertEquals(CapacityState.READY, crowded.capacity?.state)
+        assertEquals(3, crowded.capacity?.players)
+        assertTrue(Capacity.needsWarning(crowded.capacity, crowded.players.size))
+
+        post(ApiRoutes.crowdingAccept(anna.gameId), null, anna.token).error(403, ErrorCode.FORBIDDEN)
+        val accepted = post(ApiRoutes.crowdingAccept(host.session.gameId), null, host.session.token)
+            .ok<GameSnapshot>()
+        assertEquals(true, accepted.capacity?.accepted)
+        assertEquals(true, sync(anna).capacity?.accepted)
     }
 
     @Test

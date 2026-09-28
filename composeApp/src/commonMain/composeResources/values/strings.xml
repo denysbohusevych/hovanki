@@ -430,4 +430,36 @@
   <string name="action_leave_other_game">Leave it and go on</string>
   <string name="invite_in_round">%1$s invites you to another game.</string>
   <string name="action_leave_and_go">Leave and go</string>
+  <!-- How many players the zone fits (docs/adr/0010-big-games.md). -->
+  <plurals name="lobby_chip_capacity">
+    <item quantity="one">Up to %1$d player</item>
+    <item quantity="other">Up to %1$d players</item>
+  </plurals>
+  <plurals name="lobby_crowded">
+    <item quantity="one">Crowded: the zone has room for about %1$d player, you are %2$d.</item>
+    <item quantity="other">Crowded: the zone has room for about %1$d players, you are %2$d.</item>
+  </plurals>
+  <string name="lobby_few_covers">Few places to hide: most of the zone is open ground.</string>
+  <string name="lobby_play_anyway">Play anyway</string>
+  <!-- Big games (docs/adr/0010-big-games.md). -->
+  <string name="big_games_title">Big games</string>
+  <string name="big_game_signed_up">Signed up: %1$d of %2$d</string>
+  <string name="big_game_friends">Friends: %1$s</string>
+  <string name="big_game_zone">Zone %1$s</string>
+  <string name="big_game_sign_up">Sign up</string>
+  <string name="big_game_cancel_signup">Cancel my sign-up</string>
+  <string name="big_game_signed_up_note">You’re in. The lobby opens 30 minutes before the start.</string>
+  <string name="big_game_join">Into the lobby</string>
+  <string name="big_game_full">No places left</string>
+  <string name="big_game_status_lobby">Lobby open</string>
+  <string name="big_game_status_running">Going on</string>
+  <string name="unit_ha">%1$s ha</string>
+  <string name="unit_km2">%1$s km²</string>
+  <string name="error_big_game_signup_required">Sign up for the game first.</string>
+  <string name="big_lobby_starts_in">Starts in %1$s</string>
+  <string name="big_lobby_starting">Starting…</string>
+  <string name="big_lobby_counts">In the lobby: %1$d · signed up: %2$d</string>
+  <string name="big_lobby_roles">The server draws the seekers at the start.</string>
+  <string name="big_lobby_friends">Your friends here</string>
+  <string name="big_lobby_no_friends">None of your friends is here yet.</string>
 </resources>

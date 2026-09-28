@@ -18,7 +18,12 @@ sealed interface ZoneArea {
     /** The point of the border nearest to [point]: where the way back into the zone is shortest. */
     fun nearestBorderPoint(point: GeoPoint): GeoPoint
 
+    /** Whether [point] is in the zone (on the border counts); cheaper than [signedDistanceMeters]. */
+    fun contains(point: GeoPoint): Boolean
+
     data class Circle(val circle: ZoneCircle) : ZoneArea {
+        override fun contains(point: GeoPoint): Boolean = point.distanceTo(circle.center) <= circle.radiusMeters
+
         override fun signedDistanceMeters(point: GeoPoint): Double =
             point.distanceTo(circle.center) - circle.radiusMeters
 
@@ -39,6 +44,9 @@ sealed interface ZoneArea {
      */
     class Shrinking(val outer: Polygon, val inner: Polygon, val cut: ZoneCircle) : ZoneArea {
         private val cutArea = Circle(cut)
+
+        override fun contains(point: GeoPoint): Boolean =
+            inner.contains(point) || (outer.contains(point) && cutArea.contains(point))
 
         override fun signedDistanceMeters(point: GeoPoint): Double = minOf(
             inner.signedDistanceMeters(point),
@@ -77,6 +85,11 @@ sealed interface ZoneArea {
         override fun nearestBorderPoint(point: GeoPoint): GeoPoint {
             val (x, y) = nearest(point.offsetFrom(origin)).first
             return origin.moveBy(eastMeters = x, northMeters = y)
+        }
+
+        override fun contains(point: GeoPoint): Boolean {
+            val p = point.offsetFrom(origin)
+            return contains(p.eastMeters, p.northMeters)
         }
 
         /** The farthest corner from [center]: a circle this big around it holds the whole polygon. */

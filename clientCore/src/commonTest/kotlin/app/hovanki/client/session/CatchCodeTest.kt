@@ -8,6 +8,7 @@ import app.hovanki.shared.protocol.CatchView
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.MyState
+import app.hovanki.shared.protocol.PlayerCounts
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
@@ -70,5 +71,9 @@ class CatchCodeTest {
         assertNull(seeker.catchableScan(qr(PlayerId("nobody"))))
         assertNull(seeker.catchableScan(qr(anna.id, GameId("another game"))))
         assertNull(seeker.catchableScan("https://example.com"))
+        // A big game lists only some players: a hider not in the list is the server's to judge.
+        val big = seeker.copy(counts = PlayerCounts(players = 500, seekers = 20, hidersActive = 400))
+        assertEquals(PlayerId("stranger"), big.catchableScan(qr(PlayerId("stranger")))?.hiderId)
+        assertNull(big.catchableScan(qr(boris.id)), "one it knows is caught is still caught")
     }
 }

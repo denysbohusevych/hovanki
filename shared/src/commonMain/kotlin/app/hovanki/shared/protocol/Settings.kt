@@ -49,6 +49,13 @@ enum class ZoneShape {
      * Shrinks block by block: the next zone is announced by the schedule's hold, then the zone switches.
      */
     STREETS,
+
+    /**
+     * Drawn by an admin for a big game (docs/adr/0010-big-games.md): the server serves the polygons at
+     * `ApiRoutes.streetZone` like a zone by streets, the drawn figure shrinking towards its center stage by stage. Older
+     * apps read it as [CIRCLE] (the property has a default) and still draw the polygons they are served.
+     */
+    DRAWN,
 }
 
 /**

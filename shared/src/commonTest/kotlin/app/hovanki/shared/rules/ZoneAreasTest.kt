@@ -38,6 +38,18 @@ class ZoneAreasTest {
     }
 
     @Test
+    fun containsAgreesWithTheDistance() {
+        val circle = ZoneArea.Circle(ZoneCircle(center, 100.0))
+        for (east in listOf(-150.0, -99.0, -20.0, 0.0, 60.0, 99.0, 101.0, 140.0)) {
+            for (north in listOf(-80.0, -49.0, 0.0, 30.0, 51.0)) {
+                val point = center.moveBy(east, north)
+                assertEquals(block.signedDistanceMeters(point) <= 0, block.contains(point), "$east, $north")
+                assertEquals(circle.signedDistanceMeters(point) <= 0, circle.contains(point), "$east, $north")
+            }
+        }
+    }
+
+    @Test
     fun theWayBackIsToTheNearestBorder() {
         val outside = center.moveBy(0.0, 80.0)
 

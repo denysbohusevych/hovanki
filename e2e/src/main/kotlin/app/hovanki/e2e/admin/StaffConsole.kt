@@ -4,6 +4,9 @@ import app.hovanki.client.network.createHttpClient
 import app.hovanki.e2e.bot.BotAccount
 import app.hovanki.e2e.observer.EmailPurpose
 import app.hovanki.e2e.observer.Observer
+import app.hovanki.shared.protocol.AdminBigGame
+import app.hovanki.shared.protocol.AdminBigGameRequest
+import app.hovanki.shared.protocol.AdminBigGames
 import app.hovanki.shared.protocol.AdminEnrollRequest
 import app.hovanki.shared.protocol.AdminEnrollment
 import app.hovanki.shared.protocol.AdminLoginRequest
@@ -15,12 +18,16 @@ import app.hovanki.shared.protocol.AdminReport
 import app.hovanki.shared.protocol.AdminReports
 import app.hovanki.shared.protocol.AdminTotpRequest
 import app.hovanki.shared.protocol.AdminUserCard
+import app.hovanki.shared.protocol.AdminZoneEstimate
+import app.hovanki.shared.protocol.AdminZoneEstimateRequest
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.ReportAction
 import app.hovanki.shared.protocol.ResolveReportRequest
 import app.hovanki.shared.protocol.SanctionRequest
 import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.totp.Totp
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
@@ -84,6 +91,24 @@ class StaffConsole(serverUrl: String, private val observer: Observer) : AutoClos
 
     suspend fun unmute(userId: UserId, reason: String): AdminUserCard =
         call(ApiRoutes.adminUser(userId, "unmute"), AdminReasonRequest(reason))
+
+    // Big games (docs/adr/0010-big-games.md), admins.
+
+    suspend fun bigGames(): AdminBigGames = get(ApiRoutes.ADMIN_BIG_GAMES)
+
+    suspend fun createBigGame(request: AdminBigGameRequest): AdminBigGame = call(ApiRoutes.ADMIN_BIG_GAMES, request)
+
+    suspend fun updateBigGame(id: BigGameId, request: AdminBigGameRequest): AdminBigGame =
+        call(ApiRoutes.adminBigGameUpdate(id), request)
+
+    suspend fun startBigGame(id: BigGameId, reason: String): AdminBigGame =
+        call(ApiRoutes.adminBigGameStart(id), AdminReasonRequest(reason))
+
+    suspend fun cancelBigGame(id: BigGameId, reason: String): AdminBigGame =
+        call(ApiRoutes.adminBigGameCancel(id), AdminReasonRequest(reason))
+
+    suspend fun estimate(zone: ZonePolygon): AdminZoneEstimate =
+        call(ApiRoutes.ADMIN_ZONE_ESTIMATE, AdminZoneEstimateRequest(zone))
 
     /**
      * The code of the authenticator app. Each time step logs in once: a second login within the same 30 seconds waits

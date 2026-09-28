@@ -97,7 +97,7 @@ class StreetZoneLoader(
     }
 }
 
-/** The map tiles, and the [StreetSource] named by `hovanki.map.streets`. */
+/** The map tiles, the [StreetSource] named by `hovanki.map.streets` and the [TerrainSource] of `hovanki.map.terrain`. */
 @Configuration(proxyBeanMethods = false)
 class MapConfig {
     @Bean
@@ -113,4 +113,11 @@ class MapConfig {
 
     @Bean
     fun streetZoneBuilder(): StreetZoneBuilder = StreetZoneBuilder()
+
+    @Bean
+    fun terrainSource(properties: MapProperties, tiles: VectorTiles): TerrainSource = when (properties.terrain) {
+        MapProperties.TerrainData.TILES -> TileTerrainSource(tiles)
+        MapProperties.TerrainData.FAKE -> FakeTerrainSource()
+        MapProperties.TerrainData.OFF -> NoTerrainSource()
+    }
 }

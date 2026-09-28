@@ -60,6 +60,11 @@ class GameController(private val games: GameService, private val invites: Invite
     fun settings(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: SettingsRequest): GameSnapshot =
         games.updateSettings(player, GameId(gameId), request)
 
+    /** The host plays anyway in a crowded zone, or one with few places to hide. */
+    @PostMapping(ApiRoutes.CROWDING_ACCEPT)
+    fun acceptCrowding(player: PlayerRef, @PathVariable gameId: String): GameSnapshot =
+        games.acceptCrowding(player, GameId(gameId))
+
     /** The player leaves the game for good; the token stops working. */
     @PostMapping(ApiRoutes.LEAVE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
