@@ -339,6 +339,8 @@ class LobbyViewModel(
             capacity = capacity?.players,
             bigGame = snapshot.bigGame,
             friendsHere = players.filter { it.account.relation == UserRelation.FRIEND },
+            // A big game's poll lists only the player and their friends; the server counts everybody.
+            playerCount = snapshot.counts?.players ?: players.size,
             crowding = capacity?.takeIf { snapshot.hostId == me && Capacity.needsWarning(it, players.size) }?.let {
                 Crowding(
                     capacity = it.players ?: 0,
@@ -404,6 +406,8 @@ data class LobbyUiState(
      */
     val bigGame: BigGameInfo? = null,
     val friendsHere: List<LobbyPlayer> = emptyList(),
+    /** Everybody in the lobby, also those a big game's [players] leaves out. */
+    val playerCount: Int = players.size,
 )
 
 /** Too many players for the zone ([isCrowded]: [players] where it fits [capacity]), or few places to hide. */

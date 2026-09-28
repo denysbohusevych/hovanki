@@ -195,7 +195,7 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                 Header(chatUnread = chatState.unread, onOpenChat = chat::open, onLeave = viewModel::leave)
                 val bigGame = state.bigGame
                 if (bigGame != null) {
-                    BigGameCard(bigGame, playersHere = state.players.size)
+                    BigGameCard(bigGame, playersHere = state.playerCount)
                 } else {
                     JoinCodeCard(state.joinCode, onCopied = { codeCopies++ })
                 }

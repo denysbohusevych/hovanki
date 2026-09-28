@@ -479,6 +479,10 @@ class AdminApiTest(
         assertEquals(40, estimate.capacity)
         val created = post(ApiRoutes.ADMIN_BIG_GAMES, request, admin).ok<AdminBigGame>()
         assertEquals(BigGameStatus.LOBBY, created.status, "20 minutes ahead: the lobby is open")
+        // A server update waits for it (deploy/hovanki-update.sh); public like the health, no admin session.
+        val hold = mvc.get("/actuator/restarthold").andReturn().response
+        assertEquals(200, hold.status)
+        assertContains(hold.contentAsString, "\"held\":true")
         assertTrue(get(ApiRoutes.ADMIN_BIG_GAMES, admin).ok<AdminBigGames>().games.any { it.id == created.id })
         val entry = get(ApiRoutes.ADMIN_AUDIT, admin).ok<AdminAudit>().entries.first()
         assertEquals(AdminAction.BIG_GAME_CREATE, entry.action)

@@ -50,7 +50,7 @@ fun BigGameSetup.settings(center: GeoPoint, radiusMeters: Double, rules: GameRul
  * on a zone of up to [MAX_ZONE_SQUARE_METERS], scheduled up to [MAX_DAYS_AHEAD] ahead.
  */
 object BigGameLimits {
-    /** The most a big game takes; the real limit of the server comes from the load test (docs/ci-cd.md). */
+    /** The most a big game takes; BigGameLoadTest measures it (docs/adr/0010-big-games.md, «Масштаб»). */
     const val MAX_PLAYERS = 1_600
     const val MIN_PLAYERS = 2
     const val TITLE_MAX_LENGTH = 80

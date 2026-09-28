@@ -12,6 +12,11 @@ data class BigGameProperties(
     val tick: Duration = Duration.ofSeconds(10),
     /** Fewer than two players this long after the start: the big game is cancelled. */
     val startPatience: Duration = Duration.ofHours(1),
+    /**
+     * A server update waits this long after a big game's round (deploy/hovanki-update.sh): the players look at the
+     * results and the replay, which are in memory.
+     */
+    val resultsHold: Duration = Duration.ofMinutes(10),
     /** Big games and their sign-ups are deleted this long after their end (DataRetention). */
     val retention: Duration = Duration.ofDays(90),
 )

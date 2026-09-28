@@ -26,6 +26,7 @@ import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.MyState
 import app.hovanki.shared.protocol.Passage
+import app.hovanki.shared.protocol.PlayerCounts
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerTrack
@@ -160,6 +161,9 @@ class Game(
 
     /** The host chose to play in a crowded zone, or one with few places to hide: no more warning in this game. */
     private var crowdingAccepted = false
+
+    /** When [advance] last looked at the hiders (zone, buildings, glow); see [BIG_GAME_CHECKS_MILLIS]. */
+    private var lastChecksMillis: Long? = null
 
     /** The last glow that left its marks on the hiders ([updateGlow]); 0: none yet. */
     private var glowMarksOf = 0
@@ -618,9 +622,21 @@ class Game(
      * Every player's way through the round, for the replay: only once the game is over, when nothing is hidden any more
      * ([ErrorCode.WRONG_STATE] before, the tracks would give the hiders away).
      */
-    fun tracks(): TracksResponse {
+    fun tracks(viewerId: PlayerId? = null): TracksResponse {
         requirePhase(GamePhase.FINISHED)
-        return TracksResponse(players.values.map { PlayerTrack(it.id, it.replay.points()) })
+        // A big game's replay: the viewer and their friends, not a thousand tracks.
+        val shown = if (isServerHosted && viewerId != null) {
+            val viewer = player(viewerId)
+            players.values.filter { it === viewer || it.userId in viewer.friends }
+        } else {
+            players.values
+        }
+        return TracksResponse(shown.map { PlayerTrack(it.id, it.replay.points()) })
+    }
+
+    /** [playerId]'s friends among the accounts (loaded at the join): a big game's snapshot shows them. */
+    fun setFriends(playerId: PlayerId, friends: Set<UserId>) {
+        player(playerId).friends = friends
     }
 
     /** Applies everything that happens by itself as time passes. */
@@ -649,9 +665,14 @@ class Game(
                 resolveDispute(claim, claim.deadlineMillis)
             }
         }
-        checkZone(nowMillis)
-        checkBuildings(nowMillis)
-        updateGlow(nowMillis)
+        // A big game's hundreds of hiders are looked at once a second, not on each of hundreds of requests a second.
+        val lastChecks = lastChecksMillis
+        if (!isServerHosted || lastChecks == null || nowMillis - lastChecks >= BIG_GAME_CHECKS_MILLIS) {
+            lastChecksMillis = nowMillis
+            checkZone(nowMillis)
+            checkBuildings(nowMillis)
+            updateGlow(nowMillis)
+        }
         val seekingEnds = phaseStartedAtMillis + settings.seekingSeconds * 1000L
         if (phase == GamePhase.SEEKING && nowMillis >= seekingEnds) finish(seekingEnds)
     }
@@ -674,6 +695,14 @@ class Game(
     fun finishedRecord(): GameRecord? {
         if (phase != GamePhase.FINISHED) return null
         return record ?: buildRecord().also { record = it }
+    }
+
+    /** When the round ends (or ended): null in the lobby. */
+    fun roundEndsAtMillis(): Long? = when (phase) {
+        GamePhase.LOBBY -> null
+        GamePhase.HIDING -> phaseStartedAtMillis + (settings.hidingSeconds + settings.seekingSeconds) * 1000L
+        GamePhase.SEEKING -> phaseStartedAtMillis + settings.seekingSeconds * 1000L
+        GamePhase.FINISHED -> finishedAtMillis
     }
 
     fun isExpired(nowMillis: Long, finishedRetentionMillis: Long, idleRetentionMillis: Long): Boolean {
@@ -699,13 +728,13 @@ class Game(
             serverTimeMillis = nowMillis,
             phaseEndsAtMillis = phaseEndsAtMillis(),
             zoneStartedAtMillis = zoneStartedAtMillis,
-            players = players.values.map { player ->
+            players = shownTo(viewer, nowMillis).map { (player, location) ->
                 PlayerView(
                     player.id,
                     player.name,
                     player.role,
                     player.status,
-                    visibleLocation(viewer, player, nowMillis),
+                    location,
                     player.userId,
                     player.outAtMillis,
                     player.caughtBy,
@@ -736,6 +765,36 @@ class Game(
             rolesDrawnAtMillis = rolesDrawnAtMillis,
             capacity = capacity(),
             bigGame = bigGame,
+            counts = if (isServerHosted) counts() else null,
+        )
+    }
+
+    /**
+     * The players [viewer] gets, each with the position they may see. Everybody in an ordinary game; in a big game
+     * (docs/adr/0010-big-games.md) only the viewer, whom they see, who is in their catch claims, and their friends: a
+     * poll of a thousand players brings a few dozen.
+     */
+    private fun shownTo(viewer: Player, nowMillis: Long): List<Pair<Player, VisibleLocation?>> {
+        if (!isServerHosted) return players.values.map { it to visibleLocation(viewer, it, nowMillis) }
+        val inClaims = catches.values.filter { it.seekerId == viewer.id || it.hiderId == viewer.id }
+            .flatMapTo(HashSet()) { listOf(it.seekerId, it.hiderId) }
+        return players.values.mapNotNull { player ->
+            val location = visibleLocation(viewer, player, nowMillis)
+            val shown = player === viewer || location != null || player.id in inClaims ||
+                (player.userId != null && player.userId in viewer.friends)
+            if (shown) player to location else null
+        }
+    }
+
+    /** How many players there are in all, by role and state. */
+    private fun counts(): PlayerCounts {
+        val hiders = players.values.filter { it.role == Role.HIDER }
+        return PlayerCounts(
+            players = players.size,
+            seekers = players.size - hiders.size,
+            hidersActive = hiders.count { it.status == PlayerStatus.ACTIVE },
+            hidersCaught = hiders.count { it.status == PlayerStatus.CAUGHT },
+            hidersEliminated = hiders.count { it.status == PlayerStatus.ELIMINATED },
         )
     }
 
@@ -1040,8 +1099,11 @@ class Game(
     }
 
     /** Everybody but the two in the claim and those who left. */
-    private fun eligibleVoters(claim: CatchClaim): Set<PlayerId> =
-        players.values.filter { !it.left }.mapTo(HashSet()) { it.id } - setOf(claim.seekerId, claim.hiderId)
+    private fun eligibleVoters(claim: CatchClaim): Set<PlayerId> {
+        // A big game: nobody votes, the rule by GPS decides a dispute at once (a vote of a thousand is no vote).
+        if (isServerHosted) return emptySet()
+        return players.values.filter { !it.left }.mapTo(HashSet()) { it.id } - setOf(claim.seekerId, claim.hiderId)
+    }
 
     private fun buildRecord(): GameRecord {
         val finishedAt = checkNotNull(finishedAtMillis)
@@ -1161,6 +1223,9 @@ class Game(
         /** Where the last glow left this hider: what the seekers see between glows. */
         var glowMark: LocationSample? = null
 
+        /** The accounts of the player's friends, loaded at the join of a big game: its snapshot shows them. */
+        var friends: Set<UserId> = emptySet()
+
         /**
          * The whole round, thinned, for the replay right after it: every player, only in memory (unlike [route], which
          * may be saved to the history).
@@ -1195,6 +1260,9 @@ class Game(
 
     companion object {
         const val MAX_PLAYERS = 30
+
+        /** How often [advance] looks at a big game's hiders. */
+        const val BIG_GAME_CHECKS_MILLIS = 1_000L
 
         /** The host of a big game's round: the server, nobody's player. */
         val SERVER_HOST = PlayerId("server")

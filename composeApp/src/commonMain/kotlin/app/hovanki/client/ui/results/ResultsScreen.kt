@@ -80,6 +80,7 @@ import app.hovanki.client.session.AwardKind
 import app.hovanki.client.session.Replay
 import app.hovanki.client.session.awards
 import app.hovanki.client.session.catchesBy
+import app.hovanki.client.session.hiderTally
 import app.hovanki.client.session.searchMillisAt
 import app.hovanki.client.ui.chat.ChatIconButton
 import app.hovanki.client.ui.chat.ChatPanel
@@ -156,6 +157,8 @@ fun ResultsScreen(
     LaunchedEffect(Unit) { pop.animateTo(1f, Motion.pop()) }
     val caught = hiders.filter { it.status == PlayerStatus.CAUGHT }
     val eliminated = hiders.filter { it.status == PlayerStatus.ELIMINATED }
+    // The numbers of everybody; a big game's list below has only the player and their friends.
+    val tally = snapshot.hiderTally()
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenColumn(modifier = Modifier.weight(1f).testTag(TestTags.RESULTS_SCREEN)) {
@@ -175,7 +178,7 @@ fun ResultsScreen(
                 CapsText(stringResource(Res.string.results_title))
                 Text(
                     text = stringResource(
-                        if (survivors.isEmpty()) Res.string.results_seekers_win else Res.string.results_hiders_win,
+                        if (tally.survived == 0) Res.string.results_seekers_win else Res.string.results_hiders_win,
                     ),
                     style = MaterialTheme.typography.displaySmall,
                     modifier = Modifier.graphicsLayer {
@@ -196,10 +199,10 @@ fun ResultsScreen(
                     modifier = Modifier.padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    ResultCount(Res.string.results_caught, caught.size, reduceMotion, Modifier.weight(1f))
-                    ResultCount(Res.string.results_survived, survivors.size, reduceMotion, Modifier.weight(1f))
-                    if (eliminated.isNotEmpty()) {
-                        ResultCount(Res.string.results_eliminated, eliminated.size, reduceMotion, Modifier.weight(1f))
+                    ResultCount(Res.string.results_caught, tally.caught, reduceMotion, Modifier.weight(1f))
+                    ResultCount(Res.string.results_survived, tally.survived, reduceMotion, Modifier.weight(1f))
+                    if (tally.eliminated > 0) {
+                        ResultCount(Res.string.results_eliminated, tally.eliminated, reduceMotion, Modifier.weight(1f))
                     }
                 }
             }

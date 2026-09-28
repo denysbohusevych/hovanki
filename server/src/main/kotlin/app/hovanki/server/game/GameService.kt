@@ -11,6 +11,7 @@ import app.hovanki.server.moderation.ReportRepository
 import app.hovanki.server.moderation.SanctionService
 import app.hovanki.server.ratelimit.RateLimit
 import app.hovanki.server.ratelimit.RateLimiter
+import app.hovanki.server.social.FriendRepository
 import app.hovanki.server.social.InviteRegistry
 import app.hovanki.shared.protocol.AdminGame
 import app.hovanki.shared.protocol.AreaNorms
@@ -47,6 +48,7 @@ import app.hovanki.shared.rules.SettingsLimits
 import app.hovanki.shared.rules.boundingCircle
 import org.springframework.stereotype.Service
 import java.time.Clock
+import java.time.Instant
 
 /** Application layer: auth checks, id generation and per-game locking around the [Game] domain object. */
 @Service
@@ -64,6 +66,7 @@ class GameService(
     private val streetZoneLoader: StreetZoneLoader,
     private val terrainLoader: TerrainLoader,
     private val capacity: CapacityProperties,
+    private val friends: FriendRepository,
 ) {
     /**
      * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
@@ -94,7 +97,7 @@ class GameService(
 
     /** Every player's track of the round, for the replay: only once the game is over ([Game.tracks]). */
     fun tracks(caller: PlayerRef, gameId: GameId): TracksResponse =
-        withGame(caller, gameId) { game, _ -> game.tracks() }
+        withGame(caller, gameId) { game, _ -> game.tracks(caller.playerId) }
 
     /**
      * Joins the game of [JoinGameRequest.joinCode] as a new player, in the lobby only. [user]: the caller's account
@@ -160,6 +163,8 @@ class GameService(
         val game = registry.get(gameId)?.takeIf { synchronized(it) { it.isServerHosted } }
             ?: throw GameException(ErrorCode.NOT_FOUND, "The lobby is not open")
         leaveOtherGames(user, except = game.id, leaveRound = request.leaveOtherGame)
+        // Its snapshot shows the player's friends: read now, outside the game's lock.
+        val friendIds = friends.friends(user.userId).mapTo(HashSet()) { it.id }
         return locked(game) { now ->
             val returning = game.playerOf(user.userId) ?: requestId?.let(game::playerOfJoinRequest)
             val playerId = if (returning != null) {
@@ -168,6 +173,7 @@ class GameService(
             } else {
                 ids.playerId().also { game.addPlayer(it, name, now, user.userId, requestId) }
             }
+            game.setFriends(playerId, friendIds)
             newSession(game, playerId, now)
         }
     }
@@ -211,6 +217,10 @@ class GameService(
 
     /** Where big game [gameId]'s round is: its phase, or null when it is gone from memory (a restart, the janitor). */
     fun phaseOf(gameId: GameId): GamePhase? = registry.get(gameId)?.let { game -> locked(game) { game.phase } }
+
+    /** When big game [gameId]'s round ends (or ended); null in the lobby or when it is gone. */
+    fun roundEndsAt(gameId: GameId): Instant? =
+        registry.get(gameId)?.let { game -> locked(game) { game.roundEndsAtMillis() } }?.let(Instant::ofEpochMilli)
 
     /** How many players are in game [gameId]; null when it is gone. */
     fun playersIn(gameId: GameId): Int? =

@@ -38,7 +38,8 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # restarthold: deploy/hovanki-update.sh waits while a big game is on (RestartHoldEndpoint).
+        include: health,info,restarthold
   endpoint:
     health:
       probes:

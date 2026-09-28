@@ -278,6 +278,30 @@ class BigGameService(
         }
     }
 
+    /**
+     * Until when a restart of the server would break each big game (deploy/hovanki-update.sh waits for the latest):
+     * its lobby and its round are in memory, the results too for [BigGameProperties.resultsHold] after the end. A lobby
+     * holds until its round would end if it started now or on time, whichever is later. Empty: a restart breaks none.
+     */
+    fun restartHolds(): Map<BigGameId, Instant> {
+        val now = clock.instant()
+        val open = repository.open().mapNotNull { record ->
+            val round = Duration.ofMinutes((record.setup.hidingMinutes + record.setup.seekingMinutes).toLong())
+            val end = when (record.status) {
+                BigGameStatus.LOBBY -> maxOf(record.startsAt, now).plus(round)
+                BigGameStatus.RUNNING -> record.gameId?.let(games::roundEndsAt)
+                else -> null
+            }
+            end?.let { record.id to it }
+        }
+        val finished = repository.finishedSince(now.minus(properties.resultsHold)).mapNotNull { record ->
+            record.endedAt?.let { record.id to it }
+        }
+        return (open + finished)
+            .associate { (id, end) -> id to end.plus(properties.resultsHold) }
+            .filterValues { it > now }
+    }
+
     /** [tick] for one big game, under its row lock. */
     fun advance(id: BigGameId) {
         transactions.executeWithoutResult {

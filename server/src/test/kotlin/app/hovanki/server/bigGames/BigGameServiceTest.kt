@@ -184,7 +184,7 @@ class BigGameServiceTest(
         assertEquals(BigGameStatus.RUNNING, status(game))
         val round = sync(sessions.first())
         assertEquals(GamePhase.HIDING, round.phase)
-        assertEquals(2, round.players.count { it.role == Role.SEEKER }, "the server drew the seekers")
+        assertEquals(2, round.counts?.seekers, "the server drew the seekers")
         // Hiding 1 min, search 10 min: over.
         later(Duration.ofMinutes(12))
         assertEquals(GamePhase.FINISHED, sync(sessions.first()).phase)
@@ -257,6 +257,30 @@ class BigGameServiceTest(
 
         val again = bigGames.update(admin, game.id, request(startsIn = Duration.ofDays(1)))
         assertEquals(BigGameStatus.SCHEDULED, again.status)
+    }
+
+    @Test
+    fun anUpdateWaitsForTheLobbyTheRoundAndTheResults() {
+        val game = bigGames.create(admin, request())
+        val startsAt = Instant.ofEpochMilli(game.startsAtMillis)
+        val players = List(2) { testUsers.create() }
+        players.forEach { bigGames.signUp(it.auth, game.id) }
+        assertNull(bigGames.restartHolds()[game.id], "only the schedule, in the database")
+
+        later(Duration.ofMinutes(91))
+        players.forEach { bigGames.join(it.auth, game.id, JoinBigGameRequest()) }
+        // Round (1 + 10 min) and results (10 min) after the start.
+        assertEquals(startsAt.plus(Duration.ofMinutes(21)), bigGames.restartHolds()[game.id], "the lobby")
+
+        later(Duration.ofMinutes(30))
+        assertEquals(BigGameStatus.RUNNING, status(game))
+        assertEquals(clock.instant().plus(Duration.ofMinutes(21)), bigGames.restartHolds()[game.id], "the round")
+
+        later(Duration.ofMinutes(12))
+        assertEquals(BigGameStatus.FINISHED, status(game))
+        assertEquals(clock.instant().plus(Duration.ofMinutes(10)), bigGames.restartHolds()[game.id], "the results")
+        later(Duration.ofMinutes(10))
+        assertNull(bigGames.restartHolds()[game.id])
     }
 
     @Test

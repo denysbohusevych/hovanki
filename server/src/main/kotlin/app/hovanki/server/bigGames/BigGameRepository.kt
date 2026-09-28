@@ -85,6 +85,11 @@ class BigGameRepository(private val jdbc: JdbcClient) {
         "SELECT * FROM big_games WHERE status IN ('SCHEDULED', 'LOBBY', 'RUNNING') ORDER BY starts_at, id",
     ).query(rows).list()
 
+    /** Finished at [since] or later: their results may still be in memory. */
+    fun finishedSince(since: Instant): List<BigGameRecord> =
+        jdbc.sql("SELECT * FROM big_games WHERE status = 'FINISHED' AND ended_at >= :since")
+            .param("since", since.toTimestamptz()).query(rows).list()
+
     /** For admins: the newest [limit], by start. */
     fun latest(limit: Int): List<BigGameRecord> =
         jdbc.sql("SELECT * FROM big_games ORDER BY starts_at DESC, id LIMIT :limit")
