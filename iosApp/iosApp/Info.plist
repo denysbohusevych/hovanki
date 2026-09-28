@@ -35,9 +35,9 @@
 	<key>NSCameraUsageDescription</key>
 	<string>The camera scans the QR code on another player's screen to confirm a catch.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Lets a round go on when Hovanki is in the background. Your location goes only to the game server and is deleted when the game ends.</string>
+	<string>Lets a round go on when Hovanki is in the background. Your location goes only to the game server and is deleted when the game ends, unless you turn on «Save my routes» in your profile.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>During a round the game server receives your location, also while the screen is locked (blue indicator in the status bar), to check the game zone and confirm catches. It is deleted when the game ends.</string>
+	<string>During a round the game server receives your location, also while the screen is locked (blue indicator in the status bar), to check the game zone and confirm catches. It is deleted when the game ends, unless you turn on «Save my routes» in your profile.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -4,11 +4,14 @@ import app.hovanki.client.account.AccountManager
 import app.hovanki.client.automation.LaunchOptions
 import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.defaultServerUrl
+import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.network.AccountApi
 import app.hovanki.client.network.GameApi
 import app.hovanki.client.network.GameConnection
+import app.hovanki.client.network.HistoryApi
 import app.hovanki.client.network.HttpAccountApi
 import app.hovanki.client.network.HttpGameApi
+import app.hovanki.client.network.HttpHistoryApi
 import app.hovanki.client.network.HttpSocialApi
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
@@ -22,6 +25,7 @@ import app.hovanki.client.ui.chat.ChatViewModel
 import app.hovanki.client.ui.friends.FriendsViewModel
 import app.hovanki.client.ui.game.GameViewModel
 import app.hovanki.client.ui.groups.GroupsViewModel
+import app.hovanki.client.ui.history.HistoryViewModel
 import app.hovanki.client.ui.lobby.LobbyViewModel
 import app.hovanki.client.ui.main.MainViewModel
 import app.hovanki.client.ui.play.PlayViewModel
@@ -60,10 +64,12 @@ val commonModule: Module = module {
     single<GameApi> { HttpGameApi(get(), get()) }
     single<AccountApi> { HttpAccountApi(get(), get()) }
     single<SocialApi> { HttpSocialApi(get(), get()) }
+    single<HistoryApi> { HttpHistoryApi(get(), get()) }
     single<GameConnection> { PollingGameConnection(get()) }
     single { ServerClock() }
     single { AccountManager(get(), get(), get()) }
     single { SocialManager(get(), get()) }
+    single { HistoryManager(get(), get()) }
     single { GameSessionManager(get(), get(), get(), get(), get(), get(), get(), account = get<AccountManager>()) }
 
     viewModelOf(::WelcomeViewModel)
@@ -73,6 +79,7 @@ val commonModule: Module = module {
     viewModelOf(::FriendsViewModel)
     viewModelOf(::GroupsViewModel)
     viewModelOf(::ProfileViewModel)
+    viewModelOf(::HistoryViewModel)
     viewModelOf(::LobbyViewModel)
     viewModelOf(::GameViewModel)
     viewModelOf(::ResultsViewModel)

@@ -1,6 +1,7 @@
 package app.hovanki.client.automation
 
 import app.hovanki.shared.protocol.CatchId
+import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GroupId
 import app.hovanki.shared.protocol.PlayerId
@@ -119,6 +120,31 @@ object TestTags {
     const val PROFILE_DELETE = "profile_delete"
     const val PROFILE_DELETE_PASSWORD = "profile_delete_password"
     const val PROFILE_DELETE_CONFIRM = "profile_delete_confirm"
+
+    // The player's own history (docs/adr/0007-game-history-and-routes.md).
+
+    /** The statistics card of the profile. */
+    const val PROFILE_STATS = "profile_stats"
+    const val STATS_GAMES = "stats_games"
+    const val STATS_DISTANCE = "stats_distance"
+
+    /** «Save my routes»: the switch in the profile (off asks first: the saved routes are deleted). */
+    const val PROFILE_SAVE_ROUTES = "profile_save_routes"
+    const val PROFILE_SAVE_ROUTES_OFF_CONFIRM = "profile_save_routes_off_confirm"
+
+    /** Opens the history panel. */
+    const val PROFILE_HISTORY = "profile_history"
+    const val HISTORY_PANEL = "history_panel"
+    const val HISTORY_EMPTY = "history_empty"
+    const val HISTORY_MORE = "history_more"
+    const val ROUTE_PANEL = "route_panel"
+    const val ROUTE_MAP = "route_map"
+    const val ROUTE_DELETE = "route_delete"
+    const val ROUTE_DELETE_CONFIRM = "route_delete_confirm"
+
+    /** On the results screen: keep the routes, this game's too. */
+    const val RESULTS_SAVE_ROUTES = "results_save_routes"
+    const val RESULTS_ROUTE_SAVED = "results_route_saved"
 
     const val FRIENDS_SCREEN = "friends_screen"
     const val FRIENDS_NICKNAME = "friends_nickname"
@@ -290,4 +316,9 @@ object TestTags {
     fun playerRelation(id: PlayerId) = "player_relation_${id.value}"
 
     fun chatMessage(seq: Long) = "chat_message_$seq"
+
+    /** A game in the history panel; [historyRoute] opens its route, when one is saved. */
+    fun historyGame(gameId: GameId) = "history_game_${gameId.value}"
+
+    fun historyRoute(gameId: GameId) = "history_route_${gameId.value}"
 }

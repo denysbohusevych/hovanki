@@ -149,7 +149,7 @@ internal fun ReplayMap(
     }
     Box(modifier = modifier) {
         MaplibreMap(state = mapState, interactions = MapInteractions.None, overlay = { include(MapOverlay.None) })
-        MapCredit(modifier = Modifier.align(Alignment.BottomStart).padding(4.dp))
+        MapCredit(Modifier.align(Alignment.BottomStart))
     }
 }
 

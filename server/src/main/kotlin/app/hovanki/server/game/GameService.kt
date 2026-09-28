@@ -3,6 +3,7 @@ package app.hovanki.server.game
 import app.hovanki.server.account.UserRepository
 import app.hovanki.server.api.AuthenticatedUser
 import app.hovanki.server.buildings.BuildingLoader
+import app.hovanki.server.history.HistoryWriter
 import app.hovanki.server.moderation.NewReport
 import app.hovanki.server.moderation.ReportRepository
 import app.hovanki.server.ratelimit.RateLimit
@@ -45,6 +46,7 @@ class GameService(
     private val reports: ReportRepository,
     private val rateLimiter: RateLimiter,
     private val invites: InviteRegistry,
+    private val history: HistoryWriter,
 ) {
     /**
      * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
@@ -89,9 +91,7 @@ class GameService(
         val name = playerName(request.playerName, user)
         val game = registry.findByJoinCode(request.joinCode.trim())
             ?: throw GameException(ErrorCode.NOT_FOUND, "No game with this code")
-        val session = synchronized(game) {
-            val now = clock.millis()
-            game.advance(now)
+        val session = locked(game) { now ->
             // The account's player, or the one this very join request created before its answer got lost.
             val returning = user?.let { game.playerOf(it.userId) } ?: requestId?.let(game::playerOfJoinRequest)
             val playerId = if (returning != null) {
@@ -133,9 +133,7 @@ class GameService(
      */
     fun reportChat(caller: PlayerRef, gameId: GameId, seq: Long): GameSnapshot {
         val game = gameOf(caller, gameId)
-        val (reported, snapshot) = synchronized(game) {
-            val now = clock.millis()
-            game.advance(now)
+        val (reported, snapshot) = locked(game) { now ->
             game.reportedMessage(caller.playerId, seq) to game.snapshotFor(caller.playerId, now)
         }
         // Per account; guests have none, so per player.
@@ -176,11 +174,7 @@ class GameService(
      */
     fun <T> withGame(caller: PlayerRef, gameId: GameId, block: (Game, Long) -> T): T {
         val game = gameOf(caller, gameId)
-        return synchronized(game) {
-            val now = clock.millis()
-            game.advance(now)
-            block(game, now)
-        }
+        return locked(game) { now -> block(game, now) }
     }
 
     /** Whether [userId] can still join game [gameId] as a new player: it is in its lobby and has no player of theirs. */
@@ -200,6 +194,28 @@ class GameService(
                     else -> current.onBuildingsLoaded(loaded.buildings, loaded.passages)
                 }
             }
+        }
+    }
+
+    /**
+     * [block] under [game]'s lock, on its current state ([Game.advance] first). A game that finished meanwhile hands
+     * over its history, which is saved after the lock is released, off the request thread ([HistoryWriter]): no request
+     * ever waits for the database.
+     */
+    private fun <T> locked(game: Game, block: (now: Long) -> T): T {
+        var finished: GameRecord? = null
+        try {
+            return synchronized(game) {
+                val now = clock.millis()
+                game.advance(now)
+                try {
+                    block(now)
+                } finally {
+                    finished = game.takeFinishedRecord()
+                }
+            }
+        } finally {
+            finished?.let(history::save)
         }
     }
 

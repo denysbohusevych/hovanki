@@ -27,11 +27,14 @@ data class UserRecord(
     /** en, ru or uk: the language of the emails. */
     val language: String,
     val createdAt: Instant,
+    /** When the user agreed to keep the routes of their games; null: they did not (docs/adr/0007). */
+    val saveRoutesSince: Instant? = null,
 ) {
     val emailVerified: Boolean get() = emailVerifiedAt != null
 
     /** The account as its owner sees it. */
-    fun toProfile() = UserProfile(id, nickname, email, emailVerified, createdAt.toEpochMilli())
+    fun toProfile() =
+        UserProfile(id, nickname, email, emailVerified, createdAt.toEpochMilli(), saveRoutes = saveRoutesSince != null)
 
     /** The account as everyone else sees it. */
     fun toSummary() = UserSummary(id, nickname)
@@ -128,6 +131,30 @@ class UserRepository(private val jdbc: JdbcClient) {
             .param("hash", passwordHash)
             .update() > 0
 
+    /**
+     * Turns keeping the routes of [id]'s games on (since [since], the moment of consent; kept when already on) or off
+     * (null). False: no such user.
+     */
+    fun setSaveRoutes(id: UserId, since: Instant?): Boolean {
+        val statement = if (since == null) {
+            jdbc.sql("UPDATE users SET save_routes_since = NULL WHERE id = :id")
+        } else {
+            jdbc.sql("UPDATE users SET save_routes_since = coalesce(save_routes_since, :since) WHERE id = :id")
+                .param("since", since.toTimestamptz())
+        }
+        return statement.param("id", id.value).update() > 0
+    }
+
+    /** Those of [ids] who agreed to keep the routes of their games. */
+    fun savingRoutes(ids: Collection<UserId>): Set<UserId> {
+        if (ids.isEmpty()) return emptySet()
+        return jdbc.sql("SELECT id FROM users WHERE id IN (:ids) AND save_routes_since IS NOT NULL")
+            .param("ids", ids.map { it.value }.distinct())
+            .query(String::class.java)
+            .list()
+            .mapNotNullTo(mutableSetOf()) { it?.let(::UserId) }
+    }
+
     /** Deletes the user; every row that points at them goes with them (ON DELETE CASCADE). */
     fun delete(id: UserId): Boolean = jdbc.sql("DELETE FROM users WHERE id = :id").param("id", id.value).update() > 0
 
@@ -160,6 +187,7 @@ class UserRepository(private val jdbc: JdbcClient) {
                 passwordHash = rs.getString("password_hash"),
                 language = rs.getString("language"),
                 createdAt = rs.getInstant("created_at"),
+                saveRoutesSince = rs.getInstantOrNull("save_routes_since"),
             )
         }
     }

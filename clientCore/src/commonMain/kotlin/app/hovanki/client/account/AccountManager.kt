@@ -160,6 +160,13 @@ class AccountManager(
         if (current.value?.token == token) forget(sessionExpired = false)
     }
 
+    /**
+     * Keep the routes of the player's games, or not (explicit consent, docs/adr/0007-game-history-and-routes.md). Off
+     * deletes every route saved so far on the server; the history and statistics stay.
+     */
+    suspend fun setSaveRoutes(enabled: Boolean): ApiResult<Unit> =
+        withToken { token -> updateUser(token, api.setSaveRoutes(token, enabled)) }
+
     /** The player has seen the "logged out, log in again" notice. */
     fun dismissSessionExpired() {
         mutableState.update { it.copy(sessionExpired = false) }

@@ -49,8 +49,6 @@ import app.hovanki.client.resources.award_marathon
 import app.hovanki.client.resources.award_survivor
 import app.hovanki.client.resources.award_whole_search
 import app.hovanki.client.resources.awards_title
-import app.hovanki.client.resources.distance_km
-import app.hovanki.client.resources.distance_m
 import app.hovanki.client.resources.ic_home
 import app.hovanki.client.resources.ic_pause
 import app.hovanki.client.resources.ic_play
@@ -100,6 +98,8 @@ import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.formatElapsed
 import app.hovanki.client.ui.common.rememberReduceMotion
+import app.hovanki.client.ui.history.SaveRoutesOffer
+import app.hovanki.client.ui.history.distanceText
 import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
@@ -133,6 +133,7 @@ fun ResultsScreen(
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
+    val saveRoutes by viewModel.saveRoutes.collectAsStateWithLifecycle()
     val chatState by chat.uiState.collectAsStateWithLifecycle()
     val tracks by viewModel.tracks.collectAsStateWithLifecycle()
     if (chatState.isOpen) {
@@ -236,6 +237,7 @@ fun ResultsScreen(
             val awards = remember(tracks, snapshot.finishedAtMillis) { snapshot.awards(tracks) }
             if (awards.isNotEmpty()) Awards(awards, snapshot, reduceMotion)
             ReplayCard(snapshot, tracks, reduceMotion)
+            SaveRoutesOffer(saveRoutes = saveRoutes, isBusy = isBusy, onSave = viewModel::turnOnSaveRoutes)
             CommandStatus(
                 isBusy = false,
                 message = message,
@@ -407,16 +409,7 @@ private fun awardDetail(award: Award): String = when (award.kind) {
 
     AwardKind.SURVIVOR -> stringResource(Res.string.award_whole_search, formatElapsed(award.value))
 
-    AwardKind.MARATHON -> formatDistance(award.value)
-}
-
-/** 850 m, or 1.2 km from a kilometer on (the decimal separator comes with the language). */
-@Composable
-private fun formatDistance(meters: Long): String = if (meters < 1_000) {
-    stringResource(Res.string.distance_m, meters.toInt())
-} else {
-    val tenths = (meters + 50) / 100
-    stringResource(Res.string.distance_km, (tenths / 10).toInt(), (tenths % 10).toInt())
+    AwardKind.MARATHON -> distanceText(award.value.toDouble())
 }
 
 private const val AWARD_DELAY_MILLIS = 80L

@@ -20,3 +20,9 @@ expect fun rememberReduceMotion(): Boolean
 
 /** Plain text for [androidx.compose.ui.platform.Clipboard]: the join code to paste into a messenger. */
 expect fun plainTextClipEntry(text: String): ClipEntry
+
+/** [epochMillis] as a date and time in the phone's language and time zone ("27 Sep 2026, 18:40"). */
+expect fun formatDateTime(epochMillis: Long): String
+
+/** [epochMillis] as a date in the phone's language and time zone ("27 Sep 2026"). */
+expect fun formatDate(epochMillis: Long): String

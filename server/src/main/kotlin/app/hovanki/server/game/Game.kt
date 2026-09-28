@@ -35,6 +35,7 @@ import app.hovanki.shared.rules.BuildingRules
 import app.hovanki.shared.rules.CatchRules
 import app.hovanki.shared.rules.ChatRules
 import app.hovanki.shared.rules.LocationTrack
+import app.hovanki.shared.rules.RouteRecorder
 import app.hovanki.shared.rules.ZoneRules
 import app.hovanki.shared.rules.circleAt
 import app.hovanki.shared.rules.isUsable
@@ -53,7 +54,7 @@ class Game(
     val joinCode: String,
     val hostId: PlayerId,
     val settings: GameSettings,
-    createdAtMillis: Long,
+    private val createdAtMillis: Long,
 ) {
     private val rules = settings.rules
     private val players = LinkedHashMap<PlayerId, Player>()
@@ -71,10 +72,14 @@ class Game(
     private var phaseStartedAtMillis = createdAtMillis
     private var zoneStartedAtMillis: Long? = null
 
-    /** Start of HIDING: the replay tracks begin here. */
-    private var roundStartedAtMillis: Long? = null
+    /** Start of HIDING: the round (and the replay tracks and routes) begins here. */
+    private var hidingStartedAtMillis: Long? = null
     private var finishedAtMillis: Long? = null
     private var lastActivityMillis = createdAtMillis
+
+    /** The history of this game once it finished (docs/adr/0007-game-history-and-routes.md), see [finishedRecord]. */
+    private var record: GameRecord? = null
+    private var recordTaken = false
 
     /** The "no hiding in buildings" rule (docs/adr/0003-map-and-buildings.md): on once the outlines are loaded. */
     var buildingsState: BuildingsState = BuildingsState.LOADING
@@ -113,7 +118,8 @@ class Game(
         if (userId != null && playerOf(userId) != null) {
             throw GameException(ErrorCode.WRONG_STATE, "This account already plays in this game")
         }
-        players[id] = Player(id, name, LocationTrack(rules), userId)
+        // Only players with an account have a history; a guest's route is never even kept in memory.
+        players[id] = Player(id, name, LocationTrack(rules), userId, userId?.let { RouteRecorder(rules) })
         if (joinRequestId != null) playersByJoinRequest[joinRequestId] = id
         lastActivityMillis = nowMillis
     }
@@ -143,12 +149,13 @@ class Game(
             if (player.role == Role.HIDER) player.catchCodeSecret = newCatchCodeSecret()
         }
         enterPhase(GamePhase.HIDING, nowMillis)
-        roundStartedAtMillis = nowMillis
+        hidingStartedAtMillis = nowMillis
         lastActivityMillis = nowMillis
     }
 
     fun recordLocations(playerId: PlayerId, samples: List<LocationSample>, nowMillis: Long) {
         val player = player(playerId)
+        val inRound = phase == GamePhase.HIDING || phase == GamePhase.SEEKING
         for (sample in samples.sortedBy { it.timestampMillis }) {
             // Never trust a timestamp from the future.
             val fix = sample.copy(timestampMillis = minOf(sample.timestampMillis, nowMillis))
@@ -157,6 +164,8 @@ class Game(
             if (result != LocationTrack.Result.ACCEPTED) continue
             // Staleness is about location updates, not requests: an app with GPS off still syncs.
             player.lastFixReceivedMillis = nowMillis
+            // The route is the round: not the lobby, not the results screen.
+            if (inRound) player.route?.add(fix)
             if (fix.isUsable(rules) && isInRound(player, fix.timestampMillis)) player.replay.add(fix)
         }
         lastActivityMillis = nowMillis
@@ -201,6 +210,7 @@ class Game(
             deadlineMillis = nowMillis + rules.catchCodeTimeoutSeconds * 1000L,
             estimatedDistanceAtClaimMeters = CatchRules.estimatedDistanceMeters(seekerFixes, hiderFixes),
         )
+        seeker.catchClaims++
         lastActivityMillis = nowMillis
         if (!code.isNullOrBlank()) confirmCatch(catchId, seekerId, code, nowMillis)
     }
@@ -227,6 +237,7 @@ class Game(
         if (claim.hiderId != by) throw GameException(ErrorCode.FORBIDDEN, "Only the hider can dispute")
         if (claim.status != CatchStatus.AWAITING_CODE) throw GameException(ErrorCode.WRONG_STATE, "The claim is closed")
         claim.status = CatchStatus.DISPUTED
+        claim.wasDisputed = true
         claim.deadlineMillis = nowMillis + rules.disputeVoteSeconds * 1000L
         lastActivityMillis = nowMillis
         if (eligibleVoters(claim).isEmpty()) resolveDispute(claim, nowMillis)
@@ -340,6 +351,26 @@ class Game(
         checkBuildings(nowMillis)
         val seekingEnds = phaseStartedAtMillis + settings.seekingSeconds * 1000L
         if (phase == GamePhase.SEEKING && nowMillis >= seekingEnds) finish(seekingEnds)
+    }
+
+    /**
+     * The history of this game (docs/adr/0007-game-history-and-routes.md), once: the first call after the game
+     * finished returns it, every other call null. The caller saves it after releasing the game's lock.
+     */
+    fun takeFinishedRecord(): GameRecord? {
+        if (recordTaken) return null
+        val finished = finishedRecord() ?: return null
+        recordTaken = true
+        return finished
+    }
+
+    /**
+     * The history of this finished game, as often as asked (a player turned saving routes on after the end, while the
+     * game is still in memory); null before the end. Nothing changes after the end, so it is built once.
+     */
+    fun finishedRecord(): GameRecord? {
+        if (phase != GamePhase.FINISHED) return null
+        return record ?: buildRecord().also { record = it }
     }
 
     fun isExpired(nowMillis: Long, finishedRetentionMillis: Long, idleRetentionMillis: Long): Boolean {
@@ -520,6 +551,7 @@ class Game(
                 ZoneRules.isConfidentlyOutside(recent, zone, rules) -> {
                     if (since == null) {
                         hider.outOfZoneSinceMillis = nowMillis
+                        hider.zoneWarnings++
                     } else if (nowMillis - since >= rules.outOfZoneGraceSeconds * 1000L) {
                         hider.status = PlayerStatus.ELIMINATED
                         // Out when the time to return ran out, however long it took anybody to ask.
@@ -556,6 +588,7 @@ class Game(
             val since = hider.insideBuildingSinceMillis
             if (since == null && BuildingRules.isConfidentlyInside(recent, map, rules)) {
                 hider.insideBuildingSinceMillis = nowMillis
+                hider.buildingWarnings++
             } else if (since != null && BuildingRules.hasLeft(recent, map, rules)) {
                 hider.insideBuildingSinceMillis = null
             }
@@ -579,6 +612,7 @@ class Game(
         claim.status = if (confirmed) CatchStatus.CONFIRMED else CatchStatus.REJECTED
         claim.deadlineMillis = atMillis
         if (confirmed) {
+            player(claim.seekerId).catches++
             val hider = player(claim.hiderId)
             hider.status = PlayerStatus.CAUGHT
             hider.outAtMillis = atMillis
@@ -606,12 +640,59 @@ class Game(
      * a hider until they were out. Late fixes (sent after the moment) count by their own time.
      */
     private fun isInRound(player: Player, atMillis: Long): Boolean {
-        val start = roundStartedAtMillis ?: return false
+        val start = hidingStartedAtMillis ?: return false
         val end = minOf(finishedAtMillis ?: Long.MAX_VALUE, player.outAtMillis ?: Long.MAX_VALUE)
         return atMillis in start..<end
     }
 
     private fun eligibleVoters(claim: CatchClaim): Set<PlayerId> = players.keys - setOf(claim.seekerId, claim.hiderId)
+
+    private fun buildRecord(): GameRecord {
+        val finishedAt = checkNotNull(finishedAtMillis)
+        val zoneStart = zoneStartedAtMillis
+        val hiders = players.values.filter { it.role == Role.HIDER }
+        val seekersWon = hiders.none { it.status == PlayerStatus.ACTIVE }
+        return GameRecord(
+            gameId = id,
+            createdAtMillis = createdAtMillis,
+            startedAtMillis = checkNotNull(hidingStartedAtMillis),
+            zoneStartedAtMillis = zoneStart,
+            finishedAtMillis = finishedAt,
+            settings = settings,
+            players = players.size,
+            guests = players.values.count { it.userId == null },
+            seekers = players.size - hiders.size,
+            hidersCaught = hiders.count { it.status == PlayerStatus.CAUGHT },
+            hidersEliminated = hiders.count { it.status == PlayerStatus.ELIMINATED },
+            catchClaims = catches.size,
+            catches = catches.values.count { it.status == CatchStatus.CONFIRMED },
+            disputes = catches.values.count { it.wasDisputed },
+            chatMessages = lastChatSeq.toInt(),
+            buildings = buildingsState,
+            results = players.values.mapNotNull { player ->
+                val userId = player.userId ?: return@mapNotNull null
+                val route = checkNotNull(player.route)
+                PlayerResult(
+                    userId = userId,
+                    role = player.role,
+                    status = player.status,
+                    won = if (player.role == Role.HIDER) player.status == PlayerStatus.ACTIVE else seekersWon,
+                    catchClaims = player.catchClaims,
+                    catches = player.catches,
+                    survivedSeconds = zoneStart?.takeIf { player.role == Role.HIDER }?.let { start ->
+                        (((player.outAtMillis ?: finishedAt) - start) / 1000).coerceAtLeast(0).toInt()
+                    },
+                    zoneWarnings = player.zoneWarnings,
+                    buildingWarnings = player.buildingWarnings,
+                    fixes = route.fixes,
+                    distanceMeters = route.distanceMeters,
+                    movingSeconds = (route.movingMillis / 1000).toInt(),
+                    maxSpeedMetersPerSecond = route.maxSpeedMetersPerSecond,
+                    route = route.points(),
+                )
+            },
+        )
+    }
 
     private fun CatchClaim.toView(viewerId: PlayerId) = CatchView(
         id = id,
@@ -648,19 +729,33 @@ class Game(
         if (phase != expected) throw GameException(ErrorCode.WRONG_STATE, "Not possible in phase $phase")
     }
 
-    private class Player(val id: PlayerId, val name: String, val track: LocationTrack, val userId: UserId?) {
+    private class Player(
+        val id: PlayerId,
+        val name: String,
+        val track: LocationTrack,
+        val userId: UserId?,
+        /** The whole round, for the history; players with an account only. */
+        val route: RouteRecorder?,
+    ) {
         var role: Role = Role.HIDER
         var status: PlayerStatus = PlayerStatus.ACTIVE
+
+        /** When a hider was caught or eliminated, and by whom they were caught. */
+        var outAtMillis: Long? = null
+        var caughtBy: PlayerId? = null
+        var catchClaims = 0
+        var catches = 0
+        var zoneWarnings = 0
+        var buildingWarnings = 0
         var catchCodeSecret: String? = null
         var lastFixReceivedMillis: Long? = null
         var outOfZoneSinceMillis: Long? = null
         var insideBuildingSinceMillis: Long? = null
 
-        /** When a hider was caught or eliminated, and by whom they were caught. */
-        var outAtMillis: Long? = null
-        var caughtBy: PlayerId? = null
-
-        /** The whole round, thinned, for the replay after it. */
+        /**
+         * The whole round, thinned, for the replay right after it: every player, only in memory (unlike [route], which
+         * may be saved to the history).
+         */
         val replay = ReplayTrack()
 
         /** When the player's app last fetched the READY buildings (for the e2e observer). */
@@ -683,6 +778,7 @@ class Game(
         val estimatedDistanceAtClaimMeters: Double?,
     ) {
         var status: CatchStatus = CatchStatus.AWAITING_CODE
+        var wasDisputed = false
         var failedAttempts = 0
         val votes = LinkedHashMap<PlayerId, Boolean>()
         val isOpen get() = status == CatchStatus.AWAITING_CODE || status == CatchStatus.DISPUTED

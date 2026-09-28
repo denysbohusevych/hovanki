@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.hovanki.client.account.AccountManager
 import app.hovanki.client.account.AccountState
+import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.SessionState
 import app.hovanki.client.social.SocialManager
@@ -22,12 +23,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 /**
- * The results screen: who played with an account, friend requests to them, and the tracks for the replay. The
- * standings and awards come from the final snapshot.
+ * The results screen: who played with an account, friend requests to them, keeping the player's route, and the tracks
+ * for the replay. The standings and awards come from the final snapshot.
  */
 class ResultsViewModel(
     private val sessionManager: GameSessionManager,
     private val social: SocialManager,
+    private val history: HistoryManager,
     account: AccountManager,
 ) : ViewModel() {
     private val commands = CommandRunner(viewModelScope)
@@ -47,11 +49,26 @@ class ResultsViewModel(
     val tracks: StateFlow<TracksResponse?> = sessionManager.state.map { it.tracks }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), sessionManager.state.value.tracks)
 
+    /**
+     * Whether the player keeps their routes; null: this game has no history of theirs (played as a guest, or logged in
+     * as someone else since).
+     */
+    val saveRoutes: StateFlow<Boolean?> =
+        combine(sessionManager.state, account.state) { state, accountState -> saveRoutes(state, accountState) }
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                saveRoutes(sessionManager.state.value, account.state.value),
+            )
+
     /** A friend request failed. */
     val message: StateFlow<FormMessage?> = commands.message
     val isBusy: StateFlow<Boolean> = commands.isBusy
 
     fun addFriend(userId: UserId) = commands.execute({ social.sendFriendRequest(userId) })
+
+    /** «Save my routes» on: from now on, and this game's route too (the server still has the game). */
+    fun turnOnSaveRoutes() = commands.execute({ history.setSaveRoutes(true) })
 
     fun dismissMessage() = commands.dismiss()
 
@@ -59,6 +76,13 @@ class ResultsViewModel(
     fun leave() {
         commands.dismiss()
         sessionManager.leave()
+    }
+
+    private fun saveRoutes(state: SessionState, accountState: AccountState): Boolean? {
+        val user = accountState.user ?: return null
+        val snapshot = state.snapshot ?: return null
+        val me = snapshot.players.firstOrNull { it.id == snapshot.me.playerId }
+        return user.saveRoutes.takeIf { me?.userId == user.id }
     }
 
     private fun playerAccounts(

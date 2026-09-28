@@ -1,6 +1,7 @@
 package app.hovanki.server.db
 
 import app.hovanki.server.account.AccountProperties
+import app.hovanki.server.history.HistoryProperties
 import app.hovanki.server.moderation.ModerationProperties
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -30,6 +31,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             .list()
         assertContains(applied, "1")
         assertContains(applied, "2")
+        assertContains(applied, "3")
         val tables = jdbc.sql("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
             .query(String::class.java)
             .set()
@@ -68,6 +70,10 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         insert("INSERT INTO blocks VALUES (:b, :a, :t)", alice, bob)
         insert("INSERT INTO user_groups VALUES (:a, 'Alice''s', :a, :t), (:b, 'Bob''s', :b, :t)", alice, bob)
         insert("INSERT INTO group_members VALUES (:a, :b, :t), (:b, :a, :t), (:b, :b, :t)", alice, bob)
+        val game = insertPlayedGame()
+        insertResult(alice, game)
+        insertResult(bob, game)
+        insertRoute(alice, game, savedAt = now)
         insert(
             """
             INSERT INTO reports (game_id, message_seq, reporter_player_id, reporter_user_id, reported_user_id,
@@ -92,12 +98,21 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             .query(Int::class.java)
             .single()
         assertEquals(1, reports)
+        // The game itself stays: it has nothing about anybody. So do the other players' results.
+        assertEquals(listOf(game), jdbc.sql("SELECT id FROM played_games WHERE id = :a").ids(game))
+        assertEquals(listOf(bob), jdbc.sql("SELECT user_id FROM game_results WHERE game_id = :a").ids(game))
     }
 
     @Test
     fun retentionDeletesOnlyWhatIsOld() {
         val accounts = AccountProperties()
-        val retention = DataRetention(jdbc, accounts, ModerationProperties(), Clock.fixed(now, ZoneOffset.UTC))
+        val retention = DataRetention(
+            jdbc,
+            accounts,
+            ModerationProperties(),
+            HistoryProperties(),
+            Clock.fixed(now, ZoneOffset.UTC),
+        )
         val longAgo = now.minus(Duration.ofDays(400))
         val oldUnverified = insertUser(createdAt = longAgo, verifiedAt = null)
         val newUnverified = insertUser(createdAt = now.minus(Duration.ofDays(1)), verifiedAt = null)
@@ -108,11 +123,25 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         insertAt(code, oldVerified, "RESET_PASSWORD", at = now.minusSeconds(1))
         insertAt(code, newUnverified, "VERIFY_EMAIL", at = now.plusSeconds(60))
         insertAt("INSERT INTO friend_requests VALUES (:a, :b, :t)", oldVerified, newUnverified, at = longAgo)
+        val oldGame = insertPlayedGame()
+        val recentGame = insertPlayedGame()
+        insertResult(oldVerified, oldGame)
+        insertResult(oldVerified, recentGame)
+        insertRoute(oldVerified, oldGame, savedAt = now.minus(Duration.ofDays(91)))
+        insertRoute(oldVerified, recentGame, savedAt = now.minus(Duration.ofDays(89)))
 
         val deleted = retention.run()
 
         // Other tests share the database: at least ours went, and the fresh rows stay.
-        assertTrue(deleted.sessions >= 1 && deleted.emailCodes >= 1 && deleted.friendRequests >= 1, "$deleted")
+        assertTrue(
+            deleted.sessions >= 1 && deleted.emailCodes >= 1 && deleted.friendRequests >= 1 && deleted.routes >= 1,
+            "$deleted",
+        )
+        // Routes go after 90 days; the games stay in the history.
+        val routes = jdbc.sql("SELECT game_id FROM game_routes WHERE user_id = :a").ids(oldVerified)
+        assertEquals(listOf(recentGame), routes)
+        val results = jdbc.sql("SELECT game_id FROM game_results WHERE user_id = :a").ids(oldVerified)
+        assertEquals(setOf(oldGame, recentGame), results.toSet())
         // Accounts stay, however old, confirmed or not: confirming the email is optional.
         val users = jdbc.sql("SELECT id FROM users WHERE id IN (:a, :b)").ids(oldUnverified, newUnverified)
         assertEquals(setOf(oldUnverified, newUnverified), users.toSet())
@@ -151,6 +180,40 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         return id
     }
 
+    private fun insertPlayedGame(): String {
+        val id = unique("game")
+        jdbc.sql(
+            """
+            INSERT INTO played_games (id, created_at, started_at, finished_at, players, guests, seekers, hiders_caught,
+                                      hiders_eliminated, catch_claims, catches, disputes, chat_messages, buildings,
+                                      zone_radius_meters, zone_stages, hiding_seconds, seeking_seconds)
+            VALUES (:id, :t, :t, :t, 3, 1, 1, 1, 0, 1, 1, 0, 4, 'READY', 400, 3, 300, 1800)
+            """,
+        ).param("id", id).param("t", now.toTimestamptz()).update()
+        return id
+    }
+
+    private fun insertResult(userId: String, gameId: String) = insert(
+        """
+        INSERT INTO game_results (user_id, game_id, started_at, finished_at, role, status, won, players, seekers,
+                                  catch_claims, catches, zone_warnings, building_warnings, fixes, distance_meters,
+                                  moving_seconds)
+        VALUES (:a, :b, :t, :t, 'HIDER', 'ACTIVE', true, 3, 1, 0, 0, 0, 0, 100, 1234.5, 900)
+        """,
+        userId,
+        gameId,
+    )
+
+    private fun insertRoute(userId: String, gameId: String, savedAt: Instant) = insertAt(
+        """
+        INSERT INTO game_routes (user_id, game_id, saved_at, role, zone, started_at, finished_at, points)
+        VALUES (:a, :b, :t, 'HIDER', '{}', :t, :t, '[]')
+        """,
+        userId,
+        gameId,
+        savedAt,
+    )
+
     private fun insertSession(userId: String, lastUsedAt: Instant): String {
         val token = unique("token")
         jdbc.sql("INSERT INTO account_sessions VALUES (:token, :user, :t, :t)")
@@ -183,6 +246,9 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             "user_groups",
             "group_members",
             "reports",
+            "played_games",
+            "game_results",
+            "game_routes",
         )
 
         /** Every column that points at a user, with ON DELETE CASCADE. */
@@ -198,6 +264,9 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             "blocks" to "blocked_id",
             "user_groups" to "owner_id",
             "group_members" to "user_id",
+            "game_results" to "user_id",
+            // Through game_results.
+            "game_routes" to "user_id",
         )
     }
 }

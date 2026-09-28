@@ -2,10 +2,13 @@ package app.hovanki.e2e.bot
 
 import app.hovanki.client.account.AccountManager
 import app.hovanki.client.account.AccountState
+import app.hovanki.client.history.HistoryManager
+import app.hovanki.client.history.HistoryState
 import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.ApiResult
 import app.hovanki.client.network.HttpAccountApi
 import app.hovanki.client.network.HttpGameApi
+import app.hovanki.client.network.HttpHistoryApi
 import app.hovanki.client.network.HttpSocialApi
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
@@ -31,6 +34,8 @@ import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.FriendsResponse
+import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GameRoute
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
@@ -329,6 +334,31 @@ class BotPlayer(
         return CommandResult.Ok
     }
 
+    // ---- The player's own history (docs/adr/0007-game-history-and-routes.md) ----
+
+    /** Statistics and games as the app last loaded them ([refreshHistory]). */
+    val history: HistoryState get() = app?.history?.state?.value ?: HistoryState()
+
+    /** The route the last [openRoute] showed; null until one loaded. */
+    @Volatile var openedRoute: GameRoute? = null
+        private set
+
+    /** «Save my routes» in the profile, or on the results screen (on). */
+    suspend fun setSaveRoutes(enabled: Boolean): CommandResult =
+        apiCommand(if (enabled) "turns on «save my routes»" else "turns off «save my routes»") {
+            it.history.setSaveRoutes(enabled)
+        }
+
+    /** Opens the profile's statistics and history. */
+    suspend fun refreshHistory(): CommandResult = apiCommand("opens the game history") { it.history.refresh() }
+
+    suspend fun openRoute(gameId: GameId): CommandResult = apiCommand("opens the route of game ${gameId.value}") {
+        it.history.route(gameId).also { result -> if (result is ApiResult.Success) openedRoute = result.value }
+    }
+
+    suspend fun deleteRoute(gameId: GameId): CommandResult =
+        apiCommand("deletes the route of game ${gameId.value}") { it.history.deleteRoute(gameId) }
+
     // ---- Friends, groups, invites ----
 
     /** Friends, requests both ways and blocked users as the app last loaded them; null until loaded. */
@@ -553,6 +583,7 @@ class BotPlayer(
         val clientStorage = ClientStorage(storage)
         val account = AccountManager(HttpAccountApi(httpClient, url), clientStorage, url, scope)
         val social = SocialManager(HttpSocialApi(httpClient, url), account, scope)
+        val history = HistoryManager(HttpHistoryApi(httpClient, url), account, scope)
         val session = GameSessionManager(
             api,
             PollingGameConnection(api),

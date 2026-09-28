@@ -790,4 +790,124 @@ class GameTest {
         assertEquals(alice, byTeammate.reporterUserId)
         assertNull(byTeammate.senderUserId)
     }
+
+    // ---- History (docs/adr/0007-game-history-and-routes.md) ----
+
+    private val bob = UserId("bob")
+    private val carol = UserId("carol")
+
+    /** The host (alice) and the hider (carol) hide, bob seeks, a guest seeks too. */
+    private fun startedGameWithAccounts(): PlayerId {
+        val guest = PlayerId("guest")
+        game.addPlayer(host, "alice", now, alice)
+        game.addPlayer(seeker, "bob", now, bob)
+        game.addPlayer(hider, "carol", now, carol)
+        game.addPlayer(guest, "Guest", now)
+        game.start(host, setOf(seeker, guest), { secret }, now)
+        return guest
+    }
+
+    @Test
+    fun aFinishedGameHandsOverItsHistoryOnce() {
+        val guest = startedGameWithAccounts()
+        val startedAt = now
+        assertNull(game.takeFinishedRecord(), "not before the end")
+        tick(60)
+        val zoneStartedAt = now
+        tick(30)
+        report(seeker, center)
+        game.claimCatch(seeker, hider, CatchId("c1"), now)
+        game.confirmCatch(CatchId("c1"), seeker, code(), now)
+        val caughtAfter = ((now - zoneStartedAt) / 1000).toInt()
+        tick(settings.seekingSeconds)
+        assertEquals(GamePhase.FINISHED, game.phase)
+
+        val record = assertNotNull(game.takeFinishedRecord())
+        assertNull(game.takeFinishedRecord(), "only once")
+        assertEquals(record, game.finishedRecord(), "but as often as asked for a route saved late")
+
+        assertEquals(startedAt, record.startedAtMillis)
+        assertEquals(zoneStartedAt, record.zoneStartedAtMillis)
+        assertEquals(zoneStartedAt + settings.seekingSeconds * 1000L, record.finishedAtMillis)
+        assertEquals(4, record.players)
+        assertEquals(1, record.guests)
+        assertEquals(2, record.seekers)
+        assertEquals(1, record.hidersCaught)
+        assertEquals(1, record.catches)
+        // Guests have no history.
+        assertEquals(setOf(alice, bob, carol), record.results.map { it.userId }.toSet())
+        assertFalse(guest.value in record.results.map { it.userId.value })
+
+        val byUser = record.results.associateBy { it.userId }
+        val seekerResult = byUser.getValue(bob)
+        assertEquals(1, seekerResult.catchClaims)
+        assertEquals(1, seekerResult.catches)
+        assertFalse(seekerResult.won, "alice was never found")
+        assertNull(seekerResult.survivedSeconds)
+        val caught = byUser.getValue(carol)
+        assertEquals(PlayerStatus.CAUGHT, caught.status)
+        assertFalse(caught.won)
+        assertEquals(caughtAfter, caught.survivedSeconds)
+        val survivor = byUser.getValue(alice)
+        assertEquals(PlayerStatus.ACTIVE, survivor.status)
+        assertTrue(survivor.won)
+        assertEquals(settings.seekingSeconds, survivor.survivedSeconds)
+    }
+
+    @Test
+    fun theRouteIsTheRoundOnly() {
+        startedGameWithAccounts()
+        tick(1)
+        val path = (0..10).map { center.moveBy(it * 7.0, 0.0) }
+        for (point in path) {
+            report(hider, point)
+            tick(5)
+        }
+        tick(settings.hidingSeconds + settings.seekingSeconds)
+        assertEquals(GamePhase.FINISHED, game.phase)
+        // After the end nothing is added.
+        report(hider, center.moveBy(500.0, 0.0))
+
+        val result = assertNotNull(game.takeFinishedRecord()).results.single { it.userId == carol }
+        assertEquals(path.size, result.fixes)
+        assertEquals(path.size, result.route.size)
+        assertTrue(result.distanceMeters in 55.0..71.0, "${result.distanceMeters} m")
+        assertTrue(result.movingSeconds in 40..50, "${result.movingSeconds} s")
+        assertEquals(0, assertNotNull(game.finishedRecord()).results.single { it.userId == bob }.route.size)
+    }
+
+    @Test
+    fun lobbyFixesAreNotPartOfTheRoute() {
+        game.addPlayer(host, "alice", now, alice)
+        game.addPlayer(seeker, "bob", now, bob)
+        report(host, center)
+        report(host, center.moveBy(50.0, 0.0))
+        game.start(host, setOf(seeker), { secret }, now)
+        tick(settings.hidingSeconds + settings.seekingSeconds)
+
+        val result = assertNotNull(game.takeFinishedRecord()).results.single { it.userId == alice }
+        assertEquals(0, result.fixes)
+        assertEquals(emptyList(), result.route)
+    }
+
+    @Test
+    fun warningsAndEliminationAreCounted() {
+        startedGameWithAccounts()
+        tick(60)
+        val zoneStartedAt = now
+        val outside = center.moveBy(700.0, 0.0)
+        repeat(15) {
+            report(hider, outside)
+            tick(5)
+        }
+        assertEquals(PlayerStatus.ELIMINATED, statusOf(hider))
+        val eliminatedBy = now
+        tick(settings.seekingSeconds)
+
+        val result = assertNotNull(game.takeFinishedRecord()).results.single { it.userId == carol }
+        assertEquals(1, result.zoneWarnings)
+        assertEquals(PlayerStatus.ELIMINATED, result.status)
+        assertTrue(result.survivedSeconds!! <= ((eliminatedBy - zoneStartedAt) / 1000).toInt())
+        assertEquals(1, assertNotNull(game.finishedRecord()).hidersEliminated)
+    }
 }

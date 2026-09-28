@@ -333,17 +333,11 @@ fun GameMap(
             // building outlines (OpenStreetMap too). MapLibre's expanding one would repeat it.
             overlay = { include(MapOverlay.None) },
         )
-        MapCredit(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(attributionPadding)
-                .padding(4.dp)
-                .testTag(TestTags.MAP_ATTRIBUTION),
-        )
+        MapCredit(Modifier.align(Alignment.BottomStart).padding(attributionPadding))
     }
 }
 
-/** The credit the tiles and OpenStreetMap require, always visible on a map; leads to the license. */
+/** The credit the tile provider and the OpenStreetMap license require, on every map; leads to the license. */
 @Composable
 internal fun MapCredit(modifier: Modifier = Modifier) {
     val uriHandler = LocalUriHandler.current
@@ -352,10 +346,12 @@ internal fun MapCredit(modifier: Modifier = Modifier) {
         style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
         color = Palette.Ink2,
         modifier = modifier
+            .padding(4.dp)
             .clip(RoundedCornerShape(4.dp))
             .background(Color.White.copy(alpha = 0.8f))
             .clickable { uriHandler.openUri(MapStyle.COPYRIGHT_URL) }
-            .padding(horizontal = 4.dp, vertical = 1.dp),
+            .padding(horizontal = 4.dp, vertical = 1.dp)
+            .testTag(TestTags.MAP_ATTRIBUTION),
     )
 }
 
@@ -482,8 +478,8 @@ private const val PULSE_MILLIS = 1_600
 private const val PING_MILLIS = 2_400
 private const val MARKER_GLIDE_MILLIS = 800
 private const val SNAP_METERS = 150.0
-private val RING_CASING_WIDTH = 8.dp
-private val RING_CORE_WIDTH = 4.dp
+internal val RING_CASING_WIDTH = 8.dp
+internal val RING_CORE_WIDTH = 4.dp
 private val MARKER_RADIUS = 9.dp
 
 /** Tiles and their credits: one place to switch providers (docs/adr/0003-map-and-buildings.md). */

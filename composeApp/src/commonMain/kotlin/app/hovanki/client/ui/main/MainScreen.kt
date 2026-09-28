@@ -45,6 +45,9 @@ import app.hovanki.client.ui.friends.FriendsTab
 import app.hovanki.client.ui.groups.GroupPanel
 import app.hovanki.client.ui.groups.GroupsTab
 import app.hovanki.client.ui.groups.GroupsViewModel
+import app.hovanki.client.ui.history.HistoryPanel
+import app.hovanki.client.ui.history.HistoryViewModel
+import app.hovanki.client.ui.history.RoutePanel
 import app.hovanki.client.ui.play.PlayTab
 import app.hovanki.client.ui.profile.ProfileTab
 import app.hovanki.client.ui.theme.Motion
@@ -60,14 +63,15 @@ import org.koin.compose.viewmodel.koinViewModel
 
 /**
  * Logged in (the email confirmed or not), not in a game: «Play», «Friends», «Groups» and «Profile» in a navigation bar,
- * or a panel over all of it (confirming the email, a group). While it is shown, the inbox (game invites, friend
- * requests) is polled for the tabs and their badges.
+ * or a panel over all of it (confirming the email, a group, the game history and a saved route). While it is shown,
+ * the inbox (game invites, friend requests) is polled for the tabs and their badges.
  */
 @Composable
 fun MainScreen(
     viewModel: MainViewModel = koinViewModel(),
     groupsViewModel: GroupsViewModel = koinViewModel(),
     verifyViewModel: VerifyEmailViewModel = koinViewModel(),
+    historyViewModel: HistoryViewModel = koinViewModel(),
 ) {
     val inbox by viewModel.inbox.collectAsStateWithLifecycle()
     val groups by groupsViewModel.groups.collectAsStateWithLifecycle()
@@ -78,6 +82,15 @@ fun MainScreen(
     val openGroup = groupsViewModel.openGroupId?.let { id -> groups?.groups?.firstOrNull { it.id == id } }
     if (openGroup != null) {
         GroupPanel(group = openGroup, viewModel = groupsViewModel)
+        return
+    }
+    val openRoute = historyViewModel.route
+    if (openRoute != null) {
+        RoutePanel(historyViewModel, openRoute)
+        return
+    }
+    if (historyViewModel.isOpen) {
+        HistoryPanel(historyViewModel)
         return
     }
 
@@ -97,7 +110,7 @@ fun MainScreen(
                 MainTab.PLAY -> PlayTab(invites = inbox.invites, verify = verifyViewModel)
                 MainTab.FRIENDS -> FriendsTab()
                 MainTab.GROUPS -> GroupsTab(groupsViewModel)
-                MainTab.PROFILE -> ProfileTab(verify = verifyViewModel)
+                MainTab.PROFILE -> ProfileTab(verify = verifyViewModel, history = historyViewModel)
             }
         }
         FloatingTabBar(selected = tab, onSelect = viewModel::select, badges = { item ->

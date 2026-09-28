@@ -49,6 +49,23 @@ object ApiRoutes {
     const val INBOX = "$ME/inbox"
     const val INVITE_DISMISS = "$ME/invites/{inviteId}/dismiss"
 
+    // The caller's history (docs/adr/0007-game-history-and-routes.md): only ever their own.
+
+    /** POST [PrivacyRequest]: turns saving routes on or off; answers the [UserProfile]. */
+    const val ME_PRIVACY = "$ME/privacy"
+
+    /** GET: [PlayerStats]. */
+    const val ME_STATS = "$ME/stats"
+
+    /** GET, optional `?before=<finishedAtMillis>` for the next page: [GameHistoryResponse]. */
+    const val ME_GAMES = "$ME/games"
+
+    /** GET: [GameRoute]; 404 when no route of this game is saved. */
+    const val ME_GAME_ROUTE = "$ME_GAMES/{gameId}/route"
+
+    /** POST: deletes the saved route of this game (the game stays in the history). */
+    const val ME_GAME_ROUTE_DELETE = "$ME_GAME_ROUTE/delete"
+
     // Friends and blocks.
     const val FRIENDS = "/api/v1/friends"
     const val FRIEND_REQUESTS = "$FRIENDS/requests"
@@ -99,6 +116,13 @@ object ApiRoutes {
         CHAT_REPORT.fill("gameId" to gameId.value, "seq" to seq.toString())
 
     fun inviteDismiss(inviteId: InviteId): String = INVITE_DISMISS.fill("inviteId" to inviteId.value)
+
+    /** [ME_GAMES], the page of games that ended before [before] (null: the newest). */
+    fun meGames(before: Long? = null): String = if (before == null) ME_GAMES else "$ME_GAMES?before=$before"
+
+    fun meGameRoute(gameId: GameId): String = ME_GAME_ROUTE.fill("gameId" to gameId.value)
+
+    fun meGameRouteDelete(gameId: GameId): String = ME_GAME_ROUTE_DELETE.fill("gameId" to gameId.value)
 
     fun friendRequestAccept(userId: UserId): String = FRIEND_REQUEST_ACCEPT.fill("userId" to userId.value)
 
