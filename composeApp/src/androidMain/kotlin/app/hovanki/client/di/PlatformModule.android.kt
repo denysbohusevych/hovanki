@@ -17,7 +17,11 @@ import app.hovanki.client.storage.SecureStore
 import app.hovanki.client.tracking.ActivityMonitor
 import app.hovanki.client.tracking.AndroidActivityMonitor
 import app.hovanki.client.tracking.AndroidBackgroundTracker
+import app.hovanki.client.tracking.AndroidCarryMonitor
+import app.hovanki.client.tracking.AndroidPocketPulse
 import app.hovanki.client.tracking.BackgroundTracker
+import app.hovanki.client.tracking.CarryMonitor
+import app.hovanki.client.tracking.PocketPulse
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
 import org.koin.android.ext.koin.androidContext
@@ -36,4 +40,6 @@ actual val platformModule: Module = module {
     single<PrecisionRadio> { NoopPrecisionRadio() }
     single<DeviceInfo> { AndroidDeviceInfo(androidContext()) }
     single<ActivityMonitor> { AndroidActivityMonitor(androidContext()) }
+    single<PocketPulse> { AndroidPocketPulse(androidContext()) }
+    single<CarryMonitor> { AndroidCarryMonitor(androidContext()) }
 }

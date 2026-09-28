@@ -12,6 +12,9 @@ interface DeviceInfo {
     /** Motion sensors to tell running from walking (docs/adr/0011-quests-sparks-and-sensors.md, section 4). */
     val hasActivitySensor: Boolean
 
+    /** The phone's model («Pixel 8», «iPhone15,2») for the radar's readings by model; null: unknown. */
+    val model: String? get() = null
+
     /** A headless client (the e2e bots) or a platform that never said. */
     object Unknown : DeviceInfo {
         override val platform: Platform = Platform.OTHER

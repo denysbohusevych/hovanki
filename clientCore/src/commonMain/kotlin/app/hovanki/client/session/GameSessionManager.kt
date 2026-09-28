@@ -18,14 +18,20 @@ import app.hovanki.client.radio.ProximityRadio
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.storage.SavedSession
 import app.hovanki.client.tracking.ActivityMonitor
+import app.hovanki.client.tracking.AlertKind
 import app.hovanki.client.tracking.AlertRepeats
 import app.hovanki.client.tracking.BackgroundTracker
+import app.hovanki.client.tracking.CarryMonitor
 import app.hovanki.client.tracking.NoopActivityMonitor
+import app.hovanki.client.tracking.NoopCarryMonitor
+import app.hovanki.client.tracking.NoopPocketPulse
+import app.hovanki.client.tracking.PocketPulse
 import app.hovanki.client.tracking.hiderAlerts
 import app.hovanki.shared.protocol.Activity
 import app.hovanki.shared.protocol.Audience
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.BuildingsState
+import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.CreateGameRequest
@@ -49,6 +55,7 @@ import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.QuestId
 import app.hovanki.shared.protocol.QuestReviewRequest
+import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
@@ -61,7 +68,9 @@ import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UwbPeer
 import app.hovanki.shared.rules.CheckpointPayload
 import app.hovanki.shared.rules.GameSetup
+import app.hovanki.shared.rules.ProximityRules
 import app.hovanki.shared.rules.QuestCatalog
+import app.hovanki.shared.rules.RadarSmoother
 import app.hovanki.shared.rules.RadarToken
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -77,6 +86,7 @@ import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.roundToInt
 
 /**
  * The one place that owns the current game: session credentials, the latest snapshot, the connection to the server
@@ -88,7 +98,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  * snapshot into [SessionState.chat].
  *
  * The radar (docs/adr/0010-nearby-radar.md) runs through [radio] while a round with it goes on: the phone advertises
- * its token and reports whom it heard with every sync, along with what it says about itself ([DeviceReport]).
+ * its token and reports whom it heard with every sync, along with what it says about itself ([DeviceReport]). The
+ * pulse ([pulse], «Пульс») is felt on the phone itself: a hider's phone knows the seekers' tokens
+ * ([MyState.seekerTokens]) and smooths what it hears of them with the same rules as the server, so it beats the
+ * moment a seeker comes near, network or not; the server's band counts too, whichever is warmer.
  * The board and the perks (docs/adr/0011-quests-sparks-and-sensors.md) are commands like the others.
  *
  * Commands return true on success; on failure they return false and put the reason into [SessionState.lastError].
@@ -108,6 +121,8 @@ class GameSessionManager(
     private val precisionRadio: PrecisionRadio = NoopPrecisionRadio(),
     private val deviceInfo: DeviceInfo = DeviceInfo.Unknown,
     private val activityMonitor: ActivityMonitor = NoopActivityMonitor(),
+    private val pocketPulse: PocketPulse = NoopPocketPulse,
+    private val carryMonitor: CarryMonitor = NoopCarryMonitor(),
 ) {
     private val mutableState = MutableStateFlow(SessionState())
     val state: StateFlow<SessionState> = mutableState.asStateFlow()
@@ -139,8 +154,21 @@ class GameSessionManager(
     private var radioJob: Job? = null
     private var activityJob: Job? = null
     private var rangingJob: Job? = null
+    private var carryJob: Job? = null
     private var onScreen = true
     private var latestActivity = Activity.UNKNOWN
+    private var latestCarry = Carry.UNKNOWN
+
+    /** The seekers' tokens the server gave this hider, and what the phone hears of each, smoothed like the server. */
+    private var seekerTokens: Set<String> = emptySet()
+    private val seekerSmoothers = HashMap<String, RadarSmoother>()
+    private val mutablePulse = MutableStateFlow(RadarBand.NONE)
+
+    /**
+     * The pulse's band: a hider's, the nearest seeker (what this phone hears of them, or the server's band, whichever
+     * is warmer); a seeker's sonar, the nearest hider by the server. [RadarBand.NONE] outside the search.
+     */
+    val pulse: StateFlow<RadarBand> = mutablePulse.asStateFlow()
 
     // One outbox per session: samples of a finished game must never be uploaded to the next one.
     private var outbox = LocationOutbox()
@@ -432,8 +460,14 @@ class GameSessionManager(
             uwbToken = precisionRadio.token.value.takeIf { uwb && onScreen && features?.precisionRadar == true },
             activity = if (features?.activity == true) latestActivity else Activity.UNKNOWN,
             activitySensor = deviceInfo.hasActivitySensor,
+            carry = carry(),
+            // The model only where the radar is, for its readings by model; nothing else asks for it.
+            model = deviceInfo.model?.takeIf { features?.hasRadar == true },
         )
     }
+
+    /** Where the phone is: in the hand while the app is on the screen, whatever the sensors say. */
+    private fun carry(): Carry = if (onScreen) Carry.IN_HAND else latestCarry
 
     private fun onConnectionEvent(event: ConnectionEvent) {
         val resuming = mutableState.value.isResuming
@@ -497,11 +531,16 @@ class GameSessionManager(
             GamePhase.HIDING, GamePhase.SEEKING -> {
                 startTracking()
                 updateRadio(snapshot)
+                updateCarryMonitor(snapshot)
                 updateActivityMonitor(snapshot)
                 updateRanging(snapshot)
+                seekerTokens = snapshot.me.seekerTokens.toSet()
+                seekerSmoothers.keys.retainAll(seekerTokens)
+                refreshPulse()
                 val alerts = alertRepeats.update(snapshot.hiderAlerts(), snapshot.serverTimeMillis)
                 alerts.ended.forEach(backgroundTracker::endAlert)
-                alerts.buzz.forEach(backgroundTracker::alert)
+                // «A seeker is near» is the pulse's job, at the band's pace, not a notification every few seconds.
+                alerts.buzz.filterNot { it.kind == AlertKind.SEEKER_NEAR }.forEach(backgroundTracker::alert)
             }
 
             // Results are final: no more location or foreground service, and nothing to resume. Polling goes on for
@@ -537,9 +576,17 @@ class GameSessionManager(
         if (radioJob?.isActive == true) return
         radioJob = scope.launch {
             try {
-                radio.run(radarToken).collect { sighting ->
-                    val sample = NearbySighting(sighting.token, sighting.rssi, clock.toServerTime(sighting.atMillis))
+                radio.run(radarToken, asSeeker = snapshot.me.role == Role.SEEKER).collect { sighting ->
+                    val atMillis = clock.toServerTime(sighting.atMillis)
+                    val sample = NearbySighting(sighting.token, sighting.rssi, atMillis)
                     heard.update { kept -> keepRecent(kept + sample) }
+                    if (sighting.token in seekerTokens) {
+                        // Heard from a pocket, the signal is weaker than the distance says: evened out like the server.
+                        val offset = if (carry() == Carry.IN_POCKET) ProximityRules.POCKET_OFFSET_DB else 0.0
+                        val smoother = seekerSmoothers.getOrPut(sighting.token) { RadarSmoother() }
+                        smoother.add((sighting.rssi + offset).roundToInt(), atMillis)
+                        refreshPulse()
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -549,10 +596,25 @@ class GameSessionManager(
         }
     }
 
-    /** A few readings per phone heard are plenty for the server's smoothing; the sync takes at most so many. */
+    /**
+     * Readings spread over time are what the server's smoothing (and the claim's dwell) needs, not a burst of the
+     * same second: per phone heard, one reading every [READING_GAP_MILLIS] or so (the latest of a burst), the last
+     * [READINGS_PER_TOKEN] of them; the sync takes at most [MAX_SIGHTINGS_PER_SYNC] in all.
+     */
     private fun keepRecent(sightings: List<NearbySighting>): List<NearbySighting> = sightings
         .groupBy { it.token }.values
-        .flatMap { it.takeLast(READINGS_PER_TOKEN) }
+        .flatMap { readings ->
+            val kept = ArrayList<NearbySighting>()
+            for (reading in readings) {
+                val last = kept.lastOrNull()
+                if (last == null || reading.atMillis - last.atMillis >= READING_GAP_MILLIS) {
+                    kept += reading
+                } else {
+                    kept[kept.lastIndex] = reading
+                }
+            }
+            kept.takeLast(READINGS_PER_TOKEN)
+        }
         .takeLast(MAX_SIGHTINGS_PER_SYNC)
 
     private fun stopRadio() {
@@ -560,6 +622,58 @@ class GameSessionManager(
         radioJob = null
         radarToken.value = null
         heard.value = emptyList()
+        seekerTokens = emptySet()
+        seekerSmoothers.clear()
+        refreshPulse()
+    }
+
+    /** The pulse's band right now ([pulse]); the phone is told when it changes. */
+    private fun refreshPulse() {
+        val band = pulseBand(mutableState.value.snapshot)
+        if (mutablePulse.value == band) return
+        mutablePulse.value = band
+        pocketPulse.set(band)
+    }
+
+    private fun pulseBand(snapshot: GameSnapshot?): RadarBand {
+        if (snapshot == null || snapshot.phase != GamePhase.SEEKING || radioJob?.isActive != true) return RadarBand.NONE
+        val server = snapshot.radarBand() ?: RadarBand.NONE
+        return when (snapshot.me.role) {
+            Role.SEEKER -> server
+
+            Role.HIDER -> {
+                if (!snapshot.settings.features.hiderSense || snapshot.me.status != PlayerStatus.ACTIVE) {
+                    RadarBand.NONE
+                } else {
+                    val now = clock.now()
+                    maxOf(server, seekerSmoothers.values.maxOfOrNull { it.bandAt(now) } ?: RadarBand.NONE)
+                }
+            }
+        }
+    }
+
+    /** Where the phone is, while a round with the radar goes on: for the radar's evening out and the pocket stealth. */
+    private fun updateCarryMonitor(snapshot: GameSnapshot) {
+        if (!snapshot.settings.features.hasRadar) {
+            stopCarryMonitor()
+            return
+        }
+        if (carryJob?.isActive == true) return
+        carryJob = scope.launch {
+            try {
+                carryMonitor.carry().collect { latestCarry = it }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // No sensors after all: unknown, as before.
+            }
+        }
+    }
+
+    private fun stopCarryMonitor() {
+        carryJob?.cancel()
+        carryJob = null
+        latestCarry = Carry.UNKNOWN
     }
 
     /** The phone's motion sensors, when the game asks whether the player runs. */
@@ -735,6 +849,7 @@ class GameSessionManager(
         mutableState.update { it.copy(isSharingLocation = false) }
         alertRepeats.clear().forEach(backgroundTracker::endAlert)
         stopRadio()
+        stopCarryMonitor()
         stopActivityMonitor()
         stopRanging()
         if (isTracking) {
@@ -777,7 +892,8 @@ class GameSessionManager(
 
         private const val FIRST_FIX_INTERVAL_MILLIS = 1_000L
         private const val UNAUTHORIZED = 401
-        private const val READINGS_PER_TOKEN = 4
+        private const val READINGS_PER_TOKEN = 8
+        private const val READING_GAP_MILLIS = 400L
         private const val MAX_SIGHTINGS_PER_SYNC = 200
 
         /** Good enough to center the zone on (the default zone is hundreds of meters wide). */

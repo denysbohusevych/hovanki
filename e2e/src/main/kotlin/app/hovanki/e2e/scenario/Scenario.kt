@@ -4,6 +4,7 @@ import app.hovanki.e2e.bot.BotAccount
 import app.hovanki.e2e.bot.BotBehavior
 import app.hovanki.e2e.bot.BotPlayer
 import app.hovanki.e2e.bot.CommandResult
+import app.hovanki.e2e.bot.RadioWorld
 import app.hovanki.e2e.bot.SyncMetrics
 import app.hovanki.e2e.observer.EmailPurpose
 import app.hovanki.e2e.observer.Observer
@@ -14,6 +15,7 @@ import app.hovanki.shared.debug.DebugEmail
 import app.hovanki.shared.debug.DebugGameState
 import app.hovanki.shared.debug.DebugPlayer
 import app.hovanki.shared.geo.distanceTo
+import app.hovanki.shared.protocol.Audience
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
@@ -22,8 +24,15 @@ import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.GroupView
+import app.hovanki.shared.protocol.PerkKind
+import app.hovanki.shared.protocol.PlaceItemRequest
+import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.PlayerStatus
+import app.hovanki.shared.protocol.QuestId
+import app.hovanki.shared.protocol.RadarBand
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.VisibilityReason
+import app.hovanki.shared.rules.QuestCatalog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -73,6 +82,9 @@ class Scenario(val name: String, val serverUrl: String) {
     val timeline = Timeline()
     val observer = Observer(serverUrl)
     val metrics = SyncMetrics()
+
+    /** The air between the phones' Bluetooth (docs/adr/0010-nearby-radar.md). */
+    val radio = RadioWorld()
     private val bots = CopyOnWriteArrayList<BotPlayer>()
 
     val players: List<BotPlayer> get() = bots.toList()
@@ -93,8 +105,9 @@ class Scenario(val name: String, val serverUrl: String) {
         behavior: BotBehavior = BotBehavior(),
         clockSkew: Duration = Duration.ZERO,
         logChanges: Boolean = true,
+        platform: Platform = Platform.ANDROID,
     ): BotPlayer {
-        val bot = BotPlayer(name, at, noise, behavior, serverUrl, timeline, metrics, logChanges)
+        val bot = BotPlayer(name, at, noise, behavior, serverUrl, timeline, metrics, logChanges, platform, radio)
         bot.clock.skewMillis = clockSkew.inWholeMilliseconds
         bots += bot
         return bot
@@ -286,6 +299,64 @@ class Scenario(val name: String, val serverUrl: String) {
         log("phone clock moved by $by (now off by ${clock.skewMillis.milliseconds})")
     }
 
+    // ---- The radar (docs/adr/0010-nearby-radar.md) ----
+
+    /** Every server feature on, as the operator would switch them in the admin; the games still pick their own. */
+    suspend fun enableAllFeatures() {
+        observer.setFeatures(ServerFeature.entries.map { it.name })
+        note("every server feature is on")
+    }
+
+    fun BotPlayer.putsPhoneInPocket() {
+        putInPocket(true)
+        log("puts the phone in the pocket")
+    }
+
+    fun BotPlayer.takesPhoneOut() {
+        putInPocket(false)
+        log("takes the phone out")
+    }
+
+    fun BotPlayer.turnsBluetoothOff() {
+        turnBluetooth(false)
+        log("Bluetooth off")
+    }
+
+    fun BotPlayer.turnsBluetoothOn() {
+        turnBluetooth(true)
+        log("Bluetooth on")
+    }
+
+    /** A seeker's radar about [other] as their own app shows it. */
+    fun BotPlayer.radarBandOn(other: BotPlayer): RadarBand =
+        snapshot?.me?.radar?.contacts?.firstOrNull { it.playerId == other.id }?.band ?: RadarBand.NONE
+
+    suspend fun awaitBand(seeker: BotPlayer, hider: BotPlayer, band: RadarBand, within: Duration = 30.seconds) =
+        eventually("${seeker.name}'s radar says $band about ${hider.name}", within) {
+            seeker.radarBandOn(hider).takeIf { it == band }
+        }
+
+    // ---- The board (docs/adr/0011-quests-sparks-and-sensors.md) ----
+
+    suspend fun BotPlayer.placesItem(request: PlaceItemRequest) =
+        requireOk(placeItem(request), "$name places ${request.kind}")
+
+    suspend fun BotPlayer.scansCheckpoint(text: String) = requireOk(scanCheckpoint(text), "$name scans a checkpoint")
+
+    suspend fun BotPlayer.usesPerk(perk: PerkKind, target: BotPlayer? = null, point: GeoPoint? = null) =
+        requireOk(usePerk(perk, target?.id, point), "$name uses $perk")
+
+    suspend fun BotPlayer.addsQuest(
+        text: String,
+        audience: Audience = Audience.ALL,
+        sparks: Int = QuestCatalog.CUSTOM_DEFAULT_SPARKS,
+    ) = requireOk(addQuest(text, audience, sparks), "$name adds a quest")
+
+    suspend fun BotPlayer.saysQuestDone(questId: QuestId) = requireOk(questDone(questId), "$name says it is done")
+
+    suspend fun BotPlayer.reviewsQuest(questId: QuestId, player: BotPlayer, approved: Boolean) =
+        requireOk(reviewQuest(questId, player.id, approved), "$name reviews ${player.name}'s quest")
+
     // ---- Catches ----
 
     suspend fun BotPlayer.claimsCatch(hider: BotPlayer) = requireOk(claimCatch(hider), "$name claims ${hider.name}")
@@ -420,6 +491,7 @@ class Scenario(val name: String, val serverUrl: String) {
 
     fun close() {
         bots.forEach { it.close() }
+        radio.close()
         observer.close()
     }
 

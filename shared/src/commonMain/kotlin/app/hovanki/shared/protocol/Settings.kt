@@ -99,6 +99,8 @@ data class GameRules(
     val radarOffRevealSeconds: Int = 60,
     /** A claim only up close: the pair must have been «burning» on the radar within this long. */
     val nearbyWindowSeconds: Int = 30,
+    /** ... and «burning» steadily for this long, not one spike off a wall. */
+    val nearbyDwellSeconds: Int = 3,
     /** A quest point, a checkpoint or a pickup is reached when the fixes prove the player within this distance. */
     val itemReachMeters: Double = 15.0,
     /** Between two perks of one player. */

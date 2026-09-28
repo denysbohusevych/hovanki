@@ -15,6 +15,7 @@ import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.Capabilities
+import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.CatchView
@@ -68,7 +69,9 @@ import app.hovanki.shared.rules.ChatRules
 import app.hovanki.shared.rules.Glow
 import app.hovanki.shared.rules.LocationTrack
 import app.hovanki.shared.rules.PerkCatalog
+import app.hovanki.shared.rules.ProximityRules
 import app.hovanki.shared.rules.QuestCatalog
+import app.hovanki.shared.rules.RadarToken
 import app.hovanki.shared.rules.RouteRecorder
 import app.hovanki.shared.rules.Sectors
 import app.hovanki.shared.rules.StreetZone
@@ -79,6 +82,7 @@ import app.hovanki.shared.rules.isUsable
 import app.hovanki.shared.rules.stateAt
 import app.hovanki.shared.totp.catchCodeTotp
 import java.time.Duration
+import kotlin.math.abs
 
 /**
  * One game and all of its rules. Pure domain object: no Spring, no threads, time is passed in,
@@ -155,6 +159,9 @@ class Game(
 
     /** The radar (docs/adr/0010-nearby-radar.md): what the phones of the players hear of each other. */
     private val radar = Radar()
+
+    /** The radar's readings by phone model, for the history (nobody's numbers). */
+    private val calibration = RadioCalibration()
 
     /** The board (docs/adr/0011-quests-sparks-and-sensors.md): the host's items, the quests, the sparks. */
     private val board = Board(rules)
@@ -443,13 +450,62 @@ class Game(
      * game's players count for the radar, anything else is dropped. Only in a game with the radar, during the round.
      */
     fun recordSightings(playerId: PlayerId, sightings: List<NearbySighting>, nowMillis: Long) {
-        player(playerId)
+        val observer = player(playerId)
         if (!settings.features.hasRadar || (phase != GamePhase.HIDING && phase != GamePhase.SEEKING)) return
         val secrets = { players.values.mapNotNull { p -> p.radarSecret?.let { p.id to it } }.toMap() }
+        val dwellMillis = rules.nearbyDwellSeconds * 1000L
         for (sighting in sightings.take(MAX_SIGHTINGS_PER_SYNC)) {
             // Never trust a timestamp from the future.
-            radar.record(playerId, sighting.token, sighting.rssi, minOf(sighting.atMillis, nowMillis), secrets)
+            val atMillis = minOf(sighting.atMillis, nowMillis)
+            val heardId = radar.record(
+                playerId,
+                sighting.token,
+                sighting.rssi,
+                atMillis,
+                secrets,
+                dwellMillis,
+                ::signalAdjustDb,
+            ) ?: continue
+            val heard = player(heardId)
+            calibration.add(
+                hearer = playerId,
+                heard = heardId,
+                rssi = sighting.rssi,
+                atMillis = atMillis,
+                hearerModel = observer.device?.model,
+                heardModel = heard.device?.model,
+                hearerCarry = observer.carry,
+                heardCarry = heard.carry,
+                far = farApart(observer, heard, atMillis),
+            )
         }
+    }
+
+    /**
+     * What the radar adds to a reading between [a] and [b] (docs/adr/0010-nearby-radar.md, «Карман»): the body's
+     * damping evened out for every phone in a pocket, and with the pocket stealth on, a hider's pocket taken off again
+     * and then some, so the seekers feel them about a band colder.
+     */
+    private fun signalAdjustDb(a: PlayerId, b: PlayerId): Double {
+        val x = player(a)
+        val y = player(b)
+        var adjust = 0.0
+        if (x.carry == Carry.IN_POCKET) adjust += ProximityRules.POCKET_OFFSET_DB
+        if (y.carry == Carry.IN_POCKET) adjust += ProximityRules.POCKET_OFFSET_DB
+        if (settings.features.pocketStealth && x.role != y.role) {
+            val hider = if (x.role == Role.HIDER) x else y
+            if (hider.carry == Carry.IN_POCKET) adjust -= ProximityRules.STEALTH_DB
+        }
+        return adjust
+    }
+
+    /** GPS says [a] and [b] were at least [FAR_APART_METERS] apart around [atMillis], for sure. */
+    private fun farApart(a: Player, b: Player, atMillis: Long): Boolean {
+        val x = a.track.latestUsable()?.takeIf { abs(it.timestampMillis - atMillis) <= FAR_FIX_AGE_MILLIS }
+            ?: return false
+        val y = b.track.latestUsable()?.takeIf { abs(it.timestampMillis - atMillis) <= FAR_FIX_AGE_MILLIS }
+            ?: return false
+        return x.point.distanceTo(y.point) - x.accuracyMeters - y.accuracyMeters >= FAR_APART_METERS
     }
 
     /**
@@ -727,6 +783,7 @@ class Game(
                 insideBuildingRevealAtMillis = viewer.insideBuildingRevealAtMillis(),
                 radarSecret = viewer.radarSecret.takeIf { features.hasRadar && inRound },
                 radar = radarStateFor(viewer, nowMillis),
+                seekerTokens = seekerTokensFor(viewer, nowMillis),
                 bluetoothDeadlineMillis = viewer.bluetoothDeadlineMillis(),
                 uwbPeers = uwbPeersFor(viewer, nowMillis),
                 sparks = if (features.hasSparks) viewer.sparks else 0,
@@ -850,6 +907,7 @@ class Game(
                     radarSecret = player.radarSecret,
                     sparks = player.sparks,
                     bluetoothOffSinceMillis = player.bluetoothOffSinceMillis,
+                    carry = player.device?.carry,
                 )
             },
             catches = catches.values.map { claim ->
@@ -1163,6 +1221,19 @@ class Game(
     }
 
     /**
+     * The seekers' radar tokens for a hider with the sense on, during the search («Пульс»): the current slot's and
+     * its neighbours', so the phone knows a seeker's token the moment it hears it. Nothing for a seeker, nothing of
+     * the hiders.
+     */
+    private fun seekerTokensFor(viewer: Player, nowMillis: Long): List<String> {
+        if (!settings.features.hiderSense || phase != GamePhase.SEEKING) return emptyList()
+        if (viewer.role != Role.HIDER || !viewer.isPlayingNow) return emptyList()
+        return players.values
+            .filter { it.role == Role.SEEKER && !it.left }
+            .flatMap { seeker -> seeker.radarSecret?.let { RadarToken.candidates(it, nowMillis) }.orEmpty() }
+    }
+
+    /**
      * Whom [viewer]'s phone may range with by UWB right now (section 3): the other team's players whose phones are of
      * the same kind, have UWB and are on the screen too («peeking»), the nearest [MAX_UWB_PEERS]. In fair mode only
      * when every player's phone has UWB and all are of one kind. A hider gets their peers too, since ranging takes
@@ -1273,6 +1344,9 @@ class Game(
         bluetoothDeadlineMillis()?.let { nowMillis >= it } == true
 
     private fun Player.hasRadarOn(): Boolean = device?.bluetooth == BluetoothState.ON
+
+    /** Where the phone said it is; unknown until it said. */
+    private val Player.carry: Carry get() = device?.carry ?: Carry.UNKNOWN
 
     private fun Player.isReporting(nowMillis: Long): Boolean =
         deviceAtMillis?.let { nowMillis - it <= DEVICE_REPORT_TTL_MILLIS } == true
@@ -1402,6 +1476,7 @@ class Game(
         claim.deadlineMillis = atMillis
         if (confirmed) {
             player(claim.seekerId).catches++
+            calibration.onCatch(claim.seekerId, claim.hiderId, atMillis)
             val hider = player(claim.hiderId)
             hider.status = PlayerStatus.CAUGHT
             hider.outAtMillis = atMillis
@@ -1462,6 +1537,7 @@ class Game(
             disputes = catches.values.count { it.wasDisputed },
             chatMessages = lastChatSeq.toInt(),
             buildings = buildingsState,
+            radioCalibration = calibration.summary(),
             results = players.values.mapNotNull { player ->
                 val userId = player.userId ?: return@mapNotNull null
                 val route = checkNotNull(player.route)
@@ -1541,6 +1617,10 @@ class Game(
 
         /** A phone's report counts this long: the UWB pairing needs both on the screen right now. */
         private const val DEVICE_REPORT_TTL_MILLIS = 20_000L
+
+        /** A reading counts as «far apart» for the calibration when GPS proves at least this, with fixes this fresh. */
+        private const val FAR_APART_METERS = 60.0
+        private const val FAR_FIX_AGE_MILLIS = 20_000L
         private const val MAX_UWB_PEERS = 4
         private const val MAX_SIGHTINGS_PER_SYNC = 200
 

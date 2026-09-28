@@ -3,6 +3,7 @@ package app.hovanki.server.game
 import app.hovanki.shared.geo.moveBy
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.Capabilities
+import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.DeviceReport
 import app.hovanki.shared.protocol.ErrorCode
@@ -25,13 +26,16 @@ import app.hovanki.shared.protocol.RadarState
 import app.hovanki.shared.protocol.UwbPeer
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.VisibleLocation
+import app.hovanki.shared.rules.ProximityRules
 import app.hovanki.shared.rules.RadarToken
 import app.hovanki.shared.rules.shrinkingZone
+import app.hovanki.shared.totp.catchCodeTotp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * The radar by Bluetooth (docs/adr/0010-nearby-radar.md): what the server makes of the sightings the phones report,
@@ -96,7 +100,21 @@ class GameRadarTest {
         uwb: Boolean = false,
         onScreen: Boolean = true,
         token: String? = null,
-    ) = recordDevice(id, DeviceReport(platform, bluetooth, uwb, onScreen, token), now)
+        carry: Carry = Carry.UNKNOWN,
+        model: String? = null,
+    ) = recordDevice(id, DeviceReport(platform, bluetooth, uwb, onScreen, token, carry = carry, model = model), now)
+
+    /** The pair hears each other «burning» for as long as a claim needs (the dwell). */
+    private fun Game.meet(observer: PlayerId, heard: PlayerId, rssi: Int = -55) {
+        hears(observer, heard, rssi)
+        repeat(settings.rules.nearbyDwellSeconds) {
+            tick(1)
+            hears(observer, heard, rssi)
+        }
+    }
+
+    private fun Game.catchCode(of: PlayerId): String =
+        catchCodeTotp(checkNotNull(snapshotFor(of, now).me.catchCodeSecret), settings.rules).codeAt(now)
 
     private fun Game.seen(target: PlayerId = hider): VisibleLocation? =
         snapshotFor(seeker, now).players.single { it.id == target }.location
@@ -175,7 +193,11 @@ class GameRadarTest {
         val refused = assertFailsWith<GameException> { game.claimCatch(seeker, hider, CatchId("c1"), now) }
         assertEquals(ErrorCode.TOO_FAR to ErrorReason.NOT_NEARBY, refused.code to refused.reason)
 
+        // One spike off a wall is not a meeting: the pair has to stay «burning» for the dwell.
         game.hears(seeker, hider, -55)
+        val spike = assertFailsWith<GameException> { game.claimCatch(seeker, hider, CatchId("c1"), now) }
+        assertEquals(ErrorReason.NOT_NEARBY, spike.reason)
+        game.meet(seeker, hider)
         game.claimCatch(seeker, hider, CatchId("c1"), now)
     }
 
@@ -201,7 +223,7 @@ class GameRadarTest {
         game.begin()
         game.device(seeker, BluetoothState.ON)
         game.device(hider, BluetoothState.ON)
-        game.hears(seeker, hider, -55)
+        game.meet(seeker, hider)
         game.tick(settings.rules.nearbyWindowSeconds + 1)
         game.report(seeker, center)
         game.report(hider, center.moveBy(10.0, 0.0))
@@ -328,5 +350,94 @@ class GameRadarTest {
 
         // «Shadow»: the other one was hot on the seeker just now, so their metres start over from here.
         assertEquals(0, quest(other, QuestKind.SHADOW).progress)
+    }
+
+    @Test
+    fun theHiderGetsTheSeekersTokensForThePulse() {
+        val game = game()
+        game.start(seeker, setOf(seeker), ::newSecret, now)
+        assertEquals(emptyList(), game.snapshotFor(hider, now).me.seekerTokens, "only during the search")
+        game.tick(60)
+        check(game.phase == GamePhase.SEEKING)
+
+        val tokens = game.snapshotFor(hider, now).me.seekerTokens
+        assertEquals(RadarToken.candidates(game.radarSecretOf(seeker), now), tokens, "this slot and its neighbours")
+        assertEquals(tokens, game.snapshotFor(other, now).me.seekerTokens, "every hider")
+        assertEquals(emptyList(), game.snapshotFor(seeker, now).me.seekerTokens, "never to a seeker")
+        assertTrue(RadarToken.at(game.radarSecretOf(hider), now) !in tokens, "never a hider's")
+
+        val quiet = game(settings.copy(features = features.copy(hiderSense = false)))
+        quiet.begin()
+        assertEquals(emptyList(), quiet.snapshotFor(hider, now).me.seekerTokens, "the sense is off")
+    }
+
+    @Test
+    fun thePocketIsEvenedOutAndMayHide() {
+        val game = game()
+        game.begin()
+        // In the pocket the body takes a lot off the signal: what is heard at -72 dBm is about -60 in the open.
+        game.device(hider, BluetoothState.ON, carry = Carry.IN_POCKET)
+        game.hears(seeker, hider, -72)
+        assertEquals(RadarBand.BURNING, game.radarOf(seeker)?.contacts?.single()?.band)
+
+        // With the pocket stealth on, a hider in the pocket reads about a band colder to the seekers.
+        val stealthy = game(settings.copy(features = features.copy(pocketStealth = true)))
+        stealthy.begin()
+        stealthy.device(hider, BluetoothState.ON, carry = Carry.IN_POCKET)
+        stealthy.device(other, BluetoothState.ON, carry = Carry.IN_HAND)
+        stealthy.hears(seeker, hider, -72)
+        stealthy.hears(seeker, other, -72)
+        val bands = stealthy.radarOf(seeker)?.contacts?.associate { it.playerId to it.band }
+        assertEquals(
+            RadarBand.HOT,
+            bands?.get(hider),
+            "-72 + ${ProximityRules.POCKET_OFFSET_DB} - ${ProximityRules.STEALTH_DB}",
+        )
+        assertEquals(RadarBand.WARM, bands?.get(other), "in the hand: as heard")
+        // Two hiders' phones in two pockets: evened out twice, no stealth between them.
+        stealthy.device(other, BluetoothState.ON, carry = Carry.IN_POCKET)
+        stealthy.hears(other, hider, -84)
+        assertEquals(RadarBand.BURNING, stealthy.debugState(now).radar.single { it.a == hider && it.b == other }.band)
+    }
+
+    @Test
+    fun theReadingsByModelGoToTheHistory() {
+        val game = game()
+        game.begin()
+        game.device(seeker, BluetoothState.ON, model = "Pixel 8", carry = Carry.IN_HAND)
+        game.device(hider, BluetoothState.ON, platform = Platform.IOS, model = "iPhone15,2", carry = Carry.IN_POCKET)
+        // The other one never said what phone it has: its readings are nobody's business.
+        game.device(other, BluetoothState.ON)
+        game.report(seeker, center)
+        game.report(hider, center.moveBy(200.0, 0.0))
+        game.hears(seeker, hider, -88)
+        game.hears(hider, seeker, -87)
+        game.hears(seeker, other, -60)
+        game.tick(60)
+        game.report(seeker, center)
+        game.report(hider, center.moveBy(3.0, 0.0))
+        game.meet(seeker, hider, -52)
+        game.claimCatch(seeker, hider, CatchId("c1"), now, game.catchCode(hider))
+        game.tick(settings.seekingSeconds)
+        assertEquals(GamePhase.FINISHED, game.phase)
+
+        val buckets = assertNotNull(game.takeFinishedRecord()).radioCalibration
+        fun readings(hearer: String, anchor: CalibrationAnchor, rssi: Int) = buckets
+            .filter { it.hearerModel == hearer && it.anchor == anchor && it.rssiDbm == rssi }.sumOf { it.readings }
+        assertEquals(1, readings("Pixel 8", CalibrationAnchor.ALL, -88))
+        assertEquals(1, readings("Pixel 8", CalibrationAnchor.FAR, -88), "200 m apart by GPS")
+        assertEquals(1, readings("iPhone15,2", CalibrationAnchor.FAR, -87))
+        assertEquals(settings.rules.nearbyDwellSeconds + 1, readings("Pixel 8", CalibrationAnchor.ALL, -52))
+        assertEquals(
+            settings.rules.nearbyDwellSeconds + 1,
+            readings("Pixel 8", CalibrationAnchor.CATCH, -52),
+            "next to each other",
+        )
+        assertEquals(0, readings("Pixel 8", CalibrationAnchor.FAR, -52))
+        assertEquals(0, buckets.count { it.hearerModel.isBlank() || it.heardModel.isBlank() }, "no model, no row")
+        val row = buckets.single { it.anchor == CalibrationAnchor.CATCH && it.hearerModel == "Pixel 8" }
+        assertEquals("iPhone15,2" to Carry.IN_POCKET, row.heardModel to row.heardCarry)
+        assertEquals(Carry.IN_HAND, row.hearerCarry)
+        assertEquals(0, buckets.count { it.heardModel == "Other" || it.hearerModel == "Other" })
     }
 }

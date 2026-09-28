@@ -5,6 +5,7 @@ import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.rules.RadarSmoother
 import app.hovanki.shared.rules.RadarToken
+import kotlin.math.roundToInt
 
 /**
  * What the phones of a game hear of each other over Bluetooth (docs/adr/0010-nearby-radar.md, section 2.3): one
@@ -18,9 +19,21 @@ internal class Radar {
     private var tokenIndex: Map<String, PlayerId> = emptyMap()
     private var tokenIndexSlot = Long.MIN_VALUE
 
-    /** [observer] heard [token] at [rssi]: counts for the pair when the token is a player's of this game. */
-    fun record(observer: PlayerId, token: String, rssi: Int, atMillis: Long, secrets: () -> Map<PlayerId, String>) {
-        if (!RadarToken.isWellFormed(token)) return
+    /**
+     * [observer] heard [token] at [rssi]: counts for the pair when the token is a player's of this game, corrected by
+     * [adjustDb] (the pocket's damping evened out, the stealth taken off). [dwellMillis]: how long a pair has to stay
+     * «burning» to count for a claim. Returns whose token it was, or null for anybody else's.
+     */
+    fun record(
+        observer: PlayerId,
+        token: String,
+        rssi: Int,
+        atMillis: Long,
+        secrets: () -> Map<PlayerId, String>,
+        dwellMillis: Long = 0L,
+        adjustDb: (observer: PlayerId, heard: PlayerId) -> Double = { _, _ -> 0.0 },
+    ): PlayerId? {
+        if (!RadarToken.isWellFormed(token)) return null
         val slot = atMillis.floorDiv(RadarToken.SLOT_MILLIS)
         if (slot != tokenIndexSlot) {
             tokenIndex = buildMap {
@@ -30,9 +43,11 @@ internal class Radar {
             }
             tokenIndexSlot = slot
         }
-        val heard = tokenIndex[token] ?: return
-        if (heard == observer) return
-        pairs.getOrPut(PairKey.of(observer, heard)) { RadarSmoother() }.add(rssi, atMillis)
+        val heard = tokenIndex[token] ?: return null
+        if (heard == observer) return null
+        val level = (rssi + adjustDb(observer, heard)).roundToInt()
+        pairs.getOrPut(PairKey.of(observer, heard)) { RadarSmoother(dwellMillis) }.add(level, atMillis)
+        return heard
     }
 
     fun bandBetween(a: PlayerId, b: PlayerId, nowMillis: Long): RadarBand =
@@ -41,6 +56,7 @@ internal class Radar {
     /** When the pair was last heard at all; null: never. */
     fun lastHeardMillis(a: PlayerId, b: PlayerId): Long? = pairs[PairKey.of(a, b)]?.lastAtMillis
 
+    /** The pair was «burning» steadily (the dwell) within [windowMillis] before [nowMillis]. */
     fun wasBurningWithin(a: PlayerId, b: PlayerId, nowMillis: Long, windowMillis: Long): Boolean =
         pairs[PairKey.of(a, b)]?.wasBurningWithin(nowMillis, windowMillis) == true
 

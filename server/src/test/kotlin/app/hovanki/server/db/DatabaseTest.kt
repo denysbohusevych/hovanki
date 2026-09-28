@@ -291,6 +291,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             "played_games",
             "game_results",
             "game_routes",
+            "radio_calibration",
         )
 
         /** Every column that points at a user, with ON DELETE CASCADE. */

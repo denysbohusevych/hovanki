@@ -71,4 +71,49 @@ class ProximityTest {
         smoother.add(-50, 1_000)
         assertEquals(-90.0, smoother.levelDbm)
     }
+
+    @Test
+    fun aClaimNeedsTheBurningToLast() {
+        val smoother = RadarSmoother(dwellMillis = 3_000)
+        var now = 1_700_000_000_000L
+        smoother.add(-55, now)
+        assertEquals(RadarBand.BURNING, smoother.bandAt(now))
+        assertFalse(smoother.wasBurningWithin(now, windowMillis = 30_000), "one spike is not a meeting")
+        now += 2_000
+        smoother.add(-55, now)
+        assertFalse(smoother.wasBurningWithin(now, windowMillis = 30_000))
+        now += 1_000
+        smoother.add(-56, now)
+        assertTrue(smoother.wasBurningWithin(now, windowMillis = 30_000), "burning for three seconds")
+        assertEquals(now - 3_000, smoother.burningSinceMillis)
+
+        // A break resets the count (the smoothed signal needs a few readings to come back up); after a silence
+        // longer than the signal's life the count starts again from the first reading.
+        now += 1_000
+        smoother.add(-90, now)
+        assertEquals(null, smoother.burningSinceMillis)
+        now += ProximityRules.SIGNAL_TTL_MILLIS + 1
+        smoother.add(-55, now)
+        assertEquals(now, smoother.burningSinceMillis)
+        assertTrue(smoother.wasBurningWithin(now, windowMillis = 30_000), "the earlier meeting still counts")
+        assertFalse(smoother.wasBurningWithin(now + 40_000, windowMillis = 30_000))
+    }
+
+    @Test
+    fun theHeartbeatFollowsTheBand() {
+        assertEquals(null, HeartbeatRules.periodMillis(RadarBand.NONE))
+        assertEquals(HeartbeatRules.WARM_PERIOD_MILLIS, HeartbeatRules.periodMillis(RadarBand.WARM))
+        assertTrue(HeartbeatRules.HOT_PERIOD_MILLIS < HeartbeatRules.WARM_PERIOD_MILLIS)
+        assertTrue(HeartbeatRules.BURNING_PERIOD_MILLIS < HeartbeatRules.HOT_PERIOD_MILLIS)
+    }
+
+    @Test
+    fun aTokenFitsAnIBeaconsMajorAndMinor() {
+        val token = RadarToken.at(secret, 1_700_000_000_000L)
+        val (major, minor) = RadarToken.toMajorMinor(token)
+        assertTrue(major in 0..0xFFFF && minor in 0..0xFFFF)
+        assertEquals(token, RadarToken.fromMajorMinor(major, minor))
+        assertEquals("00010002", RadarToken.fromMajorMinor(1, 2))
+        assertEquals(0xFFFF to 0, RadarToken.toMajorMinor("ffff0000"))
+    }
 }

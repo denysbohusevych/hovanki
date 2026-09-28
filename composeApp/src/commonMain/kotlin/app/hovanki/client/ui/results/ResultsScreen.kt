@@ -46,6 +46,8 @@ import app.hovanki.client.resources.award_first_catch
 import app.hovanki.client.resources.award_hunter
 import app.hovanki.client.resources.award_last_standing
 import app.hovanki.client.resources.award_marathon
+import app.hovanki.client.resources.award_sparks
+import app.hovanki.client.resources.award_sparks_value
 import app.hovanki.client.resources.award_survivor
 import app.hovanki.client.resources.award_whole_search
 import app.hovanki.client.resources.awards_title
@@ -75,6 +77,7 @@ import app.hovanki.client.resources.results_to_the_end
 import app.hovanki.client.resources.results_you_caught
 import app.hovanki.client.resources.results_you_eliminated
 import app.hovanki.client.resources.results_you_survived
+import app.hovanki.client.resources.sparks_count
 import app.hovanki.client.session.Award
 import app.hovanki.client.session.AwardKind
 import app.hovanki.client.session.Replay
@@ -341,6 +344,23 @@ private fun PlayerOutcome(player: PlayerView, snapshot: GameSnapshot) {
         if (seeker != null) {
             PopChip(text = seeker.name, color = Palette.Orange, contentColor = Palette.Ink, border = Palette.Ink)
         }
+        // The sparks left at the end (docs/adr/0011-quests-sparks-and-sensors.md), in a game that had them.
+        val sparks = player.sparks
+        if (sparks != null && sparks > 0) {
+            PopChip(
+                text = stringResource(Res.string.sparks_count, sparks),
+                color = Palette.Lime,
+                contentColor = Palette.Ink,
+                border = Palette.Ink,
+                modifier = if (player.id ==
+                    snapshot.me.playerId
+                ) {
+                    Modifier.testTag(TestTags.RESULTS_SPARKS)
+                } else {
+                    Modifier
+                },
+            )
+        }
     }
 }
 
@@ -398,6 +418,7 @@ private val AwardKind.title: StringResource
         AwardKind.SURVIVOR -> Res.string.award_survivor
         AwardKind.LAST_STANDING -> Res.string.award_last_standing
         AwardKind.MARATHON -> Res.string.award_marathon
+        AwardKind.SPARKS -> Res.string.award_sparks
     }
 
 @Composable
@@ -410,6 +431,8 @@ private fun awardDetail(award: Award): String = when (award.kind) {
     AwardKind.SURVIVOR -> stringResource(Res.string.award_whole_search, formatElapsed(award.value))
 
     AwardKind.MARATHON -> distanceText(award.value.toDouble())
+
+    AwardKind.SPARKS -> stringResource(Res.string.award_sparks_value, award.value.toInt())
 }
 
 private const val AWARD_DELAY_MILLIS = 80L

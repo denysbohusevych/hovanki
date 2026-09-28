@@ -85,6 +85,8 @@ val commonModule: Module = module {
             precisionRadio = get(),
             deviceInfo = get(),
             activityMonitor = get(),
+            pocketPulse = get(),
+            carryMonitor = get(),
         )
     }
 

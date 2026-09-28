@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorManager
+import android.os.Build
 import app.hovanki.shared.protocol.Platform
 
 class AndroidDeviceInfo(context: Context) : DeviceInfo {
@@ -15,6 +16,9 @@ class AndroidDeviceInfo(context: Context) : DeviceInfo {
     override val hasActivitySensor: Boolean =
         (context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager)
             ?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
+
+    /** «Google Pixel 8»: the maker and the model, for the radar's readings by model. */
+    override val model: String = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
 
     private companion object {
         /** `PackageManager.FEATURE_UWB` is API 31+; the string works everywhere. */

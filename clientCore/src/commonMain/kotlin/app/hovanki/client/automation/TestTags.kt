@@ -240,6 +240,7 @@ object TestTags {
     const val SETTINGS_RADAR_REQUIRED = "settings_radar_required"
     const val SETTINGS_HIDER_SENSE = "settings_hider_sense"
     const val SETTINGS_PROXIMITY_CATCH = "settings_proximity_catch"
+    const val SETTINGS_POCKET_STEALTH = "settings_pocket_stealth"
     const val SETTINGS_PRECISION_RADAR = "settings_precision_radar"
     const val SETTINGS_QUESTS = "settings_quests"
     const val SETTINGS_PERKS = "settings_perks"
@@ -268,6 +269,8 @@ object TestTags {
     const val PERKS_PANEL = "perks_panel"
     const val CHECKPOINT_SCAN_OPEN = "checkpoint_scan_open"
     const val GAME_BLUETOOTH_OFF = "game_bluetooth_off"
+    const val DECOY_PUT = "decoy_put"
+    const val DECOY_CANCEL = "decoy_cancel"
     const val RESULTS_SPARKS = "results_sparks"
 
     /** An invite into another game, over the lobby and the results: go there, or dismiss it. */

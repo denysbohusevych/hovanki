@@ -121,6 +121,12 @@ data class MyState(
     /** The viewer's radar: whom they feel near, as bands; null without the radar. */
     val radar: RadarState? = null,
     /**
+     * A hider with the sense on, during the search: the radar tokens the seekers advertise right now (this five-minute
+     * slot and its neighbours), so the phone feels a seeker coming the moment it hears them, without waiting for the
+     * server (`HeartbeatRules`). Never a hider's token, never to a seeker.
+     */
+    val seekerTokens: List<String> = emptyList(),
+    /**
      * The radar is required and this hider's phone has Bluetooth off: turn it on before this time, or the seekers see
      * them from then on. Null otherwise.
      */

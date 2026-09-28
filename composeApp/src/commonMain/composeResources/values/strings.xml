@@ -449,6 +449,8 @@
   <string name="settings_fair_only">Only when everyone can</string>
   <string name="settings_activity">Running detector</string>
   <string name="settings_activity_hint">The phone tells when its player runs: for the «Sprint» quest and the statistics. Nothing leaves the phone but «running» or not.</string>
+  <string name="settings_pocket_stealth">The pocket hides</string>
+  <string name="settings_pocket_stealth_hint">The body damps the signal and the radar evens that out for everybody. With this on, a hider whose phone is in the pocket, screen off, reads a step colder to the seekers: want to be harder to feel, walk blind.</string>
   <!-- Quests, sparks, perks and the board (docs/adr/0011-quests-sparks-and-sensors.md) -->
   <string name="settings_quests">Quests</string>
   <string name="settings_quests_hint">Sparks for what is done during the search. The host picks the quests here, places quest points on the board and makes up quests in words.</string>
@@ -500,6 +502,7 @@
   <string name="lobby_chip_checkpoints">Checkpoints</string>
   <string name="lobby_chip_pickups">Perks on the map</string>
   <string name="lobby_chip_activity">Run detector</string>
+  <string name="lobby_chip_pocket_stealth">Pocket stealth</string>
   <string name="lobby_board">Board</string>
   <string name="lobby_board_count">Board: %1$d</string>
   <string name="lobby_bluetooth_on">Bluetooth on</string>

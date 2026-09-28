@@ -17,8 +17,12 @@ import app.hovanki.client.storage.KeychainSecureStore
 import app.hovanki.client.storage.SecureStore
 import app.hovanki.client.tracking.ActivityMonitor
 import app.hovanki.client.tracking.BackgroundTracker
+import app.hovanki.client.tracking.CarryMonitor
 import app.hovanki.client.tracking.IosActivityMonitor
 import app.hovanki.client.tracking.IosBackgroundTracker
+import app.hovanki.client.tracking.IosCarryMonitor
+import app.hovanki.client.tracking.IosPocketPulse
+import app.hovanki.client.tracking.PocketPulse
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.darwin.Darwin
 import org.koin.core.module.Module
@@ -39,4 +43,6 @@ actual val platformModule: Module = module {
     single<PrecisionRadio> { NoopPrecisionRadio() }
     single<DeviceInfo> { IosDeviceInfo() }
     single<ActivityMonitor> { IosActivityMonitor() }
+    single<PocketPulse> { IosPocketPulse() }
+    single<CarryMonitor> { IosCarryMonitor() }
 }

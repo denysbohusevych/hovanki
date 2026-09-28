@@ -9,7 +9,8 @@ import app.hovanki.shared.totp.toHex
  * The token a phone advertises over Bluetooth (docs/adr/0010-nearby-radar.md, section 2.2): the first 4 bytes of
  * HMAC-SHA1 of the player's radar secret and the current five-minute slot, as 8 hex characters. It changes every slot,
  * so a passer-by with a scanner can't follow a player between games; the server knows every secret and tells whose it
- * is. Computed on the phone by the server's clock, like the catch codes.
+ * is. Computed on the phone by the server's clock, like the catch codes. A seeker's token also goes on the air as an
+ * iBeacon frame (the token's 4 bytes are its major and minor), which an iPhone in a pocket hears through CoreLocation.
  */
 object RadarToken {
     const val SLOT_MILLIS = 5 * 60_000L
@@ -30,6 +31,12 @@ object RadarToken {
     }
 
     fun isWellFormed(token: String): Boolean = token.length == LENGTH && token.all { it in '0'..'9' || it in 'a'..'f' }
+
+    /** The token as an iBeacon's major and minor (two 16-bit numbers), and back. */
+    fun toMajorMinor(token: String): Pair<Int, Int> = token.substring(0, 4).toInt(16) to token.substring(4).toInt(16)
+
+    fun fromMajorMinor(major: Int, minor: Int): String =
+        major.toString(16).padStart(4, '0') + minor.toString(16).padStart(4, '0')
 }
 
 /**
@@ -50,6 +57,19 @@ object ProximityRules {
 
     /** How much a new reading weighs against the smoothed level. */
     const val SMOOTHING = 0.4
+
+    /**
+     * What the body takes off the signal when a phone is in a pocket, per phone of the pair: added back to the
+     * readings so the bands mean distance whether the phone is in the hand or not (a guess until the spike, and until
+     * the readings by model say better).
+     */
+    const val POCKET_OFFSET_DB = 12.0
+
+    /**
+     * The pocket stealth ([app.hovanki.shared.protocol.GameFeatures.pocketStealth]): what a hider's phone in the
+     * pocket reads colder to the seekers on top of the evening out, about a band.
+     */
+    const val STEALTH_DB = 8.0
 
     /** The band for a smoothed [levelDbm], coming from [previous]: up at the entry thresholds, down at the exits. */
     fun bandFor(levelDbm: Double, previous: RadarBand): RadarBand {
@@ -74,17 +94,41 @@ object ProximityRules {
 }
 
 /**
- * The signal between two phones, smoothed: fed with every reading either of them reports, asked for the band at any
- * moment. Not thread-safe: the owner synchronizes access.
+ * The pulse from the pocket (docs/adr/0010-nearby-radar.md, «Пульс»): how often the phone beats for a band, the
+ * hider's when a seeker comes near, the seeker's sonar when a hider is. The closer, the faster; nothing for no signal.
+ * Guesses until the spike.
  */
-class RadarSmoother {
+object HeartbeatRules {
+    const val WARM_PERIOD_MILLIS = 2_000L
+    const val HOT_PERIOD_MILLIS = 1_000L
+    const val BURNING_PERIOD_MILLIS = 400L
+
+    /** The beat's period for [band]; null: quiet. */
+    fun periodMillis(band: RadarBand): Long? = when (band) {
+        RadarBand.NONE -> null
+        RadarBand.WARM -> WARM_PERIOD_MILLIS
+        RadarBand.HOT -> HOT_PERIOD_MILLIS
+        RadarBand.BURNING -> BURNING_PERIOD_MILLIS
+    }
+}
+
+/**
+ * The signal between two phones, smoothed: fed with every reading either of them reports, asked for the band at any
+ * moment. [dwellMillis]: how long the pair has to stay «burning» before it counts for a claim up close: one spike off
+ * a wall is not a meeting. Not thread-safe: the owner synchronizes access.
+ */
+class RadarSmoother(private val dwellMillis: Long = 0L) {
     var levelDbm: Double? = null
         private set
     var lastAtMillis: Long? = null
         private set
     private var band = RadarBand.NONE
 
-    /** When the pair was last «burning», for the claim rule; null: never. */
+    /** Since when the pair has been «burning» without a break; null: it isn't. */
+    var burningSinceMillis: Long? = null
+        private set
+
+    /** When the pair was last «burning» for [dwellMillis] or longer, for the claim rule; null: never. */
     var lastBurningAtMillis: Long? = null
         private set
 
@@ -101,7 +145,13 @@ class RadarSmoother {
         }
         lastAtMillis = atMillis
         band = ProximityRules.bandFor(checkNotNull(levelDbm), if (gone) RadarBand.NONE else band)
-        if (band == RadarBand.BURNING) lastBurningAtMillis = atMillis
+        if (band == RadarBand.BURNING) {
+            val since = burningSinceMillis?.takeUnless { gone } ?: atMillis
+            burningSinceMillis = since
+            if (atMillis - since >= dwellMillis) lastBurningAtMillis = atMillis
+        } else {
+            burningSinceMillis = null
+        }
     }
 
     /** The band at [nowMillis]: [RadarBand.NONE] once the signal is older than its life. */
@@ -110,7 +160,7 @@ class RadarSmoother {
         return if (nowMillis - last > ProximityRules.SIGNAL_TTL_MILLIS) RadarBand.NONE else band
     }
 
-    /** The pair was «burning» within [windowMillis] before [nowMillis]. */
+    /** The pair was «burning» (steadily, see [dwellMillis]) within [windowMillis] before [nowMillis]. */
     fun wasBurningWithin(nowMillis: Long, windowMillis: Long): Boolean =
         lastBurningAtMillis?.let { nowMillis - it <= windowMillis } == true
 }

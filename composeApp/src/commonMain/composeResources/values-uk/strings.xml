@@ -449,6 +449,8 @@
   <string name="settings_fair_only">Лише якщо можуть усі</string>
   <string name="settings_activity">Детектор бігу</string>
   <string name="settings_activity_hint">Телефон повідомляє, коли його гравець біжить: для завдання «Спринт» і статистики. З телефона йде лише «біжить» чи ні.</string>
+  <string name="settings_pocket_stealth">Кишеня ховає</string>
+  <string name="settings_pocket_stealth_hint">Тіло глушить сигнал, і радар вирівнює це для всіх. З цим налаштуванням той, хто ховається, з телефоном у кишені при вимкненому екрані читається шукачам на сходинку холодніше: хочеш, щоб тебе гірше відчували, йди наосліп.</string>
   <!-- Завдання, іскри, перки та дошка (docs/adr/0011-quests-sparks-and-sensors.md) -->
   <string name="settings_quests">Завдання</string>
   <string name="settings_quests_hint">Іскри за те, що зроблено під час пошуку. Хост обирає завдання тут, ставить точки завдань на дошці й вигадує завдання словами.</string>
@@ -500,6 +502,7 @@
   <string name="lobby_chip_checkpoints">Контрольні точки</string>
   <string name="lobby_chip_pickups">Перки на мапі</string>
   <string name="lobby_chip_activity">Детектор бігу</string>
+  <string name="lobby_chip_pocket_stealth">Стелс із кишені</string>
   <string name="lobby_board">Дошка</string>
   <string name="lobby_board_count">Дошка: %1$d</string>
   <string name="lobby_bluetooth_on">Bluetooth увімкнено</string>

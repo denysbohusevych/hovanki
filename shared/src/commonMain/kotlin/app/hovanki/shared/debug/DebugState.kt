@@ -4,6 +4,7 @@ import app.hovanki.shared.protocol.Activity
 import app.hovanki.shared.protocol.BoardItem
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.Capabilities
+import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.ChatMessage
@@ -171,6 +172,8 @@ data class DebugPlayer(
     val sparks: Int = 0,
     /** Since when the phone reports Bluetooth off while the radar is required. */
     val bluetoothOffSinceMillis: Long? = null,
+    /** Where the phone said it is (in the hand, in the pocket). */
+    val carry: Carry? = null,
 )
 
 @Serializable

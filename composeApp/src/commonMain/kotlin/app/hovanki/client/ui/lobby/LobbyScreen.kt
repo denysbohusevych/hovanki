@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
+import app.hovanki.client.radio.rememberBluetoothPermissionRequester
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_dismiss
 import app.hovanki.client.resources.action_leave
@@ -59,9 +60,25 @@ import app.hovanki.client.resources.ic_person_add
 import app.hovanki.client.resources.ic_share
 import app.hovanki.client.resources.ic_sliders
 import app.hovanki.client.resources.invites_sent
+import app.hovanki.client.resources.lobby_bluetooth_by_player
+import app.hovanki.client.resources.lobby_bluetooth_denied
+import app.hovanki.client.resources.lobby_bluetooth_off
+import app.hovanki.client.resources.lobby_bluetooth_on
+import app.hovanki.client.resources.lobby_board_count
 import app.hovanki.client.resources.lobby_buildings_loading
 import app.hovanki.client.resources.lobby_buildings_ready
+import app.hovanki.client.resources.lobby_chip_activity
+import app.hovanki.client.resources.lobby_chip_checkpoints
 import app.hovanki.client.resources.lobby_chip_glow
+import app.hovanki.client.resources.lobby_chip_perks
+import app.hovanki.client.resources.lobby_chip_pickups
+import app.hovanki.client.resources.lobby_chip_pocket_stealth
+import app.hovanki.client.resources.lobby_chip_precision
+import app.hovanki.client.resources.lobby_chip_proximity
+import app.hovanki.client.resources.lobby_chip_quests
+import app.hovanki.client.resources.lobby_chip_radar
+import app.hovanki.client.resources.lobby_chip_radar_required
+import app.hovanki.client.resources.lobby_chip_sense
 import app.hovanki.client.resources.lobby_chip_streets
 import app.hovanki.client.resources.lobby_chip_time
 import app.hovanki.client.resources.lobby_chip_zone
@@ -72,9 +89,18 @@ import app.hovanki.client.resources.lobby_copy_code
 import app.hovanki.client.resources.lobby_hider
 import app.hovanki.client.resources.lobby_host
 import app.hovanki.client.resources.lobby_invite
+import app.hovanki.client.resources.lobby_my_radar
+import app.hovanki.client.resources.lobby_my_radar_hint
+import app.hovanki.client.resources.lobby_no_radar
 import app.hovanki.client.resources.lobby_offline
 import app.hovanki.client.resources.lobby_pick_seekers
 import app.hovanki.client.resources.lobby_players
+import app.hovanki.client.resources.lobby_radar_allow
+import app.hovanki.client.resources.lobby_radar_denied
+import app.hovanki.client.resources.lobby_radar_required_off
+import app.hovanki.client.resources.lobby_radar_text
+import app.hovanki.client.resources.lobby_radar_turn_on
+import app.hovanki.client.resources.lobby_radar_unsupported
 import app.hovanki.client.resources.lobby_random
 import app.hovanki.client.resources.lobby_roles_by_host
 import app.hovanki.client.resources.lobby_seeker
@@ -86,6 +112,7 @@ import app.hovanki.client.resources.lobby_start_hint
 import app.hovanki.client.resources.lobby_start_wait_streets
 import app.hovanki.client.resources.lobby_streets_loading
 import app.hovanki.client.resources.lobby_title
+import app.hovanki.client.resources.lobby_uwb
 import app.hovanki.client.resources.lobby_waiting
 import app.hovanki.client.resources.lobby_you
 import app.hovanki.client.resources.lobby_you_hide
@@ -119,7 +146,9 @@ import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.theme.color
 import app.hovanki.client.ui.theme.onColor
+import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.BuildingsState
+import app.hovanki.shared.protocol.FeatureMode
 import app.hovanki.shared.protocol.ZoneShape
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -155,6 +184,10 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
         SettingsPanel(state, viewModel)
         return
     }
+    if (state.isHost && viewModel.boardPanelIn == state.gameId) {
+        BoardPanel(state, viewModel)
+        return
+    }
     val message by viewModel.message.collectAsStateWithLifecycle()
     val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
     val reduceMotion = rememberReduceMotion()
@@ -181,7 +214,8 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                     onDismissError = viewModel::dismissError,
                     onLocationPermissionGranted = viewModel::onLocationPermissionGranted,
                 )
-                SettingsChips(state, onOpenSettings = viewModel::openSettings)
+                SettingsChips(state, onOpenSettings = viewModel::openSettings, onOpenBoard = viewModel::openBoard)
+                if (state.features.hasRadar) RadarCard(state, viewModel)
                 if (state.isBuildingRuleOff) {
                     Banner(
                         text = stringResource(Res.string.building_rule_off),
@@ -264,6 +298,7 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                                     if (index > 0) HorizontalDivider(color = Palette.Line, thickness = 1.5.dp)
                                     PlayerRow(
                                         player = player,
+                                        showRadar = state.features.hasRadar,
                                         canPickRoles = state.isHost,
                                         isBusy = isBusy,
                                         isNew = isNew,
@@ -401,6 +436,7 @@ private fun JoinCodeCard(joinCode: String, onCopied: () -> Unit) {
 @Composable
 private fun PlayerRow(
     player: LobbyPlayer,
+    showRadar: Boolean,
     canPickRoles: Boolean,
     isBusy: Boolean,
     isNew: Boolean,
@@ -453,6 +489,25 @@ private fun PlayerRow(
                     modifier = Modifier.testTag(TestTags.lobbyOffline(player.id)),
                 )
             }
+            // What the phone can do for the radar (docs/adr/0010): «no radar» when it can't take part, UWB when it can
+            // do more; nothing said, nothing shown.
+            if (showRadar) {
+                val capabilities = player.capabilities
+                val ability = when {
+                    capabilities == null -> null
+                    capabilities.bluetooth != BluetoothState.ON -> stringResource(Res.string.lobby_no_radar)
+                    capabilities.uwb -> stringResource(Res.string.lobby_uwb)
+                    else -> null
+                }
+                if (ability != null) {
+                    Text(
+                        text = ability,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Palette.Ink2,
+                        modifier = Modifier.testTag(TestTags.lobbyCapability(player.id)),
+                    )
+                }
+            }
             PlayerAccountBadge(player.id, player.account, isBusy = isBusy, onAddFriend = onAddFriend)
         }
         RolePill(
@@ -498,11 +553,11 @@ private fun RolePill(isSeeker: Boolean, onClick: (() -> Unit)?, modifier: Modifi
 }
 
 /**
- * The game's setup as chips (the zone and its shape, hiding + search time, the glow), the state of the zone's map
- * data, and for the host the button to change the setup.
+ * The game's setup as chips (the zone and its shape, hiding + search time, the glow, the extras that are on), the
+ * state of the zone's map data, the board when the game has one, and for the host the button to change the setup.
  */
 @Composable
-private fun SettingsChips(state: LobbyUiState, onOpenSettings: () -> Unit) {
+private fun SettingsChips(state: LobbyUiState, onOpenSettings: () -> Unit, onOpenBoard: () -> Unit) {
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -517,6 +572,7 @@ private fun SettingsChips(state: LobbyUiState, onOpenSettings: () -> Unit) {
         )
         PopChip(stringResource(Res.string.lobby_chip_time, state.hidingMinutes, state.seekingMinutes))
         state.glowEveryMinutes?.let { PopChip(stringResource(Res.string.lobby_chip_glow, it)) }
+        FeatureChips(state)
         when {
             state.isBuildingStreetZone -> PopChip(
                 text = stringResource(Res.string.lobby_streets_loading),
@@ -539,6 +595,16 @@ private fun SettingsChips(state: LobbyUiState, onOpenSettings: () -> Unit) {
                 modifier = Modifier.testTag(TestTags.LOBBY_BUILDINGS),
             )
         }
+        if (state.features.hasBoard) {
+            PopChip(
+                text = stringResource(Res.string.lobby_board_count, state.items.size),
+                color = Palette.Orange,
+                contentColor = Palette.Ink,
+                border = Palette.Ink,
+                onClick = onOpenBoard.takeIf { state.isHost },
+                modifier = Modifier.testTag(TestTags.LOBBY_BOARD),
+            )
+        }
         if (state.isHost) {
             PopChip(
                 text = stringResource(Res.string.lobby_settings),
@@ -549,6 +615,101 @@ private fun SettingsChips(state: LobbyUiState, onOpenSettings: () -> Unit) {
                 onClick = onOpenSettings,
                 modifier = Modifier.testTag(TestTags.LOBBY_SETTINGS),
             )
+        }
+    }
+}
+
+/** The extras the host turned on (docs/adr/0010-nearby-radar.md, docs/adr/0011), one chip each. */
+@Composable
+private fun FeatureChips(state: LobbyUiState) {
+    val features = state.features
+    val chips = listOfNotNull(
+        when (features.radar) {
+            FeatureMode.OFF -> null
+            FeatureMode.OPTIONAL -> Res.string.lobby_chip_radar
+            FeatureMode.REQUIRED -> Res.string.lobby_chip_radar_required
+        },
+        Res.string.lobby_chip_sense.takeIf { features.hiderSense },
+        Res.string.lobby_chip_proximity.takeIf { features.proximityCatch },
+        Res.string.lobby_chip_pocket_stealth.takeIf { features.pocketStealth },
+        Res.string.lobby_chip_precision.takeIf { features.precisionRadar },
+        Res.string.lobby_chip_quests.takeIf { features.quests },
+        Res.string.lobby_chip_perks.takeIf { features.perks },
+        Res.string.lobby_chip_checkpoints.takeIf { features.checkpoints },
+        Res.string.lobby_chip_pickups.takeIf { features.pickups },
+        Res.string.lobby_chip_activity.takeIf { features.activity },
+    )
+    chips.forEach { chip ->
+        PopChip(
+            text = stringResource(chip),
+            color = Palette.Violet,
+            contentColor = androidx.compose.ui.graphics.Color.White,
+        )
+    }
+}
+
+/**
+ * The radar on this phone (docs/adr/0010-nearby-radar.md, section 4.4): what the game does with Bluetooth, whether
+ * this phone can take part (allow it, turn it on), and «the radar on my phone» when the game leaves the choice.
+ */
+@Composable
+private fun RadarCard(state: LobbyUiState, viewModel: LobbyViewModel) {
+    val requestPermission = rememberBluetoothPermissionRequester {}
+    val bluetooth = state.bluetooth
+    val (stateText, stateColor) = when {
+        bluetooth == BluetoothState.ON && !state.radarEnabled ->
+            stringResource(Res.string.lobby_bluetooth_by_player) to Palette.Sand
+
+        bluetooth == BluetoothState.ON -> stringResource(Res.string.lobby_bluetooth_on) to Palette.Lime
+
+        bluetooth == BluetoothState.DENIED -> stringResource(Res.string.lobby_bluetooth_denied) to Palette.Pink
+
+        else -> stringResource(Res.string.lobby_bluetooth_off) to Palette.Pink
+    }
+    PopCard(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = stringResource(Res.string.lobby_chip_radar),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            PopChip(
+                text = stateText,
+                color = stateColor,
+                contentColor = Palette.Ink,
+                border = Palette.Ink,
+                modifier = Modifier.testTag(TestTags.LOBBY_BLUETOOTH),
+            )
+        }
+        SecondaryText(stringResource(Res.string.lobby_radar_text))
+        when (bluetooth) {
+            BluetoothState.DENIED -> {
+                SecondaryText(stringResource(Res.string.lobby_radar_denied))
+                PopButton(
+                    text = stringResource(Res.string.lobby_radar_allow),
+                    onClick = requestPermission,
+                    height = 44.dp,
+                    modifier = Modifier.testTag(TestTags.LOBBY_BLUETOOTH_ALLOW),
+                )
+            }
+
+            BluetoothState.OFF -> SecondaryText(stringResource(Res.string.lobby_radar_turn_on))
+
+            BluetoothState.UNSUPPORTED -> SecondaryText(stringResource(Res.string.lobby_radar_unsupported))
+
+            BluetoothState.ON, BluetoothState.OFF_BY_PLAYER -> Unit
+        }
+        if (state.features.radar == FeatureMode.REQUIRED && (bluetooth != BluetoothState.ON || !state.radarEnabled)) {
+            Banner(text = stringResource(Res.string.lobby_radar_required_off))
+        }
+        if (bluetooth == BluetoothState.ON) {
+            SwitchRow(
+                text = stringResource(Res.string.lobby_my_radar),
+                checked = state.radarEnabled,
+                onCheckedChange = viewModel::setRadarEnabled,
+                tag = TestTags.LOBBY_MY_RADAR,
+            )
+            SecondaryText(stringResource(Res.string.lobby_my_radar_hint))
         }
     }
 }

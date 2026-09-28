@@ -2,6 +2,8 @@ package app.hovanki.client.ui.lobby
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -22,13 +24,43 @@ import androidx.compose.ui.unit.sp
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_dismiss
+import app.hovanki.client.resources.quest_needs_glow
+import app.hovanki.client.resources.quest_needs_radar
+import app.hovanki.client.resources.settings_activity
+import app.hovanki.client.resources.settings_activity_hint
+import app.hovanki.client.resources.settings_checkpoints
+import app.hovanki.client.resources.settings_checkpoints_hint
+import app.hovanki.client.resources.settings_fair_only
+import app.hovanki.client.resources.settings_features
+import app.hovanki.client.resources.settings_features_hint
+import app.hovanki.client.resources.settings_features_none
 import app.hovanki.client.resources.settings_glow
 import app.hovanki.client.resources.settings_glow_every
 import app.hovanki.client.resources.settings_glow_for
 import app.hovanki.client.resources.settings_glow_hint
+import app.hovanki.client.resources.settings_hider_sense
+import app.hovanki.client.resources.settings_hider_sense_hint
 import app.hovanki.client.resources.settings_hiding
 import app.hovanki.client.resources.settings_meters
 import app.hovanki.client.resources.settings_minutes
+import app.hovanki.client.resources.settings_perks
+import app.hovanki.client.resources.settings_perks_hint
+import app.hovanki.client.resources.settings_pickups
+import app.hovanki.client.resources.settings_pickups_hint
+import app.hovanki.client.resources.settings_pocket_stealth
+import app.hovanki.client.resources.settings_pocket_stealth_hint
+import app.hovanki.client.resources.settings_precision_for_hiders
+import app.hovanki.client.resources.settings_precision_radar
+import app.hovanki.client.resources.settings_precision_radar_hint
+import app.hovanki.client.resources.settings_proximity_catch
+import app.hovanki.client.resources.settings_proximity_catch_hint
+import app.hovanki.client.resources.settings_quests
+import app.hovanki.client.resources.settings_quests_hint
+import app.hovanki.client.resources.settings_quests_pick
+import app.hovanki.client.resources.settings_radar
+import app.hovanki.client.resources.settings_radar_hint
+import app.hovanki.client.resources.settings_radar_required
+import app.hovanki.client.resources.settings_radar_required_hint
 import app.hovanki.client.resources.settings_save
 import app.hovanki.client.resources.settings_seconds
 import app.hovanki.client.resources.settings_seeking
@@ -38,20 +70,28 @@ import app.hovanki.client.resources.settings_shape_streets_hint
 import app.hovanki.client.resources.settings_shrinks
 import app.hovanki.client.resources.settings_title
 import app.hovanki.client.resources.settings_zone
+import app.hovanki.client.resources.sparks_count
 import app.hovanki.client.resources.working
 import app.hovanki.client.ui.common.Banner
 import app.hovanki.client.ui.common.BusyRow
 import app.hovanki.client.ui.common.Panel
+import app.hovanki.client.ui.common.PickRow
 import app.hovanki.client.ui.common.PopButton
 import app.hovanki.client.ui.common.PopCard
 import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
+import app.hovanki.client.ui.common.audienceTitle
 import app.hovanki.client.ui.common.describe
+import app.hovanki.client.ui.common.questTitle
 import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Palette
+import app.hovanki.shared.protocol.FeatureMode
+import app.hovanki.shared.protocol.GameFeatures
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.GameSetup
+import app.hovanki.shared.rules.QuestCatalog
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -169,6 +209,8 @@ fun SettingsPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                 }
             }
 
+            FeaturesCard(state, setup, edit)
+
             PopButton(
                 text = stringResource(Res.string.settings_save),
                 onClick = viewModel::saveSettings,
@@ -189,6 +231,170 @@ fun SettingsPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
     }
 }
 
+/**
+ * The extras (docs/adr/0010-nearby-radar.md, docs/adr/0011-quests-sparks-and-sensors.md): only what the server's
+ * operator has switched on is offered; the radar's companions only with the radar; the quests to pick with the
+ * quests on, the ones that need the radar or the glow greyed out without them.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FeaturesCard(state: LobbyUiState, setup: GameSetup, edit: (GameSetup) -> Unit) {
+    val enabled = state.enabledFeatures
+    val features = setup.features
+    val set = { changed: GameFeatures -> edit(setup.copy(features = changed)) }
+    PopCard(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(stringResource(Res.string.settings_features), style = MaterialTheme.typography.titleMedium)
+        if (enabled.isEmpty()) {
+            SecondaryText(stringResource(Res.string.settings_features_none))
+            return@PopCard
+        }
+        SecondaryText(stringResource(Res.string.settings_features_hint))
+        if (ServerFeature.RADAR in enabled) {
+            SwitchRow(
+                text = stringResource(Res.string.settings_radar),
+                checked = features.hasRadar,
+                onCheckedChange = { on ->
+                    set(features.copy(radar = if (on) FeatureMode.OPTIONAL else FeatureMode.OFF))
+                },
+                tag = TestTags.SETTINGS_RADAR,
+            )
+            SecondaryText(stringResource(Res.string.settings_radar_hint))
+            if (features.hasRadar) {
+                SwitchRow(
+                    text = stringResource(Res.string.settings_radar_required),
+                    checked = features.radar == FeatureMode.REQUIRED,
+                    onCheckedChange = { on ->
+                        set(features.copy(radar = if (on) FeatureMode.REQUIRED else FeatureMode.OPTIONAL))
+                    },
+                    tag = TestTags.SETTINGS_RADAR_REQUIRED,
+                )
+                if (features.radar == FeatureMode.REQUIRED) {
+                    SecondaryText(stringResource(Res.string.settings_radar_required_hint))
+                }
+                if (ServerFeature.HIDER_SENSE in enabled) {
+                    SwitchRow(
+                        text = stringResource(Res.string.settings_hider_sense),
+                        checked = features.hiderSense,
+                        onCheckedChange = { set(features.copy(hiderSense = it)) },
+                        tag = TestTags.SETTINGS_HIDER_SENSE,
+                    )
+                    SecondaryText(stringResource(Res.string.settings_hider_sense_hint))
+                }
+                if (ServerFeature.PROXIMITY_CATCH in enabled) {
+                    SwitchRow(
+                        text = stringResource(Res.string.settings_proximity_catch),
+                        checked = features.proximityCatch,
+                        onCheckedChange = { set(features.copy(proximityCatch = it)) },
+                        tag = TestTags.SETTINGS_PROXIMITY_CATCH,
+                    )
+                    SecondaryText(stringResource(Res.string.settings_proximity_catch_hint))
+                }
+                if (ServerFeature.POCKET_STEALTH in enabled) {
+                    SwitchRow(
+                        text = stringResource(Res.string.settings_pocket_stealth),
+                        checked = features.pocketStealth,
+                        onCheckedChange = { set(features.copy(pocketStealth = it)) },
+                        tag = TestTags.SETTINGS_POCKET_STEALTH,
+                    )
+                    SecondaryText(stringResource(Res.string.settings_pocket_stealth_hint))
+                }
+            }
+        }
+        if (ServerFeature.PRECISION_RADAR in enabled) {
+            SwitchRow(
+                text = stringResource(Res.string.settings_precision_radar),
+                checked = features.precisionRadar,
+                onCheckedChange = { set(features.copy(precisionRadar = it)) },
+                tag = TestTags.SETTINGS_PRECISION_RADAR,
+            )
+            SecondaryText(stringResource(Res.string.settings_precision_radar_hint))
+            if (features.precisionRadar) {
+                SwitchRow(
+                    text = stringResource(Res.string.settings_precision_for_hiders),
+                    checked = features.precisionForHiders,
+                    onCheckedChange = { set(features.copy(precisionForHiders = it)) },
+                    tag = TestTags.SETTINGS_PRECISION_RADAR + "_hiders",
+                )
+                SwitchRow(
+                    text = stringResource(Res.string.settings_fair_only),
+                    checked = features.fairOnly,
+                    onCheckedChange = { set(features.copy(fairOnly = it)) },
+                    tag = TestTags.SETTINGS_PRECISION_RADAR + "_fair",
+                )
+            }
+        }
+        if (ServerFeature.ACTIVITY in enabled) {
+            SwitchRow(
+                text = stringResource(Res.string.settings_activity),
+                checked = features.activity,
+                onCheckedChange = { set(features.copy(activity = it)) },
+                tag = TestTags.SETTINGS_ACTIVITY,
+            )
+            SecondaryText(stringResource(Res.string.settings_activity_hint))
+        }
+        if (ServerFeature.QUESTS in enabled) {
+            SwitchRow(
+                text = stringResource(Res.string.settings_quests),
+                checked = features.quests,
+                onCheckedChange = { set(features.copy(quests = it)) },
+                tag = TestTags.SETTINGS_QUESTS,
+            )
+            SecondaryText(stringResource(Res.string.settings_quests_hint))
+            if (features.quests) {
+                Text(stringResource(Res.string.settings_quests_pick), style = MaterialTheme.typography.titleSmall)
+                QuestCatalog.pickable.forEach { kind ->
+                    val spec = QuestCatalog.spec(kind)
+                    val needsRadar = spec.needsRadar && !features.hasRadar
+                    val needsGlow = spec.needsGlow && setup.glowEveryMinutes <= 0
+                    val notes = listOfNotNull(
+                        audienceTitle(spec.audience),
+                        stringResource(Res.string.sparks_count, spec.sparks),
+                        stringResource(Res.string.quest_needs_radar).takeIf { needsRadar },
+                        stringResource(Res.string.quest_needs_glow).takeIf { needsGlow },
+                    )
+                    PickRow(
+                        title = questTitle(kind),
+                        checked = kind in setup.quests && !needsRadar && !needsGlow,
+                        onCheckedChange = { on ->
+                            edit(setup.copy(quests = if (on) setup.quests + kind else setup.quests - kind))
+                        },
+                        enabled = !needsRadar && !needsGlow,
+                        subtitle = notes.joinToString(" · "),
+                        modifier = Modifier.testTag(TestTags.settingQuest(kind.name)),
+                    )
+                }
+            }
+        }
+        if (ServerFeature.PERKS in enabled) {
+            SwitchRow(
+                text = stringResource(Res.string.settings_perks),
+                checked = features.perks,
+                onCheckedChange = { set(features.copy(perks = it)) },
+                tag = TestTags.SETTINGS_PERKS,
+            )
+            SecondaryText(stringResource(Res.string.settings_perks_hint))
+        }
+        if (ServerFeature.CHECKPOINTS in enabled) {
+            SwitchRow(
+                text = stringResource(Res.string.settings_checkpoints),
+                checked = features.checkpoints,
+                onCheckedChange = { set(features.copy(checkpoints = it)) },
+                tag = TestTags.SETTINGS_CHECKPOINTS,
+            )
+            SecondaryText(stringResource(Res.string.settings_checkpoints_hint))
+        }
+        if (ServerFeature.PICKUPS in enabled) {
+            SwitchRow(
+                text = stringResource(Res.string.settings_pickups),
+                checked = features.pickups,
+                onCheckedChange = { set(features.copy(pickups = it)) },
+                tag = TestTags.SETTINGS_PICKUPS,
+            )
+            SecondaryText(stringResource(Res.string.settings_pickups_hint))
+        }
+    }
+}
+
 /** The glow lengths the panel offers: short ones one by one, then coarser; each shorter than the interval. */
 private fun glowLengths(everyMinutes: Int): List<Int> =
     GLOW_LENGTHS.filter { it in GameSetup.GLOW_FOR_SECONDS && it < everyMinutes * SECONDS_PER_MINUTE }
@@ -199,7 +405,7 @@ private const val SEEKING_STEP = GameSetup.SEEKING_STEP_MINUTES
 
 /** [label] on the left, the stepper on the right. */
 @Composable
-private fun LabeledStepper(
+internal fun LabeledStepper(
     label: String,
     name: String,
     value: String,
@@ -216,7 +422,7 @@ private fun LabeledStepper(
 
 /** «−», the value, «+»; tagged by [name] for UI automation ([TestTags.settingValue] and friends). */
 @Composable
-private fun Stepper(
+internal fun Stepper(
     name: String,
     value: String,
     onMinus: () -> Unit,
@@ -252,7 +458,7 @@ private fun Stepper(
 
 /** One of the zone's shapes; the chosen one is ink. */
 @Composable
-private fun ShapeButton(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun ShapeButton(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     PopButton(
         text = text,
         onClick = onClick,
@@ -264,7 +470,7 @@ private fun ShapeButton(text: String, selected: Boolean, onClick: () -> Unit, mo
 
 /** [text] and a switch; the whole row toggles it. */
 @Composable
-private fun SwitchRow(text: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit, tag: String) {
+internal fun SwitchRow(text: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit, tag: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

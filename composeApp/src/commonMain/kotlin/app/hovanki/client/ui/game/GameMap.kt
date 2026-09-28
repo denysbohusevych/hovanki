@@ -38,15 +38,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.item_taken
+import app.hovanki.client.resources.reason_fresh_trail
 import app.hovanki.client.resources.reason_glow
 import app.hovanki.client.resources.reason_glow_mark
 import app.hovanki.client.resources.reason_inside_building
 import app.hovanki.client.resources.reason_mock_location
 import app.hovanki.client.resources.reason_out_of_zone
+import app.hovanki.client.resources.reason_radar_off
+import app.hovanki.client.resources.reason_spotlight
 import app.hovanki.client.resources.reason_stale_signal
 import app.hovanki.client.resources.reason_teammate
 import app.hovanki.client.session.ZoneCue
 import app.hovanki.client.ui.common.formatCountdown
+import app.hovanki.client.ui.common.itemKindTitle
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.theme.color
@@ -56,6 +61,7 @@ import app.hovanki.shared.geo.offsetFrom
 import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.ItemKind
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.Passage
 import app.hovanki.shared.protocol.Role
@@ -78,6 +84,8 @@ import org.maplibre.compose.expressions.dsl.textOffset
 import org.maplibre.compose.expressions.value.LineCap
 import org.maplibre.compose.expressions.value.LineJoin
 import org.maplibre.compose.expressions.value.SymbolAnchor
+import org.maplibre.compose.interaction.ClickResult
+import org.maplibre.compose.interaction.MapInteractions
 import org.maplibre.compose.layers.CircleLayer
 import org.maplibre.compose.layers.FillLayer
 import org.maplibre.compose.layers.LineLayer
@@ -119,6 +127,9 @@ import kotlin.time.Duration.Companion.milliseconds
  * polygons instead of the circles: it does not shrink smoothly, it switches to the next one when the stage is over.
  * [recenterRequests]: each increase moves the camera to our own position. [onCameraBearing]:
  * the map's rotation (degrees clockwise from north) whenever the player turns it, for what points somewhere on screen.
+ * The board ([items], docs/adr/0011-quests-sparks-and-sensors.md) is drawn by kind, what is taken in grey; with
+ * [onMapClick] a tap on the map gives its point (the host placing an item, a hider placing a decoy) and [pickedPoint]
+ * marks the last one.
  */
 @Composable
 fun GameMap(
@@ -134,6 +145,9 @@ fun GameMap(
     reduceMotion: Boolean = false,
     attributionPadding: PaddingValues = PaddingValues(0.dp),
     onCameraBearing: (Double) -> Unit = {},
+    items: List<MapItem> = emptyList(),
+    pickedPoint: GeoPoint? = null,
+    onMapClick: ((GeoPoint) -> Unit)? = null,
 ) {
     val reasonLabels = mapOf(
         VisibilityReason.TEAMMATE to stringResource(Res.string.reason_teammate),
@@ -142,7 +156,15 @@ fun GameMap(
         VisibilityReason.MOCK_LOCATION to stringResource(Res.string.reason_mock_location),
         VisibilityReason.INSIDE_BUILDING to stringResource(Res.string.reason_inside_building),
         VisibilityReason.GLOW to stringResource(Res.string.reason_glow),
+        VisibilityReason.RADAR_OFF to stringResource(Res.string.reason_radar_off),
+        VisibilityReason.SPOTLIGHT to stringResource(Res.string.reason_spotlight),
+        VisibilityReason.FRESH_TRAIL to stringResource(Res.string.reason_fresh_trail),
     )
+    val takenLabel = stringResource(Res.string.item_taken)
+    val itemLabels = items.associate { item ->
+        val title = item.name.ifBlank { itemKindTitle(item.kind) }
+        item.id to if (item.isTaken) "$title · $takenLabel" else title
+    }
     var styleFailed by remember { mutableStateOf(false) }
     val look = zoneLook(cue, reduceMotion)
     val ping = if (markers.any { it.isRevealed } && !reduceMotion) revealPing() else null
@@ -308,6 +330,83 @@ fun GameMap(
             textAllowOverlap = const(true),
         )
 
+        // The board: quest points in lime, checkpoints in orange, perks lying around in pink; taken ones grey.
+        val questPoints = rememberGeoJsonSource(
+            GeoJsonData.Features(itemPoints(items.filter { !it.isTaken && it.kind == ItemKind.QUEST_POINT })),
+        )
+        CircleLayer(
+            id = "items-quests",
+            source = questPoints,
+            color = const(Palette.Lime),
+            radius = const(ITEM_RADIUS),
+            strokeColor = const(Palette.Ink),
+            strokeWidth = const(2.dp),
+        )
+        val checkpoints = rememberGeoJsonSource(
+            GeoJsonData.Features(
+                itemPoints(
+                    items.filter {
+                        !it.isTaken && (it.kind == ItemKind.CHECKPOINT_GEO || it.kind == ItemKind.CHECKPOINT_SCAN)
+                    },
+                ),
+            ),
+        )
+        CircleLayer(
+            id = "items-checkpoints",
+            source = checkpoints,
+            color = const(Palette.Orange),
+            radius = const(ITEM_RADIUS),
+            strokeColor = const(Palette.Ink),
+            strokeWidth = const(2.dp),
+        )
+        val pickups = rememberGeoJsonSource(
+            GeoJsonData.Features(itemPoints(items.filter { !it.isTaken && it.kind == ItemKind.PICKUP })),
+        )
+        CircleLayer(
+            id = "items-pickups",
+            source = pickups,
+            color = const(Palette.Pink),
+            radius = const(ITEM_RADIUS),
+            strokeColor = const(Palette.Ink),
+            strokeWidth = const(2.dp),
+        )
+        val taken = rememberGeoJsonSource(GeoJsonData.Features(itemPoints(items.filter { it.isTaken })))
+        CircleLayer(
+            id = "items-taken",
+            source = taken,
+            color = const(Palette.Stale),
+            opacity = const(0.7f),
+            radius = const(ITEM_RADIUS),
+            strokeColor = const(Color.White),
+            strokeWidth = const(2.dp),
+        )
+        val itemLabelSource = rememberGeoJsonSource(GeoJsonData.Features(itemPoints(items) { itemLabels[it.id] }))
+        SymbolLayer(
+            id = "items-labels",
+            source = itemLabelSource,
+            textField = feature["label"].asString(),
+            textFont = const(MapStyle.FONTS),
+            textSize = const(11.sp),
+            textAnchor = const(SymbolAnchor.Top),
+            textOffset = textOffset(0.dp, 10.dp),
+            textColor = const(Palette.Ink),
+            textHaloColor = const(Color.White),
+            textHaloWidth = const(2.dp),
+        )
+
+        // Where the player tapped, about to place something.
+        if (pickedPoint != null) {
+            val picked = rememberGeoJsonSource(GeoJsonData.Features(features(Point(pickedPoint.toPosition()))))
+            CircleLayer(
+                id = "picked",
+                source = picked,
+                color = const(Color.White),
+                radius = const(11.dp),
+                strokeColor = const(Palette.Ink),
+                strokeWidth = const(3.dp),
+            )
+        }
+
         if (me != null) {
             val meAccuracy = rememberGeoJsonSource(
                 GeoJsonData.Features(features(Polygon(circle(me.point, me.accuracyMeters)))),
@@ -337,9 +436,33 @@ fun GameMap(
         if (recenterRequests > 0 && point != null) mapState.animateCamera(CameraUpdate(target = point.toPosition()))
     }
 
+    // A tap gives its point when somebody is placing something; otherwise the map only pans and zooms.
+    val clickListener by rememberUpdatedState(onMapClick)
+    val interactions = remember(onMapClick != null) {
+        if (onMapClick == null) {
+            MapInteractions.Standard
+        } else {
+            MapInteractions(MapInteractions.Standard) {
+                callbacks {
+                    click {
+                        onEvent { event ->
+                            // No position for a tap off the map's edge.
+                            val position = event.position
+                            if (position != null) {
+                                clickListener?.invoke(GeoPoint(position.latitude, position.longitude))
+                            }
+                            ClickResult.Consume
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Box(modifier = modifier.testTag(TestTags.GAME_MAP)) {
         MaplibreMap(
             state = mapState,
+            interactions = interactions,
             // The credit is our own line: always visible, also over the plain fallback background and for the
             // building outlines (OpenStreetMap too). MapLibre's expanding one would repeat it.
             overlay = { include(MapOverlay.None) },
@@ -492,6 +615,7 @@ private const val SNAP_METERS = 150.0
 internal val RING_CASING_WIDTH = 8.dp
 internal val RING_CORE_WIDTH = 4.dp
 private val MARKER_RADIUS = 9.dp
+private val ITEM_RADIUS = 8.dp
 
 /** Tiles and their credits: one place to switch providers (docs/adr/0003-map-and-buildings.md). */
 internal object MapStyle {
@@ -568,6 +692,16 @@ private fun points(
     markers.map { marker ->
         val text = label(marker)
         Feature(Point(marker.point.toPosition()), text?.let { buildJsonObject { put("label", it) } })
+    },
+)
+
+private fun itemPoints(
+    items: List<MapItem>,
+    label: (MapItem) -> String? = { null },
+): FeatureCollection<Point, JsonObject?> = FeatureCollection(
+    items.map { item ->
+        val text = label(item)
+        Feature(Point(item.point.toPosition()), text?.let { buildJsonObject { put("label", it) } })
     },
 )
 

@@ -41,6 +41,9 @@ enum class ServerFeature {
 
     /** The phones tell whether their player is running ([GameFeatures.activity]). */
     ACTIVITY,
+
+    /** The pocket hides: a hider whose phone is in the pocket reads colder ([GameFeatures.pocketStealth]). */
+    POCKET_STEALTH,
 }
 
 /** How a feature applies to a game: off, for the players whose phones have it, or every phone must have it. */
@@ -83,6 +86,12 @@ data class GameFeatures(
     val pickups: Boolean = false,
     /** The phones report whether their player runs; the «Sprint» quest and the running statistics need it. */
     val activity: Boolean = false,
+    /**
+     * The pocket hides (needs [radar]): the body's damping of the signal is evened out for everybody
+     * (`ProximityRules.POCKET_OFFSET_DB`), and on top of that a hider whose phone is in the pocket, screen off, reads
+     * `ProximityRules.STEALTH_DB` colder to the seekers: about a band. Want to be harder to feel, walk blind.
+     */
+    val pocketStealth: Boolean = false,
 ) {
     val hasRadar: Boolean get() = radar != FeatureMode.OFF
 
@@ -103,6 +112,7 @@ data class GameFeatures(
         if (checkpoints) add(ServerFeature.CHECKPOINTS)
         if (pickups) add(ServerFeature.PICKUPS)
         if (activity) add(ServerFeature.ACTIVITY)
+        if (pocketStealth) add(ServerFeature.POCKET_STEALTH)
     }
 
     /** This setup without the features the server has off, and without what depends on the radar when it is off. */
@@ -121,6 +131,7 @@ data class GameFeatures(
             checkpoints = checkpoints && ServerFeature.CHECKPOINTS in enabled,
             pickups = pickups && ServerFeature.PICKUPS in enabled,
             activity = activity && ServerFeature.ACTIVITY in enabled,
+            pocketStealth = pocketStealth && withRadar && ServerFeature.POCKET_STEALTH in enabled,
         )
     }
 
@@ -155,6 +166,14 @@ enum class BluetoothState {
 enum class Activity { UNKNOWN, STILL, WALKING, RUNNING, IN_VEHICLE }
 
 /**
+ * Where the phone is, by its own sensors ([DeviceReport.carry]): the body damps the radio a lot, so the radar evens
+ * it out, and the pocket may hide ([GameFeatures.pocketStealth]). Only ever «in the pocket» with the screen off: a
+ * phone the player looks at is in the hand, whatever the sensors say.
+ */
+@Serializable
+enum class Carry { UNKNOWN, IN_HAND, IN_POCKET }
+
+/**
  * What the phone tells the server with every `sync` ([SyncRequest.device]): what it can do and what state it is in,
  * so the lobby shows who has the radar, the server knows whom to pair by UWB, and the rules see who runs. Never a
  * position.
@@ -173,6 +192,14 @@ data class DeviceReport(
     val activity: Activity = Activity.UNKNOWN,
     /** The phone can tell running from walking. */
     val activitySensor: Boolean = false,
+    /** Where the phone is: in the hand, in the pocket (screen off), or the phone can't tell. */
+    val carry: Carry = Carry.UNKNOWN,
+    /**
+     * The phone's model («Pixel 8», «iPhone15,2»), only in a game with the radar: the server keeps the radio's
+     * readings by model, without players or games, to learn how loud each kind of phone is
+     * (docs/adr/0010-nearby-radar.md, «Калибровка»). Never shown to the other players.
+     */
+    val model: String? = null,
 )
 
 /** What everybody in the lobby sees of a player's phone ([PlayerView.capabilities]): no positions, no tokens. */

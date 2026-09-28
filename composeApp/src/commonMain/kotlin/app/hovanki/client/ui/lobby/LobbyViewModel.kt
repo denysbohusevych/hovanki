@@ -41,6 +41,8 @@ import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.GameSetup
 import app.hovanki.shared.rules.Glow
+import app.hovanki.shared.rules.ZoneState
+import app.hovanki.shared.rules.stateAt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -246,24 +248,24 @@ class LobbyViewModel(
         boardPick = point
     }
 
-    fun setBoardKind(kind: ItemKind) {
+    fun pickBoardKind(kind: ItemKind) {
         boardKind = kind
     }
 
-    fun setBoardAudience(audience: Audience) {
+    fun pickBoardAudience(audience: Audience) {
         boardAudience = audience
     }
 
-    fun setBoardName(name: String) {
+    fun editBoardName(name: String) {
         boardName = name.take(BOARD_NAME_MAX)
     }
 
     /** Null: the kind's default. */
-    fun setBoardSparks(sparks: Int?) {
+    fun editBoardSparks(sparks: Int?) {
         boardSparks = sparks
     }
 
-    fun setBoardPerk(perk: PerkKind) {
+    fun pickBoardPerk(perk: PerkKind) {
         boardPerk = perk
     }
 
@@ -296,11 +298,11 @@ class LobbyViewModel(
         viewModelScope.launch { sessionManager.removeItem(itemId) }
     }
 
-    fun setQuestText(text: String) {
+    fun editQuestText(text: String) {
         questText = text.take(QUEST_TEXT_MAX)
     }
 
-    fun setQuestAudience(audience: Audience) {
+    fun pickQuestAudience(audience: Audience) {
         questAudience = audience
     }
 
@@ -482,6 +484,7 @@ class LobbyViewModel(
             items = snapshot.items,
             quests = snapshot.quests,
             zoneCenter = settings.zone.initial.center,
+            zone = settings.zone.stateAt(0L),
             bluetooth = bluetooth,
             radarEnabled = radarEnabled,
         )
@@ -554,6 +557,8 @@ data class LobbyUiState(
     /** The host's own quests so far. */
     val quests: List<QuestView>,
     val zoneCenter: GeoPoint,
+    /** The zone as the search starts, for the board's map. */
+    val zone: ZoneState,
     /** This phone's Bluetooth, for the radar. */
     val bluetooth: BluetoothState,
     /** «The radar on my phone». */

@@ -73,6 +73,7 @@ data class GameSetup(
         val coercedFeatures = features.copy(
             hiderSense = features.hiderSense && withRadar,
             proximityCatch = features.proximityCatch && withRadar,
+            pocketStealth = features.pocketStealth && withRadar,
         )
         val glowOn = every > 0
         val coercedQuests = quests.distinct().filter { kind ->
@@ -172,6 +173,8 @@ object SettingsLimits {
             settings.features.hiderSense && !settings.features.hasRadar -> "The hider's sense needs the radar"
 
             settings.features.proximityCatch && !settings.features.hasRadar -> "A claim up close needs the radar"
+
+            settings.features.pocketStealth && !settings.features.hasRadar -> "The pocket stealth needs the radar"
 
             settings.quests.size != settings.quests.distinct().size -> "A quest is picked twice"
 

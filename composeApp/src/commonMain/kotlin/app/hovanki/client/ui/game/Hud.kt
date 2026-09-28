@@ -76,10 +76,17 @@ import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.flash_seek
 import app.hovanki.client.resources.flash_seekers_out
+import app.hovanki.client.resources.hint_direction
+import app.hovanki.client.resources.hint_radius
+import app.hovanki.client.resources.hint_sense
+import app.hovanki.client.resources.hud_checkpoint
 import app.hovanki.client.resources.hud_glow_in
 import app.hovanki.client.resources.hud_glowing
 import app.hovanki.client.resources.hud_hiders
 import app.hovanki.client.resources.hud_outside
+import app.hovanki.client.resources.hud_perks
+import app.hovanki.client.resources.hud_quests
+import app.hovanki.client.resources.hud_sense_seeker
 import app.hovanki.client.resources.hud_to_edge
 import app.hovanki.client.resources.hud_to_find
 import app.hovanki.client.resources.hud_you_hide
@@ -90,9 +97,11 @@ import app.hovanki.client.resources.hud_zone_shrinking
 import app.hovanki.client.resources.hud_zone_soon
 import app.hovanki.client.resources.ic_building
 import app.hovanki.client.resources.ic_navigation
+import app.hovanki.client.resources.ic_qr
 import app.hovanki.client.resources.ic_warning
 import app.hovanki.client.resources.phase_hiding
 import app.hovanki.client.resources.phase_seeking
+import app.hovanki.client.resources.sparks_count
 import app.hovanki.client.resources.zone_arrow
 import app.hovanki.client.session.ZoneCue
 import app.hovanki.client.session.edgeArrow
@@ -104,14 +113,21 @@ import app.hovanki.client.ui.common.PopIconButton
 import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopSurface
 import app.hovanki.client.ui.common.appSafeDrawing
+import app.hovanki.client.ui.common.bandTitle
+import app.hovanki.client.ui.common.distanceBandTitle
 import app.hovanki.client.ui.common.formatCountdown
+import app.hovanki.client.ui.common.sectorTitle
 import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.theme.color
 import app.hovanki.client.ui.theme.onColor
 import app.hovanki.shared.protocol.GamePhase
+import app.hovanki.shared.protocol.HintKind
+import app.hovanki.shared.protocol.PlayerStatus
+import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.rules.HeartbeatRules
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
@@ -128,6 +144,9 @@ import kotlin.math.roundToInt
 enum class GameAlert(val color: Color, val periodMillis: Int) {
     OUT_OF_ZONE(Palette.Orange, periodMillis = 1_000),
     IN_BUILDING(Palette.Pink, periodMillis = 2_000),
+
+    /** The radar is required and Bluetooth is off (docs/adr/0010-nearby-radar.md): seen at the deadline. */
+    BLUETOOTH_OFF(Palette.Pink, periodMillis = 1_500),
 }
 
 private val HUD_MUTED = Color(0xFFB4B4BE)
@@ -196,10 +215,18 @@ fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
 
 /**
  * The role and how far the border is; under them, what the zone is doing when it is not calm, and when the next glow
- * comes.
+ * comes; then the radar (docs/adr/0010-nearby-radar.md), the sparks and a hint (docs/adr/0011), and the buttons for
+ * the quests, the perks and a checkpoint's code, when the game has them.
  */
 @Composable
-fun HudChips(state: GameUiState, modifier: Modifier = Modifier) {
+fun HudChips(
+    state: GameUiState,
+    modifier: Modifier = Modifier,
+    reduceMotion: Boolean = false,
+    onOpenQuests: () -> Unit = {},
+    onOpenPerks: () -> Unit = {},
+    onScanCheckpoint: () -> Unit = {},
+) {
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -238,7 +265,132 @@ fun HudChips(state: GameUiState, modifier: Modifier = Modifier) {
             if (state.isZoneRunning) ZoneChip(state)
             state.glow?.let { GlowChip(it) }
         }
+        val inSearch = state.phase == GamePhase.SEEKING && state.myStatus == PlayerStatus.ACTIVE
+        val isHider = state.myRole == Role.HIDER
+        val showRadar = state.hasRadar && inSearch && (!isHider || state.pulse != RadarBand.NONE)
+        if (showRadar || state.sparks != null || state.hint != null) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (showRadar) RadarChip(state.pulse, isHider, reduceMotion)
+                state.sparks?.let { sparks ->
+                    PopChip(
+                        text = stringResource(Res.string.sparks_count, sparks),
+                        color = Palette.Lime,
+                        contentColor = Palette.Ink,
+                        border = Palette.Ink,
+                        modifier = Modifier.testTag(TestTags.SPARKS_CHIP),
+                    )
+                }
+                state.hint?.let { HintChip(it) }
+            }
+        }
+        val hasQuests = state.quests.isNotEmpty()
+        val hasPerks = state.perks.isNotEmpty()
+        if (hasQuests || hasPerks || state.canScanCheckpoint) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (hasQuests) {
+                    val pending = state.pendingReviews
+                    PopChip(
+                        text = stringResource(Res.string.hud_quests).let { if (pending > 0) "$it · $pending" else it },
+                        color = if (pending > 0) Palette.Pink else Palette.Paper,
+                        contentColor = Palette.Ink,
+                        border = Palette.Ink,
+                        onClick = onOpenQuests,
+                        modifier = Modifier.testTag(TestTags.QUESTS_OPEN),
+                    )
+                }
+                if (hasPerks) {
+                    PopChip(
+                        text = stringResource(Res.string.hud_perks),
+                        color = Palette.Paper,
+                        contentColor = Palette.Ink,
+                        border = Palette.Ink,
+                        onClick = onOpenPerks,
+                        modifier = Modifier.testTag(TestTags.PERKS_OPEN),
+                    )
+                }
+                if (state.canScanCheckpoint) {
+                    PopChip(
+                        text = stringResource(Res.string.hud_checkpoint),
+                        color = Palette.Orange,
+                        contentColor = Palette.Ink,
+                        border = Palette.Ink,
+                        icon = Res.drawable.ic_qr,
+                        onClick = onScanCheckpoint,
+                        modifier = Modifier.testTag(TestTags.CHECKPOINT_SCAN_OPEN),
+                    )
+                }
+            }
+        }
     }
+}
+
+/**
+ * The radar's band (docs/adr/0010-nearby-radar.md): a seeker's nearest hider by name of the band, a hider's «a seeker
+ * is near» in its color. The chip beats at the band's pace, like the phone in the pocket («Пульс»).
+ */
+@Composable
+private fun RadarChip(band: RadarBand, isHider: Boolean, reduceMotion: Boolean) {
+    val (color, content) = when (band) {
+        RadarBand.NONE -> Palette.Ink to HUD_MUTED
+        RadarBand.WARM -> Palette.Sand to Palette.Ink
+        RadarBand.HOT -> Palette.Orange to Palette.Ink
+        RadarBand.BURNING -> Palette.Pink to Palette.Ink
+    }
+    val text = if (isHider) stringResource(Res.string.hud_sense_seeker) else bandTitle(band)
+    val period = HeartbeatRules.periodMillis(band)
+    val scale = if (period == null || reduceMotion) {
+        1f
+    } else {
+        val transition = rememberInfiniteTransition()
+        val value by transition.animateFloat(
+            initialValue = 1f,
+            targetValue = PULSE_SCALE,
+            animationSpec = infiniteRepeatable(
+                tween((period / 2).toInt(), easing = FastOutSlowInEasing),
+                RepeatMode.Reverse,
+            ),
+        )
+        value
+    }
+    PopChip(
+        text = text,
+        color = color,
+        contentColor = content,
+        border = Palette.Ink,
+        modifier = Modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .testTag(TestTags.RADAR_CHIP),
+    )
+}
+
+private const val PULSE_SCALE = 1.1f
+
+/** What a perk's hint says (docs/adr/0011): where the nearest of the other team is, in words, while it lasts. */
+@Composable
+private fun HintChip(hint: HintUi) {
+    val sector = hint.sector?.let { sectorTitle(it) }.orEmpty()
+    val band = hint.band?.let { distanceBandTitle(it) }.orEmpty()
+    val text = when (hint.kind) {
+        HintKind.SENSE -> stringResource(Res.string.hint_sense, sector, band)
+        HintKind.DIRECTION -> stringResource(Res.string.hint_direction, sector)
+        HintKind.RADIUS -> stringResource(Res.string.hint_radius, band)
+    }
+    PopChip(
+        text = "$text · ${formatCountdown(hint.millisLeft)}",
+        color = Palette.Violet,
+        contentColor = Color.White,
+        border = Palette.Ink,
+        modifier = Modifier.testTag(TestTags.HINT_CHIP),
+    )
 }
 
 /**

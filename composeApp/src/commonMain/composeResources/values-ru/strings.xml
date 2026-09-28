@@ -449,6 +449,8 @@
   <string name="settings_fair_only">Только если могут все</string>
   <string name="settings_activity">Детектор бега</string>
   <string name="settings_activity_hint">Телефон сообщает, когда его игрок бежит: для задания «Спринт» и статистики. С телефона уходит только «бежит» или нет.</string>
+  <string name="settings_pocket_stealth">Карман прячет</string>
+  <string name="settings_pocket_stealth_hint">Тело глушит сигнал, и радар выравнивает это для всех. С этой настройкой прячущийся с телефоном в кармане при погашенном экране читается ищущим на ступень холоднее: хочешь, чтобы тебя хуже чувствовали, иди вслепую.</string>
   <!-- Задания, искры, перки и доска (docs/adr/0011-quests-sparks-and-sensors.md) -->
   <string name="settings_quests">Задания</string>
   <string name="settings_quests_hint">Искры за то, что сделано во время поиска. Хост выбирает задания здесь, ставит точки заданий на доске и придумывает задания словами.</string>
@@ -500,6 +502,7 @@
   <string name="lobby_chip_checkpoints">Контрольные точки</string>
   <string name="lobby_chip_pickups">Перки на карте</string>
   <string name="lobby_chip_activity">Детектор бега</string>
+  <string name="lobby_chip_pocket_stealth">Стелс из кармана</string>
   <string name="lobby_board">Доска</string>
   <string name="lobby_board_count">Доска: %1$d</string>
   <string name="lobby_bluetooth_on">Bluetooth включён</string>

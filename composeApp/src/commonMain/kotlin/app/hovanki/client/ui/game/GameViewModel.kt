@@ -2,6 +2,7 @@ package app.hovanki.client.ui.game
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.hovanki.client.radio.PeerRange
 import app.hovanki.client.session.CatchCode
 import app.hovanki.client.session.ConnectionStatus
 import app.hovanki.client.session.GameSessionManager
@@ -15,21 +16,32 @@ import app.hovanki.client.session.catchableScan
 import app.hovanki.client.session.momentAt
 import app.hovanki.client.session.myCatchCode
 import app.hovanki.shared.geo.bearingTo
+import app.hovanki.shared.protocol.BoardItem
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.CatchView
+import app.hovanki.shared.protocol.DistanceBand
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.HintKind
+import app.hovanki.shared.protocol.ItemId
+import app.hovanki.shared.protocol.ItemKind
 import app.hovanki.shared.protocol.LocationSample
+import app.hovanki.shared.protocol.PerkKind
+import app.hovanki.shared.protocol.PerkView
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
+import app.hovanki.shared.protocol.QuestId
+import app.hovanki.shared.protocol.QuestView
+import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.VisibilityReason
+import app.hovanki.shared.rules.CheckpointPayload
 import app.hovanki.shared.rules.Glow
 import app.hovanki.shared.rules.StreetZone
 import app.hovanki.shared.rules.ZoneArea
@@ -61,13 +73,30 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
         }
     }
 
+    /** What the phone itself knows of the radar: the pulse's band and the UWB ranges. */
+    private val phone: Flow<Phone> = combine(sessionManager.pulse, sessionManager.ranges) { pulse, ranges ->
+        Phone(pulse, ranges)
+    }
+
     val uiState: StateFlow<GameUiState?> =
-        combine(sessionManager.state, sessionManager.myLocation, ticks, isBusy) { state, myLocation, now, busy ->
-            buildUiState(state, myLocation, now, busy)
+        combine(sessionManager.state, sessionManager.myLocation, ticks, isBusy, phone) {
+                state,
+                myLocation,
+                now,
+                busy,
+                phone,
+            ->
+            buildUiState(state, myLocation, now, busy, phone)
         }.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            buildUiState(sessionManager.state.value, sessionManager.myLocation.value, clock.now(), busy = false),
+            buildUiState(
+                sessionManager.state.value,
+                sessionManager.myLocation.value,
+                clock.now(),
+                busy = false,
+                phone = Phone(sessionManager.pulse.value, sessionManager.ranges.value),
+            ),
         )
 
     fun claimCatch(hiderId: PlayerId) = runCommand { sessionManager.claimCatch(hiderId) }
@@ -98,6 +127,29 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
 
     fun dispute(catchId: CatchId) = runCommand { sessionManager.dispute(catchId) }
 
+    // The board, the quests and the perks (docs/adr/0011-quests-sparks-and-sensors.md).
+
+    /** A perk: with [targetId] for the ones aimed at a hider, with [point] for the decoy. */
+    fun usePerk(perk: PerkKind, targetId: PlayerId? = null, point: GeoPoint? = null) =
+        runCommand { sessionManager.usePerk(perk, targetId, point) }
+
+    /** «Done!» on the host's quest: the host answers. */
+    fun questDone(questId: QuestId) = runCommand { sessionManager.questDone(questId) }
+
+    /** The host confirms or refuses what [playerId] said about their quest. */
+    fun reviewQuest(questId: QuestId, playerId: PlayerId, approved: Boolean) =
+        runCommand { sessionManager.reviewQuest(questId, playerId, approved) }
+
+    /**
+     * Text the camera read at a checkpoint: when it is a checkpoint's code, it goes to the server (which may still
+     * refuse it). True when it was: the camera can close.
+     */
+    fun onCheckpointScanned(text: String): Boolean {
+        if (CheckpointPayload.decode(text) == null) return false
+        runCommand { sessionManager.scanCheckpoint(text) }
+        return true
+    }
+
     fun vote(catchId: CatchId, confirm: Boolean) = runCommand { sessionManager.vote(catchId, confirm) }
 
     fun leave() = sessionManager.leave()
@@ -119,10 +171,17 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
         }
     }
 
-    private fun buildUiState(state: SessionState, myLocation: LocationSample?, now: Long, busy: Boolean): GameUiState? {
+    private fun buildUiState(
+        state: SessionState,
+        myLocation: LocationSample?,
+        now: Long,
+        busy: Boolean,
+        phone: Phone,
+    ): GameUiState? {
         val snapshot = state.snapshot ?: return null
         val me = snapshot.me
         val rules = snapshot.settings.rules
+        val features = snapshot.settings.features
         val names = snapshot.players.associate { it.id to it.name }
         fun CatchView.toUi() = ClaimUi(
             id = id,
@@ -161,11 +220,19 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
         val metersToBorder = myLocation?.let { -zoneArea.signedDistanceMeters(it.point) }
         val isHiding = me.role == Role.HIDER && me.status == PlayerStatus.ACTIVE
         val isOutside = me.outOfZoneDeadlineMillis != null || (metersToBorder ?: 0.0) < 0
+        val playing = me.role == Role.SEEKER || me.status == PlayerStatus.ACTIVE
+        val items = snapshot.items.map { it.toMapItem(me.playerId) }
+        val checkpoints = snapshot.items.filter {
+            it.kind == ItemKind.CHECKPOINT_GEO || it.kind == ItemKind.CHECKPOINT_SCAN
+        }
 
         return GameUiState(
+            now = now,
             phase = snapshot.phase,
             myRole = me.role,
             myStatus = me.status,
+            isHost = snapshot.hostId == me.playerId,
+            names = names,
             phaseMillisLeft = snapshot.phaseEndsAtMillis?.let { it - now },
             hidingElapsedMillis = snapshot.phaseEndsAtMillis
                 ?.takeIf { snapshot.phase == GamePhase.HIDING }
@@ -249,6 +316,25 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             isBusy = busy,
             joinCode = snapshot.joinCode,
             hasAccount = snapshot.players.any { it.id == me.playerId && it.userId != null },
+            activeHiders = hiders.filter { it.status == PlayerStatus.ACTIVE && !it.left },
+            hasRadar = features.hasRadar,
+            radar = me.radar?.contacts?.mapNotNull { contact -> contact.playerId?.let { it to contact.band } }
+                ?.toMap().orEmpty(),
+            pulse = phone.pulse,
+            ranges = phone.ranges,
+            bluetoothMillisLeft = me.bluetoothDeadlineMillis?.let { it - now },
+            sparks = me.sparks.takeIf { features.hasSparks },
+            hint = me.hint?.let { HintUi(it.kind, it.sector, it.band, it.untilMillis - now) }?.takeIf {
+                it.millisLeft >
+                    0
+            },
+            quests = snapshot.quests,
+            perks = me.perks,
+            items = items,
+            canScanCheckpoint = features.checkpoints && playing && snapshot.phase == GamePhase.SEEKING &&
+                checkpoints.any { it.kind == ItemKind.CHECKPOINT_SCAN && me.playerId !in it.takenBy },
+            checkpointsTaken = checkpoints.count { me.playerId in it.takenBy },
+            pendingReviews = if (snapshot.hostId == me.playerId) snapshot.quests.sumOf { it.pending.size } else 0,
         )
     }
 
@@ -275,10 +361,18 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
     }
 }
 
+/** What the phone itself knows of the radar (docs/adr/0010-nearby-radar.md). */
+private data class Phone(val pulse: RadarBand, val ranges: List<PeerRange>)
+
 data class GameUiState(
+    /** Server time this state was built at. */
+    val now: Long,
     val phase: GamePhase,
     val myRole: Role,
     val myStatus: PlayerStatus,
+    val isHost: Boolean,
+    /** Every player's name, for the quests and the perks. */
+    val names: Map<PlayerId, String>,
     val phaseMillisLeft: Long?,
     /** How long ago the hiding phase started (server time); null in other phases. */
     val hidingElapsedMillis: Long?,
@@ -344,6 +438,55 @@ data class GameUiState(
     val joinCode: String,
     /** Playing with an account: joining again with [joinCode] gives the player back (e.g. after leaving). */
     val hasAccount: Boolean,
+    /** Hiders still in the game: the targets of a seeker's perks. */
+    val activeHiders: List<PlayerView> = emptyList(),
+    /** The game has the radar (docs/adr/0010-nearby-radar.md), whether or not this phone takes part. */
+    val hasRadar: Boolean = false,
+    /** A seeker's radar: the band per hider the phones hear; empty without the radar or a signal. */
+    val radar: Map<PlayerId, RadarBand> = emptyMap(),
+    /** The pulse: a hider's nearest seeker, a seeker's nearest hider; [RadarBand.NONE] when quiet. */
+    val pulse: RadarBand = RadarBand.NONE,
+    /** Metres by UWB to the players this phone ranges with, while both look at their phones. */
+    val ranges: List<PeerRange> = emptyList(),
+    /** The radar is required and this phone has Bluetooth off: the seekers see the hider in so long (≤ 0: now). */
+    val bluetoothMillisLeft: Long? = null,
+    /** The viewer's sparks; null in a game without them (docs/adr/0011-quests-sparks-and-sensors.md). */
+    val sparks: Int? = null,
+    /** A hint a perk bought, while it lasts. */
+    val hint: HintUi? = null,
+    val quests: List<QuestView> = emptyList(),
+    val perks: List<PerkView> = emptyList(),
+    /** The board on the map. */
+    val items: List<MapItem> = emptyList(),
+    /** There is a checkpoint by code this player has not scanned yet. */
+    val canScanCheckpoint: Boolean = false,
+    /** Checkpoints this player has reached, for the «taken» moment. */
+    val checkpointsTaken: Int = 0,
+    /** The host: players waiting for the host's answer on the host's quests. */
+    val pendingReviews: Int = 0,
+)
+
+/** A hint a perk bought ([HintKind]): a compass sector, a distance band, or both, for [millisLeft] more. */
+data class HintUi(val kind: HintKind, val sector: Int?, val band: DistanceBand?, val millisLeft: Long)
+
+/** An item of the board on the map (docs/adr/0011-quests-sparks-and-sensors.md). */
+data class MapItem(
+    val id: ItemId,
+    val kind: ItemKind,
+    val name: String,
+    val point: GeoPoint,
+    /** Nothing left in it for the viewer: a pickup somebody took, a checkpoint or a quest point the viewer reached. */
+    val isTaken: Boolean,
+    val perk: PerkKind? = null,
+)
+
+fun BoardItem.toMapItem(viewer: PlayerId?): MapItem = MapItem(
+    id = id,
+    kind = kind,
+    name = name,
+    point = point,
+    isTaken = if (kind == ItemKind.PICKUP) takenBy.isNotEmpty() else viewer != null && viewer in takenBy,
+    perk = perk,
 )
 
 data class ClaimUi(
