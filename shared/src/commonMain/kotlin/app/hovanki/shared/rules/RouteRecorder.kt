@@ -25,7 +25,12 @@ import kotlin.math.round
  * [MIN_POINT_INTERVAL_MILLIS], and while the player stands still one per [MAX_POINT_INTERVAL_MILLIS]. A route longer
  * than [maxPoints] loses every other point and keeps half as many from then on: the whole round stays, less densely.
  */
-class RouteRecorder(private val rules: GameRules, private val maxPoints: Int = MAX_POINTS) {
+class RouteRecorder(
+    private val rules: GameRules,
+    private val maxPoints: Int = MAX_POINTS,
+    /** False: only the numbers, no points at all (an odometer for a guest, whose positions are never kept). */
+    private val keepPoints: Boolean = true,
+) {
     private val points = ArrayList<RoutePoint>()
     private var minPointIntervalMillis = MIN_POINT_INTERVAL_MILLIS
 
@@ -59,7 +64,7 @@ class RouteRecorder(private val rules: GameRules, private val maxPoints: Int = M
     }
 
     private fun keepPoint(fix: LocationSample) {
-        if (fix.accuracyMeters > MAX_POINT_ACCURACY_METERS) return
+        if (!keepPoints || fix.accuracyMeters > MAX_POINT_ACCURACY_METERS) return
         val last = points.lastOrNull()
         if (last != null) {
             val millis = fix.timestampMillis - last.atMillis

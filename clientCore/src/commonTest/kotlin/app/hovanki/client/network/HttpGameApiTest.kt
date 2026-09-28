@@ -1,24 +1,34 @@
 package app.hovanki.client.network
 
 import app.hovanki.shared.protocol.ApiError
+import app.hovanki.shared.protocol.Audience
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.CreateGameRequest
+import app.hovanki.shared.protocol.CustomQuestRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.GroupId
 import app.hovanki.shared.protocol.InviteRequest
+import app.hovanki.shared.protocol.ItemId
+import app.hovanki.shared.protocol.ItemKind
 import app.hovanki.shared.protocol.JoinGameRequest
+import app.hovanki.shared.protocol.PerkKind
+import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerTrack
+import app.hovanki.shared.protocol.QuestId
+import app.hovanki.shared.protocol.QuestReviewRequest
+import app.hovanki.shared.protocol.ScanCheckpointRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TrackPoint
 import app.hovanki.shared.protocol.TracksResponse
+import app.hovanki.shared.protocol.UsePerkRequest
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.shrinkingZone
@@ -31,6 +41,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class HttpGameApiTest {
     private lateinit var server: MockServer
@@ -57,6 +68,46 @@ class HttpGameApiTest {
         assertEquals(
             SyncRequest(listOf(testSample(7)), chatAfter = 3),
             protocolJson.decodeFromString(SyncRequest.serializer(), request.body),
+        )
+    }
+
+    @Test
+    fun theBoardsRoutes() = runTest {
+        val api = api { jsonOf(testSnapshot()) }
+        val point = GeoPoint(50.45, 30.52)
+
+        api.placeItem(testSession, PlaceItemRequest(ItemKind.PICKUP, point, perk = PerkKind.SENSE))
+        api.removeItem(testSession, ItemId("i1"))
+        api.scanCheckpoint(testSession, "ABCD2345")
+        api.usePerk(testSession, UsePerkRequest(PerkKind.SPOTLIGHT, targetId = PlayerId("anna")))
+        api.addQuest(testSession, CustomQuestRequest("Selfie", Audience.HIDERS, 4))
+        api.questDone(testSession, QuestId("q1"))
+        api.reviewQuest(testSession, QuestId("q1"), QuestReviewRequest(PlayerId("anna"), approved = true))
+
+        assertEquals(
+            listOf(
+                "/api/v1/games/game1/items",
+                "/api/v1/games/game1/items/i1/remove",
+                "/api/v1/games/game1/checkpoints/scan",
+                "/api/v1/games/game1/perks",
+                "/api/v1/games/game1/quests",
+                "/api/v1/games/game1/quests/q1/done",
+                "/api/v1/games/game1/quests/q1/review",
+            ),
+            recorded.map { it.path },
+        )
+        assertTrue(recorded.all { it.method == HttpMethod.Post && it.authorization == "Bearer secret-token" })
+        assertEquals(
+            PlaceItemRequest(ItemKind.PICKUP, point, perk = PerkKind.SENSE),
+            protocolJson.decodeFromString(PlaceItemRequest.serializer(), recorded[0].body),
+        )
+        assertEquals(
+            ScanCheckpointRequest("ABCD2345"),
+            protocolJson.decodeFromString(ScanCheckpointRequest.serializer(), recorded[2].body),
+        )
+        assertEquals(
+            QuestReviewRequest(PlayerId("anna"), approved = true),
+            protocolJson.decodeFromString(QuestReviewRequest.serializer(), recorded[6].body),
         )
     }
 

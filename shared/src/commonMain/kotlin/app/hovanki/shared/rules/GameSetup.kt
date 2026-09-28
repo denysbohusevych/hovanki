@@ -1,8 +1,11 @@
 package app.hovanki.shared.rules
 
+import app.hovanki.shared.protocol.FeatureMode
+import app.hovanki.shared.protocol.GameFeatures
 import app.hovanki.shared.protocol.GameRules
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.QuestKind
 import app.hovanki.shared.protocol.ZoneShape
 import kotlinx.serialization.Serializable
 import kotlin.math.roundToInt
@@ -11,8 +14,10 @@ import kotlin.math.roundToInt
  * What the host chooses on the setup screen (docs/adr/0009-game-setup-glow-streets.md), and the [GameSettings] it
  * makes: a zone of [radiusMeters] around the host that, when it [shrinks], narrows in [SHRINK_STEPS] stages over the
  * first [SHRINK_SHARE] of the search down to [FINAL_RADIUS_SHARE] of its size; the glow every [glowEveryMinutes]
- * (0: off) for [glowForSeconds]. The defaults are what the app starts a game with. Serializable: the phone remembers
- * the host's last choices for the next game (no place in them: the zone goes around wherever that game is).
+ * (0: off) for [glowForSeconds]; the [features] the host turned on and the catalog [quests] picked
+ * (docs/adr/0010-nearby-radar.md, docs/adr/0011-quests-sparks-and-sensors.md). The defaults are what the app starts a
+ * game with. Serializable: the phone remembers the host's last choices for the next game (no place in them: the zone
+ * goes around wherever that game is, and the items of the board are placed there).
  */
 @Serializable
 data class GameSetup(
@@ -23,6 +28,8 @@ data class GameSetup(
     val zoneShape: ZoneShape = ZoneShape.CIRCLE,
     val glowEveryMinutes: Int = 5,
     val glowForSeconds: Int = 5,
+    val features: GameFeatures = GameFeatures(),
+    val quests: List<QuestKind> = emptyList(),
 ) {
     /** This setup as a game around [center]; [rules] are the thresholds, not chosen on the screen. */
     fun settings(center: GeoPoint, rules: GameRules = GameRules()): GameSettings {
@@ -50,19 +57,37 @@ data class GameSetup(
             glowEverySeconds = glowEveryMinutes * SECONDS_PER_MINUTE,
             glowForSeconds = if (glowEveryMinutes > 0) glowForSeconds else 0,
             zoneShape = zoneShape,
+            features = features,
+            quests = if (features.quests) quests else emptyList(),
         )
     }
 
-    /** Every choice within what the screen offers; a glow ends before the next one starts. */
+    /**
+     * Every choice within what the screen offers; a glow ends before the next one starts; what depends on the radar
+     * goes off with it, and the quests are the pickable ones, each once, without the ones the setup can't judge.
+     */
     fun coerced(): GameSetup {
         val every = if (glowEveryMinutes <= 0) 0 else glowEveryMinutes.coerceIn(GLOW_EVERY_MINUTES)
         val length = glowForSeconds.coerceIn(GLOW_FOR_SECONDS)
+        val withRadar = features.radar != FeatureMode.OFF
+        val coercedFeatures = features.copy(
+            hiderSense = features.hiderSense && withRadar,
+            proximityCatch = features.proximityCatch && withRadar,
+        )
+        val glowOn = every > 0
+        val coercedQuests = quests.distinct().filter { kind ->
+            kind in QuestCatalog.pickable &&
+                (!QuestCatalog.spec(kind).needsRadar || withRadar) &&
+                (!QuestCatalog.spec(kind).needsGlow || glowOn)
+        }
         return copy(
             radiusMeters = radiusMeters.coerceIn(RADIUS_METERS),
             hidingMinutes = hidingMinutes.coerceIn(HIDING_MINUTES),
             seekingMinutes = seekingMinutes.coerceIn(SEEKING_MINUTES),
             glowEveryMinutes = every,
             glowForSeconds = if (every > 0) minOf(length, every * SECONDS_PER_MINUTE - 1) else length,
+            features = coercedFeatures,
+            quests = coercedQuests,
         )
     }
 
@@ -98,6 +123,8 @@ data class GameSetup(
                 0
             },
             glowForSeconds = if (Glow.isOn(settings)) settings.glowForSeconds else GameSetup().glowForSeconds,
+            features = settings.features,
+            quests = settings.quests,
         )
     }
 }
@@ -142,7 +169,15 @@ object SettingsLimits {
             Glow.isOn(settings) && settings.glowForSeconds >= settings.glowEverySeconds ->
                 "A glow ends before the next one"
 
-            else -> null
+            settings.features.hiderSense && !settings.features.hasRadar -> "The hider's sense needs the radar"
+
+            settings.features.proximityCatch && !settings.features.hasRadar -> "A claim up close needs the radar"
+
+            settings.quests.size != settings.quests.distinct().size -> "A quest is picked twice"
+
+            settings.quests.isNotEmpty() && !settings.features.quests -> "Quests are picked but off"
+
+            else -> settings.quests.firstNotNullOfOrNull { QuestCatalog.problem(it, settings) }
         }
     }
 }

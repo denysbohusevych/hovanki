@@ -5,6 +5,7 @@ import app.hovanki.shared.debug.DebugGameList
 import app.hovanki.shared.debug.DebugGameState
 import app.hovanki.shared.debug.DebugReportList
 import app.hovanki.shared.debug.DebugRoutes
+import app.hovanki.shared.debug.DebugSetFeatures
 import app.hovanki.shared.debug.DebugSetRole
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
@@ -64,12 +65,17 @@ class DebugEndpointAbsentTest(@Autowired private val mvc: MockMvc, @Autowired pr
             val body = mvc.get(path).andExpect { status { isNotFound() } }.andReturn().response.contentAsString
             assertEquals(ErrorCode.NOT_FOUND, protocolJson.decodeFromString<ApiError>(body).code, body)
         }
-        // Nobody makes themselves staff on a normal server.
+        // Nobody makes themselves staff on a normal server, nor turns the features on.
         val setRole = mvc.post(DebugRoutes.userRole(UserId("anyone"))) {
             contentType = MediaType.APPLICATION_JSON
             content = protocolJson.encodeToString(DebugSetRole(UserRole.ADMIN))
         }.andExpect { status { isNotFound() } }.andReturn().response.contentAsString
         assertEquals(ErrorCode.NOT_FOUND, protocolJson.decodeFromString<ApiError>(setRole).code, setRole)
+        val setFeatures = mvc.post(DebugRoutes.FEATURES) {
+            contentType = MediaType.APPLICATION_JSON
+            content = protocolJson.encodeToString(DebugSetFeatures(listOf("RADAR")))
+        }.andExpect { status { isNotFound() } }.andReturn().response.contentAsString
+        assertEquals(ErrorCode.NOT_FOUND, protocolJson.decodeFromString<ApiError>(setFeatures).code, setFeatures)
     }
 }
 
@@ -164,6 +170,24 @@ class DebugEndpointTest(@Autowired private val mvc: MockMvc, @Autowired private 
     @Test
     fun unknownGame() {
         mvc.get(DebugRoutes.game(GameId("nope"))).andExpect { status { isNotFound() } }
+    }
+
+    /** The features are switched like an admin does, and the observer shows them. */
+    @Test
+    fun theFeaturesAreSwitched() {
+        val host = createGame(mvc)
+        setFeatures(listOf("QUESTS", "RADAR")).andExpect { status { isNoContent() } }
+        val state = protocolJson.decodeFromString<DebugGameState>(getOk(DebugRoutes.game(host.session.gameId)))
+        assertEquals(listOf("QUESTS", "RADAR"), state.enabledFeatures)
+        setFeatures(listOf("NOPE")).andExpect { status { isBadRequest() } }
+        setFeatures(emptyList()).andExpect { status { isNoContent() } }
+        val reset = protocolJson.decodeFromString<DebugGameState>(getOk(DebugRoutes.game(host.session.gameId)))
+        assertEquals(emptyList(), reset.enabledFeatures)
+    }
+
+    private fun setFeatures(names: List<String>) = mvc.post(DebugRoutes.FEATURES) {
+        contentType = MediaType.APPLICATION_JSON
+        content = protocolJson.encodeToString(DebugSetFeatures(names))
     }
 
     private fun getOk(path: String): String =

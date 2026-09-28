@@ -9,21 +9,29 @@ import app.hovanki.client.resources.error_account_required
 import app.hovanki.client.resources.error_blocked_by_you
 import app.hovanki.client.resources.error_chat_muted
 import app.hovanki.client.resources.error_chat_muted_forever
+import app.hovanki.client.resources.error_checkpoint_taken
 import app.hovanki.client.resources.error_code_expired
 import app.hovanki.client.resources.error_email_not_verified
 import app.hovanki.client.resources.error_email_taken
+import app.hovanki.client.resources.error_feature_disabled
+import app.hovanki.client.resources.error_feature_missing
 import app.hovanki.client.resources.error_in_another_game
 import app.hovanki.client.resources.error_invalid_email
 import app.hovanki.client.resources.error_invalid_group_name
 import app.hovanki.client.resources.error_invalid_message
 import app.hovanki.client.resources.error_invalid_nickname
 import app.hovanki.client.resources.error_invalid_password
+import app.hovanki.client.resources.error_item_limit
 import app.hovanki.client.resources.error_limit_reached
 import app.hovanki.client.resources.error_network
 import app.hovanki.client.resources.error_nickname_taken
+import app.hovanki.client.resources.error_not_enough_sparks
 import app.hovanki.client.resources.error_not_friends
 import app.hovanki.client.resources.error_not_group_member
 import app.hovanki.client.resources.error_not_group_owner
+import app.hovanki.client.resources.error_not_nearby
+import app.hovanki.client.resources.error_perk_unavailable
+import app.hovanki.client.resources.error_quest_not_active
 import app.hovanki.client.resources.error_session_expired
 import app.hovanki.client.resources.error_too_many_requests
 import app.hovanki.client.resources.error_too_many_requests_wait
@@ -118,6 +126,22 @@ fun reasonNotice(
         ErrorReason.IN_ANOTHER_GAME -> Res.string.error_in_another_game
 
         ErrorReason.ZONE_NOT_READY -> Res.string.error_zone_not_ready
+
+        ErrorReason.NOT_NEARBY -> Res.string.error_not_nearby
+
+        ErrorReason.FEATURE_MISSING -> Res.string.error_feature_missing
+
+        ErrorReason.FEATURE_DISABLED -> Res.string.error_feature_disabled
+
+        ErrorReason.NOT_ENOUGH_SPARKS -> Res.string.error_not_enough_sparks
+
+        ErrorReason.PERK_UNAVAILABLE -> Res.string.error_perk_unavailable
+
+        ErrorReason.CHECKPOINT_TAKEN -> Res.string.error_checkpoint_taken
+
+        ErrorReason.QUEST_NOT_ACTIVE -> Res.string.error_quest_not_active
+
+        ErrorReason.ITEM_LIMIT -> Res.string.error_item_limit
 
         ErrorReason.ACCOUNT_BANNED -> return untilMillis?.let {
             Notice.Text(Res.string.error_account_banned, listOf(formatDateTime(it)))

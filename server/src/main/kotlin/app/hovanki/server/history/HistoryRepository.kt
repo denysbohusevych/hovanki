@@ -70,10 +70,10 @@ class HistoryRepository(private val jdbc: JdbcClient) {
             """
             INSERT INTO game_results (user_id, game_id, started_at, finished_at, role, status, won, players, seekers,
                                       catch_claims, catches, survived_seconds, zone_warnings, building_warnings, fixes,
-                                      distance_meters, moving_seconds, max_speed_mps)
+                                      distance_meters, moving_seconds, max_speed_mps, sparks, quests_done)
             VALUES (:userId, :gameId, :startedAt, :finishedAt, :role, :status, :won, :players, :seekers, :catchClaims,
                     :catches, :survivedSeconds, :zoneWarnings, :buildingWarnings, :fixes, :distance, :movingSeconds,
-                    :maxSpeed)
+                    :maxSpeed, :sparks, :questsDone)
             ON CONFLICT (user_id, game_id) DO NOTHING
             """.trimIndent(),
         )
@@ -95,6 +95,8 @@ class HistoryRepository(private val jdbc: JdbcClient) {
             .param("distance", result.distanceMeters)
             .param("movingSeconds", result.movingSeconds)
             .param("maxSpeed", result.maxSpeedMetersPerSecond)
+            .param("sparks", result.sparks)
+            .param("questsDone", result.questsDone)
             .update()
     }
 
@@ -161,7 +163,9 @@ class HistoryRepository(private val jdbc: JdbcClient) {
                max(max_speed_mps)                                      AS max_speed,
                max(distance_meters)                                    AS longest_game,
                min(started_at)                                         AS first_game,
-               max(finished_at)                                        AS last_game
+               max(finished_at)                                        AS last_game,
+               coalesce(sum(sparks), 0)                                AS sparks,
+               coalesce(sum(quests_done), 0)                           AS quests_done
         FROM game_results
         WHERE user_id = :userId
         """.trimIndent(),
@@ -189,6 +193,8 @@ class HistoryRepository(private val jdbc: JdbcClient) {
                 longestGameMeters = rs.getDoubleOrNull("longest_game"),
                 firstGameAtMillis = rs.getInstantOrNull("first_game")?.toEpochMilli(),
                 lastGameAtMillis = rs.getInstantOrNull("last_game")?.toEpochMilli(),
+                sparks = rs.getInt("sparks"),
+                questsDone = rs.getInt("quests_done"),
             )
         }
         .single()
@@ -248,6 +254,8 @@ class HistoryRepository(private val jdbc: JdbcClient) {
                 movingSeconds = rs.getInt("moving_seconds"),
                 maxSpeedMetersPerSecond = rs.getDoubleOrNull("max_speed_mps"),
                 hasRoute = rs.getBoolean("has_route"),
+                sparks = rs.getInt("sparks"),
+                questsDone = rs.getInt("quests_done"),
             )
         }
     }

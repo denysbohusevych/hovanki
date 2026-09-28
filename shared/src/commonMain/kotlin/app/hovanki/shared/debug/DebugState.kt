@@ -1,6 +1,9 @@
 package app.hovanki.shared.debug
 
+import app.hovanki.shared.protocol.Activity
+import app.hovanki.shared.protocol.BoardItem
 import app.hovanki.shared.protocol.BuildingsState
+import app.hovanki.shared.protocol.Capabilities
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.ChatMessage
@@ -10,6 +13,10 @@ import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
+import app.hovanki.shared.protocol.QuestId
+import app.hovanki.shared.protocol.QuestKind
+import app.hovanki.shared.protocol.QuestStatus
+import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.UserId
@@ -38,6 +45,9 @@ object DebugRoutes {
     /** POST [DebugSetRole]: makes an account staff, as the operator does on the server (docs/deploy.md). */
     const val USER_ROLE = "/api/v1/debug/users/{userId}/role"
 
+    /** POST [DebugSetFeatures]: turns server features on, as an admin does in the admin. */
+    const val FEATURES = "/api/v1/debug/features"
+
     fun game(gameId: GameId): String = GAME.replace("{gameId}", gameId.value)
 
     fun emails(email: String): String = EMAILS.replace("{email}", email)
@@ -47,6 +57,10 @@ object DebugRoutes {
 
 @Serializable
 data class DebugSetRole(val role: UserRole)
+
+/** The server features to have on (every other one goes off), by name. */
+@Serializable
+data class DebugSetFeatures(val enabled: List<String>)
 
 @Serializable
 data class DebugGameList(val serverTimeMillis: Long, val games: List<DebugGameSummary>)
@@ -87,6 +101,30 @@ data class DebugGameState(
     val rolesDrawnAtMillis: Long? = null,
     /** How many buildings the rule judges by (READY). */
     val buildingCount: Int = 0,
+    /** The server features on, by name. */
+    val enabledFeatures: List<String> = emptyList(),
+    /** Every pair the radar heard, with the band the server makes of it. */
+    val radar: List<DebugRadarPair> = emptyList(),
+    /** The board: every item with its code. */
+    val items: List<BoardItem> = emptyList(),
+    /** Every quest of every player. */
+    val quests: List<DebugQuest> = emptyList(),
+)
+
+/** What the radar knows of two players: the smoothed signal and the band. */
+@Serializable
+data class DebugRadarPair(val a: PlayerId, val b: PlayerId, val band: RadarBand, val levelDbm: Double? = null)
+
+/** A quest of one player (or of the seekers' team: [playerId] null). */
+@Serializable
+data class DebugQuest(
+    val id: QuestId,
+    val kind: QuestKind,
+    val playerId: PlayerId? = null,
+    val status: QuestStatus,
+    val progress: Int = 0,
+    val target: Int = 0,
+    val sparks: Int = 0,
 )
 
 @Serializable
@@ -126,6 +164,13 @@ data class DebugPlayer(
     val lastSeenMillis: Long? = null,
     /** Where the last glow left this hider (what the seekers see after it); null: no glow yet. */
     val glowMark: LocationSample? = null,
+    /** What the player's phone last reported. */
+    val capabilities: Capabilities? = null,
+    val activity: Activity? = null,
+    val radarSecret: String? = null,
+    val sparks: Int = 0,
+    /** Since when the phone reports Bluetooth off while the radar is required. */
+    val bluetoothOffSinceMillis: Long? = null,
 )
 
 @Serializable

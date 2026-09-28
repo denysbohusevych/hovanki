@@ -9,11 +9,17 @@ import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.ConfirmCatchRequest
 import app.hovanki.shared.protocol.CreateGameRequest
+import app.hovanki.shared.protocol.CustomQuestRequest
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.InviteRequest
+import app.hovanki.shared.protocol.ItemId
 import app.hovanki.shared.protocol.JoinGameRequest
+import app.hovanki.shared.protocol.PlaceItemRequest
+import app.hovanki.shared.protocol.QuestId
+import app.hovanki.shared.protocol.QuestReviewRequest
 import app.hovanki.shared.protocol.RolesRequest
+import app.hovanki.shared.protocol.ScanCheckpointRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsRequest
@@ -21,6 +27,7 @@ import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
+import app.hovanki.shared.protocol.UsePerkRequest
 import app.hovanki.shared.protocol.VoteRequest
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
@@ -125,4 +132,52 @@ class GameController(private val games: GameService, private val invites: Invite
     @PostMapping(ApiRoutes.GAME_INVITES)
     fun invite(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: InviteRequest): GameSnapshot =
         invites.invite(player, GameId(gameId), request)
+
+    // The board and the perks (docs/adr/0011-quests-sparks-and-sensors.md).
+
+    /** The host places an item on the map, in the lobby; the snapshot has it (with the code of a scan checkpoint). */
+    @PostMapping(ApiRoutes.ITEMS)
+    fun placeItem(
+        player: PlayerRef,
+        @PathVariable gameId: String,
+        @RequestBody request: PlaceItemRequest,
+    ): GameSnapshot = games.placeItem(player, GameId(gameId), request)
+
+    @PostMapping(ApiRoutes.ITEM_REMOVE)
+    fun removeItem(player: PlayerRef, @PathVariable gameId: String, @PathVariable itemId: String): GameSnapshot =
+        games.removeItem(player, GameId(gameId), ItemId(itemId))
+
+    /** The player scanned the QR code of a checkpoint. */
+    @PostMapping(ApiRoutes.CHECKPOINT_SCAN)
+    fun scanCheckpoint(
+        player: PlayerRef,
+        @PathVariable gameId: String,
+        @RequestBody request: ScanCheckpointRequest,
+    ): GameSnapshot = games.scanCheckpoint(player, GameId(gameId), request)
+
+    /** The player uses a perk: one found on the map, else bought for sparks. */
+    @PostMapping(ApiRoutes.PERKS)
+    fun usePerk(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: UsePerkRequest): GameSnapshot =
+        games.usePerk(player, GameId(gameId), request)
+
+    /** The host makes up a quest in words. */
+    @PostMapping(ApiRoutes.QUESTS)
+    fun addQuest(
+        player: PlayerRef,
+        @PathVariable gameId: String,
+        @RequestBody request: CustomQuestRequest,
+    ): GameSnapshot = games.addCustomQuest(player, GameId(gameId), request)
+
+    /** The player says they did the host's quest; the host confirms it at [reviewQuest]. */
+    @PostMapping(ApiRoutes.QUEST_DONE)
+    fun questDone(player: PlayerRef, @PathVariable gameId: String, @PathVariable questId: String): GameSnapshot =
+        games.markQuestDone(player, GameId(gameId), QuestId(questId))
+
+    @PostMapping(ApiRoutes.QUEST_REVIEW)
+    fun reviewQuest(
+        player: PlayerRef,
+        @PathVariable gameId: String,
+        @PathVariable questId: String,
+        @RequestBody request: QuestReviewRequest,
+    ): GameSnapshot = games.reviewQuest(player, GameId(gameId), QuestId(questId), request)
 }

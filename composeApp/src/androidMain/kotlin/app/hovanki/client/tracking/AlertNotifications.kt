@@ -13,6 +13,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.alert_bluetooth_off_text
+import app.hovanki.client.resources.alert_bluetooth_off_title
 import app.hovanki.client.resources.alert_channel
 import app.hovanki.client.resources.alert_claim_text
 import app.hovanki.client.resources.alert_glow_soon_text
@@ -23,6 +25,8 @@ import app.hovanki.client.resources.alert_in_building_text
 import app.hovanki.client.resources.alert_in_building_title
 import app.hovanki.client.resources.alert_out_of_zone_text
 import app.hovanki.client.resources.alert_out_of_zone_title
+import app.hovanki.client.resources.alert_seeker_near_text
+import app.hovanki.client.resources.alert_seeker_near_title
 import app.hovanki.client.resources.hider_claim_title
 import org.jetbrains.compose.resources.getString
 
@@ -55,6 +59,12 @@ internal class AlertNotifications(private val context: Context) {
 
             AlertKind.GLOWING -> getString(Res.string.alert_glowing_title) to
                 getString(Res.string.alert_glowing_text)
+
+            AlertKind.SEEKER_NEAR -> getString(Res.string.alert_seeker_near_title) to
+                getString(Res.string.alert_seeker_near_text)
+
+            AlertKind.BLUETOOTH_OFF -> getString(Res.string.alert_bluetooth_off_title) to
+                getString(Res.string.alert_bluetooth_off_text)
         }
         val notification = NotificationCompat.Builder(context, channel())
             .setSmallIcon(android.R.drawable.ic_dialog_alert)

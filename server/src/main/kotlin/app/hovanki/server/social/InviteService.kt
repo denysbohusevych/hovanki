@@ -83,7 +83,7 @@ class InviteService(
 
         val (invitees, snapshot) = games.withGame(caller, gameId) { game, now ->
             requireLobby(game.phase)
-            candidates.filterKeys { game.playerOf(it) == null } to game.snapshotFor(caller.playerId, now)
+            candidates.filterKeys { game.playerOf(it) == null } to games.snapshotOf(game, caller.playerId, now)
         }
         val now = clock.millis()
         for ((inviteeId, viaGroup) in invitees) {

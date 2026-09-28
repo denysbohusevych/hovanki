@@ -2,7 +2,11 @@ package app.hovanki.client.network
 
 import app.cash.turbine.test
 import app.hovanki.shared.protocol.ApiError
+import app.hovanki.shared.protocol.BluetoothState
+import app.hovanki.shared.protocol.DeviceReport
 import app.hovanki.shared.protocol.ErrorCode
+import app.hovanki.shared.protocol.NearbySighting
+import app.hovanki.shared.protocol.Platform
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.currentTime
@@ -60,6 +64,23 @@ class PollingGameConnectionTest {
             cursor = 17
             awaitItem()
             assertEquals(listOf<Long?>(0, 17), api.syncRequests.map { it.chatAfter })
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun theRadarsSightingsAndThePhoneGoWithEverySync() = runTest {
+        val api = FakeGameApi { testSnapshot() }
+        val device = DeviceReport(Platform.IOS, BluetoothState.ON)
+        var heard = listOf(NearbySighting("0123abcd", -70, 500L))
+
+        PollingGameConnection(api).connect(testSession, LocationOutbox(), extras = { SyncExtras(heard, device) }).test {
+            awaitItem()
+            heard = emptyList()
+            awaitItem()
+            assertEquals(listOf(NearbySighting("0123abcd", -70, 500L)), api.syncRequests[0].nearby)
+            assertEquals(emptyList(), api.syncRequests[1].nearby)
+            assertEquals(listOf(device, device), api.syncRequests.map { it.device })
             cancelAndIgnoreRemainingEvents()
         }
     }

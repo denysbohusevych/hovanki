@@ -6,6 +6,7 @@ import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ChatChannel
 import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.CreateGameRequest
+import app.hovanki.shared.protocol.CustomQuestRequest
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameRules
@@ -13,13 +14,17 @@ import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.InviteRequest
+import app.hovanki.shared.protocol.ItemId
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.MyState
+import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
+import app.hovanki.shared.protocol.QuestId
+import app.hovanki.shared.protocol.QuestReviewRequest
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
@@ -29,6 +34,7 @@ import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
+import app.hovanki.shared.protocol.UsePerkRequest
 import app.hovanki.shared.rules.shrinkingZone
 
 val testSession = PlayerSession(GameId("game1"), PlayerId("player1"), token = "secret-token")
@@ -87,8 +93,56 @@ class FakeGameApi(
     private val onSettings: suspend (SettingsRequest) -> GameSnapshot = { unused() },
     private val onStreetZone: suspend () -> StreetZoneResponse = { unused() },
     private val onLeave: suspend () -> Unit = {},
+    /** Every call of the board and the perks (items, checkpoints, perks, quests) answers with this. */
+    private val onBoard: suspend () -> GameSnapshot = { unused() },
     private val onSync: suspend (SyncRequest) -> GameSnapshot,
 ) : GameApi {
+    val placedItems = mutableListOf<PlaceItemRequest>()
+    val removedItems = mutableListOf<ItemId>()
+    val scannedCodes = mutableListOf<String>()
+    val perksUsed = mutableListOf<UsePerkRequest>()
+    val questsAdded = mutableListOf<CustomQuestRequest>()
+    val questsDone = mutableListOf<QuestId>()
+    val questReviews = mutableListOf<Pair<QuestId, QuestReviewRequest>>()
+
+    override suspend fun placeItem(session: PlayerSession, request: PlaceItemRequest): GameSnapshot {
+        placedItems += request
+        return onBoard()
+    }
+
+    override suspend fun removeItem(session: PlayerSession, itemId: ItemId): GameSnapshot {
+        removedItems += itemId
+        return onBoard()
+    }
+
+    override suspend fun scanCheckpoint(session: PlayerSession, code: String): GameSnapshot {
+        scannedCodes += code
+        return onBoard()
+    }
+
+    override suspend fun usePerk(session: PlayerSession, request: UsePerkRequest): GameSnapshot {
+        perksUsed += request
+        return onBoard()
+    }
+
+    override suspend fun addQuest(session: PlayerSession, request: CustomQuestRequest): GameSnapshot {
+        questsAdded += request
+        return onBoard()
+    }
+
+    override suspend fun questDone(session: PlayerSession, questId: QuestId): GameSnapshot {
+        questsDone += questId
+        return onBoard()
+    }
+
+    override suspend fun reviewQuest(
+        session: PlayerSession,
+        questId: QuestId,
+        request: QuestReviewRequest,
+    ): GameSnapshot {
+        questReviews += questId to request
+        return onBoard()
+    }
     val rolesRequests = mutableListOf<RolesRequest>()
     val settingsRequests = mutableListOf<SettingsRequest>()
     var streetZoneRequests = 0

@@ -1,0 +1,21 @@
+package app.hovanki.client.device
+
+import app.hovanki.shared.protocol.Platform
+
+/** What kind of phone this is and what it has, for `DeviceReport` (docs/adr/0010-nearby-radar.md). */
+interface DeviceInfo {
+    val platform: Platform
+
+    /** A UWB chip the app may use. */
+    val hasUwb: Boolean
+
+    /** Motion sensors to tell running from walking (docs/adr/0011-quests-sparks-and-sensors.md, section 4). */
+    val hasActivitySensor: Boolean
+
+    /** A headless client (the e2e bots) or a platform that never said. */
+    object Unknown : DeviceInfo {
+        override val platform: Platform = Platform.OTHER
+        override val hasUwb: Boolean = false
+        override val hasActivitySensor: Boolean = false
+    }
+}

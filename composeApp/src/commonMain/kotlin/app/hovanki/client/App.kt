@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.account.AccountManager
 import app.hovanki.client.account.AccountState
@@ -45,6 +46,11 @@ fun App() {
         val state by sessionManager.state.collectAsStateWithLifecycle()
         val account by accountManager.state.collectAsStateWithLifecycle()
         val locationConsent = remember { LocationConsentState() }
+        // The precision radar works only while both players look at their phones: the server hears when we do.
+        LifecycleResumeEffect(sessionManager) {
+            sessionManager.onScreenChanged(true)
+            onPauseOrDispose { sessionManager.onScreenChanged(false) }
+        }
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             CompositionLocalProvider(LocalLocationConsent provides locationConsent) {
                 Screen(state, account, onLeave = sessionManager::leave)

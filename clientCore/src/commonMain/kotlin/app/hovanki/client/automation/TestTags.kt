@@ -235,6 +235,41 @@ object TestTags {
     const val SETTINGS_SHRINKS = "settings_shrinks"
     const val SETTINGS_GLOW = "settings_glow"
 
+    // The radar, the quests, the perks and the board (docs/adr/0010-nearby-radar.md, docs/adr/0011-...).
+    const val SETTINGS_RADAR = "settings_radar"
+    const val SETTINGS_RADAR_REQUIRED = "settings_radar_required"
+    const val SETTINGS_HIDER_SENSE = "settings_hider_sense"
+    const val SETTINGS_PROXIMITY_CATCH = "settings_proximity_catch"
+    const val SETTINGS_PRECISION_RADAR = "settings_precision_radar"
+    const val SETTINGS_QUESTS = "settings_quests"
+    const val SETTINGS_PERKS = "settings_perks"
+    const val SETTINGS_CHECKPOINTS = "settings_checkpoints"
+    const val SETTINGS_PICKUPS = "settings_pickups"
+    const val SETTINGS_ACTIVITY = "settings_activity"
+
+    /** The lobby: the radar's state of this phone, the switch «the radar on my phone», the board. */
+    const val LOBBY_BLUETOOTH = "lobby_bluetooth"
+    const val LOBBY_BLUETOOTH_ALLOW = "lobby_bluetooth_allow"
+    const val LOBBY_MY_RADAR = "lobby_my_radar"
+    const val LOBBY_BOARD = "lobby_board"
+    const val BOARD_PANEL = "board_panel"
+    const val BOARD_PLACE = "board_place"
+    const val BOARD_NAME = "board_name"
+    const val BOARD_QUEST_TEXT = "board_quest_text"
+    const val BOARD_QUEST_ADD = "board_quest_add"
+
+    /** The round: the radar chip, the sparks, the quests and the perks. */
+    const val RADAR_CHIP = "radar_chip"
+    const val SPARKS_CHIP = "sparks_chip"
+    const val HINT_CHIP = "hint_chip"
+    const val QUESTS_OPEN = "quests_open"
+    const val QUESTS_PANEL = "quests_panel"
+    const val PERKS_OPEN = "perks_open"
+    const val PERKS_PANEL = "perks_panel"
+    const val CHECKPOINT_SCAN_OPEN = "checkpoint_scan_open"
+    const val GAME_BLUETOOTH_OFF = "game_bluetooth_off"
+    const val RESULTS_SPARKS = "results_sparks"
+
     /** An invite into another game, over the lobby and the results: go there, or dismiss it. */
     const val INVITE_BANNER = "invite_banner"
     const val INVITE_BANNER_GO = "invite_banner_go"
@@ -366,4 +401,24 @@ object TestTags {
     fun historyGame(gameId: GameId) = "history_game_${gameId.value}"
 
     fun historyRoute(gameId: GameId) = "history_route_${gameId.value}"
+
+    fun settingQuest(name: String) = "setting_quest_${name.lowercase()}"
+
+    fun boardKind(name: String) = "board_kind_${name.lowercase()}"
+
+    fun boardItem(id: String) = "board_item_$id"
+
+    fun boardItemRemove(id: String) = "board_item_remove_$id"
+
+    fun quest(id: String) = "quest_$id"
+
+    fun questDone(id: String) = "quest_done_$id"
+
+    fun questApprove(id: String, playerId: PlayerId) = "quest_approve_${id}_${playerId.value}"
+
+    fun questRefuse(id: String, playerId: PlayerId) = "quest_refuse_${id}_${playerId.value}"
+
+    fun perkUse(name: String) = "perk_use_${name.lowercase()}"
+
+    fun lobbyCapability(id: PlayerId) = "lobby_capability_${id.value}"
 }

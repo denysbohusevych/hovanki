@@ -32,8 +32,12 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>The radar of a game: your phone sends out a code that changes every few minutes and listens for the other players' codes, so the seekers feel who is near. No location or name is in it, and nothing is kept.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>The camera scans the QR code on another player's screen to confirm a catch.</string>
+	<string>The camera scans the QR code on another player's screen to confirm a catch, or the code of a checkpoint.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Tells running from walking for the game's quests and statistics; only «running» or not leaves the phone.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Lets a round go on when Hovanki is in the background. Your location goes only to the game server and is deleted when the game ends, unless you turn on «Save my routes» in your profile.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
@@ -45,6 +49,8 @@
 	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>bluetooth-central</string>
+		<string>bluetooth-peripheral</string>
 		<string>location</string>
 	</array>
 	<key>UILaunchScreen</key>

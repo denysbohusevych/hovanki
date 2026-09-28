@@ -33,6 +33,9 @@ enum class AwardKind {
 
     /** The longest way through the round, from the tracks; [Award.value]: meters. */
     MARATHON,
+
+    /** The most sparks (docs/adr/0011-quests-sparks-and-sensors.md), at least one; [Award.value]: how many. */
+    SPARKS,
 }
 
 data class Award(val kind: AwardKind, val playerId: PlayerId, val value: Long)
@@ -75,6 +78,9 @@ fun GameSnapshot.awards(tracks: TracksResponse? = null): List<Award> {
         lengths.entries.uniqueMaxBy { it.value }?.takeIf { it.value >= MARATHON_MIN_METERS }?.let { (player, meters) ->
             awards += Award(AwardKind.MARATHON, player, meters.toLong())
         }
+    }
+    players.filter { (it.sparks ?: 0) > 0 }.uniqueMaxBy { it.sparks ?: 0 }?.let { richest ->
+        awards += Award(AwardKind.SPARKS, richest.id, (richest.sparks ?: 0).toLong())
     }
     return awards
 }

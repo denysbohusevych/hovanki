@@ -36,6 +36,14 @@ data class GameSettings(
      * area as the circle, and serves them at `ApiRoutes.streetZone`; the circles still set the timing.
      */
     val zoneShape: ZoneShape = ZoneShape.CIRCLE,
+    /**
+     * The radar, the quests, the perks and the rest (docs/adr/0010-nearby-radar.md,
+     * docs/adr/0011-quests-sparks-and-sensors.md): all off unless the host turned them on, and only what the server
+     * has on. Older apps: none of it.
+     */
+    val features: GameFeatures = GameFeatures(),
+    /** The catalog quests the host picked, when [GameFeatures.quests] is on; the quest points are placed on the map. */
+    val quests: List<QuestKind> = emptyList(),
 )
 
 /** The zone's shape (docs/adr/0009-game-setup-glow-streets.md). */
@@ -84,4 +92,17 @@ data class GameRules(
     val insideBuildingRevealSeconds: Int = 60,
     /** A fix counts as inside a building only when it is this far from every wall, on top of its accuracy. */
     val buildingWallMarginMeters: Double = 5.0,
+    /**
+     * The radar is required and a hider's phone has had Bluetooth off for this long: the seekers see them
+     * (docs/adr/0010-nearby-radar.md, section 2.6).
+     */
+    val radarOffRevealSeconds: Int = 60,
+    /** A claim only up close: the pair must have been «burning» on the radar within this long. */
+    val nearbyWindowSeconds: Int = 30,
+    /** A quest point, a checkpoint or a pickup is reached when the fixes prove the player within this distance. */
+    val itemReachMeters: Double = 15.0,
+    /** Between two perks of one player. */
+    val perkCooldownSeconds: Int = 30,
+    /** How long a «Spotlight» shows a hider. */
+    val spotlightSeconds: Int = 3,
 )

@@ -3,6 +3,7 @@ package app.hovanki.server.game
 import app.hovanki.server.account.UserRepository
 import app.hovanki.server.api.AuthenticatedUser
 import app.hovanki.server.buildings.BuildingLoader
+import app.hovanki.server.features.FeatureFlags
 import app.hovanki.server.history.HistoryWriter
 import app.hovanki.server.map.StreetZoneLoader
 import app.hovanki.server.moderation.NewReport
@@ -17,16 +18,22 @@ import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.ConfirmCatchRequest
 import app.hovanki.shared.protocol.CreateGameRequest
+import app.hovanki.shared.protocol.CustomQuestRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
+import app.hovanki.shared.protocol.ItemId
 import app.hovanki.shared.protocol.JoinGameRequest
+import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.QuestId
+import app.hovanki.shared.protocol.QuestReviewRequest
 import app.hovanki.shared.protocol.RolesRequest
+import app.hovanki.shared.protocol.ScanCheckpointRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsRequest
@@ -34,6 +41,7 @@ import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
+import app.hovanki.shared.protocol.UsePerkRequest
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VoteRequest
 import app.hovanki.shared.protocol.ZoneShape
@@ -57,6 +65,7 @@ class GameService(
     private val history: HistoryWriter,
     private val sanctions: SanctionService,
     private val streetZoneLoader: StreetZoneLoader,
+    private val features: FeatureFlags,
 ) {
     /**
      * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
@@ -65,6 +74,7 @@ class GameService(
     fun create(request: CreateGameRequest, user: AuthenticatedUser? = null): SessionResponse {
         val name = playerName(request.playerName, user)
         validate(request.settings)
+        features.requireAllowed(request.settings.features)
         if (user != null) leaveOtherGames(user, except = null, leaveRound = request.leaveOtherGame)
         val now = clock.millis()
         val hostId = ids.playerId()
@@ -137,6 +147,7 @@ class GameService(
     /** The host changes the setup in the lobby; a new zone loads its buildings (and zone by streets) again. */
     fun updateSettings(caller: PlayerRef, gameId: GameId, request: SettingsRequest): GameSnapshot {
         validate(request.settings)
+        features.requireAllowed(request.settings.features)
         var mapChanged = false
         val snapshot = update(caller, gameId) { game, now ->
             mapChanged = game.updateSettings(caller.playerId, request.settings, now)
@@ -164,10 +175,41 @@ class GameService(
 
     fun sync(caller: PlayerRef, gameId: GameId, request: SyncRequest): GameSnapshot {
         if (request.samples.size > MAX_SAMPLES_PER_SYNC) throw GameException(ErrorCode.BAD_REQUEST, "Too many samples")
+        if (request.nearby.size >
+            MAX_SIGHTINGS_PER_SYNC
+        ) {
+            throw GameException(ErrorCode.BAD_REQUEST, "Too many sightings")
+        }
         return update(caller, gameId, request.chatAfter) { game, now ->
+            request.device?.let { game.recordDevice(caller.playerId, it, now) }
             game.recordLocations(caller.playerId, request.samples, now)
+            if (request.nearby.isNotEmpty()) game.recordSightings(caller.playerId, request.nearby, now)
         }
     }
+
+    // The board and the perks (docs/adr/0011-quests-sparks-and-sensors.md); the rules are in the game.
+
+    /** The host places an item on the map in the lobby; a scan checkpoint gets a fresh code. */
+    fun placeItem(caller: PlayerRef, gameId: GameId, request: PlaceItemRequest): GameSnapshot =
+        update(caller, gameId) { game, now -> game.placeItem(caller.playerId, request, ids::checkpointCode, now) }
+
+    fun removeItem(caller: PlayerRef, gameId: GameId, itemId: ItemId): GameSnapshot =
+        update(caller, gameId) { game, now -> game.removeItem(caller.playerId, itemId, now) }
+
+    fun scanCheckpoint(caller: PlayerRef, gameId: GameId, request: ScanCheckpointRequest): GameSnapshot =
+        update(caller, gameId) { game, now -> game.scanCheckpoint(caller.playerId, request.code, now) }
+
+    fun usePerk(caller: PlayerRef, gameId: GameId, request: UsePerkRequest): GameSnapshot =
+        update(caller, gameId) { game, now -> game.usePerk(caller.playerId, request, now) }
+
+    fun addCustomQuest(caller: PlayerRef, gameId: GameId, request: CustomQuestRequest): GameSnapshot =
+        update(caller, gameId) { game, now -> game.addCustomQuest(caller.playerId, request, now) }
+
+    fun markQuestDone(caller: PlayerRef, gameId: GameId, questId: QuestId): GameSnapshot =
+        update(caller, gameId) { game, now -> game.markQuestDone(caller.playerId, questId, now) }
+
+    fun reviewQuest(caller: PlayerRef, gameId: GameId, questId: QuestId, request: QuestReviewRequest): GameSnapshot =
+        update(caller, gameId) { game, now -> game.reviewQuest(caller.playerId, questId, request, now) }
 
     /**
      * A chat message; the snapshot brings the messages after the request's cursor, this one included. A player whose
@@ -191,7 +233,7 @@ class GameService(
     fun reportChat(caller: PlayerRef, gameId: GameId, seq: Long): GameSnapshot {
         val game = gameOf(caller, gameId)
         val (reported, snapshot) = locked(game) { now ->
-            game.reportedMessage(caller.playerId, seq) to game.snapshotFor(caller.playerId, now)
+            game.reportedMessage(caller.playerId, seq) to snapshotOf(game, caller.playerId, now)
         }
         // Per account; guests have none, so per player.
         val reporter = reported.reporterUserId?.value ?: "${gameId.value}/${caller.playerId.value}"
@@ -233,6 +275,13 @@ class GameService(
         val game = gameOf(caller, gameId)
         return locked(game) { now -> block(game, now) }
     }
+
+    /**
+     * [playerId]'s snapshot of [game] (under its lock), with the server features the operator has on: what the
+     * host may turn on in the lobby. Every snapshot goes out through here.
+     */
+    fun snapshotOf(game: Game, playerId: PlayerId, now: Long, chatAfter: Long? = null): GameSnapshot =
+        game.snapshotFor(playerId, now, chatAfter, features.enabledNames())
 
     /** Every game in memory as staff see it (docs/adr/0008-admin.md), newest first. */
     fun adminGames(): List<AdminGame> =
@@ -357,13 +406,13 @@ class GameService(
     ): GameSnapshot = withGame(caller, gameId) { game, now ->
         action(game, now)
         game.advance(now)
-        game.snapshotFor(caller.playerId, now, chatAfter)
+        snapshotOf(game, caller.playerId, now, chatAfter)
     }
 
     private fun newSession(game: Game, playerId: PlayerId, now: Long): SessionResponse {
         val token = ids.token()
         registry.registerToken(token, PlayerRef(game.id, playerId))
-        return SessionResponse(PlayerSession(game.id, playerId, token), game.snapshotFor(playerId, now))
+        return SessionResponse(PlayerSession(game.id, playerId, token), snapshotOf(game, playerId, now))
     }
 
     /** The account's nickname for a logged-in player, else the name the guest typed. */
@@ -395,6 +444,7 @@ class GameService(
     private companion object {
         const val MAX_NAME_LENGTH = 32
         const val MAX_SAMPLES_PER_SYNC = 100
+        const val MAX_SIGHTINGS_PER_SYNC = 200
 
         /** Buildings just outside the zone matter too: a player at the border can step into one. */
         const val BUILDINGS_MARGIN_METERS = 50.0

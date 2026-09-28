@@ -4,12 +4,17 @@ import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CreateGameRequest
+import app.hovanki.shared.protocol.CustomQuestRequest
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.InviteRequest
+import app.hovanki.shared.protocol.ItemId
 import app.hovanki.shared.protocol.JoinGameRequest
+import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.QuestId
+import app.hovanki.shared.protocol.QuestReviewRequest
 import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
@@ -18,6 +23,7 @@ import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
+import app.hovanki.shared.protocol.UsePerkRequest
 
 /**
  * Request/response calls of the game server. Every call that changes the game returns the fresh
@@ -75,6 +81,27 @@ interface GameApi {
 
     /** Invites friends or a group into the game (lobby, logged-in players only). */
     suspend fun invite(session: PlayerSession, request: InviteRequest): GameSnapshot
+
+    // The board and the perks (docs/adr/0011-quests-sparks-and-sensors.md).
+
+    /** The host places an item on the map, in the lobby. */
+    suspend fun placeItem(session: PlayerSession, request: PlaceItemRequest): GameSnapshot
+
+    suspend fun removeItem(session: PlayerSession, itemId: ItemId): GameSnapshot
+
+    /** The code of a checkpoint's QR code the camera read. */
+    suspend fun scanCheckpoint(session: PlayerSession, code: String): GameSnapshot
+
+    suspend fun usePerk(session: PlayerSession, request: UsePerkRequest): GameSnapshot
+
+    /** The host makes up a quest in words. */
+    suspend fun addQuest(session: PlayerSession, request: CustomQuestRequest): GameSnapshot
+
+    /** The player says they did the host's quest. */
+    suspend fun questDone(session: PlayerSession, questId: QuestId): GameSnapshot
+
+    /** The host confirms or refuses what a player said about their quest. */
+    suspend fun reviewQuest(session: PlayerSession, questId: QuestId, request: QuestReviewRequest): GameSnapshot
 }
 
 /**

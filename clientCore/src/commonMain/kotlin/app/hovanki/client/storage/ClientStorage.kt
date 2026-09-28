@@ -75,6 +75,13 @@ class ClientStorage(private val store: SecureStore) {
         save(GAME_SETUP, GameSetup.serializer(), setup)
     }
 
+    /** «The radar on my phone» (docs/adr/0010-nearby-radar.md): on unless the player switched it off. */
+    val radarEnabled: Boolean get() = read(RADAR_ENABLED) != "false"
+
+    fun saveRadarEnabled(enabled: Boolean) {
+        write(RADAR_ENABLED, enabled.toString())
+    }
+
     private fun <T> load(key: String, serializer: KSerializer<T>): T? {
         val json = read(key) ?: return null
         return try {
@@ -113,6 +120,7 @@ class ClientStorage(private val store: SecureStore) {
         const val ACCOUNT = "account"
         const val PLAYER_NAME = "playerName"
         const val GAME_SETUP = "gameSetup"
+        const val RADAR_ENABLED = "radarEnabled"
         const val LEGACY_SERVER_URL = "serverUrl"
     }
 }

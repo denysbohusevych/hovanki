@@ -281,7 +281,29 @@ enum class AdminAction {
     END_GAME,
     SET_ROLE,
     RESET_TOTP,
+
+    /** Turned a server feature on or off (docs/adr/0010-nearby-radar.md). */
+    SET_FEATURE,
 }
+
+/**
+ * A server feature (docs/adr/0010-nearby-radar.md, docs/adr/0011-quests-sparks-and-sensors.md) and whether the
+ * operator turned it on; who did last, and when.
+ */
+@Serializable
+data class AdminFeature(
+    val feature: ServerFeature,
+    val enabled: Boolean,
+    val updatedAtMillis: Long? = null,
+    val updatedByName: String? = null,
+)
+
+@Serializable
+data class AdminFeatures(val features: List<AdminFeature>)
+
+/** Admins turn a feature on or off for everybody; the reason goes to the audit log. */
+@Serializable
+data class AdminFeatureRequest(val enabled: Boolean, val reason: String)
 
 @Serializable
 data class AdminAuditEntry(
