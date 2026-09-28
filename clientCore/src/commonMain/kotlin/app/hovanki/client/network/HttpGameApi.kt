@@ -41,6 +41,9 @@ class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
     override suspend fun updateSettings(session: PlayerSession, request: SettingsRequest): GameSnapshot =
         http.post(ApiRoutes.settings(session.gameId), session.token, request)
 
+    override suspend fun acceptCrowding(session: PlayerSession): GameSnapshot =
+        http.post(ApiRoutes.crowdingAccept(session.gameId), session.token)
+
     override suspend fun leave(session: PlayerSession): Unit = http.post(ApiRoutes.leave(session.gameId), session.token)
 
     override suspend fun sync(session: PlayerSession, request: SyncRequest): GameSnapshot =

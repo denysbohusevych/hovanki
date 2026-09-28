@@ -11,6 +11,7 @@ import app.hovanki.client.storage.FakeSecureStore
 import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
+import app.hovanki.shared.protocol.CapacityState
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.PlayerId
@@ -18,6 +19,8 @@ import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.StreetZoneState
+import app.hovanki.shared.protocol.TerrainAreas
+import app.hovanki.shared.protocol.ZoneCapacity
 import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.GameSetup
@@ -108,6 +111,22 @@ class LobbySessionTest {
         manager.updateSettings(setup.settings(GeoPoint(50.0, 30.0)), setup)
 
         assertEquals(GameSetup(), manager.lastGameSetup())
+    }
+
+    @Test
+    fun theHostPlaysAnyway() = runTest {
+        val crowded = ZoneCapacity(CapacityState.READY, players = 2, areas = TerrainAreas(denseSquareMeters = 2_000))
+        val api = FakeGameApi(
+            onJoin = { SessionResponse(testSession, testSnapshot().copy(capacity = crowded)) },
+            onAcceptCrowding = { testSnapshot().copy(capacity = crowded.copy(accepted = true)) },
+        ) { testSnapshot().copy(capacity = crowded.copy(accepted = true)) }
+        val manager = manager(api)
+        manager.join("ABC234", "Anna")
+
+        manager.acceptCrowding()
+
+        assertEquals(1, api.crowdingAccepts)
+        assertEquals(true, manager.state.value.snapshot?.capacity?.accepted)
     }
 
     @Test

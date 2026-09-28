@@ -15,6 +15,7 @@ import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserRole
 import app.hovanki.shared.protocol.VisibilityReason
+import app.hovanki.shared.protocol.ZoneCapacity
 import app.hovanki.shared.protocol.ZoneCircle
 import app.hovanki.shared.protocol.ZonePolygon
 import kotlinx.serialization.Serializable
@@ -87,6 +88,8 @@ data class DebugGameState(
     val rolesDrawnAtMillis: Long? = null,
     /** How many buildings the rule judges by (READY). */
     val buildingCount: Int = 0,
+    /** About how many players the zone fits, as the host sees it. */
+    val capacity: ZoneCapacity? = null,
 )
 
 @Serializable

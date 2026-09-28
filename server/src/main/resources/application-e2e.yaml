@@ -16,9 +16,11 @@ hovanki:
   # The fixed test quarter next to every zone center (DebugBuildings): no external service in tests.
   buildings:
     source: fake
-  # The fixed street grid around every zone center (DebugStreets) for the zone by streets.
+  # The fixed street grid around every zone center (DebugStreets) for the zone by streets; built-up ground everywhere
+  # for the zone's capacity (one player per 1 000 m²).
   map:
     streets: fake
+    terrain: fake
   # The admin is on for the e2e tests (AdminTest); a key for this profile only, never for production.
   admin:
     secret-key: "khhmZ2aNOlQzfjpPJ9CnfdZt5I6Rysi5J2fFKitQL5M="

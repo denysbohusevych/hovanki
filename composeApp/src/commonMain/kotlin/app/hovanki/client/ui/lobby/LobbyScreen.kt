@@ -61,6 +61,7 @@ import app.hovanki.client.resources.ic_sliders
 import app.hovanki.client.resources.invites_sent
 import app.hovanki.client.resources.lobby_buildings_loading
 import app.hovanki.client.resources.lobby_buildings_ready
+import app.hovanki.client.resources.lobby_chip_capacity
 import app.hovanki.client.resources.lobby_chip_glow
 import app.hovanki.client.resources.lobby_chip_streets
 import app.hovanki.client.resources.lobby_chip_time
@@ -69,11 +70,14 @@ import app.hovanki.client.resources.lobby_code_copied
 import app.hovanki.client.resources.lobby_code_hint
 import app.hovanki.client.resources.lobby_code_title
 import app.hovanki.client.resources.lobby_copy_code
+import app.hovanki.client.resources.lobby_crowded
+import app.hovanki.client.resources.lobby_few_covers
 import app.hovanki.client.resources.lobby_hider
 import app.hovanki.client.resources.lobby_host
 import app.hovanki.client.resources.lobby_invite
 import app.hovanki.client.resources.lobby_offline
 import app.hovanki.client.resources.lobby_pick_seekers
+import app.hovanki.client.resources.lobby_play_anyway
 import app.hovanki.client.resources.lobby_players
 import app.hovanki.client.resources.lobby_random
 import app.hovanki.client.resources.lobby_roles_by_host
@@ -124,6 +128,7 @@ import app.hovanki.shared.protocol.ZoneShape
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -193,6 +198,9 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                         text = stringResource(Res.string.street_zone_off),
                         modifier = Modifier.testTag(TestTags.STREET_ZONE_OFF),
                     )
+                }
+                state.crowding?.let { crowding ->
+                    CrowdingBanner(crowding, onPlayAnyway = viewModel::playAnyway)
                 }
                 if (!state.isHost) MyRoleCard(isSeeker = state.amSeeker)
 
@@ -517,6 +525,12 @@ private fun SettingsChips(state: LobbyUiState, onOpenSettings: () -> Unit) {
         )
         PopChip(stringResource(Res.string.lobby_chip_time, state.hidingMinutes, state.seekingMinutes))
         state.glowEveryMinutes?.let { PopChip(stringResource(Res.string.lobby_chip_glow, it)) }
+        state.capacity?.let { capacity ->
+            PopChip(
+                text = pluralStringResource(Res.plurals.lobby_chip_capacity, capacity, capacity),
+                modifier = Modifier.testTag(TestTags.LOBBY_CAPACITY),
+            )
+        }
         when {
             state.isBuildingStreetZone -> PopChip(
                 text = stringResource(Res.string.lobby_streets_loading),
@@ -551,6 +565,27 @@ private fun SettingsChips(state: LobbyUiState, onOpenSettings: () -> Unit) {
             )
         }
     }
+}
+
+/**
+ * The host's warning (docs/adr/0010-big-games.md): the zone has room for fewer players than there are, and/or few places
+ * to hide. A recommendation: «Play anyway» takes it away for the rest of the game.
+ */
+@Composable
+private fun CrowdingBanner(crowding: Crowding, onPlayAnyway: () -> Unit) {
+    val crowded =
+        pluralStringResource(Res.plurals.lobby_crowded, crowding.capacity, crowding.capacity, crowding.players)
+    val fewCovers = stringResource(Res.string.lobby_few_covers)
+    val text = listOfNotNull(crowded.takeIf { crowding.isCrowded }, fewCovers.takeIf { crowding.fewCovers })
+        .joinToString(" ")
+    Banner(
+        text = text,
+        isError = true,
+        actionLabel = stringResource(Res.string.lobby_play_anyway),
+        onAction = onPlayAnyway,
+        modifier = Modifier.testTag(TestTags.LOBBY_CROWDED),
+        actionModifier = Modifier.testTag(TestTags.LOBBY_PLAY_ANYWAY),
+    )
 }
 
 /** A player who is not the host: the role the host gave them so far, big, in its color. */

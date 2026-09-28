@@ -40,6 +40,12 @@ interface GameApi {
     /** The host changes the setup in the lobby. */
     suspend fun updateSettings(session: PlayerSession, request: SettingsRequest): GameSnapshot
 
+    /**
+     * The host plays anyway in a zone that fits fewer players than there are, or has few places to hide
+     * (docs/adr/0010-big-games.md): the lobby warns no more in this game.
+     */
+    suspend fun acceptCrowding(session: PlayerSession): GameSnapshot
+
     /** Leaves the game for good: the server takes the player out, the session's token stops working. */
     suspend fun leave(session: PlayerSession)
 

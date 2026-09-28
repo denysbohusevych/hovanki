@@ -32,6 +32,12 @@ object ApiRoutes {
     /** POST, no body, 204: the player leaves the game for good; their token stops working. */
     const val LEAVE = "$GAMES/{gameId}/leave"
 
+    /**
+     * POST, no body: the host plays anyway in a zone that is too small for the players or has few places to hide; the
+     * lobby warns no more in this game ([ZoneCapacity.accepted]).
+     */
+    const val CROWDING_ACCEPT = "$GAMES/{gameId}/crowding/accept"
+
     /** GET: every player's track of the round ([TracksResponse]), once the game is FINISHED. */
     const val TRACKS = "$GAMES/{gameId}/tracks"
 
@@ -161,6 +167,8 @@ object ApiRoutes {
     fun settings(gameId: GameId): String = SETTINGS.fill("gameId" to gameId.value)
 
     fun leave(gameId: GameId): String = LEAVE.fill("gameId" to gameId.value)
+
+    fun crowdingAccept(gameId: GameId): String = CROWDING_ACCEPT.fill("gameId" to gameId.value)
 
     fun tracks(gameId: GameId): String = TRACKS.fill("gameId" to gameId.value)
 

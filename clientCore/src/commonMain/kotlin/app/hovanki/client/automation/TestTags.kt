@@ -226,6 +226,14 @@ object TestTags {
     const val LOBBY_BUILDINGS = "lobby_buildings"
     const val LOBBY_STREETS = "lobby_streets"
 
+    /**
+     * How many players the zone fits (docs/adr/0010-big-games.md), and the host's warning of a crowded zone (or one with
+     * few places to hide) with «Play anyway».
+     */
+    const val LOBBY_CAPACITY = "lobby_capacity"
+    const val LOBBY_CROWDED = "lobby_crowded"
+    const val LOBBY_PLAY_ANYWAY = "lobby_play_anyway"
+
     /** The host's game settings: the button in the lobby, the panel, its «Save». */
     const val LOBBY_SETTINGS = "lobby_settings"
     const val SETTINGS_PANEL = "settings_panel"

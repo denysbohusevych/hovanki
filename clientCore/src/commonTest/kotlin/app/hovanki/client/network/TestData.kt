@@ -87,8 +87,16 @@ class FakeGameApi(
     private val onSettings: suspend (SettingsRequest) -> GameSnapshot = { unused() },
     private val onStreetZone: suspend () -> StreetZoneResponse = { unused() },
     private val onLeave: suspend () -> Unit = {},
+    private val onAcceptCrowding: suspend () -> GameSnapshot = { unused() },
     private val onSync: suspend (SyncRequest) -> GameSnapshot,
 ) : GameApi {
+    var crowdingAccepts = 0
+
+    override suspend fun acceptCrowding(session: PlayerSession): GameSnapshot {
+        crowdingAccepts++
+        return onAcceptCrowding()
+    }
+
     val rolesRequests = mutableListOf<RolesRequest>()
     val settingsRequests = mutableListOf<SettingsRequest>()
     var streetZoneRequests = 0

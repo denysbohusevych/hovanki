@@ -149,6 +149,9 @@ class BotPlayer(
     suspend fun changesSettings(settings: GameSettings): CommandResult =
         command("changes the settings") { it.updateSettings(settings) }
 
+    /** The host taps «Play anyway» on the warning of a crowded zone (docs/adr/0010-big-games.md). */
+    suspend fun playsAnyway(): CommandResult = command("plays anyway in a crowded zone") { it.acceptCrowding() }
+
     suspend fun claimCatch(hider: BotPlayer): CommandResult = claimCatch(hider.id, hider.name)
 
     /** Claim on any player, e.g. one playing on a device. */

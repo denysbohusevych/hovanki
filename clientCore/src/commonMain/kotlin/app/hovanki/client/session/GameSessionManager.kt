@@ -151,6 +151,12 @@ class GameSessionManager(
         return updated
     }
 
+    /**
+     * The host plays anyway in a zone that fits fewer players than there are, or has few places to hide
+     * (docs/adr/0010-big-games.md): the lobby warns no more in this game.
+     */
+    suspend fun acceptCrowding(): Boolean = sessionCommand { api.acceptCrowding(it) }
+
     /** What the host's next game starts with: the setup chosen last time on this phone, or the defaults. */
     fun lastGameSetup(): GameSetup = storage.loadGameSetup()?.coerced() ?: GameSetup()
 

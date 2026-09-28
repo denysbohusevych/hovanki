@@ -5,6 +5,7 @@ import app.hovanki.server.api.AuthenticatedUser
 import app.hovanki.server.buildings.BuildingLoader
 import app.hovanki.server.history.HistoryWriter
 import app.hovanki.server.map.StreetZoneLoader
+import app.hovanki.server.map.TerrainLoader
 import app.hovanki.server.moderation.NewReport
 import app.hovanki.server.moderation.ReportRepository
 import app.hovanki.server.moderation.SanctionService
@@ -57,6 +58,8 @@ class GameService(
     private val history: HistoryWriter,
     private val sanctions: SanctionService,
     private val streetZoneLoader: StreetZoneLoader,
+    private val terrainLoader: TerrainLoader,
+    private val capacity: CapacityProperties,
 ) {
     /**
      * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
@@ -70,7 +73,7 @@ class GameService(
         val hostId = ids.playerId()
         var game: Game
         do {
-            game = Game(ids.gameId(), ids.joinCode(), hostId, request.settings, now)
+            game = Game(ids.gameId(), ids.joinCode(), hostId, request.settings, now, capacity.norms())
         } while (!registry.add(game))
         return synchronized(game) {
             game.addPlayer(hostId, name, now, user?.userId)
@@ -144,6 +147,13 @@ class GameService(
         if (mapChanged) registry.get(gameId)?.let { game -> synchronized(game) { loadMap(game) } }
         return snapshot
     }
+
+    /**
+     * The host plays anyway in a zone that fits fewer players than there are, or has few places to hide
+     * (docs/adr/0010-big-games.md): the lobby warns no more in this game.
+     */
+    fun acceptCrowding(caller: PlayerRef, gameId: GameId): GameSnapshot =
+        update(caller, gameId) { game, now -> game.acceptCrowding(caller.playerId, now) }
 
     /**
      * The caller leaves the game for good ([Game.leave]); their token stops working. An empty lobby is removed with its
@@ -291,12 +301,21 @@ class GameService(
     }
 
     /**
-     * The buildings and, for a zone by streets, the streets of [game]'s zone at its current map revision (call under the
-     * game's lock). Results of an older revision are dropped by the game.
+     * The buildings, the ground and, for a zone by streets, the streets of [game]'s zone at its current map revision
+     * (call under the game's lock). Results of an older revision are dropped by the game.
      */
     private fun loadMap(game: Game) {
         val revision = game.mapRevision
         val settings = game.settings
+        terrainLoader.load(game.id.value, settings.zone.boundingCircle()) { grid ->
+            val current = registry.get(game.id) ?: return@load
+            synchronized(current) {
+                when (grid) {
+                    null -> current.onTerrainUnavailable(revision)
+                    else -> current.onTerrainLoaded(grid, revision)
+                }
+            }
+        }
         val area = settings.zone.boundingCircle(BUILDINGS_MARGIN_METERS)
         buildingLoader.load(game.id.value, area) { loaded ->
             // The game may be gone meanwhile (the janitor, a failed create).

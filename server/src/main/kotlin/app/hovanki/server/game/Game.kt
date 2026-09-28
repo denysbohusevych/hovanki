@@ -1,14 +1,17 @@
 package app.hovanki.server.game
 
+import app.hovanki.server.map.TerrainGrid
 import app.hovanki.shared.debug.DebugCatch
 import app.hovanki.shared.debug.DebugFixCounts
 import app.hovanki.shared.debug.DebugGameState
 import app.hovanki.shared.debug.DebugPlayer
 import app.hovanki.shared.debug.DebugVote
 import app.hovanki.shared.protocol.AdminGame
+import app.hovanki.shared.protocol.AreaNorms
 import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
+import app.hovanki.shared.protocol.CapacityState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.CatchView
@@ -29,14 +32,17 @@ import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.StreetZoneState
+import app.hovanki.shared.protocol.TerrainAreas
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.VisibleLocation
+import app.hovanki.shared.protocol.ZoneCapacity
 import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.BuildingMap
 import app.hovanki.shared.rules.BuildingRules
+import app.hovanki.shared.rules.Capacity
 import app.hovanki.shared.rules.CatchRules
 import app.hovanki.shared.rules.ChatRules
 import app.hovanki.shared.rules.Glow
@@ -64,6 +70,8 @@ class Game(
     hostId: PlayerId,
     settings: GameSettings,
     private val createdAtMillis: Long,
+    /** How much ground one player needs (docs/adr/0010-big-games.md): the server's settings when the game was made. */
+    private val norms: AreaNorms = AreaNorms(),
 ) {
     /** Starts and sets up the game; when they leave the lobby, the player who joined after them takes over. */
     var hostId: PlayerId = hostId
@@ -121,6 +129,20 @@ class Game(
     /** When the host last drew the roles at random ([drawRoles]). */
     private var rolesDrawnAtMillis: Long? = null
 
+    /**
+     * The ground under the zone (docs/adr/0010-big-games.md), for how many players it fits; null until loaded, and when
+     * it can't be ([capacityState] says which).
+     */
+    private var terrain: TerrainGrid? = null
+    private var capacityState = CapacityState.LOADING
+    private var capacityAreas: TerrainAreas? = null
+
+    /** Since when the ground is being read: after [MAP_PATIENCE_MILLIS] the game goes without an estimate. */
+    private var terrainSinceMillis = createdAtMillis
+
+    /** The host chose to play in a crowded zone, or one with few places to hide: no more warning in this game. */
+    private var crowdingAccepted = false
+
     /** The last glow that left its marks on the hiders ([updateGlow]); 0: none yet. */
     private var glowMarksOf = 0
 
@@ -153,6 +175,7 @@ class Game(
         }
         streetZone = StreetZone(stages)
         streetZoneState = StreetZoneState.READY
+        countCapacity()
     }
 
     /**
@@ -162,6 +185,55 @@ class Game(
         if (revision != mapRevision || settings.zoneShape != ZoneShape.STREETS) return
         streetZone = null
         streetZoneState = StreetZoneState.UNAVAILABLE
+        countCapacity()
+    }
+
+    /** The ground under the zone of [revision] was read: how many players it fits is known from now on. */
+    fun onTerrainLoaded(grid: TerrainGrid, revision: Int = mapRevision) {
+        if (revision != mapRevision) return
+        terrain = grid
+        countCapacity()
+    }
+
+    /** The ground under the zone can't be read: no estimate, no warning. */
+    fun onTerrainUnavailable(revision: Int = mapRevision) {
+        if (revision != mapRevision) return
+        terrain = null
+        capacityAreas = null
+        capacityState = CapacityState.UNAVAILABLE
+    }
+
+    /**
+     * The host plays anyway (docs/adr/0010-big-games.md): the zone fits fewer players than there are, or has few places
+     * to hide. The lobby warns no more in this game, whatever the zone becomes.
+     */
+    fun acceptCrowding(by: PlayerId, nowMillis: Long) {
+        requirePhase(GamePhase.LOBBY)
+        requireHost(by, "decide to play anyway")
+        crowdingAccepted = true
+        lastActivityMillis = nowMillis
+    }
+
+    /** About how many players the zone at the start fits, as the lobby shows it. */
+    fun capacity(): ZoneCapacity {
+        val areas = capacityAreas
+        return ZoneCapacity(
+            state = capacityState,
+            players = areas?.let { Capacity.players(it, norms) },
+            areas = areas,
+            fewCovers = areas?.let(Capacity::fewCovers) == true,
+            accepted = crowdingAccepted,
+        )
+    }
+
+    /**
+     * The ground within the zone at the start: the zone by streets once it is there, the circle meanwhile (and when it
+     * could not be built).
+     */
+    private fun countCapacity() {
+        val grid = terrain ?: return
+        capacityAreas = grid.areasWithin(settings.zone.areaAt(0, streetZone))
+        capacityState = CapacityState.READY
     }
 
     /** The zone by streets for [viewerId] to draw exactly what the rules check. */
@@ -250,6 +322,10 @@ class Game(
             streetZone = null
             streetZoneState = if (next.zoneShape == ZoneShape.STREETS) StreetZoneState.LOADING else null
             streetZoneSinceMillis = nowMillis
+            terrain = null
+            capacityAreas = null
+            capacityState = CapacityState.LOADING
+            terrainSinceMillis = nowMillis
         }
         return mapChanged
     }
@@ -507,6 +583,9 @@ class Game(
         if (streetZoneState == StreetZoneState.LOADING && streetZoneOverdue) {
             onStreetZoneUnavailable()
         }
+        if (capacityState == CapacityState.LOADING && nowMillis - terrainSinceMillis >= MAP_PATIENCE_MILLIS) {
+            onTerrainUnavailable()
+        }
         if (phase == GamePhase.HIDING) {
             val hidingEnds = phaseStartedAtMillis + settings.hidingSeconds * 1000L
             if (nowMillis >= hidingEnds) {
@@ -609,6 +688,7 @@ class Game(
             streetZone = streetZoneState,
             mapRevision = mapRevision,
             rolesDrawnAtMillis = rolesDrawnAtMillis,
+            capacity = capacity(),
         )
     }
 
@@ -631,6 +711,8 @@ class Game(
         buildingCount = buildings.buildings.size.takeIf { buildingsState == BuildingsState.READY },
         zoneShape = settings.zoneShape,
         streetZone = streetZoneState,
+        capacity = capacity().players,
+        crowdingAccepted = crowdingAccepted,
     )
 
     /**
@@ -675,6 +757,7 @@ class Game(
             mapRevision = mapRevision,
             rolesDrawnAtMillis = rolesDrawnAtMillis,
             buildingCount = buildings.buildings.size,
+            capacity = capacity(),
             finishedAtMillis = finishedAtMillis,
             players = players.values.map { player ->
                 DebugPlayer(
@@ -1065,6 +1148,9 @@ class Game(
 
         /** The zone by streets is given up on (circles instead) after this long; the loader gives up well before. */
         const val STREET_ZONE_PATIENCE_MILLIS = 120_000L
+
+        /** The ground under the zone is given up on (no estimate) after this long; the loader gives up well before. */
+        const val MAP_PATIENCE_MILLIS = 120_000L
         private const val MOCK_REVEAL_MILLIS = 60_000L
 
         /** A message is sent again within seconds of the first try: a few ids per player are plenty. */

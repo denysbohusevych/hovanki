@@ -215,6 +215,10 @@ data class AdminGame(
     val zoneShape: ZoneShape? = null,
     /** The zone by streets (a [ZoneShape.STREETS] game): being built, built, or unavailable (circles instead). */
     val streetZone: StreetZoneState? = null,
+    /** About how many players the zone fits (docs/adr/0010-big-games.md); null until known. */
+    val capacity: Int? = null,
+    /** The host chose to play anyway in a crowded zone or one with few places to hide. */
+    val crowdingAccepted: Boolean = false,
 )
 
 @Serializable

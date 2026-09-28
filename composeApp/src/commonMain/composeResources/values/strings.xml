@@ -430,4 +430,15 @@
   <string name="action_leave_other_game">Leave it and go on</string>
   <string name="invite_in_round">%1$s invites you to another game.</string>
   <string name="action_leave_and_go">Leave and go</string>
+  <!-- How many players the zone fits (docs/adr/0010-big-games.md). -->
+  <plurals name="lobby_chip_capacity">
+    <item quantity="one">Up to %1$d player</item>
+    <item quantity="other">Up to %1$d players</item>
+  </plurals>
+  <plurals name="lobby_crowded">
+    <item quantity="one">Crowded: the zone has room for about %1$d player, you are %2$d.</item>
+    <item quantity="other">Crowded: the zone has room for about %1$d players, you are %2$d.</item>
+  </plurals>
+  <string name="lobby_few_covers">Few places to hide: most of the zone is open ground.</string>
+  <string name="lobby_play_anyway">Play anyway</string>
 </resources>

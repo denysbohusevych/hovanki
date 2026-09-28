@@ -114,3 +114,12 @@ hovanki:
   map:
     tiles-url: https://tiles.openfreemap.org/planet
     streets: tiles
+    # The ground under the zone (houses, water, woods, parks, fields) for how many players it fits: tiles, fake, off.
+    terrain: tiles
+  # Square meters one player needs, by kind of ground (docs/adr/0010-big-games.md): the lobby warns the host of a crowded
+  # zone. Starting values, to be corrected after the first games outdoors; an admin sets a big game's own.
+  capacity:
+    dense-square-meters: 1000
+    forest-square-meters: 1500
+    mixed-square-meters: 2500
+    open-square-meters: 10000

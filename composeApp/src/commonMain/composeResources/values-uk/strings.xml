@@ -430,4 +430,19 @@
   <string name="action_leave_other_game">Вийти з неї і продовжити</string>
   <string name="invite_in_round">%1$s кличе вас до іншої гри.</string>
   <string name="action_leave_and_go">Вийти й перейти</string>
+  <!-- Скільки гравців уміщує зона (docs/adr/0010-big-games.md). -->
+  <plurals name="lobby_chip_capacity">
+    <item quantity="one">До %1$d гравця</item>
+    <item quantity="few">До %1$d гравців</item>
+    <item quantity="many">До %1$d гравців</item>
+    <item quantity="other">До %1$d гравців</item>
+  </plurals>
+  <plurals name="lobby_crowded">
+    <item quantity="one">Тісно: у зоні місця приблизно для %1$d гравця, а вас %2$d.</item>
+    <item quantity="few">Тісно: у зоні місця приблизно для %1$d гравців, а вас %2$d.</item>
+    <item quantity="many">Тісно: у зоні місця приблизно для %1$d гравців, а вас %2$d.</item>
+    <item quantity="other">Тісно: у зоні місця приблизно для %1$d гравців, а вас %2$d.</item>
+  </plurals>
+  <string name="lobby_few_covers">Мало схованок: майже вся зона — відкрите місце.</string>
+  <string name="lobby_play_anyway">Грати все одно</string>
 </resources>

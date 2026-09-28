@@ -43,6 +43,11 @@ data class GameSnapshot(
     val mapRevision: Int = 0,
     /** When the host last drew the roles at random: every phone rolls the dice once for it. Null: never. */
     val rolesDrawnAtMillis: Long? = null,
+    /**
+     * About how many players the zone fits, from the ground under it (docs/adr/0010-big-games.md): the lobby warns the
+     * host when there are more. Null from older servers.
+     */
+    val capacity: ZoneCapacity? = null,
 )
 
 @Serializable

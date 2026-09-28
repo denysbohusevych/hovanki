@@ -581,7 +581,7 @@ async function gamesView() {
         el("td", {}, fmt.ago(game.createdAtMillis)),
         el("td", {}, fmt.ago(game.phaseStartedAtMillis)),
         el("td", {}, fmt.ago(game.lastActivityMillis)),
-        el("td", {}, `${Math.round(game.zoneRadiusMeters)} м`),
+        el("td", {}, `${Math.round(game.zoneRadiusMeters)} м`, capacitySummary(game)),
         el("td", {}, mapSummary(game)),
         el("td", {}, game.chatMessages),
         el("td", {}, isAdmin() && game.phase !== "FINISHED" ? el("button", {
@@ -595,6 +595,15 @@ async function gamesView() {
             gamesView();
           },
         }, "Завершить") : null)))) : el("p", { class: "muted" }, "Сейчас никто не играет."));
+}
+
+/** How many players the zone fits (docs/adr/0010-big-games.md), and whether the host played anyway in a crowded one. */
+function capacitySummary(game) {
+  if (game.capacity == null) return null;
+  const crowded = game.players > game.capacity;
+  return el("div", { class: "small muted" }, `до ${fmt.plural(game.capacity, "игрока", "игроков", "игроков")}`,
+    crowded ? [" ", el("span", { class: "tag mute" }, "тесно")] : null,
+    game.crowdingAccepted ? [" ", el("span", { class: "tag" }, "играют всё равно")] : null);
 }
 
 const BUILDINGS = { LOADING: "грузятся", READY: "есть", UNAVAILABLE: "нет данных, правило выключено" };
