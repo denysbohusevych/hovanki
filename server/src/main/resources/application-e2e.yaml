@@ -24,3 +24,6 @@ hovanki:
   # The admin is on for the e2e tests (AdminTest); a key for this profile only, never for production.
   admin:
     secret-key: "khhmZ2aNOlQzfjpPJ9CnfdZt5I6Rysi5J2fFKitQL5M="
+  # Big games: lobbies open and rounds start within a second of their time.
+  big-games:
+    tick: 1s

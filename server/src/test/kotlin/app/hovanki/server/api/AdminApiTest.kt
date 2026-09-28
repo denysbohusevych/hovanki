@@ -7,9 +7,13 @@ import app.hovanki.server.account.uniqueName
 import app.hovanki.server.mail.EmailPurpose
 import app.hovanki.server.mail.EmailSender
 import app.hovanki.server.mail.RecordingEmailSender
+import app.hovanki.shared.geo.moveBy
 import app.hovanki.shared.protocol.AccountSession
 import app.hovanki.shared.protocol.AdminAction
 import app.hovanki.shared.protocol.AdminAudit
+import app.hovanki.shared.protocol.AdminBigGame
+import app.hovanki.shared.protocol.AdminBigGameRequest
+import app.hovanki.shared.protocol.AdminBigGames
 import app.hovanki.shared.protocol.AdminEnrollRequest
 import app.hovanki.shared.protocol.AdminEnrollment
 import app.hovanki.shared.protocol.AdminFindByEmailRequest
@@ -28,8 +32,14 @@ import app.hovanki.shared.protocol.AdminStats
 import app.hovanki.shared.protocol.AdminTotpRequest
 import app.hovanki.shared.protocol.AdminUserCard
 import app.hovanki.shared.protocol.AdminUsers
+import app.hovanki.shared.protocol.AdminZoneEstimate
+import app.hovanki.shared.protocol.AdminZoneEstimateRequest
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.BigGameCard
+import app.hovanki.shared.protocol.BigGameSetup
+import app.hovanki.shared.protocol.BigGameStatus
+import app.hovanki.shared.protocol.BigGamesResponse
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
@@ -38,6 +48,7 @@ import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LoginRequest
 import app.hovanki.shared.protocol.PlayerSession
@@ -51,6 +62,7 @@ import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserRole
 import app.hovanki.shared.protocol.VerifyEmailRequest
+import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.shrinkingZone
 import app.hovanki.shared.totp.Totp
@@ -436,6 +448,64 @@ class AdminApiTest(
 
         val stats = get(ApiRoutes.ADMIN_STATS, moderator).ok<AdminStats>()
         assertTrue(stats.users >= 2 && stats.reportsOpen >= 0 && stats.heapMaxMb > 0, "$stats")
+    }
+
+    @Test
+    fun adminsScheduleBigGamesAndPlayersComeIn() {
+        val moderator = staff(UserRole.MODERATOR)
+        val admin = staff(UserRole.ADMIN)
+        val square = ZonePolygon(
+            listOf(
+                PARK.moveBy(-100.0, -100.0),
+                PARK.moveBy(100.0, -100.0),
+                PARK.moveBy(100.0, 100.0),
+                PARK.moveBy(-100.0, 100.0),
+            ),
+        )
+        val request = AdminBigGameRequest(
+            title = "Saturday",
+            startsAtMillis = clock.millis() + Duration.ofMinutes(20).toMillis(),
+            timeZone = "Europe/Kyiv",
+            zone = square,
+            setup = BigGameSetup(seekers = 1),
+            reason = "the city festival",
+        )
+
+        post(ApiRoutes.ADMIN_BIG_GAMES, request, moderator).error(403, ErrorCode.FORBIDDEN)
+        post(ApiRoutes.ADMIN_ZONE_ESTIMATE, AdminZoneEstimateRequest(square), moderator).error(403, ErrorCode.FORBIDDEN)
+        post(ApiRoutes.ADMIN_BIG_GAMES, request, admin, header = false).expect(403)
+        val estimate = post(ApiRoutes.ADMIN_ZONE_ESTIMATE, AdminZoneEstimateRequest(square), admin)
+            .ok<AdminZoneEstimate>()
+        assertEquals(40, estimate.capacity)
+        val created = post(ApiRoutes.ADMIN_BIG_GAMES, request, admin).ok<AdminBigGame>()
+        assertEquals(BigGameStatus.LOBBY, created.status, "20 minutes ahead: the lobby is open")
+        assertTrue(get(ApiRoutes.ADMIN_BIG_GAMES, admin).ok<AdminBigGames>().games.any { it.id == created.id })
+        val entry = get(ApiRoutes.ADMIN_AUDIT, admin).ok<AdminAudit>().entries.first()
+        assertEquals(AdminAction.BIG_GAME_CREATE, entry.action)
+        assertEquals("the city festival", entry.reason)
+
+        // A player sees it, signs up and comes into the lobby, hosted by the server.
+        val player = account()
+        val listed = getAccount(ApiRoutes.BIG_GAMES, player.token).ok<BigGamesResponse>().games
+            .single { it.id == created.id }
+        assertEquals(40, listed.playerLimit)
+        postAccount(ApiRoutes.bigGameJoin(created.id), JoinBigGameRequest(), player.token)
+            .error(403, ErrorCode.FORBIDDEN, ErrorReason.BIG_GAME_SIGNUP_REQUIRED)
+        val signed = postAccount(ApiRoutes.bigGameSignup(created.id), Unit, player.token).ok<BigGameCard>()
+        assertTrue(signed.signedUpByMe && signed.canJoin)
+        val joined = postAccount(ApiRoutes.bigGameJoin(created.id), JoinBigGameRequest(), player.token)
+            .ok<SessionResponse>()
+        assertEquals(created.id, joined.snapshot.bigGame?.id)
+        assertEquals(
+            1,
+            get(ApiRoutes.ADMIN_BIG_GAMES, admin).ok<AdminBigGames>().games.single { it.id == created.id }
+                .players,
+        )
+        getAccount(ApiRoutes.BIG_GAMES, "not a token").expect(401)
+
+        val cancelled = post(ApiRoutes.adminBigGameCancel(created.id), AdminReasonRequest("rain"), admin)
+            .ok<AdminBigGame>()
+        assertEquals(BigGameStatus.CANCELLED, cancelled.status)
     }
 
     // An account, a staff member, a game with a reported message

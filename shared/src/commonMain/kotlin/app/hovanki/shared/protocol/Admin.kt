@@ -219,6 +219,8 @@ data class AdminGame(
     val capacity: Int? = null,
     /** The host chose to play anyway in a crowded zone or one with few places to hide. */
     val crowdingAccepted: Boolean = false,
+    /** A big game's round (docs/adr/0010-big-games.md): the server hosts it. */
+    val bigGameId: BigGameId? = null,
 )
 
 @Serializable
@@ -285,6 +287,12 @@ enum class AdminAction {
     END_GAME,
     SET_ROLE,
     RESET_TOTP,
+
+    /** Big games (docs/adr/0010-big-games.md). */
+    BIG_GAME_CREATE,
+    BIG_GAME_UPDATE,
+    BIG_GAME_START,
+    BIG_GAME_CANCEL,
 }
 
 @Serializable
@@ -302,3 +310,72 @@ data class AdminAuditEntry(
 
 @Serializable
 data class AdminAudit(val entries: List<AdminAuditEntry>)
+
+/**
+ * A new big game, or a change to one (docs/adr/0010-big-games.md). The start: [startsAtLocal], the place's local time
+ * (`2026-10-03T12:00`) in [timeZone], or else [startsAtMillis]. [zone]: the drawn figure. [norms]: null, the server's.
+ * [playerLimit]: null, as many as the zone fits; more than that needs [reason] to say why (it always does, for the
+ * audit log).
+ */
+@Serializable
+data class AdminBigGameRequest(
+    val title: String,
+    val startsAtMillis: Long = 0,
+    val timeZone: String,
+    val startsAtLocal: String? = null,
+    val zone: ZonePolygon,
+    val setup: BigGameSetup = BigGameSetup(),
+    val norms: AreaNorms? = null,
+    val playerLimit: Int? = null,
+    val reason: String,
+)
+
+/** A big game as admins see it: no names of who signed up, only how many. */
+@Serializable
+data class AdminBigGame(
+    val id: BigGameId,
+    val title: String,
+    val status: BigGameStatus,
+    val startsAtMillis: Long,
+    val timeZone: String,
+    /** [startsAtMillis] in the place's time, as the page edits it: `2026-10-03T12:00`. */
+    val startsAtLocal: String,
+    val zone: ZonePolygon,
+    val setup: BigGameSetup,
+    val norms: AreaNorms,
+    val areaSquareMeters: Long,
+    /** How many players the zone fits by its ground; null: unknown (no map data). */
+    val capacity: Int? = null,
+    val areas: TerrainAreas? = null,
+    val fewCovers: Boolean = false,
+    val playerLimit: Int,
+    val signedUp: Int = 0,
+    /** The round in memory, once the lobby opened; how many are in it. */
+    val gameId: GameId? = null,
+    val players: Int? = null,
+    val createdByName: String,
+    val createdAtMillis: Long,
+    val updatedAtMillis: Long,
+    val endedAtMillis: Long? = null,
+)
+
+/** Newest first; [norms]: the server's, what a new big game starts with. */
+@Serializable
+data class AdminBigGames(
+    val games: List<AdminBigGame>,
+    val norms: AreaNorms = AreaNorms(),
+    val maxPlayers: Int = 1_600,
+)
+
+/** The zone being drawn: its area and how many players it fits with [norms] (null: the server's). */
+@Serializable
+data class AdminZoneEstimateRequest(val zone: ZonePolygon, val norms: AreaNorms? = null)
+
+@Serializable
+data class AdminZoneEstimate(
+    val areaSquareMeters: Long,
+    val state: CapacityState,
+    val capacity: Int? = null,
+    val areas: TerrainAreas? = null,
+    val fewCovers: Boolean = false,
+)

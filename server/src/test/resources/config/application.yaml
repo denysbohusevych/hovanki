@@ -21,3 +21,6 @@ hovanki:
   # The admin is on in tests; a test-only key, never used anywhere else.
   admin:
     secret-key: "khhmZ2aNOlQzfjpPJ9CnfdZt5I6Rysi5J2fFKitQL5M="
+  # Big games: the tests call the scheduler themselves (BigGameService.tick) as they move the clock.
+  big-games:
+    tick: 24h

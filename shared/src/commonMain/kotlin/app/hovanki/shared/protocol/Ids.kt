@@ -31,3 +31,8 @@ value class GroupId(val value: String)
 @Serializable
 @JvmInline
 value class InviteId(val value: String)
+
+/** A big game (docs/adr/0010-big-games.md): scheduled by an admin, players sign up ahead. */
+@Serializable
+@JvmInline
+value class BigGameId(val value: String)

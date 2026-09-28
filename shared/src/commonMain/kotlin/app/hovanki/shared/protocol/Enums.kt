@@ -163,4 +163,7 @@ enum class ErrorReason {
 
     /** The zone by streets is still being built: the game can start once it is ready (or given up on). */
     ZONE_NOT_READY,
+
+    /** Only players who signed up for a big game come into its lobby (docs/adr/0010-big-games.md). */
+    BIG_GAME_SIGNUP_REQUIRED,
 }

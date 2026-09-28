@@ -13,6 +13,8 @@ import app.hovanki.server.ratelimit.RateLimit
 import app.hovanki.server.ratelimit.RateLimiter
 import app.hovanki.server.social.InviteRegistry
 import app.hovanki.shared.protocol.AdminGame
+import app.hovanki.shared.protocol.AreaNorms
+import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ClaimCatchRequest
@@ -24,6 +26,7 @@ import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
+import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
@@ -37,6 +40,7 @@ import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VoteRequest
+import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.RequestIds
 import app.hovanki.shared.rules.SettingsLimits
@@ -104,6 +108,8 @@ class GameService(
         // The nickname comes from the database, outside the game's lock: the game's other requests never wait for it.
         val name = playerName(request.playerName, user)
         val game = registry.findByJoinCode(request.joinCode.trim())
+            // A big game is joined from its card, by those who signed up (docs/adr/0010-big-games.md).
+            ?.takeIf { synchronized(it) { !it.isServerHosted } }
             ?: throw GameException(ErrorCode.NOT_FOUND, "No game with this code")
         if (user != null) leaveOtherGames(user, except = game.id, leaveRound = request.leaveOtherGame)
         val session = locked(game) { now ->
@@ -120,6 +126,95 @@ class GameService(
         if (user != null) invites.removeInvitee(game.id, user.userId)
         return session
     }
+
+    /**
+     * A big game's lobby (docs/adr/0010-big-games.md), hosted by the server: the zone drawn by the admin ([stages]: the
+     * figure at the start and after each stage), up to [maxPlayers]. Loads the buildings and the ground like any game.
+     */
+    fun openBigGame(
+        info: BigGameInfo,
+        settings: GameSettings,
+        stages: List<ZonePolygon>,
+        maxPlayers: Int,
+        norms: AreaNorms,
+    ): GameId {
+        val now = clock.millis()
+        var game: Game
+        do {
+            game = Game(ids.gameId(), ids.joinCode(), Game.SERVER_HOST, settings, now, norms, info, maxPlayers)
+        } while (!registry.add(game))
+        synchronized(game) {
+            game.onStreetZoneBuilt(stages)
+            loadMap(game)
+        }
+        return game.id
+    }
+
+    /**
+     * [user] comes into big game [gameId]'s lobby (the service checked the sign-up), or back to their player in any
+     * phase; the same one-game rule and retries as [join].
+     */
+    fun joinBigGame(gameId: GameId, user: AuthenticatedUser, request: JoinBigGameRequest): SessionResponse {
+        val requestId = request.requestId?.let(::validRequestId)
+        val name = playerName("", user)
+        val game = registry.get(gameId)?.takeIf { synchronized(it) { it.isServerHosted } }
+            ?: throw GameException(ErrorCode.NOT_FOUND, "The lobby is not open")
+        leaveOtherGames(user, except = game.id, leaveRound = request.leaveOtherGame)
+        return locked(game) { now ->
+            val returning = game.playerOf(user.userId) ?: requestId?.let(game::playerOfJoinRequest)
+            val playerId = if (returning != null) {
+                registry.revokeTokens(game.id, returning)
+                returning
+            } else {
+                ids.playerId().also { game.addPlayer(it, name, now, user.userId, requestId) }
+            }
+            newSession(game, playerId, now)
+        }
+    }
+
+    /**
+     * The server starts big game [gameId]'s round: [seekers] drawn among the players in the lobby. False: not enough
+     * players yet (or not in the lobby any more).
+     */
+    fun startBigGame(gameId: GameId, seekers: Int): Boolean {
+        val game = registry.get(gameId) ?: return false
+        return locked(game) { now ->
+            if (game.phase != GamePhase.LOBBY || game.playerCount() < 2) return@locked false
+            game.startByServer(seekers, ids.drawRandom, ids::catchCodeSecret, now)
+            true
+        }
+    }
+
+    /**
+     * An admin changed big game [gameId] before its round: the news for the lobby, and with [settings] a new zone
+     * ([stages]) whose buildings and ground are loaded again.
+     */
+    fun updateBigGame(
+        gameId: GameId,
+        info: BigGameInfo,
+        maxPlayers: Int,
+        norms: AreaNorms,
+        settings: GameSettings? = null,
+        stages: List<ZonePolygon> = emptyList(),
+    ) {
+        val game = registry.get(gameId) ?: return
+        locked(game) { now ->
+            game.updateBigGame(info, maxPlayers, norms)
+            if (settings != null && game.phase == GamePhase.LOBBY &&
+                game.updateSettings(Game.SERVER_HOST, settings, now)
+            ) {
+                game.onStreetZoneBuilt(stages)
+                loadMap(game)
+            }
+        }
+    }
+
+    /** Where big game [gameId]'s round is: its phase, or null when it is gone from memory (a restart, the janitor). */
+    fun phaseOf(gameId: GameId): GamePhase? = registry.get(gameId)?.let { game -> locked(game) { game.phase } }
+
+    /** How many players are in game [gameId]; null when it is gone. */
+    fun playersIn(gameId: GameId): Int? =
+        registry.get(gameId)?.let { game -> synchronized(game) { game.playerCount() } }
 
     fun start(caller: PlayerRef, gameId: GameId, request: StartGameRequest): GameSnapshot =
         update(caller, gameId) { game, now ->

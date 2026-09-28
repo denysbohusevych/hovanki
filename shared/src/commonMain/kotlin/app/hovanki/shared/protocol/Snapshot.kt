@@ -48,6 +48,8 @@ data class GameSnapshot(
      * host when there are more. Null from older servers.
      */
     val capacity: ZoneCapacity? = null,
+    /** The big game this is (docs/adr/0010-big-games.md): hosted by the server, nobody's player is [hostId]. */
+    val bigGame: BigGameInfo? = null,
 )
 
 @Serializable

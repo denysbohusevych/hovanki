@@ -123,3 +123,10 @@ hovanki:
     forest-square-meters: 1500
     mixed-square-meters: 2500
     open-square-meters: 10000
+  # Big games (docs/adr/0010-big-games.md): the lobby opens this long before the start; the scheduler looks every tick;
+  # fewer than two players an hour after the start cancel it; deleted with the sign-ups 90 days after the end.
+  big-games:
+    lobby-opens-before: 30m
+    tick: 10s
+    start-patience: 1h
+    retention: 90d

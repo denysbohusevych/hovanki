@@ -8,6 +8,7 @@ import app.hovanki.shared.debug.DebugPlayer
 import app.hovanki.shared.debug.DebugVote
 import app.hovanki.shared.protocol.AdminGame
 import app.hovanki.shared.protocol.AreaNorms
+import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
@@ -39,7 +40,6 @@ import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.VisibleLocation
 import app.hovanki.shared.protocol.ZoneCapacity
 import app.hovanki.shared.protocol.ZonePolygon
-import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.BuildingMap
 import app.hovanki.shared.rules.BuildingRules
 import app.hovanki.shared.rules.Capacity
@@ -52,6 +52,7 @@ import app.hovanki.shared.rules.StreetZone
 import app.hovanki.shared.rules.ZoneRules
 import app.hovanki.shared.rules.areaAt
 import app.hovanki.shared.rules.circleAt
+import app.hovanki.shared.rules.hasPolygons
 import app.hovanki.shared.rules.isUsable
 import app.hovanki.shared.rules.stateAt
 import app.hovanki.shared.totp.catchCodeTotp
@@ -71,8 +72,25 @@ class Game(
     settings: GameSettings,
     private val createdAtMillis: Long,
     /** How much ground one player needs (docs/adr/0010-big-games.md): the server's settings when the game was made. */
-    private val norms: AreaNorms = AreaNorms(),
+    private var norms: AreaNorms = AreaNorms(),
+    /**
+     * A big game's round (docs/adr/0010-big-games.md): the server hosts it ([hostId] is nobody's player), the lobby is
+     * never handed over or removed when empty, up to [maxPlayers] come in.
+     */
+    bigGame: BigGameInfo? = null,
+    maxPlayers: Int = MAX_PLAYERS,
 ) {
+    /** The big game this round belongs to; the service updates the title, the time and the count of sign-ups. */
+    var bigGame: BigGameInfo? = bigGame
+        private set
+
+    /** How many players the lobby takes. */
+    var maxPlayers: Int = maxPlayers
+        private set
+
+    /** Hosted by the server: nobody's player is the host. */
+    val isServerHosted: Boolean get() = bigGame != null
+
     /** Starts and sets up the game; when they leave the lobby, the player who joined after them takes over. */
     var hostId: PlayerId = hostId
         private set
@@ -147,7 +165,18 @@ class Game(
     private var glowMarksOf = 0
 
     init {
-        if (settings.zoneShape == ZoneShape.STREETS) streetZoneState = StreetZoneState.LOADING
+        if (settings.zoneShape.hasPolygons) streetZoneState = StreetZoneState.LOADING
+    }
+
+    /**
+     * The service's news about the big game: its title, time and sign-ups, the limit and the norms an admin changed.
+     * Only for a big game's round.
+     */
+    fun updateBigGame(info: BigGameInfo, maxPlayers: Int, norms: AreaNorms) {
+        check(isServerHosted) { "Not a big game" }
+        bigGame = info
+        this.maxPlayers = maxPlayers
+        if (norms != this.norms) this.norms = norms
     }
 
     /** The zone's buildings of [revision] arrived (see `BuildingLoader`): the rule is on from now on. */
@@ -168,7 +197,7 @@ class Game(
 
     /** The zone by streets of [revision] is built: one polygon for the start and one per stage of the schedule. */
     fun onStreetZoneBuilt(stages: List<ZonePolygon>, revision: Int = mapRevision) {
-        if (revision != mapRevision || settings.zoneShape != ZoneShape.STREETS) return
+        if (revision != mapRevision || !settings.zoneShape.hasPolygons) return
         if (stages.size != settings.zone.stages.size + 1 || stages.any { it.outline.size < 4 }) {
             onStreetZoneUnavailable(revision)
             return
@@ -182,7 +211,7 @@ class Game(
      * No zone by streets for [revision] (no streets, map data down): the game uses the circles, the players are told.
      */
     fun onStreetZoneUnavailable(revision: Int = mapRevision) {
-        if (revision != mapRevision || settings.zoneShape != ZoneShape.STREETS) return
+        if (revision != mapRevision || !settings.zoneShape.hasPolygons) return
         streetZone = null
         streetZoneState = StreetZoneState.UNAVAILABLE
         countCapacity()
@@ -255,7 +284,7 @@ class Game(
      */
     fun addPlayer(id: PlayerId, name: String, nowMillis: Long, userId: UserId? = null, joinRequestId: String? = null) {
         requirePhase(GamePhase.LOBBY)
-        if (players.size >= MAX_PLAYERS) throw GameException(ErrorCode.WRONG_STATE, "The game is full")
+        if (players.size >= maxPlayers) throw GameException(ErrorCode.WRONG_STATE, "The game is full")
         if (userId != null && playerOf(userId) != null) {
             throw GameException(ErrorCode.WRONG_STATE, "This account already plays in this game")
         }
@@ -320,7 +349,7 @@ class Game(
             buildings = BuildingsResponse()
             buildingMap = null
             streetZone = null
-            streetZoneState = if (next.zoneShape == ZoneShape.STREETS) StreetZoneState.LOADING else null
+            streetZoneState = if (next.zoneShape.hasPolygons) StreetZoneState.LOADING else null
             streetZoneSinceMillis = nowMillis
             terrain = null
             capacityAreas = null
@@ -343,6 +372,8 @@ class Game(
             GamePhase.LOBBY -> {
                 players.remove(playerId)
                 playersByJoinRequest.values.removeAll { it == playerId }
+                // A big game's lobby waits for its start, empty or not; the server stays its host.
+                if (isServerHosted) return false
                 if (players.isEmpty()) return true
                 if (hostId == playerId) hostId = players.keys.first()
             }
@@ -385,7 +416,7 @@ class Game(
     fun start(by: PlayerId, seekers: Set<PlayerId>, newCatchCodeSecret: () -> String, nowMillis: Long) {
         requirePhase(GamePhase.LOBBY)
         requireHost(by, "start the game")
-        if (settings.zoneShape == ZoneShape.STREETS && streetZoneState == StreetZoneState.LOADING) {
+        if (settings.zoneShape.hasPolygons && streetZoneState == StreetZoneState.LOADING) {
             throw GameException(ErrorCode.WRONG_STATE, "The zone by streets is being built", ErrorReason.ZONE_NOT_READY)
         }
         if (seekers.isEmpty() || !players.keys.containsAll(seekers)) {
@@ -400,6 +431,21 @@ class Game(
         enterPhase(GamePhase.HIDING, nowMillis)
         hidingStartedAtMillis = nowMillis
         lastActivityMillis = nowMillis
+    }
+
+    /**
+     * The server starts a big game's round (docs/adr/0010-big-games.md): it draws [seekers] seekers with [random] among
+     * the players in the lobby (at least one, and at least one hider), the others hide. [ErrorCode.WRONG_STATE] with
+     * fewer than two players.
+     */
+    fun startByServer(seekers: Int, random: java.util.Random, newCatchCodeSecret: () -> String, nowMillis: Long) {
+        check(isServerHosted) { "Not a big game" }
+        requirePhase(GamePhase.LOBBY)
+        if (players.size < 2) throw GameException(ErrorCode.WRONG_STATE, "A round needs at least two players")
+        val count = seekers.coerceIn(1, players.size - 1)
+        val drawn = players.keys.shuffled(random).take(count).toSet()
+        rolesDrawnAtMillis = nowMillis
+        start(hostId, drawn, newCatchCodeSecret, nowMillis)
     }
 
     fun recordLocations(playerId: PlayerId, samples: List<LocationSample>, nowMillis: Long) {
@@ -689,16 +735,20 @@ class Game(
             mapRevision = mapRevision,
             rolesDrawnAtMillis = rolesDrawnAtMillis,
             capacity = capacity(),
+            bigGame = bigGame,
         )
     }
 
     fun hasPlayer(id: PlayerId): Boolean = id in players
 
+    /** Everybody who came in (who left the lobby is gone; who left the round still counts). */
+    fun playerCount(): Int = players.size
+
     /** What staff see of this game in the admin (docs/adr/0008-admin.md): no zone center, no positions, no chat. */
     fun adminView(): AdminGame = AdminGame(
         gameId = id,
         phase = phase,
-        hostName = players[hostId]?.name.orEmpty(),
+        hostName = players[hostId]?.name ?: if (isServerHosted) SERVER_HOST_NAME else "",
         players = players.size,
         guests = players.values.count { it.userId == null },
         seekers = players.values.count { it.role == Role.SEEKER },
@@ -713,6 +763,7 @@ class Game(
         streetZone = streetZoneState,
         capacity = capacity().players,
         crowdingAccepted = crowdingAccepted,
+        bigGameId = bigGame?.id,
     )
 
     /**
@@ -1144,6 +1195,10 @@ class Game(
 
     companion object {
         const val MAX_PLAYERS = 30
+
+        /** The host of a big game's round: the server, nobody's player. */
+        val SERVER_HOST = PlayerId("server")
+        const val SERVER_HOST_NAME = "server"
         private const val MAX_CATCHES_IN_SNAPSHOT = 20
 
         /** The zone by streets is given up on (circles instead) after this long; the loader gives up well before. */
