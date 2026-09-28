@@ -340,6 +340,8 @@ class CatchTest {
         join(anna, boris, vera)
         sam.startsGame(seekers = listOf(sam))
         awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+        // «My code» is there once her phone shows the search, up to a sync after the server.
+        awaitThat("Anna's phone shows the search") { anna.snapshot?.phase == GamePhase.SEEKING }
 
         check(anna.shownMyCode() == null, "the code shows only once Anna opens it")
         anna.opensMyCode()

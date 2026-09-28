@@ -478,8 +478,10 @@ class Game(
             if (result != LocationTrack.Result.ACCEPTED) continue
             // Staleness is about location updates, not requests: an app with GPS off still syncs.
             player.lastFixReceivedMillis = nowMillis
-            // The route is the round: not the lobby, not the results screen.
-            if (inRound) player.route?.add(fix)
+            // The route and the replay are the round: not the lobby, not the results screen. Fixes sent after the
+            // end leave the replay as it was then: every phone gets the same one, and the game's recording is it too.
+            if (!inRound) continue
+            player.route?.add(fix)
             if (fix.isUsable(rules) && isInRound(player, fix.timestampMillis)) player.replay.add(fix)
         }
         lastActivityMillis = nowMillis
@@ -1258,7 +1260,7 @@ class Game(
 
     /**
      * Whether a fix at [atMillis] belongs to [player]'s replay: from the start of hiding until the end of the round, for
-     * a hider until they were out. Late fixes (sent after the moment) count by their own time.
+     * a hider until they were out. Late fixes (sent after the moment) count by their own time while the round runs.
      */
     private fun isInRound(player: Player, atMillis: Long): Boolean {
         val start = hidingStartedAtMillis ?: return false

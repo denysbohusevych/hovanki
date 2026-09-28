@@ -43,8 +43,9 @@ class HistoryManager(
 
     /** The statistics and the newest games, again. */
     suspend fun refresh(): ApiResult<Unit> = command { token ->
-        val stats = api.stats(token)
+        // The games before the statistics: a game saved in between is counted in them, never listed and not counted.
         val page = api.games(token)
+        val stats = api.stats(token)
         apply(token) { HistoryState(stats, page.games, page.nextBefore, isLoaded = true) }
     }
 

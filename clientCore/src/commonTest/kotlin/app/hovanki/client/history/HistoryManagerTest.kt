@@ -74,7 +74,24 @@ class HistoryManagerTest {
         val calls = api.calls.size
         assertIs<ApiResult.Success<Unit>>(history.loadMore())
         assertEquals(calls, api.calls.size)
-        assertEquals(listOf("stats", "games null", "games 2"), api.calls)
+        assertEquals(listOf("games null", "stats", "games 2"), api.calls)
+    }
+
+    @Test
+    fun aListedGameIsAlwaysCountedInTheStatistics() = runTest {
+        val history = history()
+        api.stats = api.stats.copy(games = 0)
+        // The game is saved while the app loads the history, between its two requests.
+        api.afterCall = {
+            api.afterCall = null
+            api.pages = listOf(listOf(game("g1")))
+            api.stats = api.stats.copy(games = 1)
+        }
+
+        assertIs<ApiResult.Success<Unit>>(history.refresh())
+        val state = history.state.value
+        val counted = checkNotNull(state.stats).games
+        assertTrue(state.games.size <= counted, "${state.games.size} games listed, $counted counted")
     }
 
     @Test
@@ -164,7 +181,7 @@ class HistoryManagerTest {
     /** Answers with [pages] one after the other (`nextBefore` is the page's number), [stats] and [route] for g1. */
     private class FakeHistoryApi : HistoryApi {
         var pages: List<List<GameHistoryEntry>> = listOf(emptyList())
-        val stats = PlayerStats(games = 3, distanceMeters = 4200.0, movingSeconds = 3000)
+        var stats = PlayerStats(games = 3, distanceMeters = 4200.0, movingSeconds = 3000)
         val route = GameRoute(
             gameId = GameId("g1"),
             role = Role.HIDER,
@@ -186,6 +203,9 @@ class HistoryManagerTest {
             expiresAtMillis = 3,
         )
         var failWith: Exception? = null
+
+        /** Runs after each answer: what changes on the server between two requests. */
+        var afterCall: (() -> Unit)? = null
         val calls = mutableListOf<String>()
 
         override suspend fun stats(token: String) = call("stats") { stats }
@@ -211,7 +231,7 @@ class HistoryManagerTest {
         private fun <T> call(description: String, answer: () -> T): T {
             calls += description
             failWith?.let { throw it }
-            return answer()
+            return answer().also { afterCall?.invoke() }
         }
     }
 }

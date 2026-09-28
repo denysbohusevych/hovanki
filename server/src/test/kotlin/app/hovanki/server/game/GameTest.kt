@@ -440,6 +440,24 @@ class GameTest {
         assertEquals(emptyList(), trackOf(host), "no fixes, no track")
     }
 
+    @Test
+    fun theReplayStaysAsItWasAtTheEnd() {
+        startedGame()
+        report(hider, center.moveBy(10.0, 0.0))
+        report(seeker, center.moveBy(0.0, 10.0))
+        tick(settings.seekingSeconds)
+        assertEquals(GamePhase.FINISHED, game.phase)
+        val atTheEnd = game.tracks()
+        val recording = checkNotNull(game.finishedRecord()).recording.associate { it.playerId to it.points }
+
+        // The seeker's phone sends its last fix from before the end only after it: the first phones already loaded
+        // the replay, the others would get another one.
+        val late = LocationSample(center.moveBy(0.0, 20.0), 5.0, now - 1_000)
+        game.recordLocations(seeker, listOf(late), now)
+        assertEquals(atTheEnd, game.tracks(), "every phone gets the same replay")
+        assertEquals(atTheEnd.tracks.associate { it.playerId to it.points }, recording, "the recording is the replay")
+    }
+
     // ---- Buildings (docs/adr/0003-map-and-buildings.md) ----
 
     private val insideBlock = center.moveBy(DebugBuildings.INSIDE_EAST, DebugBuildings.INSIDE_NORTH)
