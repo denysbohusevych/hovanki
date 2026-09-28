@@ -3,7 +3,15 @@ package app.hovanki.shared.protocol
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class CreateGameRequest(val playerName: String, val settings: GameSettings)
+data class CreateGameRequest(
+    val playerName: String,
+    val settings: GameSettings,
+    /**
+     * An account plays in one game at a time: its lobbies elsewhere are left by themselves, a round in progress only
+     * with this set ([ErrorReason.IN_ANOTHER_GAME] otherwise). Guests: no effect.
+     */
+    val leaveOtherGame: Boolean = false,
+)
 
 @Serializable
 data class JoinGameRequest(
@@ -15,6 +23,8 @@ data class JoinGameRequest(
      * one. Null (older apps): every request is a new player.
      */
     val requestId: String? = null,
+    /** As [CreateGameRequest.leaveOtherGame]. */
+    val leaveOtherGame: Boolean = false,
 )
 
 /** Credentials of one player in one game; the token goes to `Authorization: Bearer <token>`. */
@@ -26,6 +36,20 @@ data class SessionResponse(val session: PlayerSession, val snapshot: GameSnapsho
 
 @Serializable
 data class StartGameRequest(val seekers: List<PlayerId>)
+
+/**
+ * The host picks the roles in the lobby, everybody sees them: [seekers] seek, the others hide. With [randomSeekers]
+ * the server draws that many seekers at random instead (and [seekers] is ignored).
+ */
+@Serializable
+data class RolesRequest(val seekers: List<PlayerId> = emptyList(), val randomSeekers: Int? = null)
+
+/**
+ * The host changes the game's setup in the lobby. The thresholds ([GameSettings.rules]) stay as the game was created
+ * with; a new zone loads the buildings (and the zone by streets) again ([GameSnapshot.mapRevision]).
+ */
+@Serializable
+data class SettingsRequest(val settings: GameSettings)
 
 /** Periodic position report; the response is the fresh [GameSnapshot]. */
 @Serializable

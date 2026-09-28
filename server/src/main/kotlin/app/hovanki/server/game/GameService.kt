@@ -4,6 +4,7 @@ import app.hovanki.server.account.UserRepository
 import app.hovanki.server.api.AuthenticatedUser
 import app.hovanki.server.buildings.BuildingLoader
 import app.hovanki.server.history.HistoryWriter
+import app.hovanki.server.map.StreetZoneLoader
 import app.hovanki.server.moderation.NewReport
 import app.hovanki.server.moderation.ReportRepository
 import app.hovanki.server.moderation.SanctionService
@@ -25,14 +26,19 @@ import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.StartGameRequest
+import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VoteRequest
+import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.RequestIds
+import app.hovanki.shared.rules.SettingsLimits
 import app.hovanki.shared.rules.boundingCircle
 import org.springframework.stereotype.Service
 import java.time.Clock
@@ -50,6 +56,7 @@ class GameService(
     private val invites: InviteRegistry,
     private val history: HistoryWriter,
     private val sanctions: SanctionService,
+    private val streetZoneLoader: StreetZoneLoader,
 ) {
     /**
      * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
@@ -58,6 +65,7 @@ class GameService(
     fun create(request: CreateGameRequest, user: AuthenticatedUser? = null): SessionResponse {
         val name = playerName(request.playerName, user)
         validate(request.settings)
+        if (user != null) leaveOtherGames(user, except = null, leaveRound = request.leaveOtherGame)
         val now = clock.millis()
         val hostId = ids.playerId()
         var game: Game
@@ -66,7 +74,7 @@ class GameService(
         } while (!registry.add(game))
         return synchronized(game) {
             game.addPlayer(hostId, name, now, user?.userId)
-            loadBuildings(game)
+            loadMap(game)
             newSession(game, hostId, now)
         }
     }
@@ -94,6 +102,7 @@ class GameService(
         val name = playerName(request.playerName, user)
         val game = registry.findByJoinCode(request.joinCode.trim())
             ?: throw GameException(ErrorCode.NOT_FOUND, "No game with this code")
+        if (user != null) leaveOtherGames(user, except = game.id, leaveRound = request.leaveOtherGame)
         val session = locked(game) { now ->
             // The account's player, or the one this very join request created before its answer got lost.
             val returning = user?.let { game.playerOf(it.userId) } ?: requestId?.let(game::playerOfJoinRequest)
@@ -113,6 +122,45 @@ class GameService(
         update(caller, gameId) { game, now ->
             game.start(caller.playerId, request.seekers.toSet(), ids::catchCodeSecret, now)
         }
+
+    /** The host picks the roles in the lobby, or has the server draw [RolesRequest.randomSeekers] seekers. */
+    fun setRoles(caller: PlayerRef, gameId: GameId, request: RolesRequest): GameSnapshot =
+        update(caller, gameId) { game, now ->
+            val random = request.randomSeekers
+            if (random != null) {
+                game.drawRoles(caller.playerId, random, ids.drawRandom, now)
+            } else {
+                game.setRoles(caller.playerId, request.seekers.toSet(), now)
+            }
+        }
+
+    /** The host changes the setup in the lobby; a new zone loads its buildings (and zone by streets) again. */
+    fun updateSettings(caller: PlayerRef, gameId: GameId, request: SettingsRequest): GameSnapshot {
+        validate(request.settings)
+        var mapChanged = false
+        val snapshot = update(caller, gameId) { game, now ->
+            mapChanged = game.updateSettings(caller.playerId, request.settings, now)
+        }
+        if (mapChanged) registry.get(gameId)?.let { game -> synchronized(game) { loadMap(game) } }
+        return snapshot
+    }
+
+    /**
+     * The caller leaves the game for good ([Game.leave]); their token stops working. An empty lobby is removed with its
+     * invitations (the janitor's next sweep).
+     */
+    fun leave(caller: PlayerRef, gameId: GameId) {
+        val game = gameOf(caller, gameId)
+        val empty = locked(game) { now -> game.leave(caller.playerId, now) }
+        registry.revokeTokens(gameId, caller.playerId)
+        if (empty) registry.removeIf { it.id == gameId }
+    }
+
+    /** The zone by streets, one polygon per stage: what the map draws and the rules check. */
+    fun streetZone(caller: PlayerRef, gameId: GameId): StreetZoneResponse {
+        val game = gameOf(caller, gameId)
+        return synchronized(game) { game.streetZoneFor(caller.playerId) }
+    }
 
     fun sync(caller: PlayerRef, gameId: GameId, request: SyncRequest): GameSnapshot {
         if (request.samples.size > MAX_SAMPLES_PER_SYNC) throw GameException(ErrorCode.BAD_REQUEST, "Too many samples")
@@ -212,15 +260,62 @@ class GameService(
         return synchronized(game) { game.phase == GamePhase.LOBBY && game.playerOf(userId) == null }
     }
 
-    private fun loadBuildings(game: Game) {
-        val area = game.settings.zone.boundingCircle(BUILDINGS_MARGIN_METERS)
+    /**
+     * An account plays in one game at a time: [user]'s players in the lobbies of other games leave them (a new host
+     * takes over, an empty lobby goes). A round in progress is left only with [leaveRound], else the caller is refused
+     * with [ErrorReason.IN_ANOTHER_GAME]. Finished games stay as they are. One game's lock at a time.
+     */
+    private fun leaveOtherGames(user: AuthenticatedUser, except: GameId?, leaveRound: Boolean) {
+        for (other in registry.all()) {
+            if (other.id == except) continue
+            val left = locked(other) { now ->
+                val playerId = other.playerOf(user.userId) ?: return@locked null
+                when {
+                    other.phase == GamePhase.LOBBY -> playerId to other.leave(playerId, now)
+
+                    other.isPlaying(playerId) && !leaveRound -> throw GameException(
+                        ErrorCode.WRONG_STATE,
+                        "You are still playing another game: leave it first",
+                        ErrorReason.IN_ANOTHER_GAME,
+                    )
+
+                    other.phase == GamePhase.FINISHED -> null
+
+                    else -> playerId to other.leave(playerId, now)
+                }
+            } ?: continue
+            val (playerId, empty) = left
+            registry.revokeTokens(other.id, playerId)
+            if (empty) registry.removeIf { it.id == other.id }
+        }
+    }
+
+    /**
+     * The buildings and, for a zone by streets, the streets of [game]'s zone at its current map revision (call under the
+     * game's lock). Results of an older revision are dropped by the game.
+     */
+    private fun loadMap(game: Game) {
+        val revision = game.mapRevision
+        val settings = game.settings
+        val area = settings.zone.boundingCircle(BUILDINGS_MARGIN_METERS)
         buildingLoader.load(game.id.value, area) { loaded ->
             // The game may be gone meanwhile (the janitor, a failed create).
             val current = registry.get(game.id) ?: return@load
             synchronized(current) {
                 when (loaded) {
-                    null -> current.onBuildingsUnavailable()
-                    else -> current.onBuildingsLoaded(loaded.buildings, loaded.passages)
+                    null -> current.onBuildingsUnavailable(revision)
+                    else -> current.onBuildingsLoaded(loaded.buildings, loaded.passages, revision)
+                }
+            }
+        }
+        if (settings.zoneShape == ZoneShape.STREETS) {
+            streetZoneLoader.load(game.id.value, settings.zone) { stages ->
+                val current = registry.get(game.id) ?: return@load
+                synchronized(current) {
+                    when (stages) {
+                        null -> current.onStreetZoneUnavailable(revision)
+                        else -> current.onStreetZoneBuilt(stages, revision)
+                    }
                 }
             }
         }
@@ -293,11 +388,8 @@ class GameService(
     }
 
     private fun validate(settings: GameSettings) {
-        val zone = settings.zone
-        val valid = zone.initial.radiusMeters > 0 &&
-            zone.stages.all { it.holdSeconds >= 0 && it.shrinkSeconds >= 0 && it.target.radiusMeters > 0 } &&
-            settings.hidingSeconds >= 0 && settings.seekingSeconds > 0
-        if (!valid) throw GameException(ErrorCode.BAD_REQUEST, "Invalid game settings")
+        val problem = SettingsLimits.problem(settings)
+        if (problem != null) throw GameException(ErrorCode.BAD_REQUEST, "Invalid game settings: $problem")
     }
 
     private companion object {

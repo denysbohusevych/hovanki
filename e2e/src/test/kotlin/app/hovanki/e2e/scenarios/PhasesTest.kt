@@ -107,37 +107,4 @@ class PhasesTest {
         expectRejected(sam.claimCatch(anna), ErrorCode.WRONG_STATE, "no claims while the hiders hide")
         check(state().catches.isEmpty(), "no claim on the server")
     }
-
-    /**
-     * Leaving is local only: a player who left the lobby stays on the server as a hider nobody plays. Seekers see them
-     * as silent at their last point from the lobby; the game only ends once somebody claims them "blindly" (from
-     * anywhere: GPS has nothing recent to disprove it) and the silence confirms it. Pins the current behavior until
-     * the server knows about leaving (docs/roadmap.md).
-     */
-    @Test
-    fun ghostFromTheLobby() = scenario("A ghost from the lobby") {
-        val sam = player("Sam", at = PARK)
-        val anna = player("Anna", at = PARK.offset(eastMeters = 20.0))
-        val vera = player("Vera", at = PARK.offset(northMeters = 30.0))
-
-        sam.createsGame(GameSetups.fast())
-        join(anna, vera)
-        awaitThat("Vera's fixes reach the server") { vera.onServer().latestFix != null }
-        requireOk(vera.leave(), "Vera leaves the lobby")
-        delay(2.seconds)
-        check(state().players.size == 3, "the server still has Vera")
-        val lobbyPoint = checkNotNull(vera.onServer().latestFix).point
-
-        sam.startsGame(seekers = listOf(sam))
-        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
-        sam.catches(anna)
-        holdsFor("the game goes on: Vera is still a hider", 3.seconds) { state().phase == GamePhase.SEEKING }
-        val seen = awaitReveal(vera, VisibilityReason.STALE_SIGNAL, to = sam, within = 20.seconds)
-        check(seen.point == lobbyPoint, "Sam sees Vera where she was in the lobby")
-
-        sam.walksToAndArrives(PARK.offset(eastMeters = -100.0), speed = 5.0)
-        sam.claimsCatch(vera)
-        awaitCatch(vera, CatchStatus.CONFIRMED, within = (GameSetups.FAST_RULES.catchCodeTimeoutSeconds + 5).seconds)
-        awaitPhase(GamePhase.FINISHED)
-    }
 }

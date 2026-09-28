@@ -3,6 +3,7 @@ package app.hovanki.e2e.scenario
 import app.hovanki.shared.protocol.GameRules
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.shrinkingZone
 
 /** Game settings for tests: the same rules as in production, with timers short enough for a game in a minute. */
@@ -41,4 +42,15 @@ object GameSetups {
     /** A fixed zone of [radiusMeters] around [center], for zone-border scenarios. */
     fun fixedZone(radiusMeters: Double, center: GeoPoint = PARK, rules: GameRules = FAST_RULES): GameSettings =
         fast(center, rules).copy(zone = shrinkingZone(center, initialRadiusMeters = radiusMeters, steps = 0))
+
+    /**
+     * A fixed zone of 500 m with the glow (docs/adr/0009-game-setup-glow-streets.md): every [everySeconds] of the
+     * search the seekers see the hiders for [forSeconds].
+     */
+    fun glowing(everySeconds: Int = 20, forSeconds: Int = 4, center: GeoPoint = PARK): GameSettings =
+        fixedZone(500.0, center).copy(glowEverySeconds = everySeconds, glowForSeconds = forSeconds)
+
+    /** A fixed zone by streets of [radiusMeters] on the test grid the fake street source lays around [center]. */
+    fun streets(radiusMeters: Double = 300.0, center: GeoPoint = PARK): GameSettings =
+        fixedZone(radiusMeters, center).copy(zoneShape = ZoneShape.STREETS)
 }

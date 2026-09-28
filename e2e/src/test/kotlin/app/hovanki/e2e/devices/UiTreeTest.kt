@@ -39,6 +39,7 @@ class UiTreeTest {
 
         assertEquals("1234", tree.textOf("catch_code"))
         assertEquals("  catch_code: 1234 [16,300][386,348] (disabled) (focused)", tree.describe())
+        assertEquals(300.0, tree.find("catch_code")?.top)
     }
 
     @Test
@@ -55,6 +56,8 @@ class UiTreeTest {
         assertTrue(tree.contains("game_screen"))
         assertEquals("0427", tree.textOf("catch_code"))
         assertEquals("Dispute", tree.textOf("catch_dispute"))
+        assertEquals(47.0, tree.find("game_screen")?.top)
+        assertNull(tree.find("catch_dispute")?.top)
         assertEquals(
             "  game_screen [0,47][390,810]\n  catch_code: 0427 [20,63][110,95]\n  catch_dispute (disabled)\n  \"Dispute\"",
             tree.describe(),

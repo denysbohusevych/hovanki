@@ -2,6 +2,10 @@ package app.hovanki.client.tracking
 
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.alert_claim_text
+import app.hovanki.client.resources.alert_glow_soon_text
+import app.hovanki.client.resources.alert_glow_soon_title
+import app.hovanki.client.resources.alert_glowing_text
+import app.hovanki.client.resources.alert_glowing_title
 import app.hovanki.client.resources.alert_in_building_text
 import app.hovanki.client.resources.alert_in_building_title
 import app.hovanki.client.resources.alert_out_of_zone_text
@@ -50,6 +54,12 @@ class IosBackgroundTracker : BackgroundTracker {
 
                 AlertKind.CATCH_CLAIM -> getString(Res.string.hider_claim_title, alert.seekerName.orEmpty()) to
                     getString(Res.string.alert_claim_text)
+
+                AlertKind.GLOW_SOON -> getString(Res.string.alert_glow_soon_title) to
+                    getString(Res.string.alert_glow_soon_text)
+
+                AlertKind.GLOWING -> getString(Res.string.alert_glowing_title) to
+                    getString(Res.string.alert_glowing_text)
             }
             val content = UNMutableNotificationContent()
             content.setTitle(title)

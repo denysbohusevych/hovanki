@@ -13,16 +13,21 @@ import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.InviteRequest
 import app.hovanki.shared.protocol.JoinGameRequest
+import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.StartGameRequest
+import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.VoteRequest
+import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 
 /**
@@ -44,6 +49,21 @@ class GameController(private val games: GameService, private val invites: Invite
     @PostMapping(ApiRoutes.START)
     fun start(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: StartGameRequest): GameSnapshot =
         games.start(player, GameId(gameId), request)
+
+    /** The host picks or draws the roles in the lobby. */
+    @PostMapping(ApiRoutes.ROLES)
+    fun roles(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: RolesRequest): GameSnapshot =
+        games.setRoles(player, GameId(gameId), request)
+
+    /** The host changes the setup in the lobby. */
+    @PostMapping(ApiRoutes.SETTINGS)
+    fun settings(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: SettingsRequest): GameSnapshot =
+        games.updateSettings(player, GameId(gameId), request)
+
+    /** The player leaves the game for good; the token stops working. */
+    @PostMapping(ApiRoutes.LEAVE)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun leave(player: PlayerRef, @PathVariable gameId: String) = games.leave(player, GameId(gameId))
 
     /** Called by every client every few seconds: sends new fixes, returns the fresh state. */
     @PostMapping(ApiRoutes.SYNC)
@@ -73,6 +93,11 @@ class GameController(private val games: GameService, private val invites: Invite
     @GetMapping(ApiRoutes.BUILDINGS)
     fun buildings(player: PlayerRef, @PathVariable gameId: String): BuildingsResponse =
         games.buildings(player, GameId(gameId))
+
+    /** Once per map revision of a zone by streets, when the snapshot says it is READY: what the map draws. */
+    @GetMapping(ApiRoutes.STREET_ZONE)
+    fun streetZone(player: PlayerRef, @PathVariable gameId: String): StreetZoneResponse =
+        games.streetZone(player, GameId(gameId))
 
     /** Once, when the game is over: where everybody went, for the replay on the results screen. */
     @GetMapping(ApiRoutes.TRACKS)

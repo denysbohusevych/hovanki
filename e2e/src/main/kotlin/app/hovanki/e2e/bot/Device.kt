@@ -3,6 +3,7 @@ package app.hovanki.e2e.bot
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.storage.SecureStore
 import app.hovanki.client.tracking.BackgroundTracker
+import app.hovanki.client.tracking.HiderAlert
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.route.Route
 import app.hovanki.shared.geo.moveBy
@@ -15,6 +16,7 @@ import okhttp3.Interceptor
 import okhttp3.Response
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.random.Random
 import kotlin.time.Duration
@@ -196,6 +198,13 @@ class FakeNetwork(private val onExchange: (Exchange) -> Unit) : Interceptor {
 class FakeBackgroundTracker(private val onChange: (Boolean) -> Unit = {}) : BackgroundTracker {
     @Volatile var isRunning: Boolean = false
         private set
+
+    /** Every alert the phone vibrated for, in order (a notification while the app is in the pocket). */
+    val alerts = CopyOnWriteArrayList<HiderAlert>()
+
+    override fun alert(alert: HiderAlert) {
+        alerts += alert
+    }
 
     override fun start() {
         isRunning = true

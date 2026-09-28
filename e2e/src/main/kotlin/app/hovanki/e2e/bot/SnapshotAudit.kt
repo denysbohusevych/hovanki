@@ -23,6 +23,7 @@ object SnapshotAudit {
         VisibilityReason.MOCK_LOCATION,
         VisibilityReason.STALE_SIGNAL,
         VisibilityReason.INSIDE_BUILDING,
+        VisibilityReason.GLOW,
     )
 
     /** Values the first app versions know in `VisibleLocation.reason`, which has no default. */
@@ -66,6 +67,10 @@ object SnapshotAudit {
 
                 player.role == Role.HIDER && (phase != GamePhase.SEEKING || player.status != PlayerStatus.ACTIVE) ->
                     problems += where
+
+                location.exactReason == VisibilityReason.GLOW -> glowProblem(snapshot, location.atMillis)?.let {
+                    problems += "$it: $where"
+                }
             }
         }
         for (message in snapshot.chat) {
@@ -81,6 +86,25 @@ object SnapshotAudit {
             }
         }
         return problems
+    }
+
+    /**
+     * The glow (docs/adr/0009-game-setup-glow-streets.md), restated here rather than taken from the rules: every
+     * `glowEverySeconds` of the search a glow of `glowForSeconds`, the first one a full interval in. During a glow the
+     * seekers see the hiders live; between glows only a spot from a fix taken before the last glow ended, never a newer
+     * one. Null: [fixAtMillis] may be seen now.
+     */
+    private fun glowProblem(snapshot: GameSnapshot, fixAtMillis: Long): String? {
+        val settings = snapshot.settings
+        val start = snapshot.zoneStartedAtMillis ?: return "a glow before the search"
+        if (settings.glowEverySeconds <= 0 || settings.glowForSeconds <= 0) return "a glow in a game without glows"
+        val every = settings.glowEverySeconds * 1000L
+        val length = minOf(settings.glowForSeconds * 1000L, every)
+        val now = snapshot.serverTimeMillis
+        val index = (now - start) / every
+        if (now < start || index < 1) return "a glow before the first one"
+        val lastEnd = start + index * every + length
+        return if (now < lastEnd || fixAtMillis < lastEnd) null else "a glow spot newer than the glow"
     }
 
     /** Whether any object in [element], however deep, has the key [key]. */

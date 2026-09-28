@@ -32,4 +32,6 @@ data class BuildingsResponse(
     val state: BuildingsState? = null,
     val buildings: List<BuildingArea> = emptyList(),
     val passages: List<Passage> = emptyList(),
+    /** The zone these buildings belong to (`GameSnapshot.mapRevision`): the host may change it in the lobby. */
+    val mapRevision: Int = 0,
 )

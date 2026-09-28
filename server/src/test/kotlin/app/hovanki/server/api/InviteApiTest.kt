@@ -255,8 +255,12 @@ class InviteApiTest(
     fun dismissAnInvitation() {
         val host = testUsers.create()
         val (friend, other) = List(2) { friendOf(host) }
+        // Another host: an account plays in one lobby at a time.
+        val secondHost = testUsers.create()
+        friendService.sendRequest(secondHost.id, SendFriendRequest(userId = friend.id))
+        friendService.accept(friend.id, secondHost.id)
         val game = createGame(host)
-        val secondGame = createGame(host)
+        val secondGame = createGame(secondHost)
         invite(game.session, InviteRequest(listOf(friend.id, other.id))).ok<GameSnapshot>()
         clock.advance(Duration.ofSeconds(1))
         invite(secondGame.session, InviteRequest(listOf(friend.id))).ok<GameSnapshot>()

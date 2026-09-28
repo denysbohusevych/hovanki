@@ -92,6 +92,13 @@ compose.resources {
     packageOfResClass = "app.hovanki.client.resources"
 }
 
+// Compose resources take strings.xml as written: an Android escape such as `\'` shows up with its backslash.
+val checkStringResources by tasks.registering(CheckStringResources::class) {
+    strings.from(fileTree("src/commonMain/composeResources") { include("values*/strings.xml") })
+    report.set(layout.buildDirectory.file("reports/checkStringResources.txt"))
+}
+tasks.named("check") { dependsOn(checkStringResources) }
+
 // Keep Java bytecode level in line with jvmTarget above (Kotlin validates that they match).
 tasks.withType<JavaCompile>().configureEach {
     sourceCompatibility = JavaVersion.VERSION_17.toString()
@@ -140,4 +147,34 @@ abstract class GenerateBuildConstants : DefaultTask() {
     }
 
     private fun String.escaped(): String = replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$")
+}
+
+/**
+ * Fails on Android's escaped quotes in the Compose string resources, which the app would show with the backslash
+ * («won\'t»). The texts use typographic quotes instead: ’ “ ” « ».
+ */
+abstract class CheckStringResources : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val strings: ConfigurableFileCollection
+
+    @get:OutputFile
+    abstract val report: RegularFileProperty
+
+    @TaskAction
+    fun check() {
+        val problems = strings.files.sortedBy { it.path }.flatMap { file ->
+            file.readLines().mapIndexedNotNull { index, line ->
+                val escaped = "\\'" in line || "\\\"" in line
+                if (escaped) "${file.parentFile.name}/${file.name}:${index + 1}: ${line.trim()}" else null
+            }
+        }
+        val text = problems.joinToString("\n")
+        report.get().asFile.writeText(text)
+        if (problems.isNotEmpty()) {
+            throw GradleException(
+                "Escaped quotes show up with their backslash in the app (write ’ “ ” instead):\n$text",
+            )
+        }
+    }
 }

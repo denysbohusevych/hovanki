@@ -11,9 +11,12 @@ import app.hovanki.shared.protocol.InviteRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.StartGameRequest
+import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.VoteRequest
@@ -32,6 +35,14 @@ class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
     override suspend fun startGame(session: PlayerSession, request: StartGameRequest): GameSnapshot =
         http.post(ApiRoutes.start(session.gameId), session.token, request)
 
+    override suspend fun setRoles(session: PlayerSession, request: RolesRequest): GameSnapshot =
+        http.post(ApiRoutes.roles(session.gameId), session.token, request)
+
+    override suspend fun updateSettings(session: PlayerSession, request: SettingsRequest): GameSnapshot =
+        http.post(ApiRoutes.settings(session.gameId), session.token, request)
+
+    override suspend fun leave(session: PlayerSession): Unit = http.post(ApiRoutes.leave(session.gameId), session.token)
+
     override suspend fun sync(session: PlayerSession, request: SyncRequest): GameSnapshot =
         http.post(ApiRoutes.sync(session.gameId), session.token, request)
 
@@ -49,6 +60,9 @@ class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
 
     override suspend fun buildings(session: PlayerSession): BuildingsResponse =
         http.get(ApiRoutes.buildings(session.gameId), session.token)
+
+    override suspend fun streetZone(session: PlayerSession): StreetZoneResponse =
+        http.get(ApiRoutes.streetZone(session.gameId), session.token)
 
     override suspend fun tracks(session: PlayerSession): TracksResponse =
         http.get(ApiRoutes.tracks(session.gameId), session.token)

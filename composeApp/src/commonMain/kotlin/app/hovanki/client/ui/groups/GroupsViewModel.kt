@@ -212,6 +212,9 @@ class GroupsViewModel(
         }
     }
 
+    /** The account still plays a round elsewhere: leave it, and play with the group as just tried. */
+    fun leaveOtherGameAndRetry() = starter.leaveOtherGameAndRetry()
+
     fun dismissMessage() {
         commands.dismiss()
         starter.dismissProblems()

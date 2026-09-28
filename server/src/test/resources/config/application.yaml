@@ -2,8 +2,11 @@
 # The database: TestPostgres, set up by TestPostgresSessionListener (spring.datasource.* as system properties).
 hovanki:
   buildings:
-    # The fixed test quarter (DebugBuildings) instead of the Overpass API: tests never go to the network.
+    # The fixed test quarter (DebugBuildings) instead of the map tiles: tests never go to the network.
     source: fake
+  map:
+    # The fixed street grid (DebugStreets) for the zone by streets.
+    streets: fake
   # Emails stay in memory (RecordingEmailSender); tests read the codes there.
   mail:
     sender: recording

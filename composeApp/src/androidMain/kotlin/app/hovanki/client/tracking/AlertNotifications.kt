@@ -15,6 +15,10 @@ import androidx.core.content.ContextCompat
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.alert_channel
 import app.hovanki.client.resources.alert_claim_text
+import app.hovanki.client.resources.alert_glow_soon_text
+import app.hovanki.client.resources.alert_glow_soon_title
+import app.hovanki.client.resources.alert_glowing_text
+import app.hovanki.client.resources.alert_glowing_title
 import app.hovanki.client.resources.alert_in_building_text
 import app.hovanki.client.resources.alert_in_building_title
 import app.hovanki.client.resources.alert_out_of_zone_text
@@ -45,6 +49,12 @@ internal class AlertNotifications(private val context: Context) {
 
             AlertKind.CATCH_CLAIM -> getString(Res.string.hider_claim_title, alert.seekerName.orEmpty()) to
                 getString(Res.string.alert_claim_text)
+
+            AlertKind.GLOW_SOON -> getString(Res.string.alert_glow_soon_title) to
+                getString(Res.string.alert_glow_soon_text)
+
+            AlertKind.GLOWING -> getString(Res.string.alert_glowing_title) to
+                getString(Res.string.alert_glowing_text)
         }
         val notification = NotificationCompat.Builder(context, channel())
             .setSmallIcon(android.R.drawable.ic_dialog_alert)

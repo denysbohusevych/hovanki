@@ -208,6 +208,13 @@ data class AdminGame(
     val lastActivityMillis: Long,
     val zoneRadiusMeters: Double,
     val chatMessages: Int,
+    /** The "no hiding in buildings" rule: loading, on, or off because the map data could not be loaded. */
+    val buildings: BuildingsState? = null,
+    /** How many buildings the rule judges by, once READY. */
+    val buildingCount: Int? = null,
+    val zoneShape: ZoneShape? = null,
+    /** The zone by streets (a [ZoneShape.STREETS] game): being built, built, or unavailable (circles instead). */
+    val streetZone: StreetZoneState? = null,
 )
 
 @Serializable

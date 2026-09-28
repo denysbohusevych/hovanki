@@ -15,20 +15,24 @@ import app.hovanki.client.session.catchableScan
 import app.hovanki.client.session.momentAt
 import app.hovanki.client.session.myCatchCode
 import app.hovanki.shared.geo.bearingTo
-import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.CatchView
 import app.hovanki.shared.protocol.GamePhase
+import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.VisibilityReason
+import app.hovanki.shared.rules.Glow
+import app.hovanki.shared.rules.StreetZone
+import app.hovanki.shared.rules.ZoneArea
 import app.hovanki.shared.rules.ZoneState
 import app.hovanki.shared.rules.stateAt
 import app.hovanki.shared.totp.CatchCodePayload
@@ -135,6 +139,16 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
         val zoneStartedAt = snapshot.zoneStartedAtMillis
         val zone = snapshot.settings.zone.stateAt(if (zoneStartedAt == null) 0L else now - zoneStartedAt)
         val zoneMoment = snapshot.settings.zone.momentAt(zoneStartedAt?.let { now - it })
+        // The zone by streets, once loaded for this map revision: its polygon of the current stage is the zone.
+        val streets = state.streetZone
+            ?.takeIf {
+                it.mapRevision == snapshot.mapRevision &&
+                    it.stages.size == snapshot.settings.zone.stages.size + 1
+            }
+            ?.takeIf { zoneByStreets -> zoneByStreets.stages.all { it.outline.size >= MIN_OUTLINE_POINTS } }
+            ?.let { StreetZone(it.stages) }
+        val zoneArea = streets?.areaAt(zone.stage) ?: ZoneArea.Circle(zone.current)
+        val glow = glowAt(snapshot.settings, snapshot.phase, zoneStartedAt, now)
         val openClaims = snapshot.catches.filter { it.status in OPEN_CLAIM_STATUSES }
         val myClaim = openClaims.firstOrNull { it.seekerId == me.playerId }
         val claimAgainstMe = openClaims.firstOrNull { it.hiderId == me.playerId }
@@ -144,7 +158,7 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             snapshot.phase == GamePhase.SEEKING && myClaim == null
         val hiders = snapshot.players.filter { it.role == Role.HIDER }
         val myCode = snapshot.myCatchCode(now)?.takeIf { claimAgainstMe == null }
-        val metersToBorder = myLocation?.let { zone.current.radiusMeters - it.point.distanceTo(zone.current.center) }
+        val metersToBorder = myLocation?.let { -zoneArea.signedDistanceMeters(it.point) }
         val isHiding = me.role == Role.HIDER && me.status == PlayerStatus.ACTIVE
         val isOutside = me.outOfZoneDeadlineMillis != null || (metersToBorder ?: 0.0) < 0
 
@@ -161,9 +175,43 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             isZoneRunning = zoneStartedAt != null,
             myLocation = myLocation,
             metersToZoneBorder = metersToBorder,
-            bearingToZone = myLocation?.point?.takeIf { isHiding && isOutside }?.bearingTo(zone.current.center),
+            bearingToZone = myLocation?.point?.takeIf { isHiding && isOutside }?.let { point ->
+                // Outside by the own GPS: the shortest way in, to the nearest point of the border. Inside by the own
+                // GPS but not by the server's: towards the middle.
+                val target = if ((metersToBorder ?: 0.0) <
+                    0
+                ) {
+                    zoneArea.nearestBorderPoint(point)
+                } else {
+                    zone.current.center
+                }
+                point.bearingTo(target)
+            },
+            streetZone = streets?.let {
+                StreetOutline(
+                    current = it.areaAt(zone.stage).polygon.outline,
+                    next = if (zone.next != null) it.areaAt(zone.stage + 1).polygon.outline else null,
+                )
+            },
+            isStreetZoneOff = snapshot.streetZone == StreetZoneState.UNAVAILABLE,
+            glow = glow,
             markers = snapshot.players.mapNotNull { player ->
-                player.location?.let { MapMarker(player.id, player.name, it.point, it.accuracyMeters, it.exactReason) }
+                player.location?.let {
+                    val reason = it.exactReason
+                    MapMarker(
+                        id = player.id,
+                        name = player.name,
+                        point = it.point,
+                        accuracyMeters = it.accuracyMeters,
+                        reason = reason,
+                        // Between glows the seekers see where the last one left the hider: a spot, not the hider.
+                        markAgeMillis = if (reason == VisibilityReason.GLOW && glow?.isGlowing != true) {
+                            (now - it.atMillis).coerceAtLeast(0)
+                        } else {
+                            null
+                        },
+                    )
+                }
             },
             hidersLeft = hiders.count { it.status == PlayerStatus.ACTIVE },
             hidersTotal = hiders.size,
@@ -204,8 +252,25 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
         )
     }
 
+    /** The glow as the HUD counts it down (docs/adr/0009-game-setup-glow-streets.md): only while the seekers search. */
+    private fun glowAt(settings: GameSettings, phase: GamePhase, seekingStartedAt: Long?, now: Long): GlowUi? {
+        if (phase != GamePhase.SEEKING || seekingStartedAt == null) return null
+        Glow.openAt(settings, seekingStartedAt, now)?.let {
+            return GlowUi(
+                isGlowing = true,
+                millisLeft =
+                it.endMillis - now,
+            )
+        }
+        val next = Glow.next(settings, seekingStartedAt, now) ?: return null
+        return GlowUi(isGlowing = false, millisLeft = next.startMillis - now)
+    }
+
     private companion object {
         const val TICK_MILLIS = 1_000L
+
+        /** A closed ring of a triangle at least; the server never sends less. */
+        const val MIN_OUTLINE_POINTS = 4
         val OPEN_CLAIM_STATUSES = setOf(CatchStatus.AWAITING_CODE, CatchStatus.DISPUTED)
     }
 }
@@ -226,10 +291,17 @@ data class GameUiState(
     /** Positive inside the zone, negative outside. */
     val metersToZoneBorder: Double?,
     /**
-     * A hider outside the zone (by the own GPS, or the server's alert): the compass bearing of the way back, straight to
-     * the zone's center, for the arrow at the edge of the screen. Null inside, or without a position.
+     * A hider outside the zone (by the own GPS, or the server's alert): the compass bearing of the way back, to the
+     * nearest point of the border (to the zone's middle while the own GPS says inside), for the arrow at the edge of the
+     * screen. Null inside, or without a position.
      */
     val bearingToZone: Double?,
+    /** The zone by streets now and next, when the game has one: the map draws these instead of the circles. */
+    val streetZone: StreetOutline?,
+    /** The game was set up with a zone by streets, but the server could not build one: it uses the circles. */
+    val isStreetZoneOff: Boolean,
+    /** The glow while the seekers search; null in a game without it, and after the last one. */
+    val glow: GlowUi?,
     /** Players the server lets us see right now. */
     val markers: List<MapMarker>,
     val hidersLeft: Int,
@@ -292,4 +364,12 @@ data class MapMarker(
     val point: GeoPoint,
     val accuracyMeters: Double,
     val reason: VisibilityReason,
+    /** A spot the last glow left ([VisibilityReason.GLOW] between glows): how old it is. Null: the player right now. */
+    val markAgeMillis: Long? = null,
 )
+
+/** The zone by streets at the moment: its border now, and the one it switches to at the end of the stage. */
+data class StreetOutline(val current: List<GeoPoint>, val next: List<GeoPoint>?)
+
+/** The glow at the moment: on ([isGlowing]) until [millisLeft] from now, or the next one in [millisLeft]. */
+data class GlowUi(val isGlowing: Boolean, val millisLeft: Long)

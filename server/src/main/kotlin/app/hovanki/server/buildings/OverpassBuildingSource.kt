@@ -28,19 +28,25 @@ class OverpassBuildingSource(private val properties: BuildingProperties, json: J
         .build()
     private val parser = OverpassParser(json, properties.maxBuildings, properties.maxVertices)
 
-    /** From the first of [BuildingProperties.overpassUrls] that answers with data. */
+    /**
+     * From the first of [BuildingProperties.overpassUrls] that answers with data. When none does, the message names
+     * what every one of them did, not only the last.
+     */
     override fun load(area: ZoneCircle): Buildings {
-        var failure: BuildingsUnavailableException? = null
+        val failures = ArrayList<BuildingsUnavailableException>()
         for (url in properties.overpassUrls) {
             try {
                 return load(url, area)
             } catch (e: BuildingsUnavailableException) {
                 if (!e.retry) throw e
-                failure?.let(e::addSuppressed)
-                failure = e
+                failures += e
             }
         }
-        throw failure ?: BuildingsUnavailableException("No Overpass URL configured", retry = false)
+        val last = failures.lastOrNull()
+            ?: throw BuildingsUnavailableException("No Overpass URL configured", retry = false)
+        throw BuildingsUnavailableException(failures.joinToString("; ") { it.message.orEmpty() }, last).also { error ->
+            failures.dropLast(1).forEach(error::addSuppressed)
+        }
     }
 
     private fun load(url: URI, area: ZoneCircle): Buildings {

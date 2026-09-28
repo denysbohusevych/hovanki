@@ -20,8 +20,8 @@ flowchart LR
 
 | Модуль | Таргеты | Что внутри |
 |---|---|---|
-| `:shared` | jvm, android, iosArm64, iosSimulatorArm64 | DTO протокола и `ApiRoutes`, `protocolJson`, TOTP-коды находки и сотрудников (свои SHA-1/HMAC на чистом Kotlin), кодировщик QR, гео-математика, расписание зоны, правила GPS: `LocationTrack`, `ZoneRules`, `CatchRules`; маршрут для истории: `RouteRecorder` (прореживание точек, расстояние без дрожания GPS). Без платформенных API. |
-| `:server` | JVM 21 | Spring Boot, REST под `/api/v1`. Игры — в памяти: `GameRegistry`, доменный объект `Game` (с чатом), `GameJanitor`. Аккаунты, друзья, блокировки, группы, жалобы и история законченных игр — в PostgreSQL (`JdbcClient`, миграции Flyway). Пакеты: `game/`, `account/`, `mail/`, `social/` (друзья, группы, приглашения в памяти), `history/` (итоги игр, маршруты, статистика), `moderation/` (жалобы, баны и запреты чата), `admin/` (вход сотрудников с TOTP, админ-сессии, журнал, [ADR 0008](adr/0008-admin.md)), `ratelimit/`, `db/`, `api/`, `buildings/`. Страница админки — статика `src/main/resources/static/admin/` на `/admin`. |
+| `:shared` | jvm, android, iosArm64, iosSimulatorArm64 | DTO протокола и `ApiRoutes`, `protocolJson`, TOTP-коды находки и сотрудников (свои SHA-1/HMAC на чистом Kotlin), кодировщик QR, гео-математика, расписание зоны, правила GPS: `LocationTrack`, `ZoneRules`, `CatchRules`; зона по улицам (`ZoneArea`), свечение (`Glow`), настройки хоста и их границы (`GameSetup`, `SettingsLimits`); маршрут для истории: `RouteRecorder` (прореживание точек, расстояние без дрожания GPS). Без платформенных API. |
+| `:server` | JVM 21 | Spring Boot, REST под `/api/v1`. Игры — в памяти: `GameRegistry`, доменный объект `Game` (с чатом), `GameJanitor`. Аккаунты, друзья, блокировки, группы, жалобы и история законченных игр — в PostgreSQL (`JdbcClient`, миграции Flyway). Пакеты: `game/`, `account/`, `mail/`, `social/` (друзья, группы, приглашения в памяти), `history/` (итоги игр, маршруты, статистика), `moderation/` (жалобы, баны и запреты чата), `admin/` (вход сотрудников с TOTP, админ-сессии, журнал, [ADR 0008](adr/0008-admin.md)), `ratelimit/`, `db/`, `api/`, `buildings/` (здания зоны), `map/` (векторные тайлы, декодер MVT, зона по улицам). Страница админки — статика `src/main/resources/static/admin/` на `/admin`. |
 | `:clientCore` | jvm, android, iosArm64, iosSimulatorArm64 | Клиентская логика без UI: `GameApi`/`HttpGameApi`, `AccountApi`, `SocialApi` (Ktor), `GameConnection`/`PollingGameConnection`, `LocationOutbox`, `ServerClock`, `GameSessionManager` (с чатом), `AccountManager`, `SocialManager`, `HistoryManager`, `ClientStorage`, интерфейсы `LocationProvider`, `BackgroundTracker` и `SecureStore`. Без Compose и платформенного кода; JVM-таргет нужен headless-ботам e2e-тестов, чтобы они ходили через тот же сетевой код, что и приложение. |
 | `:composeApp` | android, iosArm64, iosSimulatorArm64 | KMP-библиотека (`com.android.kotlin.multiplatform.library`): Compose UI, Koin, движки Ktor, реализации платформенных сервисов. На iOS собирается во framework `ComposeApp` (вместе с `:clientCore`). |
 | `:androidApp` | Android | Тонкая точка входа: `Application` + `MainActivity`. AGP 9 со встроенным Kotlin. |
@@ -36,9 +36,9 @@ flowchart LR
 |---|---|---|
 | UI | Экраны на Compose, карта `GameMap` (maplibre-compose, тайлы OpenFreeMap, [ADR 0003](adr/0003-map-and-buildings.md)), навигация по состоянию: какой экран показывать, решает состояние сессии, а не стек переходов | `:composeApp`, `commonMain` |
 | Состояние экранов | ViewModel'и / стейт-холдеры: превращают `GameSnapshot`, аккаунт, друзей и локальные данные в UI-state, принимают действия пользователя | `:composeApp`, `commonMain` |
-| Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock`, чат (слияние по `seq`, курсор в каждом опросе, непрочитанные), сохранение сессии и возврат в игру после перезапуска, загрузка зданий зоны (один раз, когда снапшот говорит `READY`) и треков для разбора (один раз, когда игра `FINISHED`); итоги и награды считает `session/Results.kt` из последнего снапшота и треков | `:clientCore`, `commonMain` |
+| Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock`, чат (слияние по `seq`, курсор в каждом опросе, непрочитанные), сохранение сессии и возврат в игру после перезапуска, загрузка зданий зоны и зоны по улицам (один раз на `mapRevision`, когда снапшот говорит `READY`), команды лобби (роли, настройки, выход) и треков для разбора (один раз, когда игра `FINISHED`); итоги и награды считает `session/Results.kt` из последнего снапшота и треков | `:clientCore`, `commonMain` |
 | Аккаунт и друзья | `AccountManager`: кто вошёл, команды аккаунта, восстановление после перезапуска, 401 → выход. `SocialManager`: друзья, группы, входящие (опрос раз в 10 с, пока их кто-то слушает). `HistoryManager`: своя статистика, история игр и маршруты, согласие «Сохранять мои маршруты» (загрузка по требованию экрана) | `:clientCore`, `commonMain` |
-| Хранилище | `ClientStorage` поверх `SecureStore`: сохранённая сессия игры, аккаунт (токен и профиль), имя гостя | `:clientCore`, `commonMain`; реализации `SecureStore` — `:composeApp` `androidMain` / `iosMain` |
+| Хранилище | `ClientStorage` поверх `SecureStore`: сохранённая сессия игры, аккаунт (токен и профиль), имя гостя, последние настройки хоста | `:clientCore`, `commonMain`; реализации `SecureStore` — `:composeApp` `androidMain` / `iosMain` |
 | Сеть | `GameApi`, `AccountApi`, `SocialApi`, `HistoryApi` (Ktor, `protocolJson`, общие хелперы `HttpSupport`), `GameConnection` — транспорт за интерфейсом (сейчас HTTP-опрос) | `:clientCore`, `commonMain`; движок Ktor выбирает `:composeApp`: OkHttp (Android), Darwin (iOS) |
 | Платформенные сервисы | `LocationProvider`, `BackgroundTracker`, `SecureStore`, `ProximityScanner`, `CatchCodeScanner`, `ShareSheet` | интерфейсы в `commonMain` (`LocationProvider`, `BackgroundTracker` и `SecureStore` — в `:clientCore`), реализации в `:composeApp` `androidMain` / `iosMain` |
 | DI | Koin-модули: общий + платформенный | `:composeApp`, `commonMain` + `androidMain` / `iosMain` |
@@ -97,7 +97,9 @@ stateDiagram-v2
 - **`WelcomeScreen`** — вход (email или ник + пароль), регистрация, «Забыли пароль?» и гостевой вход по коду.
 - **`MainScreen`** — вкладки «Играть» (создать игру, войти по коду, входящие приглашения), «Друзья», «Группы», «Профиль» (там же статистика, «История игр» и переключатель «Сохранять мои маршруты»). Аккаунт работает сразу после регистрации; пока email не подтверждён, на «Играть» — карточка «Подтвердите email» («Ввести код» или «Позже»), в профиле — статус email и «Подтвердить».
 - **`VerifyEmailPanel`** — необязательное подтверждение email: код из письма, повторная отправка с таймером, смена email (опечатка при регистрации, нужен текущий пароль).
-- Чат, приглашение друзей в лобби, карточка группы, подтверждение email, история игр и маршрут игры на карте (`HistoryPanel`, `RoutePanel`) — полноэкранные панели в том же окне, а не `BottomSheet` или `Dialog`: Maestro на Android не видит теги в отдельных окнах. Кнопка «Назад» на Android закрывает панель (`SystemBackHandler`).
+- Чат, приглашение друзей в лобби, настройки игры у хоста (`SettingsPanel`), карточка группы, подтверждение email, история игр и маршрут игры на карте (`HistoryPanel`, `RoutePanel`) — полноэкранные панели в том же окне, а не `BottomSheet` или `Dialog`: Maestro на Android не видит теги в отдельных окнах. Кнопка «Назад» на Android закрывает панель (`SystemBackHandler`).
+- **Приглашение в другую игру** вошедший игрок видит и в лобби, и на итогах: баннер сверху (`InviteBanner`) с «Перейти» и «×». Во время раунда баннера нет, только значок на кнопке «Ещё»; её диалог предлагает «Выйти и перейти» (`leaveOtherGame`). Пока это на экране, приложение опрашивает входящие.
+- **Отступы экрана.** Все экраны держатся в стороне от системных панелей через `appSafeDrawing`: это `safeDrawing`, а на iOS — не меньше безопасной области самого окна ([design.md](design.md#отступы-экрана)).
 
 ## Раунд: поток данных
 
@@ -153,7 +155,8 @@ stateDiagram-v2
 - Приглашения в игру (`InviteRegistry`) живут в памяти: 30 минут или пока игра в лобби. `GameJanitor` вычищает их вместе с играми.
 - `DataRetention` раз в сутки удаляет неиспользуемые сессии, старые жалобы и заявки, истёкшие коды ([сроки](adr/0004-accounts-friends-chat.md#11-сроки-хранения-и-gdpr)) и маршруты старше 90 дней ([ADR 0007](adr/0007-game-history-and-routes.md#5-сроки-хранения-и-gdpr)).
 - **История игр** ([ADR 0007](adr/0007-game-history-and-routes.md)). У каждого игрока с аккаунтом `Game` держит `RouteRecorder` (маршрут и расстояние раунда, только в памяти) и счётчики для итогов. Игра перешла в `FINISHED` — `Game.takeFinishedRecord()` один раз отдаёт `GameRecord`, `GameService` передаёт его `HistoryWriter` после снятия блокировки игры. `HistoryWriter` пишет в своём потоке: `played_games`, `game_results` для игроков с аккаунтом, `game_routes` — тем, у кого включено «Сохранять мои маршруты». `GameJanitor` раз в минуту вызывает `advance` у всех игр, чтобы игра без запросов тоже закончилась и попала в историю.
-- Здания зоны `GameService` заказывает у `BuildingLoader` при создании игры. Для Overpass загрузка идёт в отдельном пуле потоков, пока игроки в лобби; результат попадает в игру под той же блокировкой (`game.onBuildingsLoaded` / `onBuildingsUnavailable`). Источник — `hovanki.buildings.source`: `overpass` (по умолчанию), `fake` (тестовый квартал `DebugBuildings`, в тестах и профиле `e2e`; `hovanki.buildings.fake-delay` задерживает его, как медленный Overpass), `off`.
+- Карту зоны `GameService` заказывает при создании игры и после каждой смены зоны в лобби: здания — у `BuildingLoader`, зону по улицам — у `StreetZoneLoader` ([ADR 0009](adr/0009-game-setup-glow-streets.md#3-зона-по-улицам)). Загрузка идёт в отдельном пуле потоков, пока игроки в лобби; результат попадает в игру под той же блокировкой (`onBuildingsLoaded` / `onBuildingsUnavailable`, `onStreetZoneBuilt` / `onStreetZoneUnavailable`). Каждая смена зоны поднимает `mapRevision`, результат старой ревизии игра отбрасывает.
+- Данные карты — из векторных тайлов, тех же, что у игроков (`map/VectorTiles`: TileJSON и тайлы z14 OpenFreeMap, свой декодер MVT, кэш на 15 минут, [ADR 0003](adr/0003-map-and-buildings.md#изменение-2026-09-28-здания-из-тайлов-карты)). Источник зданий — `hovanki.buildings.source`: `tiles` (по умолчанию), `overpass`, `fake` (тестовый квартал `DebugBuildings`, в тестах и профиле `e2e`; `hovanki.buildings.fake-delay` задерживает его, как медленную загрузку), `off`. Улицы — `hovanki.map.streets`: `tiles`, `fake` (сетка `DebugStreets`), `off`.
 - Аутентификация — два вида токенов, оба в `Authorization: Bearer <token>` ([ADR 0004](adr/0004-accounts-friends-chat.md#3-два-вида-токенов)):
   - **игровой** — при создании игры или входе сервер выдаёт `PlayerSession`. Токен привязан к одной игре и одному игроку, живёт в памяти вместе с игрой; игровые маршруты получают `PlayerRef` через `PlayerRefArgumentResolver`;
   - **аккаунтный** — при регистрации, входе и сбросе пароля (`AccountSession`). В базе хранится только SHA-256. Маршруты аккаунта получают `AuthenticatedUser` через `UserArgumentResolver`: параметр без `?` — аккаунт обязателен, с `?` — необязателен (создание игры и вход в неё). Подтверждённый email не нужен ни одному маршруту.
@@ -165,7 +168,8 @@ stateDiagram-v2
 - Каждый `GameSnapshot` несёт `serverTimeMillis`. Клиентский `ServerClock` вычисляет по нему смещение относительно часов телефона и отдаёт «текущее время сервера».
 - `LocationSample.timestampMillis` клиент проставляет по `ServerClock`. Сервер не доверяет меткам из будущего и обрезает их до `now`.
 - Таймеры фаз (`phaseEndsAtMillis`), дедлайны заявок (`CatchView.deadlineMillis`), таймер возврата в зону (`MyState.outOfZoneDeadlineMillis`) — тоже время сервера; клиент считает обратный отсчёт через `ServerClock`.
-- Зона не передаётся каждый раз: клиент получает `ZoneSchedule` в настройках и `zoneStartedAtMillis`, а текущий круг считает сам через `ZoneSchedule.stateAt(serverNow - zoneStartedAtMillis)` — ту же функцию, что использует сервер.
+- Зона не передаётся каждый раз: клиент получает `ZoneSchedule` в настройках и `zoneStartedAtMillis`, а текущий круг считает сам через `ZoneSchedule.stateAt(serverNow - zoneStartedAtMillis)` — ту же функцию, что использует сервер. Зона по улицам — многоугольник на каждую стадию, приходит один раз (`GET /street-zone`), действующий выбирает `ZoneState.stage`.
+- Свечения клиент тоже считает сам, той же функцией, что и сервер (`Glow`): отсчёт до следующего и вибрация прячущемуся.
 - TOTP-код прячущийся генерирует по `ServerClock`, поэтому неверные часы телефона не ломают подтверждение. Сервер принимает код текущего, предыдущего и следующего периода (±30 с).
 
 ## Фазы игры
@@ -180,9 +184,10 @@ stateDiagram-v2
     FINISHED --> [*]: GameJanitor через finished-retention
 ```
 
-- **LOBBY** — игроки входят по join-коду (6 символов, до 30 игроков). Роли назначает хост при старте.
+- **LOBBY** — игроки входят по join-коду (6 символов, до 30 игроков). Хост меняет настройки и назначает роли, роли видят все; старт отправляет ищущих такими, какими их видит хост ([ADR 0009](adr/0009-game-setup-glow-streets.md#4-лобби-на-сервере)). Пока зона по улицам строится, старт не проходит (`ZONE_NOT_READY`).
+- **Выход** обрабатывает сервер (`POST /leave`): в лобби игрока больше нет, уходящий хост передаёт игру следующему, пустое лобби удаляется; в раунде прячущийся выбывает, раунд кончается, если не осталось прячущихся или ищущих. Аккаунт играет в одной игре: вход в другую выводит его из лобби, из раунда — только с `leaveOtherGame`.
 - **HIDING** — прячущиеся расходятся, ищущие ждут. Прячущиеся получают `MyState.catchCodeSecret`. Ищущие видят друг друга.
-- **SEEKING** — стартует расписание зоны, работают заявки на находку, проверка зоны и раскрытия.
+- **SEEKING** — стартует расписание зоны, работают заявки на находку, проверка зоны, раскрытия и свечения.
 - **FINISHED** — все пойманы/выбыли или вышло время. Открытые заявки закрываются как `REJECTED`.
 
 Игру без активности дольше `idle-retention` (6 ч) `GameJanitor` удаляет в любой фазе.
@@ -199,8 +204,10 @@ stateDiagram-v2
 | Ищущий | активного прячущегося | SEEKING, была подменённая точка за последние 60 с | `MOCK_LOCATION` |
 | Ищущий | активного прячущегося | SEEKING, нет новых точек GPS дольше `staleLocationRevealSeconds` (45 с), даже если приложение продолжает слать sync | `STALE_SIGNAL` |
 | Ищущий | активного прячущегося | SEEKING, уверенно внутри здания дольше `insideBuildingRevealSeconds` (60 с) | `INSIDE_BUILDING` — только в `cause`; в `reason` старые клиенты получают `OUT_OF_ZONE` |
+| Ищущий | активного прячущегося | SEEKING, во время свечения: `glowForSeconds` раз в `glowEverySeconds` ([ADR 0009](adr/0009-game-setup-glow-streets.md#2-свечение)) | `GLOW` — только в `cause`; в `reason` — `OUT_OF_ZONE` |
+| Ищущий | метку активного прячущегося | SEEKING, между свечениями: его последняя точка не позже конца последнего свечения | `GLOW`, как выше |
 
-Показывается последняя принятая точка игрока с её accuracy и временем. В LOBBY и FINISHED позиции не отдаются никому. Если причин несколько, берётся первая по порядку таблицы. Точная причина — `VisibleLocation.cause` (клиенты читают `exactReason`), `reason` остаётся в наборе первой версии протокола.
+Показывается последняя принятая точка игрока с её accuracy и временем; метка свечения — старая точка со своим временем, новее конца свечения сервер её не отдаёт. В LOBBY и FINISHED позиции не отдаются никому. Если причин несколько, берётся первая по порядку таблицы. Точная причина — `VisibleLocation.cause` (клиенты читают `exactReason`), `reason` остаётся в наборе первой версии протокола.
 
 ## Честная игра: GPS — подсказка, а не судья
 
@@ -208,7 +215,7 @@ stateDiagram-v2
 
 - **Фильтр точек** (`LocationTrack`): подменённые точки (`isMock`) не попадают в трек, но запоминается время последней подмены; точки не по порядку и скачки быстрее `maxPlausibleSpeedMetersPerSecond` (12 м/с с учётом accuracy) отбрасываются.
 - **Пригодные точки**: accuracy не хуже `maxUsableAccuracyMeters` (20 м). Только они участвуют в решениях.
-- **Зона** (`ZoneRules`): игрок «уверенно за зоной», только если в окне `decisionWindowSeconds` (20 с) есть минимум `minFixesForDecision` (3) пригодных точек и все они за границей с запасом `accuracy + zoneBorderMarginMeters` (10 м). Тогда он раскрывается (`OUT_OF_ZONE`) и получает `outOfZoneDeadlineMillis`; не вернулся за `outOfZoneGraceSeconds` (60 с) — `ELIMINATED`. Возврат тоже решается не по одной точке: предупреждение снимается, когда последние `minFixesForDecision` пригодных точек не за границей (`ZoneRules.isConfidentlyBack`); одна точка, «прыгнувшая» внутрь, таймер не сбрасывает.
+- **Зона** (`ZoneRules`, `ZoneArea`: круг или многоугольник зоны по улицам): игрок «уверенно за зоной», только если в окне `decisionWindowSeconds` (20 с) есть минимум `minFixesForDecision` (3) пригодных точек и все они за границей с запасом `accuracy + zoneBorderMarginMeters` (10 м). Тогда он раскрывается (`OUT_OF_ZONE`) и получает `outOfZoneDeadlineMillis`; не вернулся за `outOfZoneGraceSeconds` (60 с) — `ELIMINATED`. Возврат тоже решается не по одной точке: предупреждение снимается, когда последние `minFixesForDecision` пригодных точек не за границей (`ZoneRules.isConfidentlyBack`); одна точка, «прыгнувшая» внутрь, таймер не сбрасывает.
 - **Здания** (`BuildingRules`, `BuildingMap`; [ADR 0003](adr/0003-map-and-buildings.md)): точка «явно внутри», если она пригодная и глубже ближайшей стены (или двора, или прохода) больше чем на `accuracy + buildingWallMarginMeters` (5 м). Игрок «уверенно внутри», если в окне решений не меньше `minFixesForDecision` пригодных точек и все явно внутри. Тогда прячущийся получает `MyState.insideBuildingRevealAtMillis`, через `insideBuildingRevealSeconds` (60 с) ищущие видят его с причиной `INSIDE_BUILDING`. Игрок не выбывает. Вышел — последние `minFixesForDecision` точек не явно внутри — предупреждение и раскрытие сняты. Правило действует в SEEKING, пока у игры статус зданий `READY`, для прячущихся без открытой заявки.
 - **Дистанция находки** (`CatchRules`): минимально возможное расстояние = расстояние между точками минус оба радиуса accuracy, берётся лучшая пара из всех пригодных точек обоих игроков за окно решений (не одна точка). Заявка отклоняется, только если GPS *доказывает*, что игроки дальше `catchMaxDistanceMeters` (40 м). Для правила по умолчанию в споре запоминается и наиболее вероятное расстояние (ближайшая пара точек без учёта accuracy).
 
@@ -275,10 +282,11 @@ sequenceDiagram
 - `GameJanitor` раз в `cleanup-interval` (1 мин) удаляет игры вместе с треками, игроками и токенами: завершённые — через `finished-retention` (30 мин, запас на разбор после игры), брошенные — после `idle-retention` (6 ч) без запросов. Настройки — `hovanki.games.*` в `server/src/main/resources/application.yaml`.
 - Координаты, токены, пароли, коды из писем, email и текст чата не пишем в логи.
 - **Админка** ([ADR 0008](adr/0008-admin.md)). Сотрудники видят текст сообщений, на которые пожаловались, ники, числа об аккаунте (игры, устройства, друзья, жалобы) и email скрытым (`d•••@gmail.com`); целиком email — только админу, с причиной, в журнал. Координаты, маршруты, чат вне жалоб, пароли и токены админка не показывает никому; у игр — ни центра зоны, ни позиций. Баны и запреты чата хранятся, пока есть аккаунт (закончившиеся — год после конца), журнал действий сотрудников — год, без внешних ключей: он переживает удаление аккаунтов. Секреты TOTP в базе зашифрованы ключом `hovanki.admin.secret-key`.
-- Контуры зданий (открытые данные OSM) сервер берёт из Overpass API при создании игры: туда уходит только круг зоны, без данных игроков. В лог попадает только id игры, не круг: центр зоны — позиция хоста. Полигоны живут в памяти игры и удаляются вместе с ней.
+- Контуры зданий и улицы (открытые данные OSM) сервер берёт из векторных тайлов OpenFreeMap: туда уходят только запросы тайлов района зоны, без данных игроков. В лог попадает только id игры, не район: центр зоны — позиция хоста. Полигоны живут в памяти игры и удаляются вместе с ней.
+- Метка свечения — точка трека прячущегося, который и так в памяти игры; удаляется вместе с игрой.
 - Карта грузит тайлы с OpenFreeMap: провайдер видит IP устройства и район игры, как любой сайт с картой. Камера показывает зону и не следует за игроком, свои координаты приложение провайдеру не отправляет.
 - Секрет кода находки получает только сам прячущийся (`MyState.catchCodeSecret`).
-- На устройстве хранятся только сессия игры (токен, id игры и игрока), аккаунт (токен и профиль) и имя гостя — в Keystore/Keychain ([ADR 0002](adr/0002-session-storage.md)). Сессия стирается после игры, аккаунт — при выходе; координаты, маршруты и чат на устройстве не хранятся.
+- На устройстве хранятся только сессия игры (токен, id игры и игрока), аккаунт (токен и профиль), имя гостя и последние настройки хоста (радиус, форма зоны, времена, свечение; без места) — в Keystore/Keychain ([ADR 0002](adr/0002-session-storage.md)). Сессия стирается после игры, аккаунт — при выходе; координаты, маршруты и чат на устройстве не хранятся.
 - Системный запрос геолокации сопровождается объяснением: экран согласия (кто видит, когда удаляется, в кармане) и на iOS — `NSLocationWhenInUseUsageDescription`. Оба говорят, что координаты удаляются после игры, если игрок сам не включил сохранение маршрутов.
 
 ## API
@@ -289,15 +297,19 @@ sequenceDiagram
 
 | Метод | Путь | Токен | Кто вызывает | Тело запроса | Ответ |
 |---|---|---|---|---|---|
-| POST | `/api/v1/games` | аккаунт, необязательно | любой, становится хостом; с аккаунтом имя — ник | `CreateGameRequest` | `SessionResponse` |
-| POST | `/api/v1/games/join` | аккаунт, необязательно | любой, по join-коду; с аккаунтом — ник, а в своей игре — свой же игрок в любой фазе; повтор с тем же `requestId` — тот же игрок | `JoinGameRequest` | `SessionResponse` |
-| POST | `/api/v1/games/{gameId}/start` | игровой | хост, в LOBBY | `StartGameRequest` | `GameSnapshot` |
+| POST | `/api/v1/games` | аккаунт, необязательно | любой, становится хостом; с аккаунтом имя — ник, аккаунт выходит из лобби других игр, из идущего раунда — только с `leaveOtherGame` (иначе `IN_ANOTHER_GAME`); настройки в пределах `SettingsLimits` | `CreateGameRequest` | `SessionResponse` |
+| POST | `/api/v1/games/join` | аккаунт, необязательно | любой, по join-коду; с аккаунтом — ник, а в своей игре — свой же игрок в любой фазе; повтор с тем же `requestId` — тот же игрок; другие игры аккаунта — как при создании | `JoinGameRequest` | `SessionResponse` |
+| POST | `/api/v1/games/{gameId}/start` | игровой | хост, в LOBBY; пока строится зона по улицам — `ZONE_NOT_READY` | `StartGameRequest` | `GameSnapshot` |
+| POST | `/api/v1/games/{gameId}/roles` | игровой | хост, в LOBBY: ищущие или жребий на сервере (`randomSeekers`) | `RolesRequest` | `GameSnapshot` |
+| POST | `/api/v1/games/{gameId}/settings` | игровой | хост, в LOBBY; пороги остаются прежними, новая зона — `mapRevision` + 1 | `SettingsRequest` | `GameSnapshot` |
+| POST | `/api/v1/games/{gameId}/leave` | игровой | любой игрок, навсегда; токен после этого не работает | — | 204 |
 | POST | `/api/v1/games/{gameId}/sync` | игровой | любой игрок, каждые ~3 с; `chatAfter` — курсор чата | `SyncRequest` | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/catches` | игровой | активный ищущий, в SEEKING; с `code` (одним сканом) — заявка и проверка кода в одном запросе | `ClaimCatchRequest` | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/catches/{catchId}/confirm` | игровой | ищущий из заявки | `ConfirmCatchRequest` | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/catches/{catchId}/dispute` | игровой | прячущийся из заявки | — | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/catches/{catchId}/vote` | игровой | игрок вне спора | `VoteRequest` | `GameSnapshot` |
-| GET | `/api/v1/games/{gameId}/buildings` | игровой | любой игрок, один раз, когда `GameSnapshot.buildings = READY` | — | `BuildingsResponse`: контуры зданий и проходы, по которым судит сервер (сотни КБ, gzip) |
+| GET | `/api/v1/games/{gameId}/buildings` | игровой | любой игрок, один раз на `mapRevision`, когда `GameSnapshot.buildings = READY` | — | `BuildingsResponse`: контуры зданий и проходы, по которым судит сервер (сотни КБ, gzip) |
+| GET | `/api/v1/games/{gameId}/street-zone` | игровой | любой игрок, один раз на `mapRevision`, когда `GameSnapshot.streetZone = READY` | — | `StreetZoneResponse`: многоугольник зоны на старт и на каждую стадию |
 | GET | `/api/v1/games/{gameId}/tracks` | игровой | любой игрок, один раз, когда игра `FINISHED`; раньше — `WRONG_STATE` | — | `TracksResponse`: трек раунда каждого игрока для разбора (до мегабайта, gzip) |
 | POST | `/api/v1/games/{gameId}/chat` | игровой | любой игрок, в любой фазе; повтор с тем же `clientMessageId` сообщение не дублирует | `SendChatRequest` | `GameSnapshot` с новыми сообщениями |
 | POST | `/api/v1/games/{gameId}/chat/{seq}/report` | игровой | любой игрок, на чужое сообщение, которое он видит | — | `GameSnapshot` |
@@ -364,7 +376,7 @@ sequenceDiagram
 | POST | `/api/v1/admin/users/{userId}/email`, `/logout` | Адм. | `AdminReasonRequest` | `AdminRevealedEmail` / `AdminUserCard` |
 | POST | `/api/v1/admin/users/{userId}/delete` | Адм., по письменному запросу владельца | `AdminReasonRequest` | 204 |
 | POST | `/api/v1/admin/users/{userId}/role`, `/reset-totp` | Адм.: игрок ⇄ модератор; сброс TOTP модератора | `AdminSetRoleRequest` / `AdminReasonRequest` | `AdminUserCard` |
-| GET | `/api/v1/admin/games` | Мод. | — | `AdminGames`: без центра зоны, позиций и чата |
+| GET | `/api/v1/admin/games` | Мод. | — | `AdminGames`: без центра зоны, позиций и чата; с состоянием карты (здания, зона по улицам) |
 | POST | `/api/v1/admin/games/{gameId}/end` | Адм. | `AdminReasonRequest` | 204 |
 | GET | `/api/v1/admin/stats` | Мод. | — | `AdminStats` |
 | GET | `/api/v1/admin/staff`, `/audit?before=` | Адм. | — | `AdminStaff` / `AdminAudit` |
@@ -385,7 +397,7 @@ sequenceDiagram
 | `UNAUTHORIZED` | 401 | Нет токена, игра уже удалена вместе с токенами, аккаунт-токен отозван или истёк | `SESSION_EXPIRED` |
 | `FORBIDDEN` | 403 | Действие не для этой роли / игрока, токен от другой игры, неверный логин или пароль, бан, запрет чата | `WRONG_CREDENTIALS`, `ACCOUNT_REQUIRED`, `NOT_FRIENDS`, `NOT_GROUP_OWNER`, `NOT_GROUP_MEMBER`, `ACCOUNT_BANNED` и `CHAT_MUTED` (с `untilMillis`: до когда; нет — навсегда) |
 | `NOT_FOUND` | 404 | Нет игры, игрока, заявки, пользователя, группы | `USER_NOT_FOUND` |
-| `WRONG_STATE` | 409 | Не та фаза, заявка закрыта, игра заполнена, ник или email заняты, лимит, email не подтверждён | `NICKNAME_TAKEN`, `EMAIL_TAKEN`, `LIMIT_REACHED`, `BLOCKED_BY_YOU`, `EMAIL_NOT_VERIFIED` |
+| `WRONG_STATE` | 409 | Не та фаза, заявка закрыта, игра заполнена, ник или email заняты, лимит, email не подтверждён, аккаунт ещё в раунде другой игры, зона по улицам ещё строится | `NICKNAME_TAKEN`, `EMAIL_TAKEN`, `LIMIT_REACHED`, `BLOCKED_BY_YOU`, `EMAIL_NOT_VERIFIED`, `IN_ANOTHER_GAME`, `ZONE_NOT_READY` |
 | `WRONG_STATE` | 429 | Слишком много запросов; `Retry-After` — через сколько секунд повторить | `TOO_MANY_REQUESTS` |
 | `NO_LOCATION`, `TOO_FAR`, `INVALID_CODE` | 422 | Правила находки: нет точной точки, GPS доказывает, что далеко, неверный код; неверный или истёкший код из письма | `CODE_EXPIRED` |
 | `INTERNAL` | 500 | Непредвиденная ошибка (подробности только в логе сервера) | — |

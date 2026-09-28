@@ -6,6 +6,7 @@ import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.rules.ChatRules
 
@@ -24,6 +25,8 @@ data class SessionState(
     val lastError: SessionError? = null,
     /** The buildings where hiding is not allowed, once loaded; the map draws exactly these. */
     val buildings: BuildingsResponse? = null,
+    /** The zone by streets, once loaded (a game with `ZoneShape.STREETS`); the map draws and the hints use it. */
+    val streetZone: StreetZoneResponse? = null,
     /**
      * This game's chat as far as the player may see it, oldest first: merged by seq from every snapshot (polls and
      * command responses), at most [ChatRules.HISTORY_SIZE]. Show it with `chatLines`; [snapshot]'s own `chat` is only

@@ -36,6 +36,7 @@ import app.hovanki.client.resources.action_allow
 import app.hovanki.client.resources.action_back
 import app.hovanki.client.resources.action_dismiss
 import app.hovanki.client.resources.action_leave_game
+import app.hovanki.client.resources.action_leave_other_game
 import app.hovanki.client.resources.connection_reconnecting
 import app.hovanki.client.resources.error_network
 import app.hovanki.client.resources.error_no_location
@@ -59,6 +60,7 @@ import app.hovanki.client.session.ConnectionStatus
 import app.hovanki.client.session.SessionError
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.protocol.ErrorCode
+import app.hovanki.shared.protocol.ErrorReason
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
@@ -258,7 +260,12 @@ fun SessionBanners(
  * ([sessionError]), with the tags the device orchestrator watches.
  */
 @Composable
-fun StartStatusBanners(status: StartStatus, sessionError: SessionError?, onDismiss: () -> Unit) {
+fun StartStatusBanners(
+    status: StartStatus,
+    sessionError: SessionError?,
+    onDismiss: () -> Unit,
+    onLeaveOtherGame: (() -> Unit)? = null,
+) {
     status.activity?.let { activity ->
         BusyRow(
             text = when (activity) {
@@ -278,12 +285,17 @@ fun StartStatusBanners(status: StartStatus, sessionError: SessionError?, onDismi
         )
     }
     sessionError?.let { error ->
+        // Still playing a round of another game: the way on is leaving it, which the player has to choose.
+        val inAnotherGame = error is SessionError.Rejected && error.reason == ErrorReason.IN_ANOTHER_GAME
+        val leaveOther = onLeaveOtherGame?.takeIf { inAnotherGame }
         Banner(
             text = error.describe(),
             modifier = Modifier.testTag(TestTags.BANNER_ERROR),
             isError = true,
-            actionLabel = stringResource(Res.string.action_dismiss),
-            onAction = onDismiss,
+            actionLabel = stringResource(
+                if (leaveOther != null) Res.string.action_leave_other_game else Res.string.action_dismiss,
+            ),
+            onAction = leaveOther ?: onDismiss,
         )
     }
 }

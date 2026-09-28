@@ -244,8 +244,8 @@
   <string name="vote_done">Ви проголосували. Чекаємо на інших.</string>
   <string name="action_leave_game">Вийти з гри</string>
   <string name="leave_title">Вийти з гри?</string>
-  <string name="leave_text">Повернутися в цей раунд не вийде. Ті, хто шукає, побачать ваше останнє місцезнаходження.</string>
-  <string name="leave_text_account">Поки вас немає, ті, хто шукає, бачать ваше останнє місцезнаходження. Щоб повернутися в цей раунд, увійдіть у гру знову з кодом %1$s.</string>
+  <string name="leave_text">Ви вийдете з раунду назавжди: той, хто ховається, вибуває, шукач більше не шукає.</string>
+  <string name="leave_text_account">Ви вийдете з раунду назавжди: той, хто ховається, вибуває, шукач більше не шукає. Код гри був %1$s.</string>
 
   <!-- Результати -->
   <string name="results_title">Гру закінчено</string>
@@ -279,7 +279,7 @@
   <string name="flash_seekers_out">Шукачі вийшли!</string>
   <string name="catch_auto_in">Зарахується само через %1$s</string>
   <string name="catch_or_say">Або назвіть цифри</string>
-  <string name="catch_seeker_hint">Знайшли когось? Натисніть «Знайшов!» і відскануйте QR з його екрана. Камера не читає — натисніть на ім\'я, він покаже 4 цифри.</string>
+  <string name="catch_seeker_hint">Знайшли когось? Натисніть «Знайшов!» і відскануйте QR з його екрана. Камера не читає — натисніть на ім’я, він покаже 4 цифри.</string>
   <string name="lobby_title">Лобі</string>
   <string name="lobby_random">Випадково</string>
   <string name="lobby_chip_zone">Зона %1$d м</string>
@@ -388,4 +388,46 @@
   <string name="error_chat_muted">Писати в чат не можна до %1$s: модератори заборонили за порушення правил.</string>
   <string name="error_chat_muted_forever">Писати в чат не можна: модератори заборонили за порушення правил.</string>
   <string name="error_email_not_verified">Спочатку підтвердіть email.</string>
+  <string name="lobby_you_seek">Ви шукаєте</string>
+  <string name="lobby_you_hide">Ви ховаєтеся</string>
+  <string name="lobby_roles_by_host">Хто шукає, обирає організатор.</string>
+  <string name="lobby_offline">не на зв’язку</string>
+  <string name="lobby_chip_streets">Зона %1$d м, вулицями</string>
+  <string name="lobby_chip_glow">Світіння раз на %1$d хв</string>
+  <string name="lobby_buildings_loading">Завантажуємо будівлі…</string>
+  <string name="lobby_buildings_ready">Будівель: %1$d</string>
+  <string name="lobby_streets_loading">Будуємо зону вулицями…</string>
+  <string name="lobby_start_wait_streets">Зона вулицями майже готова</string>
+  <string name="lobby_settings">Налаштування гри</string>
+  <string name="street_zone_off">Зона вулицями тут не вийшла: граємо колом.</string>
+  <string name="settings_title">Налаштування гри</string>
+  <string name="settings_zone">Зона</string>
+  <string name="settings_meters">%1$d м</string>
+  <string name="settings_shape_circle">Коло</string>
+  <string name="settings_shape_streets">Вулицями</string>
+  <string name="settings_shape_streets_hint">Межа йде вулицями: цілі квартали, площа як у кола. Звужується кварталами.</string>
+  <string name="settings_shrinks">Зона звужується</string>
+  <string name="settings_hiding">Час на схованки</string>
+  <string name="settings_seeking">Час пошуку</string>
+  <string name="settings_minutes">%1$d хв</string>
+  <string name="settings_glow">Світіння</string>
+  <string name="settings_glow_hint">Час від часу шукачі на мить бачать усіх, хто ховається, а потім — місце, де їх застало світіння.</string>
+  <string name="settings_glow_every">Раз на</string>
+  <string name="settings_glow_for">На</string>
+  <string name="settings_seconds">%1$d с</string>
+  <string name="settings_save">Зберегти</string>
+  <string name="hud_glow_in">Світіння за %1$s</string>
+  <string name="hud_glowing">Світіння! %1$s</string>
+  <string name="reason_glow">світіння</string>
+  <string name="reason_glow_mark">був тут %1$s тому</string>
+  <string name="alert_glow_soon_title">Скоро вас побачать!</string>
+  <string name="alert_glow_soon_text">Світіння за кілька секунд.</string>
+  <string name="alert_glowing_title">Шукачі вас бачать</string>
+  <string name="alert_glowing_text">Потім вони побачать, де вас застало світіння.</string>
+  <string name="invite_go">Перейти</string>
+  <string name="error_in_another_game">Ви ще граєте в іншій грі.</string>
+  <string name="error_zone_not_ready">Зона вулицями ще будується. Спробуйте за хвилинку.</string>
+  <string name="action_leave_other_game">Вийти з неї і продовжити</string>
+  <string name="invite_in_round">%1$s кличе вас до іншої гри.</string>
+  <string name="action_leave_and_go">Вийти й перейти</string>
 </resources>

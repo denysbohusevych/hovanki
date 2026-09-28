@@ -1,5 +1,6 @@
 package app.hovanki.server.buildings
 
+import app.hovanki.server.map.VectorTiles
 import app.hovanki.shared.protocol.ZoneCircle
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
@@ -22,7 +23,9 @@ import kotlin.concurrent.thread
 class BuildingLoader(private val source: BuildingSource, private val properties: BuildingProperties) : DisposableBean {
     private val fakeDelay = properties.fakeDelay.takeIf { properties.source == BuildingProperties.Source.FAKE }
         ?.takeIf { it > Duration.ZERO }
-    private val offThread = properties.source == BuildingProperties.Source.OVERPASS || fakeDelay != null
+    private val offThread = properties.source == BuildingProperties.Source.OVERPASS ||
+        properties.source == BuildingProperties.Source.TILES ||
+        fakeDelay != null
     private val pool: ExecutorService? = if (offThread) {
         Executors.newFixedThreadPool(POOL_SIZE) { task ->
             thread(start = false, isDaemon = true, name = "buildings") { task.run() }
@@ -85,9 +88,11 @@ class BuildingLoader(private val source: BuildingSource, private val properties:
 @Configuration(proxyBeanMethods = false)
 class BuildingConfig {
     @Bean
-    fun buildingSource(properties: BuildingProperties, json: Json): BuildingSource = when (properties.source) {
-        BuildingProperties.Source.OVERPASS -> OverpassBuildingSource(properties, json)
-        BuildingProperties.Source.FAKE -> FakeBuildingSource()
-        BuildingProperties.Source.OFF -> NoBuildingSource()
-    }
+    fun buildingSource(properties: BuildingProperties, json: Json, tiles: VectorTiles): BuildingSource =
+        when (properties.source) {
+            BuildingProperties.Source.TILES -> TileBuildingSource(tiles, properties)
+            BuildingProperties.Source.OVERPASS -> OverpassBuildingSource(properties, json)
+            BuildingProperties.Source.FAKE -> FakeBuildingSource()
+            BuildingProperties.Source.OFF -> NoBuildingSource()
+        }
 }

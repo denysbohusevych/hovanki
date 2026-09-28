@@ -106,6 +106,19 @@ private suspend fun DeviceRun.fullRound() = with(scenario) {
     // «Back» on the results: the host is on the «Play» tab again, still logged in; the guests on the welcome screen.
     for (player in devicePlayers) player.flow("close-results", "UNTIL" to player.startScreen)
     screenshot("back on the start screen")
+    checkStartScreensInPlace()
+}
+
+/**
+ * The start screens begin where they began before the round. After a round (the app in the background, a code typed)
+ * iOS once left the app without its safe area: the greeting ran under the clock, the tab bar onto the home indicator.
+ */
+private suspend fun DeviceRun.checkStartScreensInPlace() = with(scenario) {
+    for (player in devicePlayers) {
+        val before = player.startScreenTop ?: continue
+        val after = player.topOf(player.startScreen)
+        check(after == before, "${player.name}'s start screen keeps clear of the status bar (top $before, now $after)")
+    }
 }
 
 /**
@@ -183,6 +196,7 @@ private suspend fun DeviceRun.setUpGame(seekerOnDevice: Boolean): Lineup = with(
     note("${host.name} has the confirmed account ${account.nickname} (registered through the API)")
     host.launchApp(hidingSeconds = HIDING_SECONDS)
     host.awaitVisible(host.startScreen)
+    host.startScreenTop = host.topOf(host.startScreen)
     screenshot("start screen", listOf(host))
     createGameOnDevice(host)
     // The join code on the lobby screen names the game: a timed-out first attempt can leave another one behind.
@@ -214,6 +228,7 @@ private suspend fun DeviceRun.setUpGame(seekerOnDevice: Boolean): Lineup = with(
     for (player in devicePlayers.drop(1)) {
         player.launchApp(joinCode = game.joinCode)
         player.awaitVisible(player.startScreen)
+        player.startScreenTop = player.topOf(player.startScreen)
         player.flow("join-game")
     }
     for (bot in listOfNotNull(seekerBot) + botHiders) requireOk(bot.join(game.joinCode), "${bot.name} joins")
@@ -273,12 +288,13 @@ private suspend fun DeviceRun.createGameOnDevice(host: DevicePlayer) {
 }
 
 /**
- * The zone's buildings as the server judges them: real ones from OpenStreetMap around the devices (the device runs'
- * default), or the fake test quarter. The bots' app loads them like the phones' app does, so the scenario reads them
- * there to keep hiding spots in the open. Without data the game runs without the building rule, and the phones say so.
+ * The zone's buildings as the server judges them: real ones around the devices (the device runs' default: the map
+ * tiles, as in production), or the fake test quarter. The bots' app loads them like the phones' app does, so the
+ * scenario reads them there to keep hiding spots in the open. Without data the game runs without the building rule,
+ * and the phones say so.
  */
 private suspend fun DeviceRun.awaitBuildings(bots: List<BotPlayer>): Unit = with(scenario) {
-    // Overpass may take a while: a busy instance, a pause, the next instance, one more attempt.
+    // The map data may take a while: a slow tile server, a pause, one more attempt (Overpass: the next instance too).
     val loaded = eventually("the server has looked up the zone's buildings", 150.seconds) {
         state().buildings?.takeIf { it != BuildingsState.LOADING }
     }

@@ -32,6 +32,8 @@ spring-boot = "4.1.1"
 # Embedded PostgreSQL for server and e2e tests (TestPostgres); the binaries' version is the server's major version.
 embedded-postgres = "2.2.2"
 embedded-postgres-binaries = "17.11.0"
+# Geometry on the server: merging building outlines from map tiles, city blocks for the zone by streets.
+jts = "1.20.0"
 
 turbine = "1.2.1"
 # QR codes: the Android camera decodes the hider's QR code with ZXing; JVM tests cross-check the pure-Kotlin QR
@@ -100,6 +102,7 @@ flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql
 postgresql = { module = "org.postgresql:postgresql" }
 # BCrypt only: no Spring Security filter chain.
 spring-security-crypto = { module = "org.springframework.security:spring-security-crypto" }
+jts-core = { module = "org.locationtech.jts:jts-core", version.ref = "jts" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 embedded-postgres = { module = "io.zonky.test:embedded-postgres", version.ref = "embedded-postgres" }
 embedded-postgres-binaries-bom = { module = "io.zonky.test.postgres:embedded-postgres-binaries-bom", version.ref = "embedded-postgres-binaries" }

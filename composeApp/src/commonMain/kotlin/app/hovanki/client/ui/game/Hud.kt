@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -77,6 +76,8 @@ import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.flash_seek
 import app.hovanki.client.resources.flash_seekers_out
+import app.hovanki.client.resources.hud_glow_in
+import app.hovanki.client.resources.hud_glowing
 import app.hovanki.client.resources.hud_hiders
 import app.hovanki.client.resources.hud_outside
 import app.hovanki.client.resources.hud_to_edge
@@ -102,6 +103,7 @@ import app.hovanki.client.ui.common.PopChip
 import app.hovanki.client.ui.common.PopIconButton
 import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopSurface
+import app.hovanki.client.ui.common.appSafeDrawing
 import app.hovanki.client.ui.common.formatCountdown
 import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Motion
@@ -192,7 +194,10 @@ fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
     }
 }
 
-/** The role and how far the border is; under them, what the zone is doing when it is not calm. */
+/**
+ * The role and how far the border is; under them, what the zone is doing when it is not calm, and when the next glow
+ * comes.
+ */
 @Composable
 fun HudChips(state: GameUiState, modifier: Modifier = Modifier) {
     Column(
@@ -226,9 +231,50 @@ fun HudChips(state: GameUiState, modifier: Modifier = Modifier) {
                 )
             }
         }
-        if (state.isZoneRunning) ZoneChip(state)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (state.isZoneRunning) ZoneChip(state)
+            state.glow?.let { GlowChip(it) }
+        }
     }
 }
+
+/**
+ * The glow (docs/adr/0009-game-setup-glow-streets.md) for both teams: the countdown to the next one, then orange while
+ * the seekers see every hider. Ticks in the last seconds before it.
+ */
+@Composable
+private fun GlowChip(glow: GlowUi) {
+    val left = formatCountdown(glow.millisLeft.coerceAtLeast(0))
+    val tick = remember { Animatable(1f) }
+    val seconds = (glow.millisLeft + 999) / 1000
+    LaunchedEffect(seconds, glow.isGlowing) {
+        if (glow.isGlowing || seconds <= GLOW_TICK_SECONDS) {
+            tick.snapTo(1.15f)
+            tick.animateTo(1f, Motion.pop())
+        }
+    }
+    PopChip(
+        text = if (glow.isGlowing) {
+            stringResource(Res.string.hud_glowing, left)
+        } else {
+            stringResource(Res.string.hud_glow_in, left)
+        },
+        color = if (glow.isGlowing) Palette.Orange else Palette.Ink,
+        contentColor = if (glow.isGlowing) Palette.Ink else Color.White,
+        border = Palette.Ink,
+        modifier = Modifier
+            .graphicsLayer {
+                scaleX = tick.value
+                scaleY = tick.value
+            }
+            .testTag(TestTags.GLOW_CHIP),
+    )
+}
+
+private const val GLOW_TICK_SECONDS = 10
 
 @Composable
 private fun ZoneChip(state: GameUiState) {
@@ -589,7 +635,7 @@ fun PhaseFlash(phase: GamePhase, role: Role, reduceMotion: Boolean) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                .windowInsetsPadding(WindowInsets.appSafeDrawing.only(WindowInsetsSides.Top))
                 .padding(16.dp),
             contentAlignment = Alignment.TopCenter,
         ) {

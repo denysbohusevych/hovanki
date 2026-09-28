@@ -27,11 +27,14 @@ import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.StartGameRequest
+import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.UserId
-import app.hovanki.shared.rules.shrinkingZone
+import app.hovanki.shared.rules.GameSetup
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -87,6 +90,7 @@ class GameSessionManager(
     private val alertRepeats = AlertRepeats()
     private var resumeAttempted = false
     private var buildingsJob: Job? = null
+    private var streetZoneJob: Job? = null
     private var tracksJob: Job? = null
 
     /**
@@ -101,16 +105,21 @@ class GameSessionManager(
     /** New game with the default settings: a shrinking zone around [center] (the host's position). */
     suspend fun create(playerName: String, center: GeoPoint): Boolean = create(playerName, defaultSettings(center))
 
-    /** [playerName] is only used for guests: a logged-in player plays under their nickname. */
-    suspend fun create(playerName: String, settings: GameSettings): Boolean {
+    /**
+     * [playerName] is only used for guests: a logged-in player plays under their nickname. An account plays in one
+     * game at a time: the server takes it out of its other lobbies, and out of a round in progress only with
+     * [leaveOtherGame] (else [app.hovanki.shared.protocol.ErrorReason.IN_ANOTHER_GAME]).
+     */
+    suspend fun create(playerName: String, settings: GameSettings, leaveOtherGame: Boolean = false): Boolean {
         val token = account.accountToken
-        return command(token) { begin(api.createGame(CreateGameRequest(playerName.trim(), settings), token)) }
+        val request = CreateGameRequest(playerName.trim(), settings, leaveOtherGame)
+        return command(token) { begin(api.createGame(request, token)) }
     }
 
-    /** [playerName] as in [create]. Also how an invite is accepted: its join code, while logged in. */
-    suspend fun join(code: String, playerName: String): Boolean {
+    /** [playerName] and [leaveOtherGame] as in [create]. Also how an invite is accepted: its join code, logged in. */
+    suspend fun join(code: String, playerName: String, leaveOtherGame: Boolean = false): Boolean {
         val token = account.accountToken
-        val typed = JoinGameRequest(code.trim().uppercase(), playerName.trim())
+        val typed = JoinGameRequest(code.trim().uppercase(), playerName.trim(), leaveOtherGame = leaveOtherGame)
         val request = unansweredJoin?.takeIf { it.copy(requestId = null) == typed }
             ?: typed.copy(requestId = newRequestId())
         val joined = command(token) { begin(api.joinGame(request, token)) }
@@ -121,6 +130,29 @@ class GameSessionManager(
     suspend fun start(seekers: List<PlayerId>): Boolean = sessionCommand {
         api.startGame(it, StartGameRequest(seekers))
     }
+
+    /** The host picks the seekers in the lobby; everybody sees them. */
+    suspend fun setSeekers(seekers: Collection<PlayerId>): Boolean = sessionCommand {
+        api.setRoles(it, RolesRequest(seekers = seekers.toList()))
+    }
+
+    /** The host has the server draw [count] seekers at random; every phone rolls the dice. */
+    suspend fun drawSeekers(count: Int): Boolean = sessionCommand {
+        api.setRoles(it, RolesRequest(randomSeekers = count))
+    }
+
+    /**
+     * The host changes the setup in the lobby; a new zone loads its buildings and zone by streets again. [setup]: the
+     * choices [settings] were made of, remembered for the host's next game once the server took them.
+     */
+    suspend fun updateSettings(settings: GameSettings, setup: GameSetup? = null): Boolean {
+        val updated = sessionCommand { api.updateSettings(it, SettingsRequest(settings)) }
+        if (updated && setup != null) storage.saveGameSetup(setup)
+        return updated
+    }
+
+    /** What the host's next game starts with: the setup chosen last time on this phone, or the defaults. */
+    fun lastGameSetup(): GameSetup = storage.loadGameSetup()?.coerced() ?: GameSetup()
 
     suspend fun claimCatch(hiderId: PlayerId): Boolean = sessionCommand { api.claimCatch(it, hiderId) }
 
@@ -200,14 +232,28 @@ class GameSessionManager(
     }
 
     /**
-     * Leaves the game locally (the server has no "leave": silence reveals the player like a lost signal). Also how the
-     * results screen is closed: polling (for the chat) goes on until then.
+     * Leaves the game: on the phone right away, and the server is told in the background (a lobby shows the player
+     * gone, a round goes on without them: a hider is out). Without a connection only the phone forgets the game; the
+     * server then reveals the silent player like a lost signal. Also how the results screen is closed: polling (for the
+     * chat) goes on until then.
      */
     fun leave() {
+        val current = mutableState.value
         unansweredChat = null
         stopBackgroundWork()
         storage.clearSession()
         mutableState.value = SessionState()
+        val session = current.session ?: return
+        if (current.snapshot?.phase == GamePhase.FINISHED) return
+        scope.launch {
+            try {
+                api.leave(session)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Nothing to do: the phone has left, the server will see the silence.
+            }
+        }
     }
 
     fun clearError() {
@@ -303,8 +349,16 @@ class GameSessionManager(
         if (previous != null && snapshot.serverTimeMillis < previous.serverTimeMillis) return
 
         clock.onServerTime(snapshot.serverTimeMillis)
-        mutableState.update { it.copy(snapshot = snapshot) }
+        mutableState.update { state ->
+            // The host changed the zone: the map data of the old one no longer applies.
+            state.copy(
+                snapshot = snapshot,
+                buildings = state.buildings?.takeIf { it.mapRevision == snapshot.mapRevision },
+                streetZone = state.streetZone?.takeIf { it.mapRevision == snapshot.mapRevision },
+            )
+        }
         if (snapshot.buildings == BuildingsState.READY) loadBuildings()
+        if (snapshot.streetZone == StreetZoneState.READY) loadStreetZone()
         when (snapshot.phase) {
             GamePhase.LOBBY -> Unit
 
@@ -358,7 +412,7 @@ class GameSessionManager(
         }
     }
 
-    /** Once per session; a failed attempt is retried with a later snapshot. */
+    /** Once per map revision; a failed attempt is retried with a later snapshot. */
     private fun loadBuildings() {
         val current = mutableState.value
         val session = current.session ?: return
@@ -371,7 +425,38 @@ class GameSessionManager(
             } catch (e: Exception) {
                 return@launch
             }
-            mutableState.update { if (it.session == session) it.copy(buildings = buildings) else it }
+            mutableState.update { state ->
+                val revision = state.snapshot?.mapRevision
+                if (state.session == session &&
+                    buildings.mapRevision == revision
+                ) {
+                    state.copy(buildings = buildings)
+                } else {
+                    state
+                }
+            }
+        }
+    }
+
+    /** The zone by streets, once per map revision; a failed attempt is retried with a later snapshot. */
+    private fun loadStreetZone() {
+        val current = mutableState.value
+        val session = current.session ?: return
+        if (current.streetZone != null || streetZoneJob?.isActive == true) return
+        streetZoneJob = scope.launch {
+            val zone = try {
+                api.streetZone(session)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return@launch
+            }
+            mutableState.update { state ->
+                val revision = state.snapshot?.mapRevision
+                val usable =
+                    zone.state == StreetZoneState.READY && zone.stages.isNotEmpty() && zone.mapRevision == revision
+                if (state.session == session && usable) state.copy(streetZone = zone) else state
+            }
         }
     }
 
@@ -403,6 +488,8 @@ class GameSessionManager(
         connectionJob = null
         buildingsJob?.cancel()
         buildingsJob = null
+        streetZoneJob?.cancel()
+        streetZoneJob = null
         tracksJob?.cancel()
         tracksJob = null
         stopLocationWork()
@@ -447,8 +534,11 @@ class GameSessionManager(
     }
 
     companion object {
-        /** What the app creates: default rules and timers, a shrinking zone around the host at [center]. */
-        fun defaultSettings(center: GeoPoint): GameSettings = GameSettings(zone = shrinkingZone(center))
+        /**
+         * What the app creates unless the host sets it up otherwise: the default setup ([GameSetup]: a shrinking zone
+         * around the host at [center], the glow on).
+         */
+        fun defaultSettings(center: GeoPoint): GameSettings = GameSetup().settings(center)
 
         private const val FIRST_FIX_INTERVAL_MILLIS = 1_000L
         private const val UNAUTHORIZED = 401

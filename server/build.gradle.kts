@@ -26,6 +26,7 @@ dependencies {
     implementation(libs.spring.boot.starter.flyway)
     implementation(libs.spring.boot.starter.mail)
     implementation(libs.spring.security.crypto)
+    implementation(libs.jts.core)
     implementation(libs.kotlin.reflect)
     runtimeOnly(libs.flyway.database.postgresql)
     runtimeOnly(libs.postgresql)

@@ -25,7 +25,31 @@ data class GameSettings(
     val hidingSeconds: Int = 300,
     val seekingSeconds: Int = 1800,
     val rules: GameRules = GameRules(),
+    /**
+     * The glow (docs/adr/0009-game-setup-glow-streets.md): every this many seconds of the search the seekers see every
+     * active hider for [glowForSeconds], and afterwards the spot where the glow left them. 0 (older apps): no glow.
+     */
+    val glowEverySeconds: Int = 0,
+    val glowForSeconds: Int = 0,
+    /**
+     * The zone's shape. [ZoneShape.STREETS]: the server builds whole city blocks around each circle of [zone], as much
+     * area as the circle, and serves them at `ApiRoutes.streetZone`; the circles still set the timing.
+     */
+    val zoneShape: ZoneShape = ZoneShape.CIRCLE,
 )
+
+/** The zone's shape (docs/adr/0009-game-setup-glow-streets.md). */
+@Serializable
+enum class ZoneShape {
+    /** The circles of the schedule, shrinking smoothly. */
+    CIRCLE,
+
+    /**
+     * City blocks with the streets around them: the border runs along streets (along the circle where there are none).
+     * Shrinks block by block: the next zone is announced by the schedule's hold, then the zone switches.
+     */
+    STREETS,
+}
 
 /**
  * Thresholds used by the rule checks on the server and for hints on the client.

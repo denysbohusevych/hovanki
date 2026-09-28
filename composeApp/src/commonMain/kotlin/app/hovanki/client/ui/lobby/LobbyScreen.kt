@@ -11,6 +11,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
@@ -56,7 +57,12 @@ import app.hovanki.client.resources.ic_copy
 import app.hovanki.client.resources.ic_dice
 import app.hovanki.client.resources.ic_person_add
 import app.hovanki.client.resources.ic_share
+import app.hovanki.client.resources.ic_sliders
 import app.hovanki.client.resources.invites_sent
+import app.hovanki.client.resources.lobby_buildings_loading
+import app.hovanki.client.resources.lobby_buildings_ready
+import app.hovanki.client.resources.lobby_chip_glow
+import app.hovanki.client.resources.lobby_chip_streets
 import app.hovanki.client.resources.lobby_chip_time
 import app.hovanki.client.resources.lobby_chip_zone
 import app.hovanki.client.resources.lobby_code_copied
@@ -66,17 +72,25 @@ import app.hovanki.client.resources.lobby_copy_code
 import app.hovanki.client.resources.lobby_hider
 import app.hovanki.client.resources.lobby_host
 import app.hovanki.client.resources.lobby_invite
+import app.hovanki.client.resources.lobby_offline
 import app.hovanki.client.resources.lobby_pick_seekers
 import app.hovanki.client.resources.lobby_players
 import app.hovanki.client.resources.lobby_random
+import app.hovanki.client.resources.lobby_roles_by_host
 import app.hovanki.client.resources.lobby_seeker
+import app.hovanki.client.resources.lobby_settings
 import app.hovanki.client.resources.lobby_share
 import app.hovanki.client.resources.lobby_share_text
 import app.hovanki.client.resources.lobby_start
 import app.hovanki.client.resources.lobby_start_hint
+import app.hovanki.client.resources.lobby_start_wait_streets
+import app.hovanki.client.resources.lobby_streets_loading
 import app.hovanki.client.resources.lobby_title
 import app.hovanki.client.resources.lobby_waiting
 import app.hovanki.client.resources.lobby_you
+import app.hovanki.client.resources.lobby_you_hide
+import app.hovanki.client.resources.lobby_you_seek
+import app.hovanki.client.resources.street_zone_off
 import app.hovanki.client.share.ShareSheet
 import app.hovanki.client.ui.chat.ChatIconButton
 import app.hovanki.client.ui.chat.ChatPanel
@@ -105,6 +119,8 @@ import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.theme.color
 import app.hovanki.client.ui.theme.onColor
+import app.hovanki.shared.protocol.BuildingsState
+import app.hovanki.shared.protocol.ZoneShape
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
@@ -115,8 +131,8 @@ import kotlin.random.Random
 import app.hovanki.shared.protocol.Role as GameRole
 
 /**
- * The lobby (docs/design.md, «Лобби»): the join code on a lime card, the game's settings, the players with the host's
- * role pills, and «Start» at the bottom.
+ * The lobby (docs/design.md, «Лобби»): the join code on a lime card, the game's settings (the host changes them), the
+ * players with their role pills (the host switches them, everybody sees them), and «Start» at the bottom.
  */
 @Composable
 fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel = koinViewModel()) {
@@ -135,11 +151,20 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
         InvitePanel(state, viewModel)
         return
     }
+    if (state.isHost && viewModel.settingsPanelIn == state.gameId) {
+        SettingsPanel(state, viewModel)
+        return
+    }
     val message by viewModel.message.collectAsStateWithLifecycle()
     val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
     val reduceMotion = rememberReduceMotion()
-    // «Random»: the dice wobbles and the pills flicker for a moment before the server's answer settles them.
+    // «Random»: on every phone the dice wobbles and the pills flicker for a moment, then show the server's draw.
     var shuffles by remember { mutableIntStateOf(0) }
+    var seenDraw by remember { mutableStateOf(state.rolesDrawnAtMillis) }
+    LaunchedEffect(state.rolesDrawnAtMillis) {
+        if (state.rolesDrawnAtMillis != seenDraw) shuffles++
+        seenDraw = state.rolesDrawnAtMillis
+    }
     var codeCopies by remember { mutableIntStateOf(0) }
     // Players already here when the lobby opens just show; the ones joining later slide in.
     val initialPlayers = remember { state.players.map { it.id }.toSet() }
@@ -156,16 +181,20 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                     onDismissError = viewModel::dismissError,
                     onLocationPermissionGranted = viewModel::onLocationPermissionGranted,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    PopChip(stringResource(Res.string.lobby_chip_zone, state.zoneRadiusMeters))
-                    PopChip(stringResource(Res.string.lobby_chip_time, state.hidingMinutes, state.seekingMinutes))
-                }
+                SettingsChips(state, onOpenSettings = viewModel::openSettings)
                 if (state.isBuildingRuleOff) {
                     Banner(
                         text = stringResource(Res.string.building_rule_off),
                         modifier = Modifier.testTag(TestTags.BUILDING_RULE_OFF),
                     )
                 }
+                if (state.isStreetZoneOff) {
+                    Banner(
+                        text = stringResource(Res.string.street_zone_off),
+                        modifier = Modifier.testTag(TestTags.STREET_ZONE_OFF),
+                    )
+                }
+                if (!state.isHost) MyRoleCard(isSeeker = state.amSeeker)
 
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
@@ -179,13 +208,12 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                     )
                     if (state.isHost) {
                         PopButton(
-                            onClick = {
-                                shuffles++
-                                viewModel.shuffleSeekers()
-                            },
+                            onClick = viewModel::drawSeekers,
+                            enabled = state.players.size >= 2,
                             style = PopStyle.Pink,
                             height = 40.dp,
                             contentPadding = PaddingValues(horizontal = 12.dp),
+                            modifier = Modifier.testTag(TestTags.LOBBY_RANDOM),
                         ) {
                             val wobble = remember { Animatable(0f) }
                             LaunchedEffect(shuffles) {
@@ -270,7 +298,13 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                         textStyle = MaterialTheme.typography.headlineSmall.copy(fontSize = 18.sp),
                         modifier = Modifier.fillMaxWidth().testTag(TestTags.LOBBY_START),
                     )
-                    SecondaryText(stringResource(Res.string.lobby_start_hint, state.hidingMinutes))
+                    SecondaryText(
+                        if (state.isBuildingStreetZone) {
+                            stringResource(Res.string.lobby_start_wait_streets)
+                        } else {
+                            stringResource(Res.string.lobby_start_hint, state.hidingMinutes)
+                        },
+                    )
                 } else {
                     Text(
                         text = stringResource(Res.string.lobby_waiting),
@@ -361,8 +395,8 @@ private fun JoinCodeCard(joinCode: String, onCopied: () -> Unit) {
 }
 
 /**
- * A player: avatar, name, «you»/«host», «guest» or what they are to the viewer (add as a friend), and for the host a
- * pill with the role: tap it to switch between «hides» and «seeks».
+ * A player: avatar, name, «you»/«host», «not connected», «guest» or what they are to the viewer (add as a friend), and
+ * a pill with the role: the host taps it to switch between «hides» and «seeks», everybody else just sees it.
  */
 @Composable
 private fun PlayerRow(
@@ -377,7 +411,8 @@ private fun PlayerRow(
     val youTag = stringResource(Res.string.lobby_you)
     val hostTag = stringResource(Res.string.lobby_host)
     val tags = listOfNotNull(youTag.takeIf { player.isMe }, hostTag.takeIf { player.isHost })
-    val role = if (player.isSeeker) GameRole.SEEKER else GameRole.HIDER
+    val shownSeeker = rememberFlicker(shuffles, player.isSeeker, seed = player.id.value.hashCode())
+    val role = if (shownSeeker) GameRole.SEEKER else GameRole.HIDER
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -391,18 +426,14 @@ private fun PlayerRow(
         val avatarScale = remember { Animatable(if (isNew) 0.3f else 1f) }
         LaunchedEffect(Unit) { avatarScale.animateTo(1f, Motion.pop()) }
         val avatarModifier = Modifier.scale(avatarScale.value)
-        if (canPickRoles) {
-            val avatarColor by animateColorAsState(role.color, Motion.fast())
-            Avatar(
-                name = player.name,
-                color = avatarColor,
-                contentColor = role.onColor,
-                size = 36.dp,
-                modifier = avatarModifier,
-            )
-        } else {
-            Avatar(name = player.name, size = 36.dp, modifier = avatarModifier)
-        }
+        val avatarColor by animateColorAsState(role.color, Motion.fast())
+        Avatar(
+            name = player.name,
+            color = avatarColor,
+            contentColor = role.onColor,
+            size = 36.dp,
+            modifier = avatarModifier,
+        )
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(text = player.name, style = MaterialTheme.typography.titleSmall)
@@ -414,21 +445,29 @@ private fun PlayerRow(
                     )
                 }
             }
+            if (player.isOffline) {
+                Text(
+                    text = stringResource(Res.string.lobby_offline),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Palette.PinkInk,
+                    modifier = Modifier.testTag(TestTags.lobbyOffline(player.id)),
+                )
+            }
             PlayerAccountBadge(player.id, player.account, isBusy = isBusy, onAddFriend = onAddFriend)
         }
-        if (canPickRoles) {
-            RolePill(
-                isSeeker = rememberFlicker(shuffles, player.isSeeker, seed = player.id.value.hashCode()),
-                onClick = onToggleSeeker,
-                modifier = Modifier.testTag(TestTags.seekerSwitch(player.id)),
-            )
-        }
+        RolePill(
+            isSeeker = shownSeeker,
+            onClick = onToggleSeeker.takeIf { canPickRoles },
+            modifier = Modifier.testTag(
+                if (canPickRoles) TestTags.seekerSwitch(player.id) else TestTags.lobbyRole(player.id),
+            ),
+        )
     }
 }
 
-/** «Seeks» in orange or «hides» in violet; the host taps it to switch. */
+/** «Seeks» in orange or «hides» in violet; the host taps it to switch ([onClick]), the others only see it. */
 @Composable
-private fun RolePill(isSeeker: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun RolePill(isSeeker: Boolean, onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
     val role = if (isSeeker) GameRole.SEEKER else GameRole.HIDER
     val container by animateColorAsState(role.color, Motion.fast())
     val content by animateColorAsState(role.onColor, Motion.fast())
@@ -454,6 +493,88 @@ private fun RolePill(isSeeker: Boolean, onClick: () -> Unit, modifier: Modifier 
         Text(
             text = stringResource(if (isSeeker) Res.string.lobby_seeker else Res.string.lobby_hider),
             style = MaterialTheme.typography.labelMedium,
+        )
+    }
+}
+
+/**
+ * The game's setup as chips (the zone and its shape, hiding + search time, the glow), the state of the zone's map
+ * data, and for the host the button to change the setup.
+ */
+@Composable
+private fun SettingsChips(state: LobbyUiState, onOpenSettings: () -> Unit) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        PopChip(
+            if (state.zoneShape == ZoneShape.STREETS) {
+                stringResource(Res.string.lobby_chip_streets, state.zoneRadiusMeters)
+            } else {
+                stringResource(Res.string.lobby_chip_zone, state.zoneRadiusMeters)
+            },
+        )
+        PopChip(stringResource(Res.string.lobby_chip_time, state.hidingMinutes, state.seekingMinutes))
+        state.glowEveryMinutes?.let { PopChip(stringResource(Res.string.lobby_chip_glow, it)) }
+        when {
+            state.isBuildingStreetZone -> PopChip(
+                text = stringResource(Res.string.lobby_streets_loading),
+                color = Palette.Sand,
+                contentColor = Palette.Ink2,
+                modifier = Modifier.testTag(TestTags.LOBBY_STREETS),
+            )
+
+            state.buildingsState == BuildingsState.LOADING -> PopChip(
+                text = stringResource(Res.string.lobby_buildings_loading),
+                color = Palette.Sand,
+                contentColor = Palette.Ink2,
+                modifier = Modifier.testTag(TestTags.LOBBY_BUILDINGS),
+            )
+
+            state.buildingCount != null -> PopChip(
+                text = stringResource(Res.string.lobby_buildings_ready, state.buildingCount),
+                color = Palette.Sand,
+                contentColor = Palette.Ink2,
+                modifier = Modifier.testTag(TestTags.LOBBY_BUILDINGS),
+            )
+        }
+        if (state.isHost) {
+            PopChip(
+                text = stringResource(Res.string.lobby_settings),
+                color = Palette.Lime,
+                contentColor = Palette.Ink,
+                border = Palette.Ink,
+                icon = Res.drawable.ic_sliders,
+                onClick = onOpenSettings,
+                modifier = Modifier.testTag(TestTags.LOBBY_SETTINGS),
+            )
+        }
+    }
+}
+
+/** A player who is not the host: the role the host gave them so far, big, in its color. */
+@Composable
+private fun MyRoleCard(isSeeker: Boolean) {
+    val role = if (isSeeker) GameRole.SEEKER else GameRole.HIDER
+    val container by animateColorAsState(role.color, Motion.fast())
+    val content by animateColorAsState(role.onColor, Motion.fast())
+    PopCard(
+        modifier = Modifier.fillMaxWidth(),
+        color = container,
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = stringResource(if (isSeeker) Res.string.lobby_you_seek else Res.string.lobby_you_hide),
+            style = MaterialTheme.typography.headlineSmall,
+            color = content,
+            modifier = Modifier.testTag(TestTags.LOBBY_MY_ROLE),
+        )
+        Text(
+            text = stringResource(Res.string.lobby_roles_by_host),
+            style = MaterialTheme.typography.bodySmall,
+            color = content,
         )
     }
 }

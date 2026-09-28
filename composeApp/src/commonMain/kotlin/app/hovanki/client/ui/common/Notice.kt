@@ -12,6 +12,7 @@ import app.hovanki.client.resources.error_chat_muted_forever
 import app.hovanki.client.resources.error_code_expired
 import app.hovanki.client.resources.error_email_not_verified
 import app.hovanki.client.resources.error_email_taken
+import app.hovanki.client.resources.error_in_another_game
 import app.hovanki.client.resources.error_invalid_email
 import app.hovanki.client.resources.error_invalid_group_name
 import app.hovanki.client.resources.error_invalid_message
@@ -29,6 +30,7 @@ import app.hovanki.client.resources.error_too_many_requests_wait
 import app.hovanki.client.resources.error_user_not_found
 import app.hovanki.client.resources.error_wrong_code
 import app.hovanki.client.resources.error_wrong_login
+import app.hovanki.client.resources.error_zone_not_ready
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import org.jetbrains.compose.resources.StringResource
@@ -112,6 +114,10 @@ fun reasonNotice(
         ErrorReason.INVALID_MESSAGE -> Res.string.error_invalid_message
 
         ErrorReason.EMAIL_NOT_VERIFIED -> Res.string.error_email_not_verified
+
+        ErrorReason.IN_ANOTHER_GAME -> Res.string.error_in_another_game
+
+        ErrorReason.ZONE_NOT_READY -> Res.string.error_zone_not_ready
 
         ErrorReason.ACCOUNT_BANNED -> return untilMillis?.let {
             Notice.Text(Res.string.error_account_banned, listOf(formatDateTime(it)))

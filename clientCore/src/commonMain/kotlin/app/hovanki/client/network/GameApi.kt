@@ -10,9 +10,12 @@ import app.hovanki.shared.protocol.InviteRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.StartGameRequest
+import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
 
@@ -31,6 +34,15 @@ interface GameApi {
 
     suspend fun startGame(session: PlayerSession, request: StartGameRequest): GameSnapshot
 
+    /** The host picks the roles in the lobby, or has the server draw them ([RolesRequest.randomSeekers]). */
+    suspend fun setRoles(session: PlayerSession, request: RolesRequest): GameSnapshot
+
+    /** The host changes the setup in the lobby. */
+    suspend fun updateSettings(session: PlayerSession, request: SettingsRequest): GameSnapshot
+
+    /** Leaves the game for good: the server takes the player out, the session's token stops working. */
+    suspend fun leave(session: PlayerSession)
+
     /** Sends new location samples and returns the current state; see [GameConnection]. */
     suspend fun sync(session: PlayerSession, request: SyncRequest): GameSnapshot
 
@@ -46,8 +58,11 @@ interface GameApi {
 
     suspend fun vote(session: PlayerSession, catchId: CatchId, confirm: Boolean): GameSnapshot
 
-    /** The buildings the rule judges by; once per game, when the snapshot says they are ready. */
+    /** The buildings the rule judges by; once per map revision, when the snapshot says they are ready. */
     suspend fun buildings(session: PlayerSession): BuildingsResponse
+
+    /** The zone by streets, one polygon per stage; once per map revision, when the snapshot says it is ready. */
+    suspend fun streetZone(session: PlayerSession): StreetZoneResponse
 
     /** Every player's track of the round, for the replay on the results screen: once the game is finished. */
     suspend fun tracks(session: PlayerSession): TracksResponse

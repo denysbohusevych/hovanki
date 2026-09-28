@@ -39,6 +39,9 @@ class IdGenerator {
     /** 160-bit TOTP secret, as recommended by RFC 4226. */
     fun catchCodeSecret(): String = randomBytes(20).toHex()
 
+    /** For fair draws (the lobby's random roles): nobody can predict or steer them. */
+    val drawRandom: java.util.Random get() = random
+
     private fun randomBytes(size: Int) = ByteArray(size).also(random::nextBytes)
 
     private fun randomString(length: Int, alphabet: String) =
