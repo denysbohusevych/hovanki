@@ -2,6 +2,7 @@ package app.hovanki.client.network
 
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.CatchId
+import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
@@ -11,10 +12,13 @@ import app.hovanki.shared.protocol.GroupId
 import app.hovanki.shared.protocol.InviteRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.protocol.PlayerTrack
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
+import app.hovanki.shared.protocol.TrackPoint
+import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.shrinkingZone
@@ -54,6 +58,26 @@ class HttpGameApiTest {
             SyncRequest(listOf(testSample(7)), chatAfter = 3),
             protocolJson.decodeFromString(SyncRequest.serializer(), request.body),
         )
+    }
+
+    @Test
+    fun aScannedCodeGoesWithTheClaimAndTheTracksAreFetched() = runTest {
+        val tracks = TracksResponse(listOf(PlayerTrack(testSession.playerId, listOf(TrackPoint(50.45, 30.52, 7)))))
+        val api = api { request ->
+            if (request.url.encodedPath.endsWith("/tracks")) jsonOf(tracks) else jsonOf(testSnapshot())
+        }
+
+        api.claimCatch(testSession, PlayerId("anna"), code = "1234")
+        api.claimCatch(testSession, PlayerId("boris"))
+        assertEquals(tracks, api.tracks(testSession))
+
+        assertEquals(
+            listOf(ClaimCatchRequest(PlayerId("anna"), "1234"), ClaimCatchRequest(PlayerId("boris"))),
+            recorded.take(2).map { protocolJson.decodeFromString(ClaimCatchRequest.serializer(), it.body) },
+        )
+        assertEquals(HttpMethod.Get, recorded.last().method)
+        assertEquals("/api/v1/games/game1/tracks", recorded.last().path)
+        assertEquals("Bearer secret-token", recorded.last().authorization)
     }
 
     @Test

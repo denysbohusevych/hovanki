@@ -55,6 +55,7 @@ import app.hovanki.client.resources.ic_back
 import app.hovanki.client.resources.ic_copy
 import app.hovanki.client.resources.ic_dice
 import app.hovanki.client.resources.ic_person_add
+import app.hovanki.client.resources.ic_share
 import app.hovanki.client.resources.invites_sent
 import app.hovanki.client.resources.lobby_chip_time
 import app.hovanki.client.resources.lobby_chip_zone
@@ -69,11 +70,14 @@ import app.hovanki.client.resources.lobby_pick_seekers
 import app.hovanki.client.resources.lobby_players
 import app.hovanki.client.resources.lobby_random
 import app.hovanki.client.resources.lobby_seeker
+import app.hovanki.client.resources.lobby_share
+import app.hovanki.client.resources.lobby_share_text
 import app.hovanki.client.resources.lobby_start
 import app.hovanki.client.resources.lobby_start_hint
 import app.hovanki.client.resources.lobby_title
 import app.hovanki.client.resources.lobby_waiting
 import app.hovanki.client.resources.lobby_you
+import app.hovanki.client.share.ShareSheet
 import app.hovanki.client.ui.chat.ChatIconButton
 import app.hovanki.client.ui.chat.ChatPanel
 import app.hovanki.client.ui.chat.ChatViewModel
@@ -105,6 +109,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import kotlin.random.Random
 import app.hovanki.shared.protocol.Role as GameRole
@@ -302,10 +307,13 @@ private fun Header(chatUnread: Int, onOpenChat: () -> Unit, onLeave: () -> Unit)
     }
 }
 
+/** The join code on lime: «Share» sends it through the system menu, the corner button copies it. */
 @Composable
 private fun JoinCodeCard(joinCode: String, onCopied: () -> Unit) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
+    val shareSheet = koinInject<ShareSheet>()
+    val shareText = stringResource(Res.string.lobby_share_text, joinCode)
     Box {
         PopCard(
             modifier = Modifier.fillMaxWidth(),
@@ -327,6 +335,14 @@ private fun JoinCodeCard(joinCode: String, onCopied: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = Palette.LimeInk,
                 modifier = Modifier.padding(end = 48.dp),
+            )
+            PopButton(
+                text = stringResource(Res.string.lobby_share),
+                onClick = { shareSheet.share(shareText) },
+                style = PopStyle.Dark,
+                height = 44.dp,
+                icon = Res.drawable.ic_share,
+                modifier = Modifier.padding(top = 10.dp).testTag(TestTags.LOBBY_SHARE),
             )
         }
         PopIconButton(

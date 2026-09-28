@@ -15,6 +15,7 @@ import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.client.tracking.hiderAlerts
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
+import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
@@ -86,6 +87,7 @@ class GameSessionManager(
     private val alertRepeats = AlertRepeats()
     private var resumeAttempted = false
     private var buildingsJob: Job? = null
+    private var tracksJob: Job? = null
 
     /**
      * The join that got no answer (no network, or the answer got lost): pressed again with the same code and name, it
@@ -121,6 +123,22 @@ class GameSessionManager(
     }
 
     suspend fun claimCatch(hiderId: PlayerId): Boolean = sessionCommand { api.claimCatch(it, hiderId) }
+
+    /**
+     * One scan: the seeker's camera read [hiderId]'s QR code with [code] before any claim; the server opens the claim
+     * and checks the code in one step. A server without one scan only opens the claim: the code follows right after.
+     */
+    suspend fun catchByScan(hiderId: PlayerId, code: String): Boolean {
+        val session = mutableState.value.session ?: return false
+        return command {
+            val snapshot = api.claimCatch(session, hiderId, code.trim())
+            applySnapshot(snapshot)
+            val open = snapshot.catches.lastOrNull {
+                it.seekerId == session.playerId && it.hiderId == hiderId && it.status == CatchStatus.AWAITING_CODE
+            }
+            if (open != null) applySnapshot(api.confirmCatch(session, open.id, code.trim()))
+        }
+    }
 
     suspend fun confirmCatch(catchId: CatchId, code: String): Boolean =
         sessionCommand { api.confirmCatch(it, catchId, code.trim()) }
@@ -299,9 +317,12 @@ class GameSessionManager(
 
             // Results are final: no more location or foreground service, and nothing to resume. Polling goes on for
             // the chat on the results screen, until the player leaves.
-            GamePhase.FINISHED -> if (previous?.phase != GamePhase.FINISHED) {
-                stopLocationWork()
-                storage.clearSession()
+            GamePhase.FINISHED -> {
+                if (previous?.phase != GamePhase.FINISHED) {
+                    stopLocationWork()
+                    storage.clearSession()
+                }
+                loadTracks()
             }
         }
     }
@@ -354,6 +375,23 @@ class GameSessionManager(
         }
     }
 
+    /** The replay on the results screen: once the game is over; a failed attempt is retried with a later snapshot. */
+    private fun loadTracks() {
+        val current = mutableState.value
+        val session = current.session ?: return
+        if (current.tracks != null || tracksJob?.isActive == true) return
+        tracksJob = scope.launch {
+            val tracks = try {
+                api.tracks(session)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return@launch
+            }
+            mutableState.update { if (it.session == session) it.copy(tracks = tracks) else it }
+        }
+    }
+
     private fun startTracking() {
         if (isTracking) return
         isTracking = true
@@ -365,6 +403,8 @@ class GameSessionManager(
         connectionJob = null
         buildingsJob?.cancel()
         buildingsJob = null
+        tracksJob?.cancel()
+        tracksJob = null
         stopLocationWork()
     }
 

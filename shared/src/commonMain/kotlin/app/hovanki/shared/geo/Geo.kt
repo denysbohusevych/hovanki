@@ -3,6 +3,7 @@ package app.hovanki.shared.geo
 import app.hovanki.shared.protocol.GeoPoint
 import kotlin.math.PI
 import kotlin.math.asin
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -33,6 +34,16 @@ fun GeoPoint.moveBy(eastMeters: Double, northMeters: Double): GeoPoint = GeoPoin
     lat = lat + (northMeters / EARTH_RADIUS_METERS).toDegrees(),
     lon = lon + (eastMeters / (EARTH_RADIUS_METERS * cos(lat.toRadians()))).toDegrees(),
 )
+
+/**
+ * Compass bearing from this point to [other] on a local flat projection, in degrees clockwise from north (0 until
+ * 360); 0 for the same point.
+ */
+fun GeoPoint.bearingTo(other: GeoPoint): Double {
+    val offset = other.offsetFrom(this)
+    if (offset.eastMeters == 0.0 && offset.northMeters == 0.0) return 0.0
+    return atan2(offset.eastMeters, offset.northMeters).toDegrees().mod(360.0)
+}
 
 internal fun Double.toRadians(): Double = this * PI / 180.0
 

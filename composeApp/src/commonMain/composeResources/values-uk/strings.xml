@@ -279,7 +279,7 @@
   <string name="flash_seekers_out">Шукачі вийшли!</string>
   <string name="catch_auto_in">Зарахується само через %1$s</string>
   <string name="catch_or_say">Або назвіть цифри</string>
-  <string name="catch_seeker_hint">Натисніть на спійманого, потім введіть 4 цифри з його екрана.</string>
+  <string name="catch_seeker_hint">Знайшли когось? Натисніть «Знайшов!» і відскануйте QR з його екрана. Камера не читає — натисніть на ім\'я, він покаже 4 цифри.</string>
   <string name="lobby_title">Лобі</string>
   <string name="lobby_random">Випадково</string>
   <string name="lobby_chip_zone">Зона %1$d м</string>
@@ -298,8 +298,8 @@
   <string name="back_in_zone">Ви в зоні</string>
   <string name="consent_title">Геолокація для гри</string>
   <string name="consent_text">Хованки на вулиці працюють за точною геолокацією — лише під час раунду.</string>
-  <string name="consent_who">Хто бачить: сервер гри. Шукачі бачать одне одного, а тих, хто ховається, — лише коли їх розкривають правила: вийшли із зони, зайшли в будівлю, зник сигнал.</string>
-  <string name="consent_when">Коли видаляється: разом із грою, одразу після раунду. Якщо ви самі ввімкнете «Зберігати мої маршрути» в профілі — через 90 днів, і бачите їх лише ви. На телефоні нічого не зберігається.</string>
+  <string name="consent_who">Хто бачить: сервер гри. Шукачі бачать одне одного, а тих, хто ховається, — лише коли їх розкривають правила: вийшли із зони, зайшли в будівлю, зник сигнал. Після раунду гравці цієї гри бачать на мапі, хто де ходив.</string>
+  <string name="consent_when">Коли видаляється: разом із грою, не пізніше ніж за пів години після раунду. Якщо ви самі ввімкнете «Зберігати мої маршрути» в профілі — через 90 днів, і бачите їх лише ви. На телефоні нічого не зберігається.</string>
   <string name="consent_pocket">У кишені: гра надсилає місце й з вимкненим екраном, інакше ховатися не вийде.</string>
   <string name="consent_allow">Дозволити геолокацію</string>
   <string name="consent_later">Не зараз</string>
@@ -331,7 +331,7 @@
   <string name="unit_min">%1$s хв</string>
   <string name="routes_title">Маршрути</string>
   <string name="routes_save">Зберігати мої маршрути</string>
-  <string name="routes_explain">Шлях кожної гри зберігається 90 днів, щоб ви могли подивитися, де ходили. Бачите його лише ви: іншим гравцям маршрути не показуються. Статистика рахується й без цього.</string>
+  <string name="routes_explain">Шлях кожної гри зберігається 90 днів, щоб ви могли подивитися, де ходили. Бачите його лише ви: збережені маршрути іншим гравцям не показуються. Статистика рахується й без цього.</string>
   <string name="routes_off_warning">Вимкнути й одразу видалити всі збережені маршрути? Історія ігор і статистика залишаться.</string>
   <string name="routes_off_confirm">Видалити маршрути</string>
   <string name="history_open">Історія ігор</string>
@@ -356,4 +356,29 @@
   <string name="results_save_routes_button">Зберігати маршрути</string>
   <string name="results_route_saved">Маршрут збережено: Профіль → Історія ігор.</string>
   <string name="decimal_separator">,</string>
+
+  <!-- One scan, the arrow back into the zone, sharing the code, the results (docs/design.md) -->
+  <string name="hud_my_code">Мій код</string>
+  <string name="catch_pick_name">Вибрати за іменем</string>
+  <string name="my_code_title">Покажіть шукачу</string>
+  <string name="my_code_hint">Відсканує — і вас спіймано. Показуйте, лише якщо вас справді знайшли.</string>
+  <string name="my_code_close">Сховати код</string>
+  <string name="zone_arrow">Шлях назад у зону</string>
+  <string name="lobby_share">Поділитися</string>
+  <string name="lobby_share_text">Граємо в хованки в Hovanki! Код гри: %1$s</string>
+  <string name="results_into_search">%1$s від початку пошуку</string>
+  <string name="results_to_the_end">До кінця</string>
+  <string name="results_finds">Знахідок: %1$d</string>
+  <string name="awards_title">Нагороди</string>
+  <string name="award_first_catch">Перша знахідка</string>
+  <string name="award_hunter">Найбільше знахідок</string>
+  <string name="award_survivor">Не знайшли</string>
+  <string name="award_last_standing">Остання знахідка</string>
+  <string name="award_marathon">Марафон</string>
+  <string name="award_whole_search">Увесь пошук, %1$s</string>
+  <string name="replay_title">Розбір</string>
+  <string name="replay_loading">Завантажуємо треки…</string>
+  <string name="replay_time">Час раунду</string>
+  <string name="replay_play">Програти раунд</string>
+  <string name="replay_pause">Пауза</string>
 </resources>

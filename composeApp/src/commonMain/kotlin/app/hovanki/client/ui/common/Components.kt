@@ -392,3 +392,12 @@ fun formatCountdown(millis: Long): String {
     val seconds = (totalSeconds % 60).toString().padStart(2, '0')
     return "${totalSeconds / 60}:$seconds"
 }
+
+/** "m:ss" of a time that passed (rounded down: 0:59 is not a minute yet); "h:mm:ss" from an hour on. */
+fun formatElapsed(millis: Long): String {
+    val totalSeconds = millis.coerceAtLeast(0) / 1000
+    val seconds = (totalSeconds % 60).toString().padStart(2, '0')
+    val minutes = totalSeconds / 60
+    if (minutes < 60) return "$minutes:$seconds"
+    return "${minutes / 60}:${(minutes % 60).toString().padStart(2, '0')}:$seconds"
+}

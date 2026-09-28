@@ -1,0 +1,9 @@
+# The hider hides «My code» again: back to the map.
+appId: ${APP_ID}
+---
+- tapOn:
+    id: my_code_close
+- extendedWaitUntil:
+    notVisible:
+      id: my_code
+    timeout: 15000

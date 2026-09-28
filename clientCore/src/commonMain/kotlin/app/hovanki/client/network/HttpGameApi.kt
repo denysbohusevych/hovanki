@@ -15,6 +15,7 @@ import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
+import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.VoteRequest
 import io.ktor.client.HttpClient
 
@@ -34,8 +35,8 @@ class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
     override suspend fun sync(session: PlayerSession, request: SyncRequest): GameSnapshot =
         http.post(ApiRoutes.sync(session.gameId), session.token, request)
 
-    override suspend fun claimCatch(session: PlayerSession, hiderId: PlayerId): GameSnapshot =
-        http.post(ApiRoutes.catches(session.gameId), session.token, ClaimCatchRequest(hiderId))
+    override suspend fun claimCatch(session: PlayerSession, hiderId: PlayerId, code: String?): GameSnapshot =
+        http.post(ApiRoutes.catches(session.gameId), session.token, ClaimCatchRequest(hiderId, code))
 
     override suspend fun confirmCatch(session: PlayerSession, catchId: CatchId, code: String): GameSnapshot =
         http.post(ApiRoutes.catchConfirm(session.gameId, catchId), session.token, ConfirmCatchRequest(code))
@@ -48,6 +49,9 @@ class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
 
     override suspend fun buildings(session: PlayerSession): BuildingsResponse =
         http.get(ApiRoutes.buildings(session.gameId), session.token)
+
+    override suspend fun tracks(session: PlayerSession): TracksResponse =
+        http.get(ApiRoutes.tracks(session.gameId), session.token)
 
     override suspend fun sendChat(session: PlayerSession, request: SendChatRequest): GameSnapshot =
         http.post(ApiRoutes.chat(session.gameId), session.token, request)

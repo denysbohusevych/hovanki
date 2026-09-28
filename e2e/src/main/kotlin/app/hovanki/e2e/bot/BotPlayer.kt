@@ -4,6 +4,7 @@ import app.hovanki.client.account.AccountManager
 import app.hovanki.client.account.AccountState
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.history.HistoryState
+import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.ApiResult
 import app.hovanki.client.network.HttpAccountApi
 import app.hovanki.client.network.HttpGameApi
@@ -20,6 +21,7 @@ import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
 import app.hovanki.client.session.catchCodeToShow
 import app.hovanki.client.session.chatLines
+import app.hovanki.client.session.myCatchCode
 import app.hovanki.client.session.unreadChatCount
 import app.hovanki.client.social.SocialManager
 import app.hovanki.client.social.UserRelation
@@ -43,11 +45,13 @@ import app.hovanki.shared.protocol.Inbox
 import app.hovanki.shared.protocol.InviteId
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.protocolJson
 import io.ktor.client.engine.okhttp.OkHttp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -173,6 +177,63 @@ class BotPlayer(
         val claim = snapshot.catches.lastOrNull { it.hiderId == playerId && it.status == CatchStatus.AWAITING_CODE }
         if (claim == null || claim.id != running.showingCodeFor) return null
         return snapshot.catchCodeToShow(running.serverClock.now())
+    }
+
+    /** Opens «My code» on this hider's phone: the code shows without a claim, for the seeker's camera (one scan). */
+    fun opensMyCode() {
+        app?.showingMyCode = true
+        log("shows the code without a claim")
+    }
+
+    fun closesMyCode() {
+        app?.showingMyCode = false
+        log("hides the code")
+    }
+
+    /** What this hider's «My code» shows right now, while it is open and the phone offers it. */
+    fun shownMyCode(): CatchCode? {
+        val running = app ?: return null
+        if (!running.showingMyCode) return null
+        val snapshot = running.session.state.value.snapshot ?: return null
+        return snapshot.myCatchCode(running.serverClock.now())
+    }
+
+    /**
+     * «Found!»: points the camera at [hider]'s screen and scans the QR code on it, «My code» or the code of a claim.
+     * The camera reads [hider]'s id with the code, like the app's scanner.
+     */
+    suspend fun scansCodeOf(hider: BotPlayer): CommandResult {
+        val code = hider.shownMyCode() ?: hider.shownCode()
+            ?: return CommandResult.Rejected(null, "${hider.name} shows no code").also { log("$name finds no code") }
+        return scanCatch(hider.id, code.code, hider.name)
+    }
+
+    /** One scan with [code], whatever it is: an old photo of a code, a code typed into a fake QR. */
+    suspend fun scanCatch(hiderId: PlayerId, code: String, hiderName: String = hiderId.value): CommandResult =
+        command("scans the code $code of $hiderName") { it.catchByScan(hiderId, code) }
+
+    /** The replay the results screen shows: everybody's way through the round, once the app loaded it. */
+    val tracks: TracksResponse? get() = state.tracks
+
+    /**
+     * Asks the server for the tracks directly, in any phase: what the app does only on the results screen and a
+     * modified app could do earlier.
+     */
+    suspend fun requestsTracks(): CommandResult {
+        val running = app ?: return notRunning("asks for the tracks")
+        val session = running.session.state.value.session ?: return CommandResult.Failed("not in a game")
+        val result = try {
+            running.api.tracks(session)
+            CommandResult.Ok
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ApiException) {
+            CommandResult.Rejected(e.error?.code, e.error?.message.orEmpty(), e.reason)
+        } catch (e: Exception) {
+            CommandResult.Failed(e.message)
+        }
+        log(if (result == CommandResult.Ok) "gets the tracks" else "asks for the tracks: $result")
+        return result
     }
 
     /** Invites friends and/or everyone in a group into this game's lobby. */
@@ -492,8 +553,9 @@ class BotPlayer(
         metrics?.record(exchange)
         val body = exchange.body ?: return
         if (exchange.status != 200 || !exchange.path.startsWith(ApiRoutes.GAMES)) return
-        // Building outlines are public map data, not a snapshot.
-        if (exchange.path.endsWith("/buildings")) return
+        // Building outlines are public map data, not a snapshot; the tracks come only after the round (the server
+        // refuses them before, see PrivacyTest).
+        if (exchange.path.endsWith("/buildings") || exchange.path.endsWith("/tracks")) return
         val snapshot = try {
             if (exchange.path == ApiRoutes.GAMES || exchange.path == ApiRoutes.JOIN) {
                 protocolJson.decodeFromString<SessionResponse>(body).snapshot
@@ -517,7 +579,7 @@ class BotPlayer(
         private val httpClient = createHttpClient(OkHttp.create { addInterceptor(network) }, logRequests = false)
         val serverClock = ServerClock(clock::now)
         private val url = ServerUrl(serverUrl)
-        private val api = HttpGameApi(httpClient, url)
+        val api = HttpGameApi(httpClient, url)
         val clientStorage = ClientStorage(storage)
         val account = AccountManager(HttpAccountApi(httpClient, url), clientStorage, url, scope)
         val social = SocialManager(HttpSocialApi(httpClient, url), account, scope)
@@ -535,6 +597,9 @@ class BotPlayer(
         )
 
         @Volatile var showingCodeFor: CatchId? = null
+
+        /** «My code» is open (one scan). */
+        @Volatile var showingMyCode = false
 
         /** A screen that shows the inbox, while open ([opensInbox]). */
         @Volatile var inboxScreen: Job? = null

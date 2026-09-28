@@ -29,6 +29,8 @@ data class GameSnapshot(
      * Empty when the request had no cursor. Clients merge them by [ChatMessage.seq].
      */
     val chat: List<ChatMessage> = emptyList(),
+    /** When the round ended (FINISHED); null before, and from older servers. */
+    val finishedAtMillis: Long? = null,
 )
 
 @Serializable
@@ -41,6 +43,10 @@ data class PlayerView(
     val location: VisibleLocation? = null,
     /** The player's account; null for a guest (no account, or an app version without accounts). */
     val userId: UserId? = null,
+    /** When a hider stopped playing: caught ([PlayerStatus.CAUGHT]) or eliminated; null while playing. */
+    val outAtMillis: Long? = null,
+    /** The seeker whose claim caught this hider; null unless [PlayerStatus.CAUGHT]. */
+    val caughtBy: PlayerId? = null,
 )
 
 @Serializable

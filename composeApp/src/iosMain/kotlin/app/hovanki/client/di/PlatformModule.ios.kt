@@ -7,6 +7,8 @@ import app.hovanki.client.location.IosLocationProvider
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.proximity.NoopProximityScanner
 import app.hovanki.client.proximity.ProximityScanner
+import app.hovanki.client.share.IosShareSheet
+import app.hovanki.client.share.ShareSheet
 import app.hovanki.client.storage.KeychainSecureStore
 import app.hovanki.client.storage.SecureStore
 import app.hovanki.client.tracking.BackgroundTracker
@@ -25,6 +27,7 @@ actual val platformModule: Module = module {
         IosLocationProvider(allowSimulatedLocation = { launchOptions.options.value?.allowSimulatedLocation == true })
     }
     single<BackgroundTracker> { IosBackgroundTracker() }
+    single<ShareSheet> { IosShareSheet() }
     // TODO(BLE, after MVP): Kable-based scanner, see docs/adr/0001-stack.md.
     single<ProximityScanner> { NoopProximityScanner() }
 }

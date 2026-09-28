@@ -279,6 +279,166 @@ class GameTest {
         assertEquals(deadline, game.debugState(now).phaseStartedAtMillis)
     }
 
+    // ---- One scan: the claim and the code in one step ----
+
+    private fun wrongCode(): String {
+        val acceptedNow = (-1..1).map { catchCodeTotp(secret, settings.rules).codeAt(now + it * 30_000L) }
+        return (0..9999).map { it.toString().padStart(4, '0') }.first { it !in acceptedNow }
+    }
+
+    @Test
+    fun oneScanConfirmsTheCatchAtOnce() {
+        startedGame()
+        report(seeker, center)
+        report(hider, center.moveBy(10.0, 0.0))
+
+        game.claimCatch(seeker, hider, CatchId("c1"), now, code = code())
+
+        assertEquals(CatchStatus.CONFIRMED, game.snapshotFor(seeker, now).catches.single().status)
+        val caught = game.snapshotFor(host, now).players.single { it.id == hider }
+        assertEquals(PlayerStatus.CAUGHT, caught.status)
+        assertEquals(now, caught.outAtMillis)
+        assertEquals(seeker, caught.caughtBy)
+    }
+
+    @Test
+    fun aWrongScannedCodeLeavesTheClaimOpenForTheRightOne() {
+        startedGame()
+        report(seeker, center)
+
+        val error = assertFailsWith<GameException> {
+            game.claimCatch(seeker, hider, CatchId("c1"), now, code = wrongCode())
+        }
+        assertEquals(ErrorCode.INVALID_CODE, error.code)
+        val claim = game.debugState(now).catches.single()
+        assertEquals(CatchStatus.AWAITING_CODE, claim.status, "the hider shows the current code now")
+        assertEquals(1, claim.failedAttempts)
+        assertEquals(CatchStatus.AWAITING_CODE, game.snapshotFor(hider, now).catches.single().status)
+
+        tick(5)
+        game.confirmCatch(CatchId("c1"), seeker, code(), now)
+        assertEquals(PlayerStatus.CAUGHT, statusOf(hider))
+    }
+
+    @Test
+    fun oneScanChecksGpsLikeAnyClaim() {
+        startedGame()
+        report(seeker, center)
+        report(hider, center.moveBy(300.0, 0.0))
+
+        val tooFar = assertFailsWith<GameException> { game.claimCatch(seeker, hider, CatchId("c1"), now, code()) }
+        assertEquals(ErrorCode.TOO_FAR, tooFar.code)
+        assertEquals(emptyList(), game.debugState(now).catches, "no claim, no attempt")
+
+        // The host hides without fixes: GPS can't disprove a claim on them.
+        game.claimCatch(seeker, host, CatchId("c2"), now, code = " ")
+        assertEquals(CatchStatus.AWAITING_CODE, game.snapshotFor(seeker, now).catches.single().status, "no code")
+    }
+
+    @Test
+    fun whenEachHiderWasOutAndWhenTheRoundEnded() {
+        startedGame()
+        val outside = center.moveBy(700.0, 0.0)
+        repeat(3) {
+            report(hider, outside)
+            tick(5)
+        }
+        val deadline = assertNotNull(game.snapshotFor(hider, now).me.outOfZoneDeadlineMillis)
+        // Fixes every 3 s: no request comes exactly at the deadline, the one after it eliminates.
+        repeat(19) {
+            report(hider, outside)
+            tick(3)
+        }
+        assertTrue(now > deadline)
+        val eliminated = game.snapshotFor(host, now).players.single { it.id == hider }
+        assertEquals(PlayerStatus.ELIMINATED, eliminated.status)
+        assertEquals(deadline, eliminated.outAtMillis)
+        assertNull(eliminated.caughtBy)
+        assertNull(game.snapshotFor(host, now).finishedAtMillis, "the host still hides")
+
+        report(seeker, center)
+        game.claimCatch(seeker, host, CatchId("c1"), now, code())
+        val finished = game.snapshotFor(seeker, now)
+        assertEquals(GamePhase.FINISHED, finished.phase)
+        assertEquals(now, finished.finishedAtMillis)
+    }
+
+    @Test
+    fun theLastHiderOutOfTheZoneEndsTheRoundWhenTheirTimeRanOut() {
+        startedGame()
+        report(seeker, center)
+        game.claimCatch(seeker, host, CatchId("c1"), now, code())
+        val outside = center.moveBy(700.0, 0.0)
+        repeat(3) {
+            report(hider, outside)
+            tick(5)
+        }
+        val deadline = assertNotNull(game.snapshotFor(hider, now).me.outOfZoneDeadlineMillis)
+        repeat(19) {
+            report(hider, outside)
+            tick(3)
+        }
+
+        val end = game.snapshotFor(seeker, now)
+        assertEquals(GamePhase.FINISHED, end.phase)
+        assertEquals(deadline, end.finishedAtMillis)
+        assertEquals(deadline, end.players.single { it.id == hider }.outAtMillis)
+    }
+
+    // ---- The replay after the round ----
+
+    private fun trackOf(player: PlayerId) = game.tracks().tracks.single { it.playerId == player }.points
+
+    @Test
+    fun tracksAreSecretUntilTheGameIsOver() {
+        startedGame()
+        report(hider, center.moveBy(50.0, 0.0))
+        assertEquals(ErrorCode.WRONG_STATE, assertFailsWith<GameException> { game.tracks() }.code)
+
+        tick(settings.seekingSeconds)
+        assertEquals(GamePhase.FINISHED, game.phase)
+        assertEquals(setOf(host, seeker, hider), game.tracks().tracks.map { it.playerId }.toSet())
+    }
+
+    @Test
+    fun theReplayHasTheRoundOnlyAndAHiderUntilTheyWereOut() {
+        game.addPlayer(host, "Host", now)
+        game.addPlayer(seeker, "Seeker", now)
+        game.addPlayer(hider, "Hider", now)
+        report(hider, center.moveBy(0.0, 10.0))
+        tick(5)
+        game.start(host, setOf(seeker), { secret }, now)
+        val hidingFrom = now
+
+        // Every 2 s for a minute of hiding, walking 1 m/s: the replay keeps one point per 5 s.
+        repeat(30) { step ->
+            report(hider, center.moveBy(step * 2.0, 0.0))
+            report(seeker, center.moveBy(0.0, -50.0))
+            tick(2)
+        }
+        assertEquals(GamePhase.SEEKING, game.phase)
+        // A fix too inaccurate for the rules stays out of the replay too.
+        report(hider, center.moveBy(70.0, 0.0), accuracy = 60.0)
+        tick(5)
+        report(seeker, center.moveBy(60.0, 0.0))
+        report(hider, center.moveBy(62.0, 0.0))
+        game.claimCatch(seeker, hider, CatchId("c1"), now, code())
+        val caughtAt = now
+        tick(5)
+        report(hider, center.moveBy(90.0, 0.0))
+        report(seeker, center.moveBy(95.0, 0.0))
+        tick(settings.seekingSeconds)
+
+        val hiderTrack = trackOf(hider)
+        assertEquals(hidingFrom, hiderTrack.first().atMillis, "the lobby is not part of the round")
+        assertEquals(caughtAt, hiderTrack.last().atMillis, "nothing after the catch")
+        assertEquals(11, hiderTrack.size, "10 of 30 fixes while hiding, 1 while seeking")
+        hiderTrack.zipWithNext { a, b -> assertTrue(b.atMillis - a.atMillis >= 5_000, "thinned to 5 s") }
+        assertEquals(center.moveBy(62.0, 0.0), hiderTrack.last().point)
+        assertEquals(center.moveBy(95.0, 0.0), trackOf(seeker).last().point, "seekers play to the end")
+        assertEquals(emptyList(), trackOf(host), "no fixes, no track")
+    }
+
     // ---- Buildings (docs/adr/0003-map-and-buildings.md) ----
 
     private val insideBlock = center.moveBy(DebugBuildings.INSIDE_EAST, DebugBuildings.INSIDE_NORTH)

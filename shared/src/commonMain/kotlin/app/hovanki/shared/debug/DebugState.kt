@@ -96,6 +96,11 @@ data class DebugPlayer(
     val fixes: DebugFixCounts = DebugFixCounts(),
     /** The player's account; null for a guest. */
     val userId: UserId? = null,
+    /** When the hider was caught or eliminated, and by whom they were caught. */
+    val outAtMillis: Long? = null,
+    val caughtBy: PlayerId? = null,
+    /** Points of the player's replay track so far (`GET /tracks` after the game). */
+    val replayPoints: Int = 0,
 )
 
 @Serializable

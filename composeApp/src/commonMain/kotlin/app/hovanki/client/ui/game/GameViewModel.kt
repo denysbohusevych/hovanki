@@ -10,7 +10,11 @@ import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
 import app.hovanki.client.session.ZoneMoment
 import app.hovanki.client.session.catchCodeToShow
+import app.hovanki.client.session.catchQr
+import app.hovanki.client.session.catchableScan
 import app.hovanki.client.session.momentAt
+import app.hovanki.client.session.myCatchCode
+import app.hovanki.shared.geo.bearingTo
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
@@ -78,6 +82,16 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
         return true
     }
 
+    /**
+     * Text the seeker's camera read with no claim open («Found!»): when it is the QR code of a hider still playing, the
+     * claim and the code go in one request. True when it was: the camera can close.
+     */
+    fun onFreeScan(text: String): Boolean {
+        val payload = sessionManager.state.value.snapshot?.catchableScan(text) ?: return false
+        runCommand { sessionManager.catchByScan(payload.hiderId, payload.code) }
+        return true
+    }
+
     fun dispute(catchId: CatchId) = runCommand { sessionManager.dispute(catchId) }
 
     fun vote(catchId: CatchId, confirm: Boolean) = runCommand { sessionManager.vote(catchId, confirm) }
@@ -129,6 +143,10 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
         val canClaim = me.role == Role.SEEKER && me.status == PlayerStatus.ACTIVE &&
             snapshot.phase == GamePhase.SEEKING && myClaim == null
         val hiders = snapshot.players.filter { it.role == Role.HIDER }
+        val myCode = snapshot.myCatchCode(now)?.takeIf { claimAgainstMe == null }
+        val metersToBorder = myLocation?.let { zone.current.radiusMeters - it.point.distanceTo(zone.current.center) }
+        val isHiding = me.role == Role.HIDER && me.status == PlayerStatus.ACTIVE
+        val isOutside = me.outOfZoneDeadlineMillis != null || (metersToBorder ?: 0.0) < 0
 
         return GameUiState(
             phase = snapshot.phase,
@@ -142,9 +160,8 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             zoneMoment = zoneMoment,
             isZoneRunning = zoneStartedAt != null,
             myLocation = myLocation,
-            metersToZoneBorder = myLocation?.let {
-                zone.current.radiusMeters - it.point.distanceTo(zone.current.center)
-            },
+            metersToZoneBorder = metersToBorder,
+            bearingToZone = myLocation?.point?.takeIf { isHiding && isOutside }?.bearingTo(zone.current.center),
             markers = snapshot.players.mapNotNull { player ->
                 player.location?.let { MapMarker(player.id, player.name, it.point, it.accuracyMeters, it.exactReason) }
             },
@@ -156,6 +173,7 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             } else {
                 emptyList()
             },
+            canScan = canClaim,
             myClaim = myClaim?.toUi(),
             myConfirmedCatches = snapshot.catches
                 .filter { it.seekerId == me.playerId && it.status == CatchStatus.CONFIRMED }
@@ -163,7 +181,9 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
                 .toSet(),
             claimAgainstMe = claimAgainstMe?.toUi(),
             catchCode = catchCode,
-            catchQr = catchCode?.let { CatchCodePayload(snapshot.gameId, me.playerId, it.code).encode() },
+            catchQr = catchCode?.let(snapshot::catchQr),
+            myCode = myCode,
+            myQr = myCode?.let(snapshot::catchQr),
             codeDigits = rules.catchCodeDigits,
             codePeriodMillis = rules.catchCodePeriodSeconds * 1000L,
             claimTimeoutMillis = rules.catchCodeTimeoutSeconds * 1000L,
@@ -205,12 +225,19 @@ data class GameUiState(
     val myLocation: LocationSample?,
     /** Positive inside the zone, negative outside. */
     val metersToZoneBorder: Double?,
+    /**
+     * A hider outside the zone (by the own GPS, or the server's alert): the compass bearing of the way back, straight to
+     * the zone's center, for the arrow at the edge of the screen. Null inside, or without a position.
+     */
+    val bearingToZone: Double?,
     /** Players the server lets us see right now. */
     val markers: List<MapMarker>,
     val hidersLeft: Int,
     val hidersTotal: Int,
     /** Hiders an active seeker can claim now. */
     val huntableHiders: List<PlayerView>,
+    /** Seeker: can find somebody right now, by scanning their code («Found!») or by picking their name. */
+    val canScan: Boolean,
     /** Seeker: my open claim. */
     val myClaim: ClaimUi?,
     /** Seeker: my claims the hider's code (or the vote) confirmed, for the celebration. */
@@ -221,6 +248,9 @@ data class GameUiState(
     val catchCode: CatchCode?,
     /** Hider: the same code for the seeker's camera, the text of the QR code ([CatchCodePayload]). */
     val catchQr: String?,
+    /** Hider still playing while the seekers search, with no claim against them: the code to show without one. */
+    val myCode: CatchCode?,
+    val myQr: String?,
     val codeDigits: Int,
     /** How long a catch code lasts, and how long a hider has to show it: for the countdown rings. */
     val codePeriodMillis: Long,

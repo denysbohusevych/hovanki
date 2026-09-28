@@ -24,7 +24,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +59,7 @@ import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.ZoneCircle
 import app.hovanki.shared.rules.ZoneState
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -109,7 +112,8 @@ import kotlin.time.Duration.Companion.milliseconds
  *
  * The zone moves with [cue] (docs/design.md, «Зона — главная анимация»): the part about to go blinks pink before a
  * shrink, the ring turns pink and pulses while it shrinks and snaps back to lime when done. Nothing on the map moves
- * while the zone is calm. [recenterRequests]: each increase moves the camera to our own position.
+ * while the zone is calm. [recenterRequests]: each increase moves the camera to our own position. [onCameraBearing]:
+ * the map's rotation (degrees clockwise from north) whenever the player turns it, for what points somewhere on screen.
  */
 @Composable
 fun GameMap(
@@ -123,6 +127,7 @@ fun GameMap(
     recenterRequests: Int = 0,
     reduceMotion: Boolean = false,
     attributionPadding: PaddingValues = PaddingValues(0.dp),
+    onCameraBearing: (Double) -> Unit = {},
 ) {
     val reasonLabels = mapOf(
         VisibilityReason.TEAMMATE to stringResource(Res.string.reason_teammate),
@@ -311,6 +316,10 @@ fun GameMap(
 
     LaunchedEffect(mapState) {
         mapState.events.collect { event -> if (event is MapEvent.StyleLoadFailed) styleFailed = true }
+    }
+    val bearingListener by rememberUpdatedState(onCameraBearing)
+    LaunchedEffect(mapState) {
+        snapshotFlow { mapState.cameraPosition.bearing }.distinctUntilChanged().collect { bearingListener(it) }
     }
     LaunchedEffect(recenterRequests) {
         val point = myLocation?.point
