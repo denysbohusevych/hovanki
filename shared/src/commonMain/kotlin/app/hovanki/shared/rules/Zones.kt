@@ -7,6 +7,7 @@ import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.ZoneCircle
 import app.hovanki.shared.protocol.ZoneSchedule
 import app.hovanki.shared.protocol.ZoneStage
+import kotlin.math.pow
 
 /** Where the zone is at a given moment and what happens next. */
 data class ZoneState(
@@ -81,6 +82,51 @@ fun shrinkingZone(
             ZoneStage(holdSeconds, shrinkSeconds, ZoneCircle(center, initialRadiusMeters - radiusStep * step))
         },
     )
+}
+
+/**
+ * The squeeze at the end of the search: the zone keeps shrinking after [this] schedule's stages instead of standing still
+ * for the rest of the round. [Endgame.STEPS] more stages from the end of the last one to [Endgame.END_SHARE] of
+ * [seekingSeconds], each a third hold and two thirds shrink, down to [Endgame.finalRadiusMeters]; the last minutes are
+ * played there. A schedule that does not shrink stays as it is (the host chose so), as does one that already reaches
+ * the end or the final size.
+ */
+fun ZoneSchedule.withEndgame(seekingSeconds: Int): ZoneSchedule {
+    if (stages.isEmpty()) return this
+    val start = stages.sumOf { it.holdSeconds + it.shrinkSeconds }
+    val end = (seekingSeconds * Endgame.END_SHARE).toInt()
+    val last = stages.last().target
+    val finalRadius = Endgame.finalRadiusMeters(initial.radiusMeters)
+    if (end - start < Endgame.STEPS * Endgame.MIN_STAGE_SECONDS || last.radiusMeters <= finalRadius * 1.2) return this
+    val stageSeconds = (end - start) / Endgame.STEPS
+    val holdSeconds = stageSeconds / 3
+    val factor = (finalRadius / last.radiusMeters).pow(1.0 / Endgame.STEPS)
+    val endgame = (1..Endgame.STEPS).map { step ->
+        val radius = if (step == Endgame.STEPS) finalRadius else last.radiusMeters * factor.pow(step)
+        ZoneStage(holdSeconds, stageSeconds - holdSeconds, ZoneCircle(last.center, radius))
+    }
+    return copy(stages = stages + endgame)
+}
+
+/** The numbers of [withEndgame]. */
+object Endgame {
+    /** Stages of the squeeze. */
+    const val STEPS = 3
+
+    /** The squeeze ends at this share of the search; the rest is played at the final size. */
+    const val END_SHARE = 0.95
+
+    /** The zone at the very end: about the reach of a catch, a hider can't keep away from a seeker there. */
+    const val FINAL_RADIUS_METERS = 30.0
+
+    /** ...or this share of the start for a large zone (a big game), whichever is more. */
+    const val FINAL_RADIUS_SHARE = 0.05
+
+    /** A squeeze stage shorter than this is no squeeze: a very short search keeps its schedule. */
+    const val MIN_STAGE_SECONDS = 20
+
+    fun finalRadiusMeters(initialRadiusMeters: Double): Double =
+        maxOf(FINAL_RADIUS_METERS, initialRadiusMeters * FINAL_RADIUS_SHARE)
 }
 
 /**

@@ -29,13 +29,14 @@ class DrawnZoneTest {
 
         val stages = zone.stages(settings.zone)
 
-        assertEquals(4, stages.size, "the start and three stages")
+        assertEquals(7, stages.size, "the start, three stages and the squeeze at the end")
         assertTrue(zone.center.distanceTo(park) < 1.0)
         assertEquals(707.1, zone.radiusMeters, 0.5)
         val areas = stages.map { it.areaSquareMeters() }
         assertEquals(1_000_000.0, areas.first(), 100.0)
-        // A fifth of the size at the end: a twenty-fifth of the area.
-        assertEquals(40_000.0, areas.last(), 500.0)
+        // A fifth of the size after the three stages: a twenty-fifth of the area; a twentieth at the very end.
+        assertEquals(40_000.0, areas[3], 500.0)
+        assertEquals(2_500.0, areas.last(), 100.0)
         assertTrue(areas.zipWithNext().all { (a, b) -> b < a })
     }
 

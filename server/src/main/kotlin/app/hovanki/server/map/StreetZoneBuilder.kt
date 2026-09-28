@@ -12,8 +12,10 @@ import org.locationtech.jts.operation.buffer.BufferOp
 import org.locationtech.jts.operation.buffer.BufferParameters
 import org.locationtech.jts.operation.polygonize.Polygonizer
 import org.locationtech.jts.operation.union.UnaryUnionOp
-import org.locationtech.jts.simplify.DouglasPeuckerSimplifier
+import org.locationtech.jts.simplify.TopologyPreservingSimplifier
 import kotlin.math.PI
+import kotlin.math.acos
+import kotlin.math.sqrt
 
 /** No zone by streets could be built here; [message] must not hold coordinates. */
 class StreetZoneException(message: String) : Exception(message)
@@ -24,7 +26,8 @@ class StreetZoneException(message: String) : Exception(message)
  * blocks that are more than half inside the circle, so its area comes out close to the circle's. The far halves of the
  * streets around them belong to the zone too: the border runs along the far side of a street, where a player walking
  * it is still inside. Where there are no streets (a park, a river), the circle, a little larger, cuts the block. Every
- * stage takes its blocks out of the zone before it: the zone only ever shrinks.
+ * stage takes its blocks out of the zone before it: the zone only ever shrinks. A block the zone walls in is taken with
+ * it, and the border is tidied: no slits, narrow bays, needles or thin wedges ([tidy]).
  */
 class StreetZoneBuilder(private val streetHalfWidthMeters: Double = STREET_HALF_WIDTH_METERS) {
     /**
@@ -38,8 +41,14 @@ class StreetZoneBuilder(private val streetHalfWidthMeters: Double = STREET_HALF_
         val neighbors = neighbors(blocks)
         val stages = ArrayList<Geometry>()
         var allowed: Geometry = reach
-        for (circle in listOf(schedule.initial) + schedule.stages.map { it.target }) {
-            val zone = zoneAround(circle, blocks, neighbors, allowed, projection)
+        for ((index, circle) in (listOf(schedule.initial) + schedule.stages.map { it.target }).withIndex()) {
+            val zone = try {
+                zoneAround(circle, blocks, neighbors, allowed, projection)
+            } catch (e: StreetZoneException) {
+                // A late stage too small for whole blocks (the squeeze at the end): its circle within the stage before.
+                if (index == 0) throw e
+                circleWithin(circle, allowed, projection)
+            }
             stages += zone
             allowed = zone
         }
@@ -74,8 +83,11 @@ class StreetZoneBuilder(private val streetHalfWidthMeters: Double = STREET_HALF_
         return blocks
     }
 
-    /** The blocks next to each block: sharing a piece of street (a segment), not only a corner. */
-    private fun neighbors(blocks: List<Block>): List<Set<Int>> {
+    /**
+     * The blocks next to each block, with how many meters of street they share (a segment, not only a corner): a block
+     * mostly walled in by the zone is taken with it ([WRAPPED_SHARE]).
+     */
+    private fun neighbors(blocks: List<Block>): List<Map<Int, Double>> {
         val owners = HashMap<Pair<Coordinate, Coordinate>, MutableList<Int>>()
         blocks.forEachIndexed { index, block ->
             val rings = listOf(block.polygon.exteriorRing) +
@@ -90,9 +102,10 @@ class StreetZoneBuilder(private val streetHalfWidthMeters: Double = STREET_HALF_
                 }
             }
         }
-        val neighbors = List(blocks.size) { HashSet<Int>() }
-        for (sharing in owners.values) {
-            for (a in sharing) for (b in sharing) if (a != b) neighbors[a] += b
+        val neighbors = List(blocks.size) { HashMap<Int, Double>() }
+        for ((segment, sharing) in owners) {
+            val length = segment.first.distance(segment.second)
+            for (a in sharing) for (b in sharing) if (a != b) neighbors[a].merge(b, length, Double::plus)
         }
         return neighbors
     }
@@ -105,7 +118,7 @@ class StreetZoneBuilder(private val streetHalfWidthMeters: Double = STREET_HALF_
     private fun zoneAround(
         circle: ZoneCircle,
         blocks: List<Block>,
-        neighbors: List<Set<Int>>,
+        neighbors: List<Map<Int, Double>>,
         allowed: Geometry,
         projection: LocalProjection,
     ): Geometry {
@@ -127,7 +140,7 @@ class StreetZoneBuilder(private val streetHalfWidthMeters: Double = STREET_HALF_
         while (queue.isNotEmpty()) {
             val index = queue.removeFirst()
             if (!taken.add(index)) continue
-            for (next in neighbors[index]) {
+            for (next in neighbors[index].keys) {
                 if (next in candidates && next !in taken && share(next) > HALF) queue += next
             }
         }
@@ -135,19 +148,108 @@ class StreetZoneBuilder(private val streetHalfWidthMeters: Double = STREET_HALF_
         val target = PI * circle.radiusMeters * circle.radiusMeters
         var area = taken.sumOf { clipped(blocks[it].polygon, clip) }
         while (area < target * MIN_FILL) {
-            val next = taken.asSequence().flatMap { neighbors[it].asSequence() }
+            val next = taken.asSequence().flatMap { neighbors[it].keys.asSequence() }
                 .filter { it in candidates && it !in taken && share(it) > 0 }
                 .maxByOrNull(::share) ?: break
             taken += next
             area += clipped(blocks[next].polygon, clip)
         }
+        wrapIn(taken, candidates, neighbors, blocks)
         val union = UnaryUnionOp.union(taken.map { blocks[it].polygon })
         val parameters = BufferParameters(2, BufferParameters.CAP_ROUND, BufferParameters.JOIN_MITRE, MITRE_LIMIT)
         val withStreets = BufferOp.bufferOp(filled(largest(union)), streetHalfWidthMeters, parameters)
-        val zone = withStreets.intersection(clip).intersection(allowed)
-        val simplified = filled(largest(DouglasPeuckerSimplifier.simplify(zone, SIMPLIFY_METERS)))
-        if (simplified.area < target * MIN_AREA_SHARE) throw StreetZoneException("The blocks make too small a zone")
-        return simplified
+        val zone = tidy(withStreets.intersection(clip).intersection(allowed), allowed)
+        if (zone.area < target * MIN_AREA_SHARE) throw StreetZoneException("The blocks make too small a zone")
+        return zone
+    }
+
+    /** [circle] cut to [allowed]; [allowed] itself when they hardly meet (the circle moved off the zone before). */
+    private fun circleWithin(circle: ZoneCircle, allowed: Geometry, projection: LocalProjection): Geometry {
+        val disc = projection.circle(circle.center, circle.radiusMeters)
+        val inside = disc.intersection(allowed)
+        return if (inside.area < disc.area * MIN_AREA_SHARE) allowed else largest(inside)
+    }
+
+    /**
+     * Takes the blocks the zone walls in: more than [WRAPPED_SHARE] of their border is a street shared with the zone.
+     * Left out, such a block is a deep bay in the border, walked around for nothing.
+     */
+    private fun wrapIn(
+        taken: MutableSet<Int>,
+        candidates: Set<Int>,
+        neighbors: List<Map<Int, Double>>,
+        blocks: List<Block>,
+    ) {
+        do {
+            val wrapped = taken.asSequence().flatMap { neighbors[it].keys.asSequence() }.distinct()
+                .filter { it in candidates && it !in taken }
+                .filter { block ->
+                    val shared = neighbors[block].entries.sumOf { (other, length) ->
+                        if (other in
+                            taken
+                        ) {
+                            length
+                        } else {
+                            0.0
+                        }
+                    }
+                    shared > blocks[block].polygon.exteriorRing.length * WRAPPED_SHARE
+                }
+                .toList()
+            taken += wrapped
+        } while (wrapped.isNotEmpty())
+    }
+
+    /**
+     * A border without odd bits (they puzzle a player on the map and on the street): slits and narrow bays filled
+     * (a closing of [TIDY_CLOSE_METERS]), thin spikes and wedges cut (an opening of [TIDY_OPEN_METERS]), kept inside
+     * [allowed], then the last needle-sharp corners taken off ([despiked]) and the corners simplified.
+     */
+    private fun tidy(zone: Geometry, allowed: Geometry): Polygon {
+        val parameters = BufferParameters(2, BufferParameters.CAP_ROUND, BufferParameters.JOIN_MITRE, TIDY_MITRE_LIMIT)
+        fun grow(geometry: Geometry, meters: Double) = BufferOp.bufferOp(geometry, meters, parameters)
+        val closed = grow(grow(zone, TIDY_CLOSE_METERS), -TIDY_CLOSE_METERS)
+        val opened = grow(grow(closed, -TIDY_OPEN_METERS), TIDY_OPEN_METERS)
+        // Where the tidying took away everything (a zone thinner than the opening), the zone as it was.
+        val simple = TopologyPreservingSimplifier.simplify(if (opened.isEmpty) zone else opened, SIMPLIFY_METERS)
+        val polygon = despiked(filled(largest(simple.intersection(allowed))))
+        // Taking off a needle must not reach beyond the zone before; what does is cut again.
+        return if (polygon.difference(allowed).area < NESTED_SLACK) polygon else largest(polygon.intersection(allowed))
+    }
+
+    /**
+     * [polygon] without corners sharper than [SPIKE_DEGREES]: what is left of a slit or a needle where two borders
+     * almost coincide. Each such corner is dropped until none is left.
+     */
+    private fun despiked(polygon: Polygon): Polygon {
+        val ring = polygon.exteriorRing.coordinates.dropLast(1).toMutableList()
+        var changed = true
+        while (changed && ring.size > 3) {
+            changed = false
+            for (i in ring.indices) {
+                val before = ring[(i - 1 + ring.size) % ring.size]
+                val corner = ring[i]
+                val after = ring[(i + 1) % ring.size]
+                if (angleDegrees(before, corner, after) < SPIKE_DEGREES) {
+                    ring.removeAt(i)
+                    changed = true
+                    break
+                }
+            }
+        }
+        val result = polygon.factory.createPolygon((ring + ring.first()).toTypedArray())
+        return if (result.isValid) result else largest(result.buffer(0.0))
+    }
+
+    /** The angle at [corner] between the ways to [before] and to [after]; 180 for a straight line, 0 for a spike. */
+    private fun angleDegrees(before: Coordinate, corner: Coordinate, after: Coordinate): Double {
+        val ax = before.x - corner.x
+        val ay = before.y - corner.y
+        val bx = after.x - corner.x
+        val by = after.y - corner.y
+        val lengths = sqrt(ax * ax + ay * ay) * sqrt(bx * bx + by * by)
+        if (lengths == 0.0) return 0.0
+        return Math.toDegrees(acos(((ax * bx + ay * by) / lengths).coerceIn(-1.0, 1.0)))
     }
 
     /** The part of [block] within [clip]: a block the clip cuts (a park) counts only with that. */
@@ -190,5 +292,23 @@ class StreetZoneBuilder(private val streetHalfWidthMeters: Double = STREET_HALF_
         const val BOX_MARGIN_METERS = 50.0
         const val SIMPLIFY_METERS = 1.0
         const val MITRE_LIMIT = 3.0
+
+        /** A block whose border is more than this share a street shared with the zone is taken with it. */
+        const val WRAPPED_SHARE = 0.6
+
+        /** Bays and slits narrower than twice this are filled. */
+        const val TIDY_CLOSE_METERS = 20.0
+
+        /** Spikes and wedges thinner than twice this are cut. */
+        const val TIDY_OPEN_METERS = 12.0
+
+        /** The tidying bevels corners sharper than this mitre allows. */
+        const val TIDY_MITRE_LIMIT = 2.0
+
+        /** A corner sharper than this is a needle, not a street corner. */
+        const val SPIKE_DEGREES = 15.0
+
+        /** Square meters a stage may reach beyond the one before through rounding. */
+        const val NESTED_SLACK = 0.1
     }
 }

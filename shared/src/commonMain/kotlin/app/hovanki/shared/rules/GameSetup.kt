@@ -10,7 +10,8 @@ import kotlin.math.roundToInt
 /**
  * What the host chooses on the setup screen (docs/adr/0009-game-setup-glow-streets.md), and the [GameSettings] it
  * makes: a zone of [radiusMeters] around the host that, when it [shrinks], narrows in [SHRINK_STEPS] stages over the
- * first [SHRINK_SHARE] of the search down to [FINAL_RADIUS_SHARE] of its size; the glow every [glowEveryMinutes]
+ * first [SHRINK_SHARE] of the search down to [FINAL_RADIUS_SHARE] of its size, then keeps squeezing to the size of a
+ * catch until almost the end ([withEndgame]); the glow every [glowEveryMinutes]
  * (0: off) for [glowForSeconds]. The defaults are what the app starts a game with. Serializable: the phone remembers
  * the host's last choices for the next game (no place in them: the zone goes around wherever that game is).
  */
@@ -38,7 +39,7 @@ data class GameSetup(
                 steps = SHRINK_STEPS,
                 holdSeconds = stageSeconds - shrinkSeconds,
                 shrinkSeconds = shrinkSeconds,
-            )
+            ).withEndgame(seekingSeconds)
         } else {
             shrinkingZone(center, initialRadiusMeters = radiusMeters.toDouble(), steps = 0)
         }

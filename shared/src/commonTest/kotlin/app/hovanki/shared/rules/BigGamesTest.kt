@@ -46,11 +46,10 @@ class BigGamesTest {
         assertEquals(600, settings.hidingSeconds)
         assertEquals(3_600, settings.seekingSeconds)
         assertEquals(700.0, settings.zone.initial.radiusMeters)
-        assertEquals(140.0, settings.zone.stages.last().target.radiusMeters, 0.01)
+        assertEquals(140.0, settings.zone.stages[GameSetup.SHRINK_STEPS - 1].target.radiusMeters, 0.01)
+        assertEquals(35.0, settings.zone.stages.last().target.radiusMeters, 0.01, "the squeeze at the end")
         assertEquals(300, settings.glowEverySeconds)
         assertTrue(ZoneShape.DRAWN.hasPolygons && ZoneShape.STREETS.hasPolygons && !ZoneShape.CIRCLE.hasPolygons)
-        // Small too: a fifth, no floor of meters.
-        assertEquals(20.0, BigGameSetup().settings(park, 100.0).zone.stages.last().target.radiusMeters, 0.01)
     }
 
     @Test

@@ -31,7 +31,8 @@ fun ZonePolygon.areaSquareMeters(): Double {
 
 /**
  * [setup] as the settings of a big game around [center], whose drawn zone reaches [radiusMeters] from it: the circles
- * of the schedule set the timing and how far the figure has shrunk at each stage (the polygons come from the server).
+ * of the schedule set the timing and how far the figure has shrunk at each stage (the polygons come from the server),
+ * the squeeze at the end included.
  */
 fun BigGameSetup.settings(center: GeoPoint, radiusMeters: Double, rules: GameRules = GameRules()): GameSettings =
     GameSetup(
@@ -42,23 +43,7 @@ fun BigGameSetup.settings(center: GeoPoint, radiusMeters: Double, rules: GameRul
         zoneShape = ZoneShape.DRAWN,
         glowEveryMinutes = glowEveryMinutes,
         glowForSeconds = glowForSeconds,
-    ).settings(center, rules).let { settings ->
-        // A drawn zone ends at a fifth of its size, however large: no floor of meters as for a small circle.
-        if (!shrinks) {
-            settings
-        } else {
-            val initial = settings.zone.initial.radiusMeters
-            val steps = settings.zone.stages.size
-            settings.copy(
-                zone = settings.zone.copy(
-                    stages = settings.zone.stages.mapIndexed { index, stage ->
-                        val share = 1 - (1 - GameSetup.FINAL_RADIUS_SHARE) * (index + 1) / steps
-                        stage.copy(target = stage.target.copy(radiusMeters = initial * share))
-                    },
-                ),
-            )
-        }
-    }
+    ).settings(center, rules)
 
 /**
  * What the server takes for a big game (docs/adr/0010-big-games.md), made by admins only: up to [MAX_PLAYERS] players
