@@ -5,6 +5,7 @@ import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.ZoneShape
 import kotlinx.serialization.Serializable
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -24,6 +25,9 @@ data class GameSetup(
     val zoneShape: ZoneShape = ZoneShape.CIRCLE,
     val glowEveryMinutes: Int = 5,
     val glowForSeconds: Int = 5,
+    /** Spectators may watch (docs/adr/0011-spectators-and-recordings.md), [spectatorDelaySeconds] behind. */
+    val openGame: Boolean = false,
+    val spectatorDelaySeconds: Int = 60,
 ) {
     /** This setup as a game around [center]; [rules] are the thresholds, not chosen on the screen. */
     fun settings(center: GeoPoint, rules: GameRules = GameRules()): GameSettings {
@@ -51,6 +55,8 @@ data class GameSetup(
             glowEverySeconds = glowEveryMinutes * SECONDS_PER_MINUTE,
             glowForSeconds = if (glowEveryMinutes > 0) glowForSeconds else 0,
             zoneShape = zoneShape,
+            openGame = openGame,
+            spectatorDelaySeconds = spectatorDelaySeconds,
         )
     }
 
@@ -64,6 +70,7 @@ data class GameSetup(
             seekingMinutes = seekingMinutes.coerceIn(SEEKING_MINUTES),
             glowEveryMinutes = every,
             glowForSeconds = if (every > 0) minOf(length, every * SECONDS_PER_MINUTE - 1) else length,
+            spectatorDelaySeconds = SPECTATOR_DELAYS.minBy { abs(it - spectatorDelaySeconds) },
         )
     }
 
@@ -75,6 +82,9 @@ data class GameSetup(
         const val SEEKING_STEP_MINUTES = 5
         val GLOW_EVERY_MINUTES = 1..15
         val GLOW_FOR_SECONDS = 2..60
+
+        /** What the host can pick for the spectators' delay: live, half a minute, one, two or five minutes. */
+        val SPECTATOR_DELAYS = listOf(0, 30, 60, 120, 300)
 
         const val SHRINK_STEPS = 3
         const val SHRINK_SHARE = 0.7
@@ -99,6 +109,8 @@ data class GameSetup(
                 0
             },
             glowForSeconds = if (Glow.isOn(settings)) settings.glowForSeconds else GameSetup().glowForSeconds,
+            openGame = settings.openGame,
+            spectatorDelaySeconds = settings.spectatorDelaySeconds,
         )
     }
 }
@@ -116,6 +128,9 @@ object SettingsLimits {
     const val MAX_SEEKING_SECONDS = 4 * 3_600
     const val MAX_GLOW_EVERY_SECONDS = 3_600
     const val MAX_GLOW_FOR_SECONDS = 600
+
+    /** The spectators of an open game are at most this far behind it (docs/adr/0011-spectators-and-recordings.md). */
+    const val MAX_SPECTATOR_DELAY_SECONDS = 600
 
     /** What is wrong with [settings]; null when the server takes them. */
     fun problem(settings: GameSettings): String? {
@@ -142,6 +157,9 @@ object SettingsLimits {
 
             Glow.isOn(settings) && settings.glowForSeconds >= settings.glowEverySeconds ->
                 "A glow ends before the next one"
+
+            settings.spectatorDelaySeconds !in 0..MAX_SPECTATOR_DELAY_SECONDS ->
+                "Spectators are 0..$MAX_SPECTATOR_DELAY_SECONDS s behind"
 
             else -> null
         }

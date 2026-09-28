@@ -4,6 +4,7 @@ import app.hovanki.server.account.AccountService
 import app.hovanki.server.game.GameException
 import app.hovanki.server.game.GameRegistry
 import app.hovanki.server.game.PlayerRef
+import app.hovanki.server.game.SpectatorRef
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.ErrorCode
 import org.springframework.context.annotation.Configuration
@@ -34,6 +35,26 @@ class PlayerRefArgumentResolver(private val registry: GameRegistry) : HandlerMet
     }
 }
 
+/**
+ * Resolves a [SpectatorRef] controller parameter from `Authorization: Bearer <token>`: a spectator token, issued when
+ * someone starts watching an open game (docs/adr/0011-spectators-and-recordings.md).
+ */
+class SpectatorRefArgumentResolver(private val registry: GameRegistry) : HandlerMethodArgumentResolver {
+    override fun supportsParameter(parameter: MethodParameter): Boolean =
+        parameter.parameterType == SpectatorRef::class.java
+
+    override fun resolveArgument(
+        parameter: MethodParameter,
+        mavContainer: ModelAndViewContainer?,
+        webRequest: NativeWebRequest,
+        binderFactory: WebDataBinderFactory?,
+    ): SpectatorRef {
+        val token = webRequest.bearerToken() ?: throw GameException(ErrorCode.UNAUTHORIZED, "Missing bearer token")
+        return registry.resolveSpectatorToken(token)
+            ?: throw GameException(ErrorCode.UNAUTHORIZED, "Unknown or expired token")
+    }
+}
+
 /** The token of `Authorization: Bearer <token>`; null without the header, another scheme or an empty token. */
 fun NativeWebRequest.bearerToken(): String? {
     val header = getHeader(HttpHeaders.AUTHORIZATION).orEmpty()
@@ -45,6 +66,7 @@ fun NativeWebRequest.bearerToken(): String? {
 class WebConfig(private val registry: GameRegistry, private val accounts: AccountService) : WebMvcConfigurer {
     override fun addArgumentResolvers(resolvers: MutableList<HandlerMethodArgumentResolver>) {
         resolvers.add(PlayerRefArgumentResolver(registry))
+        resolvers.add(SpectatorRefArgumentResolver(registry))
         resolvers.add(UserArgumentResolver(accounts))
     }
 }

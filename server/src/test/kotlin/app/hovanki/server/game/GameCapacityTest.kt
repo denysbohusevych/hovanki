@@ -59,7 +59,7 @@ class GameCapacityTest {
         assertEquals(CapacityState.READY, capacity.state)
         assertEquals(8, capacity.players)
         assertFalse(capacity.fewCovers)
-        assertEquals(8, game.adminView().capacity)
+        assertEquals(8, game.adminView(now).capacity)
     }
 
     @Test
@@ -95,7 +95,7 @@ class GameCapacityTest {
         val capacity = game.snapshotFor(anna, now).capacity
         assertTrue(capacity!!.accepted)
         assertFalse(Capacity.needsWarning(capacity, 10))
-        assertTrue(game.adminView().crowdingAccepted)
+        assertTrue(game.adminView(now).crowdingAccepted)
     }
 
     @Test

@@ -106,6 +106,7 @@ a.button:hover { text-decoration: none; }
 canvas.map { display: block; width: 100%; height: 540px; border: 1px solid var(--line); border-radius: var(--radius);
   background: var(--sand); touch-action: none; cursor: grab; }
 canvas.map.pencil { cursor: crosshair; }
+canvas.map.live { margin: 8px 0 16px; }
 .map-tools { margin-bottom: 8px; gap: 6px; }
 .map-tools button { padding: 6px 12px; }
 .map-tools form { gap: 6px; }

@@ -3,9 +3,11 @@ package app.hovanki.server.game
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GameSettings
+import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.RoutePoint
+import app.hovanki.shared.protocol.TrackPoint
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.ZonePolygon
 
@@ -36,8 +38,10 @@ class GameRecord(
     val buildings: BuildingsState,
     /** Players with an account only; guests have no history. */
     val results: List<PlayerResult>,
-    /** The zone by streets the game played with, one polygon per stage; kept only with the saved routes. */
+    /** The zone by streets the game played with, one polygon per stage; kept with the saved routes and the recording. */
     val streetZone: List<ZonePolygon>? = null,
+    /** Everybody's way, guests too, for the game's recording (docs/adr/0011-spectators-and-recordings.md). */
+    val recording: List<RecordedTrack> = emptyList(),
 ) {
     override fun toString(): String = "GameRecord(${gameId.value}, ${results.size} accounts)"
 }
@@ -63,4 +67,20 @@ class PlayerResult(
 ) {
     // Never coordinates in logs.
     override fun toString(): String = "PlayerResult(${userId.value}, ${route.size} points)"
+}
+
+/** One player's way through the round, for the game's recording: guests too, under the name they played. */
+class RecordedTrack(
+    val playerId: PlayerId,
+    /** Null: a guest. */
+    val userId: UserId?,
+    val name: String,
+    val role: Role,
+    val status: PlayerStatus,
+    val outAtMillis: Long?,
+    val caughtBy: PlayerId?,
+    val points: List<TrackPoint>,
+) {
+    // Never coordinates or names in logs.
+    override fun toString(): String = "RecordedTrack(${playerId.value}, ${points.size} points)"
 }

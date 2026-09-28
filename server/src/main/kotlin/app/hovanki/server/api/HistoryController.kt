@@ -4,6 +4,7 @@ import app.hovanki.server.history.HistoryService
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.GameHistoryResponse
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameRoute
 import app.hovanki.shared.protocol.PlayerStats
 import app.hovanki.shared.protocol.PrivacyRequest
@@ -36,6 +37,10 @@ class HistoryController(private val history: HistoryService) {
 
     @GetMapping(ApiRoutes.ME_GAME_ROUTE)
     fun route(user: AuthenticatedUser, @PathVariable gameId: String): GameRoute = history.route(user, GameId(gameId))
+
+    @GetMapping(ApiRoutes.ME_GAME_RECORDING)
+    fun recording(user: AuthenticatedUser, @PathVariable gameId: String): GameRecording =
+        history.recording(user, GameId(gameId))
 
     @PostMapping(ApiRoutes.ME_GAME_ROUTE_DELETE)
     @ResponseStatus(HttpStatus.NO_CONTENT)

@@ -7,6 +7,7 @@ import app.hovanki.shared.debug.DebugGameState
 import app.hovanki.shared.debug.DebugPlayer
 import app.hovanki.shared.debug.DebugVote
 import app.hovanki.shared.protocol.AdminGame
+import app.hovanki.shared.protocol.AdminLiveGame
 import app.hovanki.shared.protocol.AreaNorms
 import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.BuildingArea
@@ -32,6 +33,9 @@ import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerTrack
 import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.SpectatedPlayer
+import app.hovanki.shared.protocol.SpectatorId
+import app.hovanki.shared.protocol.SpectatorSnapshot
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.TerrainAreas
@@ -92,6 +96,12 @@ class Game(
     /** Hosted by the server: nobody's player is the host. */
     val isServerHosted: Boolean get() = bigGame != null
 
+    /**
+     * Open to spectators (docs/adr/0011-spectators-and-recordings.md): its host opened it. Never a big game: up to 1 600
+     * players, and each of them is shown only a few (docs/adr/0010-big-games.md).
+     */
+    val isOpenToSpectators: Boolean get() = settings.openGame && !isServerHosted
+
     /** Starts and sets up the game; when they leave the lobby, the player who joined after them takes over. */
     var hostId: PlayerId = hostId
         private set
@@ -101,6 +111,9 @@ class Game(
         private set
     private val rules = settings.rules
     private val players = LinkedHashMap<PlayerId, Player>()
+
+    /** Who watches this open game without playing it (docs/adr/0011-spectators-and-recordings.md); memory only. */
+    private val spectators = LinkedHashMap<SpectatorId, Spectator>()
 
     /** Players by the join request that created them (`JoinGameRequest.requestId`), see [playerOfJoinRequest]. */
     private val playersByJoinRequest = HashMap<String, PlayerId>()
@@ -295,6 +308,8 @@ class Game(
         // Only players with an account have a history; a guest's route is never even kept in memory.
         players[id] = Player(id, name, LocationTrack(rules), userId, userId?.let { RouteRecorder(rules) })
         if (joinRequestId != null) playersByJoinRequest[joinRequestId] = id
+        // Watching it until now: a player never sees everybody.
+        if (userId != null) spectators.values.removeIf { it.userId == userId }
         lastActivityMillis = nowMillis
     }
 
@@ -766,6 +781,7 @@ class Game(
             capacity = capacity(),
             bigGame = bigGame,
             counts = if (isServerHosted) counts() else null,
+            spectators = spectatorCount(nowMillis),
         )
     }
 
@@ -803,8 +819,157 @@ class Game(
     /** Everybody who came in (who left the lobby is gone; who left the round still counts). */
     fun playerCount(): Int = players.size
 
+    // ---- Spectators (docs/adr/0011-spectators-and-recordings.md) ----
+
+    /**
+     * [userId] watches this game, as [spectatorId]: only an open one, and never a game they play in (they would see
+     * everybody). The same account watching again (a second phone, a reinstalled app) gets its spectator back: the id
+     * it watches as.
+     */
+    fun watch(spectatorId: SpectatorId, userId: UserId, nowMillis: Long): SpectatorId {
+        if (!isOpenToSpectators) {
+            throw GameException(ErrorCode.FORBIDDEN, "This game is not open to spectators", ErrorReason.GAME_NOT_OPEN)
+        }
+        if (playerOf(userId) != null) {
+            throw GameException(ErrorCode.FORBIDDEN, "You play in this game", ErrorReason.PLAYING_THIS_GAME)
+        }
+        spectators.values.firstOrNull { it.userId == userId }?.let { existing ->
+            existing.lastSeenMillis = nowMillis
+            return existing.id
+        }
+        if (spectators.size >= MAX_SPECTATORS) {
+            throw GameException(ErrorCode.WRONG_STATE, "Too many spectators", ErrorReason.LIMIT_REACHED)
+        }
+        spectators[spectatorId] = Spectator(spectatorId, userId, nowMillis)
+        return spectatorId
+    }
+
+    fun stopWatching(spectatorId: SpectatorId) {
+        spectators.remove(spectatorId)
+    }
+
+    /** The game is not open any more: everybody watching it stops. Their ids, for their tokens. */
+    fun dropSpectators(): List<SpectatorId> = spectators.keys.toList().also { spectators.clear() }
+
+    /** How many watch right now: those who asked for the game within the last half minute. */
+    fun spectatorCount(nowMillis: Long): Int =
+        spectators.values.count { nowMillis - it.lastSeenMillis < SPECTATOR_ACTIVE_MILLIS }
+
+    /**
+     * The game as [spectatorId] sees it: everybody, [GameSettings.spectatorDelaySeconds] behind. Only what was so at
+     * that moment: nothing the game would give away that happened since.
+     */
+    fun spectatorSnapshot(spectatorId: SpectatorId, nowMillis: Long): SpectatorSnapshot {
+        val spectator = spectators[spectatorId] ?: throw GameException(ErrorCode.NOT_FOUND, "Not watching this game")
+        spectator.lastSeenMillis = nowMillis
+        val delay = settings.spectatorDelaySeconds
+        val at = nowMillis - delay * 1000L
+        val moment = momentAt(at, SPECTATOR_TRAIL_MILLIS)
+        return SpectatorSnapshot(
+            gameId = id,
+            settings = settings,
+            serverTimeMillis = nowMillis,
+            atMillis = at,
+            delaySeconds = delay,
+            phase = moment.phase,
+            phaseEndsAtMillis = moment.phaseEndsAtMillis,
+            zoneStartedAtMillis = moment.zoneStartedAtMillis,
+            finishedAtMillis = moment.finishedAtMillis,
+            players = moment.players,
+            spectators = spectatorCount(nowMillis),
+            streetZone = streetZoneState,
+            mapRevision = mapRevision,
+        )
+    }
+
+    /** The zone by streets for [spectatorId]'s map, as players get it. */
+    fun streetZoneForSpectator(spectatorId: SpectatorId): StreetZoneResponse {
+        requireSpectator(spectatorId)
+        return StreetZoneResponse(streetZoneState, mapRevision, streetZone?.stages.orEmpty())
+    }
+
+    /**
+     * An open game right now, for an admin who watches it: live, everybody with the last two minutes of their way, the
+     * zone and the buildings. Only open games.
+     */
+    fun liveView(nowMillis: Long): AdminLiveGame {
+        if (!isOpenToSpectators) {
+            throw GameException(ErrorCode.FORBIDDEN, "This game is not open to spectators", ErrorReason.GAME_NOT_OPEN)
+        }
+        val moment = momentAt(nowMillis, ADMIN_TRAIL_MILLIS)
+        val zone = moment.zoneStartedAtMillis?.let { settings.zone.stateAt(nowMillis - it) }
+        return AdminLiveGame(
+            gameId = id,
+            phase = moment.phase,
+            serverTimeMillis = nowMillis,
+            settings = settings,
+            zoneStartedAtMillis = moment.zoneStartedAtMillis,
+            phaseEndsAtMillis = moment.phaseEndsAtMillis,
+            streetZone = streetZone?.stages,
+            buildings = if (buildingsState == BuildingsState.READY) buildings.buildings else emptyList(),
+            players = moment.players,
+            spectators = spectatorCount(nowMillis),
+            zoneNow = zone?.current,
+            nextZone = zone?.next,
+            zoneStage = zone?.stage ?: 0,
+        )
+    }
+
+    private fun requireSpectator(spectatorId: SpectatorId) {
+        if (spectatorId !in spectators) throw GameException(ErrorCode.NOT_FOUND, "Not watching this game")
+    }
+
+    private class Moment(
+        val phase: GamePhase,
+        val phaseEndsAtMillis: Long?,
+        val zoneStartedAtMillis: Long?,
+        val finishedAtMillis: Long?,
+        val players: List<SpectatedPlayer>,
+    )
+
+    /**
+     * The game as it was at [atMillis]: the phase then, everybody's status then (a hider caught later is still
+     * playing), where each of them was (their last point of the round before it) and their way over [trailMillis].
+     */
+    private fun momentAt(atMillis: Long, trailMillis: Long): Moment {
+        val hidingStart = hidingStartedAtMillis
+        val seekingStart = zoneStartedAtMillis
+        val finished = finishedAtMillis
+        val phaseThen = when {
+            hidingStart == null || atMillis < hidingStart -> GamePhase.LOBBY
+            seekingStart == null || atMillis < seekingStart -> GamePhase.HIDING
+            finished == null || atMillis < finished -> GamePhase.SEEKING
+            else -> GamePhase.FINISHED
+        }
+        val endsAt = when (phaseThen) {
+            GamePhase.HIDING -> hidingStart?.plus(settings.hidingSeconds * 1000L)
+            GamePhase.SEEKING -> seekingStart?.plus(settings.seekingSeconds * 1000L)
+            else -> null
+        }
+        return Moment(
+            phase = phaseThen,
+            phaseEndsAtMillis = endsAt,
+            zoneStartedAtMillis = seekingStart?.takeIf { atMillis >= it },
+            finishedAtMillis = finished?.takeIf { atMillis >= it },
+            players = players.values.map { player ->
+                val outThen = player.outAtMillis?.takeIf { it <= atMillis }
+                val points = player.replay.points().filter { it.atMillis <= atMillis }
+                SpectatedPlayer(
+                    id = player.id,
+                    name = player.name,
+                    role = player.role,
+                    status = if (outThen != null) player.status else PlayerStatus.ACTIVE,
+                    location = points.lastOrNull(),
+                    trail = points.filter { it.atMillis > atMillis - trailMillis },
+                    outAtMillis = outThen,
+                    caughtBy = player.caughtBy.takeIf { outThen != null },
+                )
+            },
+        )
+    }
+
     /** What staff see of this game in the admin (docs/adr/0008-admin.md): no zone center, no positions, no chat. */
-    fun adminView(): AdminGame = AdminGame(
+    fun adminView(nowMillis: Long): AdminGame = AdminGame(
         gameId = id,
         phase = phase,
         hostName = players[hostId]?.name ?: if (isServerHosted) SERVER_HOST_NAME else "",
@@ -823,6 +988,8 @@ class Game(
         capacity = capacity().players,
         crowdingAccepted = crowdingAccepted,
         bigGameId = bigGame?.id,
+        openGame = isOpenToSpectators,
+        spectators = spectatorCount(nowMillis),
     )
 
     /**
@@ -1129,6 +1296,19 @@ class Game(
             chatMessages = lastChatSeq.toInt(),
             buildings = buildingsState,
             streetZone = streetZone?.stages,
+            // Not a big game's: a thousand ways, and each of its players is shown only their own and their friends'.
+            recording = if (isServerHosted) emptyList() else players.values.map { player ->
+                RecordedTrack(
+                    playerId = player.id,
+                    userId = player.userId,
+                    name = player.name,
+                    role = player.role,
+                    status = player.status,
+                    outAtMillis = player.outAtMillis,
+                    caughtBy = player.caughtBy,
+                    points = player.replay.points(),
+                )
+            },
             results = players.values.mapNotNull { player ->
                 val userId = player.userId ?: return@mapNotNull null
                 val route = checkNotNull(player.route)
@@ -1245,6 +1425,8 @@ class Game(
         val chatByClientId = LinkedHashMap<String, ChatMessage>()
     }
 
+    private class Spectator(val id: SpectatorId, val userId: UserId, var lastSeenMillis: Long)
+
     private class CatchClaim(
         val id: CatchId,
         val seekerId: PlayerId,
@@ -1280,6 +1462,15 @@ class Game(
 
         /** A message is sent again within seconds of the first try: a few ids per player are plenty. */
         private const val CHAT_IDS_KEPT = 20
+
+        const val MAX_SPECTATORS = 50
+
+        /** A spectator counts as watching while their app asked within this long (it asks every few seconds). */
+        private const val SPECTATOR_ACTIVE_MILLIS = 30_000L
+
+        /** How much of everybody's way spectators see behind them, and admins watching live. */
+        private const val SPECTATOR_TRAIL_MILLIS = 60_000L
+        private const val ADMIN_TRAIL_MILLIS = 120_000L
     }
 }
 

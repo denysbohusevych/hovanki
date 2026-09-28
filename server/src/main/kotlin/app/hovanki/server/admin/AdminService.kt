@@ -14,6 +14,7 @@ import app.hovanki.shared.protocol.AdminAudit
 import app.hovanki.shared.protocol.AdminFindByEmailRequest
 import app.hovanki.shared.protocol.AdminGames
 import app.hovanki.shared.protocol.AdminLimits
+import app.hovanki.shared.protocol.AdminLiveGame
 import app.hovanki.shared.protocol.AdminReport
 import app.hovanki.shared.protocol.AdminReports
 import app.hovanki.shared.protocol.AdminRevealedEmail
@@ -42,6 +43,7 @@ import java.security.SecureRandom
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * What staff do in the admin (docs/adr/0008-admin.md): reports, accounts, bans and chat bans, games, numbers, staff,
@@ -68,6 +70,11 @@ class AdminService(
 ) {
     private val transactions = TransactionTemplate(transactionManager)
     private val random = SecureRandom()
+
+    /** Who watches which open game live, until when ([watchGame]); memory only, like the games. */
+    private val watching = ConcurrentHashMap<WatchKey, Instant>()
+
+    private data class WatchKey(val staff: UserId, val gameId: GameId)
 
     // Reports
 
@@ -229,6 +236,32 @@ class AdminService(
         val why = validReason(reason)
         if (!games.endByStaff(gameId)) throw GameException(ErrorCode.NOT_FOUND, "No such game")
         audit.record(staff, AdminAction.END_GAME, clock.instant(), target = gameId.value, reason = why)
+    }
+
+    /**
+     * An admin starts watching open game [gameId] live (docs/adr/0011-spectators-and-recordings.md): with a reason in
+     * the audit log, and only a game its host opened to spectators. [liveGame] then serves it to them for
+     * [WATCH_GRANT]; watching longer takes another reason.
+     */
+    fun watchGame(staff: Staff, gameId: GameId, reason: String): AdminLiveGame {
+        requireAdmin(staff)
+        val why = validReason(reason)
+        val live = games.liveView(gameId) ?: throw GameException(ErrorCode.NOT_FOUND, "No such game")
+        val now = clock.instant()
+        audit.record(staff, AdminAction.WATCH_GAME, now, target = gameId.value, reason = why)
+        watching[WatchKey(staff.userId, gameId)] = now.plus(WATCH_GRANT)
+        return live
+    }
+
+    /** Open game [gameId] right now, for an admin who started watching it ([watchGame]) within [WATCH_GRANT]. */
+    fun liveGame(staff: Staff, gameId: GameId): AdminLiveGame {
+        requireAdmin(staff)
+        val now = clock.instant()
+        watching.values.removeIf { !it.isAfter(now) }
+        if (!watching.containsKey(WatchKey(staff.userId, gameId))) {
+            throw GameException(ErrorCode.FORBIDDEN, "Start watching this game with a reason first")
+        }
+        return games.liveView(gameId) ?: throw GameException(ErrorCode.NOT_FOUND, "No such game")
     }
 
     // Numbers
@@ -446,6 +479,9 @@ class AdminService(
     }
 
     private companion object {
+        /** How long a reason covers watching an open game live. */
+        val WATCH_GRANT: Duration = Duration.ofMinutes(30)
+
         const val PAGE_SIZE = 50
         const val REVISION_LENGTH = 12
         const val MB = 1024 * 1024
