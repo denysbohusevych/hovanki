@@ -61,10 +61,12 @@ hovanki:
     request-retention: 90d
   moderation:
     report-retention: 90d
-  # Game history (docs/adr/0007-game-history-and-routes.md): saved routes of the players who turned it on. Results
-  # and statistics stay until the account is deleted.
+  # Game history (docs/adr/0007-game-history-and-routes.md): saved routes of the players who turned it on, and the
+  # recordings of games for their players (docs/adr/0011-spectators-and-recordings.md). Results and statistics stay
+  # until the account is deleted.
   history:
     route-retention: 90d
+    recording-retention: 90d
   # DataRetention: deletes what the retention periods above allow, once a day (server time is UTC).
   retention:
     cron: "0 17 3 * * *"
@@ -86,6 +88,8 @@ hovanki:
     invites: { count: 30, window: 1h }
     reports: { count: 10, window: 1h }
     admin-totp: { count: 10, window: 15m }
+    # Starting to watch an open game, per account (docs/adr/0011-spectators-and-recordings.md).
+    watch: { count: 30, window: 1h }
   # Staff admin, the /admin page (docs/adr/0008-admin.md). Off without a secret key: HOVANKI_ADMIN_SECRET_KEY in .env
   # (deploy/compose.yaml passes it on), base64 of 32 random bytes (openssl rand -base64 32); it encrypts the staff's
   # authenticator secrets.
