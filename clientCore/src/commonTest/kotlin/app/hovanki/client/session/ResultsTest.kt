@@ -179,7 +179,10 @@ class ResultsTest {
                     PlayerStatus.CAUGHT,
                     outAtMillis = searchFrom + 30_000,
                     caughtBy = sam,
-                    points = listOf(TrackPoint(a.lat, a.lon, searchFrom - 100_000), TrackPoint(b.lat, b.lon, searchFrom)),
+                    points = listOf(
+                        TrackPoint(a.lat, a.lon, searchFrom - 100_000),
+                        TrackPoint(b.lat, b.lon, searchFrom),
+                    ),
                 ),
                 RecordedPlayer(sam, "Sam", Role.SEEKER, PlayerStatus.ACTIVE, isMe = true),
             ),

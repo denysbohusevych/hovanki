@@ -1297,17 +1297,21 @@ class Game(
             buildings = buildingsState,
             streetZone = streetZone?.stages,
             // Not a big game's: a thousand ways, and each of its players is shown only their own and their friends'.
-            recording = if (isServerHosted) emptyList() else players.values.map { player ->
-                RecordedTrack(
-                    playerId = player.id,
-                    userId = player.userId,
-                    name = player.name,
-                    role = player.role,
-                    status = player.status,
-                    outAtMillis = player.outAtMillis,
-                    caughtBy = player.caughtBy,
-                    points = player.replay.points(),
-                )
+            recording = if (isServerHosted) {
+                emptyList()
+            } else {
+                players.values.map { player ->
+                    RecordedTrack(
+                        playerId = player.id,
+                        userId = player.userId,
+                        name = player.name,
+                        role = player.role,
+                        status = player.status,
+                        outAtMillis = player.outAtMillis,
+                        caughtBy = player.caughtBy,
+                        points = player.replay.points(),
+                    )
+                }
             },
             results = players.values.mapNotNull { player ->
                 val userId = player.userId ?: return@mapNotNull null

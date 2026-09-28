@@ -75,9 +75,12 @@ private fun Screen(state: SessionState, account: AccountState, isWatching: Boole
             // the main screen).
             state.session == null -> when {
                 !account.isRestored -> LoadingScreen()
+
                 !account.isLoggedIn -> WelcomeScreen()
+
                 // Watching an open game (docs/adr/0011-spectators-and-recordings.md).
                 isWatching -> SpectatorScreen()
+
                 else -> MainScreen()
             }
 

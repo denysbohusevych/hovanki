@@ -64,9 +64,9 @@ import app.hovanki.client.resources.building_rule_off
 import app.hovanki.client.resources.ic_back
 import app.hovanki.client.resources.ic_copy
 import app.hovanki.client.resources.ic_dice
+import app.hovanki.client.resources.ic_eye
 import app.hovanki.client.resources.ic_person_add
 import app.hovanki.client.resources.ic_share
-import app.hovanki.client.resources.ic_eye
 import app.hovanki.client.resources.ic_sliders
 import app.hovanki.client.resources.invites_sent
 import app.hovanki.client.resources.lobby_buildings_loading
@@ -128,8 +128,8 @@ import app.hovanki.client.ui.common.PopSurface
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SectionTitle
-import app.hovanki.client.ui.common.SpectatorsChip
 import app.hovanki.client.ui.common.SessionBanners
+import app.hovanki.client.ui.common.SpectatorsChip
 import app.hovanki.client.ui.common.Toast
 import app.hovanki.client.ui.common.formatDateTimeIn
 import app.hovanki.client.ui.common.plainTextClipEntry
