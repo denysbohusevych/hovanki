@@ -381,4 +381,11 @@
   <string name="replay_time">Час раунду</string>
   <string name="replay_play">Програти раунд</string>
   <string name="replay_pause">Пауза</string>
+
+  <!-- Бани та заборони чату від модераторів (docs/adr/0008-admin.md) -->
+  <string name="error_account_banned">Акаунт заблоковано до %1$s за порушення правил спільноти.</string>
+  <string name="error_account_banned_forever">Акаунт заблоковано за порушення правил спільноти.</string>
+  <string name="error_chat_muted">Писати в чат не можна до %1$s: модератори заборонили за порушення правил.</string>
+  <string name="error_chat_muted_forever">Писати в чат не можна: модератори заборонили за порушення правил.</string>
+  <string name="error_email_not_verified">Спочатку підтвердіть email.</string>
 </resources>

@@ -1,4 +1,4 @@
-package app.hovanki.client.catchcode
+package app.hovanki.shared.qr
 
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.PlayerId

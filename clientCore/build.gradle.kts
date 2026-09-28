@@ -43,10 +43,6 @@ kotlin {
             implementation(libs.ktor.client.mock)
             implementation(libs.turbine)
         }
-        jvmTest.dependencies {
-            // Reference QR encoder/decoder for QrCodeZxingTest; the main code has no QR dependency.
-            implementation(libs.zxing.core)
-        }
     }
 }
 

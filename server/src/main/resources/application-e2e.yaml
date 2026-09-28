@@ -16,3 +16,6 @@ hovanki:
   # The fixed test quarter next to every zone center (DebugBuildings): no external service in tests.
   buildings:
     source: fake
+  # The admin is on for the e2e tests (AdminTest); a key for this profile only, never for production.
+  admin:
+    secret-key: "khhmZ2aNOlQzfjpPJ9CnfdZt5I6Rysi5J2fFKitQL5M="

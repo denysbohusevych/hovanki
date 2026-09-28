@@ -76,4 +76,10 @@ data class InviteRequest(val userIds: List<UserId> = emptyList(), val groupId: G
  * when present, on the more precise [reason].
  */
 @Serializable
-data class ApiError(val code: ErrorCode, val message: String, val reason: ErrorReason? = null)
+data class ApiError(
+    val code: ErrorCode,
+    val message: String,
+    val reason: ErrorReason? = null,
+    /** When a ban or a chat ban ends ([ErrorReason.ACCOUNT_BANNED], [ErrorReason.CHAT_MUTED]); null: forever. */
+    val untilMillis: Long? = null,
+)

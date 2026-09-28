@@ -62,6 +62,15 @@ object EmailTemplates {
                 ignore = "If you didn't ask to reset your password, just ignore this email: " +
                     "your password stays the same.",
             )
+
+            EmailPurpose.STAFF_ENROLL -> Template(
+                subject = "Hovanki admin: set up your authenticator",
+                greeting = "Hello!",
+                intro = "Here is your code to set up the authenticator app for the Hovanki admin:",
+                validity = "Enter it on the admin page. $valid",
+                ignore = "If you didn't just log in to the Hovanki admin, someone knows your password: " +
+                    "change it in the app right away and tell the other admins.",
+            )
         }
     }
 
@@ -86,6 +95,15 @@ object EmailTemplates {
                 ignore = "Если вы не запрашивали сброс пароля, просто проигнорируйте это письмо: " +
                     "пароль останется прежним.",
             )
+
+            EmailPurpose.STAFF_ENROLL -> Template(
+                subject = "Админка Hovanki: подключение аутентификатора",
+                greeting = "Здравствуйте!",
+                intro = "Ваш код для подключения приложения-аутентификатора к админке Hovanki:",
+                validity = "Введите его на странице админки. $valid",
+                ignore = "Если вы только что не входили в админку Hovanki, кто-то знает ваш пароль: " +
+                    "сразу смените его в приложении и сообщите другим админам.",
+            )
         }
     }
 
@@ -109,6 +127,15 @@ object EmailTemplates {
                 validity = "Введіть його в застосунку разом із новим паролем. $valid",
                 ignore = "Якщо ви не просили скинути пароль, просто проігноруйте цей лист: " +
                     "пароль залишиться тим самим.",
+            )
+
+            EmailPurpose.STAFF_ENROLL -> Template(
+                subject = "Адмінка Hovanki: підключення автентифікатора",
+                greeting = "Вітаємо!",
+                intro = "Ваш код для підключення застосунку-автентифікатора до адмінки Hovanki:",
+                validity = "Введіть його на сторінці адмінки. $valid",
+                ignore = "Якщо ви щойно не входили в адмінку Hovanki, хтось знає ваш пароль: " +
+                    "одразу змініть його в застосунку та повідомте інших адмінів.",
             )
         }
     }

@@ -14,6 +14,8 @@ class GameException(
     val reason: ErrorReason? = null,
     /** For [ErrorReason.TOO_MANY_REQUESTS]: when to try again. */
     val retryAfterSeconds: Long? = null,
+    /** For [ErrorReason.ACCOUNT_BANNED] and [ErrorReason.CHAT_MUTED]: when it ends, null forever. */
+    val untilMillis: Long? = null,
 ) : RuntimeException(message) {
     companion object {
         /** A rate limit was hit; the client may try again after [retryAfter]. */

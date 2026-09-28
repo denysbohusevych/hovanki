@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Hovanki · Админка</title>
+  <link rel="stylesheet" href="admin.css">
+  <script type="module" src="admin.js"></script>
+</head>
+<body>
+  <!-- docs/adr/0008-admin.md. Everything below is built by admin.js; data goes in as text only, never as HTML. -->
+  <header class="top">
+    <a class="brand" href="#/reports">Hovanki <span>админка</span></a>
+    <nav id="nav" hidden></nav>
+    <div id="who" class="who" hidden></div>
+  </header>
+  <div id="notice" class="notice" role="status" hidden></div>
+  <main id="main"><p class="muted">Загрузка…</p></main>
+  <noscript>Админке нужен JavaScript.</noscript>
+</body>
+</html>

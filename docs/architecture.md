@@ -20,8 +20,8 @@ flowchart LR
 
 | Модуль | Таргеты | Что внутри |
 |---|---|---|
-| `:shared` | jvm, android, iosArm64, iosSimulatorArm64 | DTO протокола и `ApiRoutes`, `protocolJson`, TOTP-коды находки (свои SHA-1/HMAC на чистом Kotlin), гео-математика, расписание зоны, правила GPS: `LocationTrack`, `ZoneRules`, `CatchRules`; маршрут для истории: `RouteRecorder` (прореживание точек, расстояние без дрожания GPS). Без платформенных API. |
-| `:server` | JVM 21 | Spring Boot, REST под `/api/v1`. Игры — в памяти: `GameRegistry`, доменный объект `Game` (с чатом), `GameJanitor`. Аккаунты, друзья, блокировки, группы, жалобы и история законченных игр — в PostgreSQL (`JdbcClient`, миграции Flyway). Пакеты: `game/`, `account/`, `mail/`, `social/` (друзья, группы, приглашения в памяти), `history/` (итоги игр, маршруты, статистика), `moderation/`, `ratelimit/`, `db/`, `api/`, `buildings/`. |
+| `:shared` | jvm, android, iosArm64, iosSimulatorArm64 | DTO протокола и `ApiRoutes`, `protocolJson`, TOTP-коды находки и сотрудников (свои SHA-1/HMAC на чистом Kotlin), кодировщик QR, гео-математика, расписание зоны, правила GPS: `LocationTrack`, `ZoneRules`, `CatchRules`; маршрут для истории: `RouteRecorder` (прореживание точек, расстояние без дрожания GPS). Без платформенных API. |
+| `:server` | JVM 21 | Spring Boot, REST под `/api/v1`. Игры — в памяти: `GameRegistry`, доменный объект `Game` (с чатом), `GameJanitor`. Аккаунты, друзья, блокировки, группы, жалобы и история законченных игр — в PostgreSQL (`JdbcClient`, миграции Flyway). Пакеты: `game/`, `account/`, `mail/`, `social/` (друзья, группы, приглашения в памяти), `history/` (итоги игр, маршруты, статистика), `moderation/` (жалобы, баны и запреты чата), `admin/` (вход сотрудников с TOTP, админ-сессии, журнал, [ADR 0008](adr/0008-admin.md)), `ratelimit/`, `db/`, `api/`, `buildings/`. Страница админки — статика `src/main/resources/static/admin/` на `/admin`. |
 | `:clientCore` | jvm, android, iosArm64, iosSimulatorArm64 | Клиентская логика без UI: `GameApi`/`HttpGameApi`, `AccountApi`, `SocialApi` (Ktor), `GameConnection`/`PollingGameConnection`, `LocationOutbox`, `ServerClock`, `GameSessionManager` (с чатом), `AccountManager`, `SocialManager`, `HistoryManager`, `ClientStorage`, интерфейсы `LocationProvider`, `BackgroundTracker` и `SecureStore`. Без Compose и платформенного кода; JVM-таргет нужен headless-ботам e2e-тестов, чтобы они ходили через тот же сетевой код, что и приложение. |
 | `:composeApp` | android, iosArm64, iosSimulatorArm64 | KMP-библиотека (`com.android.kotlin.multiplatform.library`): Compose UI, Koin, движки Ktor, реализации платформенных сервисов. На iOS собирается во framework `ComposeApp` (вместе с `:clientCore`). |
 | `:androidApp` | Android | Тонкая точка входа: `Application` + `MainActivity`. AGP 9 со встроенным Kotlin. |
@@ -274,6 +274,7 @@ sequenceDiagram
 - `LocationTrack` держит точки игрока за последние 5 минут, старые удаляются по мере поступления новых. Для разбора после игры (ADR 0001, «Разбор после игры») отдельно копится трек раунда `ReplayTrack`: только пригодные точки, не чаще одной в 5 с (дойдя до 1000 точек, трек прореживается вдвое), от начала пряток до конца раунда, у прячущегося — до момента, когда его нашли или он выбыл. Треки отдаются игрокам этой игры только после конца раунда (`GET /tracks`; раньше — `WRONG_STATE`: они выдали бы прячущихся) и удаляются вместе с игрой. Показ всех треков участникам — исключение из [ADR 0007](adr/0007-game-history-and-routes.md#6-исключение-разбор-после-игры): только своей игры и только пока она в памяти; экран согласия об этом говорит.
 - `GameJanitor` раз в `cleanup-interval` (1 мин) удаляет игры вместе с треками, игроками и токенами: завершённые — через `finished-retention` (30 мин, запас на разбор после игры), брошенные — после `idle-retention` (6 ч) без запросов. Настройки — `hovanki.games.*` в `server/src/main/resources/application.yaml`.
 - Координаты, токены, пароли, коды из писем, email и текст чата не пишем в логи.
+- **Админка** ([ADR 0008](adr/0008-admin.md)). Сотрудники видят текст сообщений, на которые пожаловались, ники, числа об аккаунте (игры, устройства, друзья, жалобы) и email скрытым (`d•••@gmail.com`); целиком email — только админу, с причиной, в журнал. Координаты, маршруты, чат вне жалоб, пароли и токены админка не показывает никому; у игр — ни центра зоны, ни позиций. Баны и запреты чата хранятся, пока есть аккаунт (закончившиеся — год после конца), журнал действий сотрудников — год, без внешних ключей: он переживает удаление аккаунтов. Секреты TOTP в базе зашифрованы ключом `hovanki.admin.secret-key`.
 - Контуры зданий (открытые данные OSM) сервер берёт из Overpass API при создании игры: туда уходит только круг зоны, без данных игроков. В лог попадает только id игры, не круг: центр зоны — позиция хоста. Полигоны живут в памяти игры и удаляются вместе с ней.
 - Карта грузит тайлы с OpenFreeMap: провайдер видит IP устройства и район игры, как любой сайт с картой. Камера показывает зону и не следует за игроком, свои координаты приложение провайдеру не отправляет.
 - Секрет кода находки получает только сам прячущийся (`MyState.catchCodeSecret`).
@@ -282,7 +283,7 @@ sequenceDiagram
 
 ## API
 
-Пути — константы в `shared/src/commonMain/kotlin/app/hovanki/shared/protocol/ApiRoutes.kt`, DTO — в том же пакете, контроллеры — `server/src/main/kotlin/app/hovanki/server/api/` (`GameController`, `AccountController`, `SocialController`: тонкие адаптеры к сервисам). Формат — JSON с настройками `protocolJson`. Токен — `Authorization: Bearer <token>`: в колонке «Токен» — какой.
+Пути — константы в `shared/src/commonMain/kotlin/app/hovanki/shared/protocol/ApiRoutes.kt`, DTO — в том же пакете, контроллеры — `server/src/main/kotlin/app/hovanki/server/api/` (`GameController`, `AccountController`, `SocialController`, `HistoryController`, `AdminController`: тонкие адаптеры к сервисам). Формат — JSON с настройками `protocolJson`. Токен — `Authorization: Bearer <token>`: в колонке «Токен» — какой.
 
 **Игра.** Все мутирующие запросы отвечают свежим `GameSnapshot`.
 
@@ -344,22 +345,47 @@ sequenceDiagram
 | POST | `/api/v1/groups/{groupId}/members/{userId}/remove` | — (владелец убирает, участник выходит сам) | `GroupsResponse` |
 | POST | `/api/v1/groups/{groupId}/rename`, `/delete` | `RenameGroupRequest` / — (владелец) | `GroupsResponse` |
 
+**Админка** ([ADR 0008](adr/0008-admin.md)). Страница `/admin` и `AdminController`, DTO — `Admin.kt`. Каждый запрос — с заголовком `X-Hovanki-Admin: 1` (защита от CSRF, без него 403); после входа — cookie `__Host-hovanki-admin` (`HttpOnly`, `Secure`, `SameSite=Strict`), токен аккаунта из приложения здесь не работает. Без ключа `hovanki.admin.secret-key` все маршруты — 404. «Мод.» — модератор и админ, «Адм.» — только админ; каждое изменение требует причину и пишется в журнал.
+
+| Метод | Путь | Кто | Тело запроса | Ответ |
+|---|---|---|---|---|
+| POST | `/api/v1/admin/login` | сотрудник, пароль аккаунта; не сотрудник — как неверный пароль | `AdminLoginRequest` | `AdminLoginResponse`: `challenge` и шаг `TOTP` или `ENROLL` (код ушёл на email) |
+| POST | `/api/v1/admin/login/totp` | после пароля | `AdminTotpRequest` | `AdminMe` + cookie |
+| POST | `/api/v1/admin/enroll`, `/enroll/confirm` | первый вход: код из письма, затем код из приложения | `AdminEnrollRequest` / `AdminTotpRequest` | `AdminEnrollment` (секрет, otpauth, QR) / `AdminMe` + cookie |
+| POST | `/api/v1/admin/logout` | Мод. | — | 204 |
+| GET | `/api/v1/admin/me` | Мод. | — | `AdminMe` |
+| GET | `/api/v1/admin/reports?open=&before=` | Мод. | — | `AdminReports` |
+| POST | `/api/v1/admin/reports/{reportId}/resolve` | Мод. (бан дольше 30 дней — Адм.) | `ResolveReportRequest` | `AdminReport` |
+| GET | `/api/v1/admin/users?q=` | Мод.: ник (начало) или id | — | `AdminUsers` |
+| POST | `/api/v1/admin/users/find-by-email` | Адм. | `AdminFindByEmailRequest` | `AdminUsers` |
+| GET | `/api/v1/admin/users/{userId}` | Мод. | — | `AdminUserCard` |
+| POST | `/api/v1/admin/users/{userId}/ban`, `/mute` | Мод. до 30 дней, Адм. — любой срок и навсегда; только игроки | `SanctionRequest` | `AdminUserCard` |
+| POST | `/api/v1/admin/users/{userId}/unban`, `/unmute`, `/rename` | Мод. (снять вечный бан — Адм.) | `AdminReasonRequest` | `AdminUserCard` |
+| POST | `/api/v1/admin/users/{userId}/email`, `/logout` | Адм. | `AdminReasonRequest` | `AdminRevealedEmail` / `AdminUserCard` |
+| POST | `/api/v1/admin/users/{userId}/delete` | Адм., по письменному запросу владельца | `AdminReasonRequest` | 204 |
+| POST | `/api/v1/admin/users/{userId}/role`, `/reset-totp` | Адм.: игрок ⇄ модератор; сброс TOTP модератора | `AdminSetRoleRequest` / `AdminReasonRequest` | `AdminUserCard` |
+| GET | `/api/v1/admin/games` | Мод. | — | `AdminGames`: без центра зоны, позиций и чата |
+| POST | `/api/v1/admin/games/{gameId}/end` | Адм. | `AdminReasonRequest` | 204 |
+| GET | `/api/v1/admin/stats` | Мод. | — | `AdminStats` |
+| GET | `/api/v1/admin/staff`, `/audit?before=` | Адм. | — | `AdminStaff` / `AdminAudit` |
+
 **Служебное.**
 
 | Метод | Путь | Кто вызывает | Ответ |
 |---|---|---|---|
 | GET | `/actuator/health` (+ `/liveness`, `/readiness`) | мониторинг | статус Spring Boot |
 | GET | `/api/v1/debug/games`, `/api/v1/debug/games/{gameId}`, `/api/v1/debug/emails/{email}`, `/api/v1/debug/reports` | только e2e-тесты, **только Spring-профиль `e2e`** | `DebugGameList`, `DebugGameState`, `DebugEmails`, `DebugReportList` (`app.hovanki.shared.debug`): полное состояние игр без фильтрации (все позиции, заявки, причины раскрытий, весь чат), отправленные письма с кодами, жалобы. В обычном профиле маршрутов нет (404), это закреплено тестом `DebugEndpointAbsentTest` |
+| POST | `/api/v1/debug/users/{userId}/role` | только e2e-тесты, **только профиль `e2e`** | `DebugSetRole`: сделать аккаунт сотрудником, как оператор делает SQL-запросом; 204 |
 
-Любая ошибка приходит телом `ApiError(code, message, reason)` (`ApiExceptionHandler`). Клиент ориентируется на `code` и, если есть, на более точный `reason` ([ADR 0004](adr/0004-accounts-friends-chat.md#8-ошибки-apierrorreason)); HTTP-статус — для прокси и логов:
+Любая ошибка приходит телом `ApiError(code, message, reason, untilMillis)` (`ApiExceptionHandler`). Клиент ориентируется на `code` и, если есть, на более точный `reason` ([ADR 0004](adr/0004-accounts-friends-chat.md#8-ошибки-apierrorreason)); HTTP-статус — для прокси и логов:
 
 | `ErrorCode` | HTTP | Когда | `reason` |
 |---|---|---|---|
 | `BAD_REQUEST` | 400 | Некорректное тело, путь или настройки, неверное имя, больше 100 точек в `sync` | `INVALID_NICKNAME`, `INVALID_EMAIL`, `INVALID_PASSWORD`, `INVALID_GROUP_NAME`, `INVALID_MESSAGE` |
 | `UNAUTHORIZED` | 401 | Нет токена, игра уже удалена вместе с токенами, аккаунт-токен отозван или истёк | `SESSION_EXPIRED` |
-| `FORBIDDEN` | 403 | Действие не для этой роли / игрока, токен от другой игры, неверный логин или пароль | `WRONG_CREDENTIALS`, `ACCOUNT_REQUIRED`, `NOT_FRIENDS`, `NOT_GROUP_OWNER`, `NOT_GROUP_MEMBER` |
+| `FORBIDDEN` | 403 | Действие не для этой роли / игрока, токен от другой игры, неверный логин или пароль, бан, запрет чата | `WRONG_CREDENTIALS`, `ACCOUNT_REQUIRED`, `NOT_FRIENDS`, `NOT_GROUP_OWNER`, `NOT_GROUP_MEMBER`, `ACCOUNT_BANNED` и `CHAT_MUTED` (с `untilMillis`: до когда; нет — навсегда) |
 | `NOT_FOUND` | 404 | Нет игры, игрока, заявки, пользователя, группы | `USER_NOT_FOUND` |
-| `WRONG_STATE` | 409 | Не та фаза, заявка закрыта, игра заполнена, ник или email заняты, лимит | `NICKNAME_TAKEN`, `EMAIL_TAKEN`, `LIMIT_REACHED`, `BLOCKED_BY_YOU` |
+| `WRONG_STATE` | 409 | Не та фаза, заявка закрыта, игра заполнена, ник или email заняты, лимит, email не подтверждён | `NICKNAME_TAKEN`, `EMAIL_TAKEN`, `LIMIT_REACHED`, `BLOCKED_BY_YOU`, `EMAIL_NOT_VERIFIED` |
 | `WRONG_STATE` | 429 | Слишком много запросов; `Retry-After` — через сколько секунд повторить | `TOO_MANY_REQUESTS` |
 | `NO_LOCATION`, `TOO_FAR`, `INVALID_CODE` | 422 | Правила находки: нет точной точки, GPS доказывает, что далеко, неверный код; неверный или истёкший код из письма | `CODE_EXPIRED` |
 | `INTERNAL` | 500 | Непредвиденная ошибка (подробности только в логе сервера) | — |

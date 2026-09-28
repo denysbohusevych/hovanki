@@ -8,6 +8,7 @@ import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserProfile
+import app.hovanki.shared.protocol.UserRole
 import app.hovanki.shared.protocol.UserSummary
 import org.springframework.dao.DuplicateKeyException
 import org.springframework.jdbc.core.RowMapper
@@ -29,6 +30,8 @@ data class UserRecord(
     val createdAt: Instant,
     /** When the user agreed to keep the routes of their games; null: they did not (docs/adr/0007). */
     val saveRoutesSince: Instant? = null,
+    /** Staff roles work in the admin (docs/adr/0008-admin.md). */
+    val role: UserRole = UserRole.PLAYER,
 ) {
     val emailVerified: Boolean get() = emailVerifiedAt != null
 
@@ -155,6 +158,47 @@ class UserRepository(private val jdbc: JdbcClient) {
             .mapNotNullTo(mutableSetOf()) { it?.let(::UserId) }
     }
 
+    /**
+     * A new nickname (staff reset an offensive one). Throws [GameException] with [ErrorReason.NICKNAME_TAKEN] if
+     * another account has it.
+     */
+    fun updateNickname(id: UserId, nickname: String): Boolean = withTakenKeys {
+        jdbc.sql("UPDATE users SET nickname = :nickname, nickname_key = :key WHERE id = :id")
+            .param("id", id.value)
+            .param("nickname", nickname)
+            .param("key", AccountKeys.nicknameKey(nickname))
+            .update() > 0
+    }
+
+    fun setRole(id: UserId, role: UserRole): Boolean = jdbc.sql("UPDATE users SET role = :role WHERE id = :id")
+        .param("id", id.value)
+        .param("role", role.name)
+        .update() > 0
+
+    /** Moderators and admins, by nickname. */
+    fun staff(): List<UserRecord> = jdbc.sql(
+        "SELECT * FROM users WHERE role <> 'PLAYER' ORDER BY nickname_key",
+    ).query(mapper).list().filterNotNull()
+
+    /** Users whose nickname starts like [prefix] (case, spelling ignored), or whose id is [prefix]; at most [limit]. */
+    fun search(prefix: String, limit: Int): List<UserRecord> {
+        val key = AccountKeys.nicknameKey(prefix)
+        return jdbc.sql(
+            """
+            SELECT * FROM users
+            WHERE id = :id OR nickname_key LIKE :pattern ESCAPE '\'
+            ORDER BY (id = :id) DESC, nickname_key
+            LIMIT :limit
+            """.trimIndent(),
+        )
+            .param("id", prefix.trim())
+            .param("pattern", key.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%")
+            .param("limit", limit)
+            .query(mapper)
+            .list()
+            .filterNotNull()
+    }
+
     /** Deletes the user; every row that points at them goes with them (ON DELETE CASCADE). */
     fun delete(id: UserId): Boolean = jdbc.sql("DELETE FROM users WHERE id = :id").param("id", id.value).update() > 0
 
@@ -188,6 +232,7 @@ class UserRepository(private val jdbc: JdbcClient) {
                 language = rs.getString("language"),
                 createdAt = rs.getInstant("created_at"),
                 saveRoutesSince = rs.getInstantOrNull("save_routes_since"),
+                role = UserRole.valueOf(rs.getString("role")),
             )
         }
     }

@@ -1,10 +1,12 @@
 package app.hovanki.server.moderation
 
 import app.hovanki.server.db.getInstant
+import app.hovanki.server.db.getInstantOrNull
 import app.hovanki.server.db.toTimestamptz
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.UserId
+import org.springframework.jdbc.core.RowMapper
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
 import java.time.Instant
@@ -20,6 +22,10 @@ data class ReportRecord(
     val reportedName: String,
     val text: String,
     val createdAt: Instant,
+    val resolvedAt: Instant? = null,
+    /** The staff member's nickname at the time. */
+    val resolvedBy: String? = null,
+    val resolution: String? = null,
 ) {
     // Never the chat text in logs.
     override fun toString(): String = "ReportRecord($id, game $gameId, seq $messageSeq)"
@@ -64,9 +70,80 @@ class ReportRepository(private val jdbc: JdbcClient) {
         .update() > 0
 
     /** The newest [limit] reports, newest first. */
-    fun latest(limit: Int): List<ReportRecord> = jdbc.sql("SELECT * FROM reports ORDER BY id DESC LIMIT :limit")
+    fun latest(limit: Int): List<ReportRecord> = page(openOnly = false, before = null, limit = limit)
+
+    /** Newest first, [limit] reports older than report [before] (null: the newest); [openOnly]: not handled yet. */
+    fun page(openOnly: Boolean, before: Long?, limit: Int): List<ReportRecord> = jdbc.sql(
+        """
+        SELECT * FROM reports
+        WHERE (NOT :openOnly OR resolved_at IS NULL)
+          AND (CAST(:before AS bigint) IS NULL OR id < CAST(:before AS bigint))
+        ORDER BY id DESC
+        LIMIT :limit
+        """.trimIndent(),
+    )
+        .param("openOnly", openOnly)
+        .param("before", before)
         .param("limit", limit)
-        .query { rs, _ ->
+        .query(mapper)
+        .list()
+        .filterNotNull()
+
+    fun find(id: Long): ReportRecord? =
+        jdbc.sql("SELECT * FROM reports WHERE id = :id").param("id", id).query(mapper).optional().orElse(null)
+
+    /** Closes every open report on message [seq] of game [gameId]; how many. */
+    fun resolveMessage(gameId: String, seq: Long, by: String, resolution: String, at: Instant): Int = jdbc.sql(
+        """
+        UPDATE reports SET resolved_at = :at, resolved_by = :by, resolution = :resolution
+        WHERE game_id = :gameId AND message_seq = :seq AND resolved_at IS NULL
+        """.trimIndent(),
+    )
+        .param("gameId", gameId)
+        .param("seq", seq)
+        .param("by", by)
+        .param("resolution", resolution)
+        .param("at", at.toTimestamptz())
+        .update()
+
+    fun openCount(): Int =
+        jdbc.sql("SELECT count(*) FROM reports WHERE resolved_at IS NULL").query(Int::class.java).single()
+
+    fun countSince(since: Instant): Int = jdbc.sql("SELECT count(*) FROM reports WHERE created_at >= :since")
+        .param("since", since.toTimestamptz())
+        .query(Int::class.java)
+        .single()
+
+    /** Reports on the messages of each of [authors], and from how many different players (a guest by their player). */
+    fun againstAuthors(authors: Collection<UserId>): Map<UserId, Pair<Int, Int>> {
+        if (authors.isEmpty()) return emptyMap()
+        return jdbc.sql(
+            """
+            SELECT reported_user_id, count(*) AS reports,
+                   count(DISTINCT coalesce(reporter_user_id, reporter_player_id)) AS reporters
+            FROM reports
+            WHERE reported_user_id IN (:ids)
+            GROUP BY reported_user_id
+            """.trimIndent(),
+        )
+            .param("ids", authors.map { it.value })
+            .query { rs, _ ->
+                UserId(rs.getString("reported_user_id")) to
+                    (rs.getInt("reports") to rs.getInt("reporters"))
+            }
+            .list()
+            .filterNotNull()
+            .toMap()
+    }
+
+    /** Reports [userId] sent. */
+    fun countBy(userId: UserId): Int = jdbc.sql("SELECT count(*) FROM reports WHERE reporter_user_id = :u")
+        .param("u", userId.value)
+        .query(Int::class.java)
+        .single()
+
+    private companion object {
+        val mapper = RowMapper { rs, _ ->
             ReportRecord(
                 id = rs.getLong("id"),
                 gameId = rs.getString("game_id"),
@@ -77,8 +154,10 @@ class ReportRepository(private val jdbc: JdbcClient) {
                 reportedName = rs.getString("reported_name"),
                 text = rs.getString("text"),
                 createdAt = rs.getInstant("created_at"),
+                resolvedAt = rs.getInstantOrNull("resolved_at"),
+                resolvedBy = rs.getString("resolved_by"),
+                resolution = rs.getString("resolution"),
             )
         }
-        .list()
-        .filterNotNull()
+    }
 }

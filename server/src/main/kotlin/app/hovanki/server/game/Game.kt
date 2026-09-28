@@ -5,6 +5,7 @@ import app.hovanki.shared.debug.DebugFixCounts
 import app.hovanki.shared.debug.DebugGameState
 import app.hovanki.shared.debug.DebugPlayer
 import app.hovanki.shared.debug.DebugVote
+import app.hovanki.shared.protocol.AdminGame
 import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
@@ -428,6 +429,31 @@ class Game(
     }
 
     fun hasPlayer(id: PlayerId): Boolean = id in players
+
+    /** What staff see of this game in the admin (docs/adr/0008-admin.md): no zone center, no positions, no chat. */
+    fun adminView(): AdminGame = AdminGame(
+        gameId = id,
+        phase = phase,
+        hostName = players[hostId]?.name.orEmpty(),
+        players = players.size,
+        guests = players.values.count { it.userId == null },
+        seekers = players.values.count { it.role == Role.SEEKER },
+        createdAtMillis = createdAtMillis,
+        phaseStartedAtMillis = phaseStartedAtMillis,
+        lastActivityMillis = lastActivityMillis,
+        zoneRadiusMeters = settings.zone.initial.radiusMeters,
+        chatMessages = lastChatSeq.toInt(),
+    )
+
+    /**
+     * Staff end a started round now (docs/adr/0008-admin.md), as if its time ran out: the players see the results, the
+     * history is saved. A game in the lobby is removed instead ([GameService.endByStaff]).
+     */
+    fun endNow(nowMillis: Long) {
+        if (phase == GamePhase.LOBBY) throw GameException(ErrorCode.WRONG_STATE, "The game has not started")
+        finish(nowMillis)
+        lastActivityMillis = nowMillis
+    }
 
     /**
      * Everything, unfiltered, for the e2e observer (served only with the `e2e` Spring profile).

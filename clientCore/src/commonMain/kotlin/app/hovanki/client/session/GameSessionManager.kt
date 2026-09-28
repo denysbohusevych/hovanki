@@ -436,7 +436,7 @@ class GameSessionManager(
     } catch (e: ApiException) {
         if (accountToken != null && e.status == UNAUTHORIZED) account.onTokenRejected(accountToken)
         val message = e.error?.message ?: e.message.orEmpty()
-        fail(SessionError.Rejected(e.error?.code, message, e.reason, e.retryAfterSeconds))
+        fail(SessionError.Rejected(e.error?.code, message, e.reason, e.retryAfterSeconds, e.error?.untilMillis))
     } catch (e: Exception) {
         fail(SessionError.Network(e.message))
     }

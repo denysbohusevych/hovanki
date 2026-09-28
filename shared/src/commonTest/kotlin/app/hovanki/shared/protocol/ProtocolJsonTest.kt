@@ -84,6 +84,15 @@ class ProtocolJsonTest {
         assertEquals(known, protocolJson.decodeFromString<ApiError>(protocolJson.encodeToString(known)))
     }
 
+    @Test
+    fun aBanSaysUntilWhen() {
+        val ban = ApiError(ErrorCode.FORBIDDEN, "Banned", ErrorReason.ACCOUNT_BANNED, untilMillis = 1_800_000_000_000)
+        assertEquals(ban, protocolJson.decodeFromString<ApiError>(protocolJson.encodeToString(ban)))
+        // A server before bans sends no `untilMillis`.
+        val json = """{"code":"FORBIDDEN","message":"No"}"""
+        assertEquals(ApiError(ErrorCode.FORBIDDEN, "No"), protocolJson.decodeFromString<ApiError>(json))
+    }
+
     /** What the first app versions know of an error: no `reason`. */
     @Serializable
     private data class FirstVersionApiError(val code: ErrorCode, val message: String)

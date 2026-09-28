@@ -1,7 +1,13 @@
 package app.hovanki.server.mail
 
 /** What an email with a code is for; stored as text in `email_codes.purpose`. */
-enum class EmailPurpose { VERIFY_EMAIL, RESET_PASSWORD }
+enum class EmailPurpose {
+    VERIFY_EMAIL,
+    RESET_PASSWORD,
+
+    /** A staff member sets up the authenticator app for the admin (docs/adr/0008-admin.md). */
+    STAFF_ENROLL,
+}
 
 /** A rendered email, plain text. [code] is kept separately for the recording sender (tests read it there). */
 data class OutgoingEmail(
