@@ -12,10 +12,12 @@ import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
 import app.hovanki.client.social.SocialManager
+import app.hovanki.client.social.UserRelation
 import app.hovanki.client.ui.common.CommandRunner
 import app.hovanki.client.ui.common.FormMessage
 import app.hovanki.client.ui.common.PlayerAccount
 import app.hovanki.client.ui.common.playerAccount
+import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CapacityState
 import app.hovanki.shared.protocol.FriendsResponse
@@ -335,6 +337,8 @@ class LobbyViewModel(
             glowEveryMinutes = settings.glowEverySeconds.minutesRoundedUp().takeIf { Glow.isOn(settings) },
             rolesDrawnAtMillis = snapshot.rolesDrawnAtMillis,
             capacity = capacity?.players,
+            bigGame = snapshot.bigGame,
+            friendsHere = players.filter { it.account.relation == UserRelation.FRIEND },
             crowding = capacity?.takeIf { snapshot.hostId == me && Capacity.needsWarning(it, players.size) }?.let {
                 Crowding(
                     capacity = it.players ?: 0,
@@ -394,6 +398,12 @@ data class LobbyUiState(
     val capacity: Int? = null,
     /** The host's warning: too many players for the zone, or few places to hide; null: none (or played anyway). */
     val crowding: Crowding? = null,
+    /**
+     * A big game's lobby (docs/adr/0010-big-games.md): hosted by the server, it starts at [BigGameInfo.startsAtMillis];
+     * no join code, no host, the list shows only [friendsHere].
+     */
+    val bigGame: BigGameInfo? = null,
+    val friendsHere: List<LobbyPlayer> = emptyList(),
 )
 
 /** Too many players for the zone ([isCrowded]: [players] where it fits [capacity]), or few places to hide. */

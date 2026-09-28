@@ -445,4 +445,25 @@
   </plurals>
   <string name="lobby_few_covers">Мало укрытий: почти вся зона — открытое место.</string>
   <string name="lobby_play_anyway">Играть всё равно</string>
+  <!-- Большие игры (docs/adr/0010-big-games.md). -->
+  <string name="big_games_title">Большие игры</string>
+  <string name="big_game_signed_up">Записались: %1$d из %2$d</string>
+  <string name="big_game_friends">Друзья: %1$s</string>
+  <string name="big_game_zone">Зона %1$s</string>
+  <string name="big_game_sign_up">Записаться</string>
+  <string name="big_game_cancel_signup">Отменить запись</string>
+  <string name="big_game_signed_up_note">Вы записаны. Лобби откроется за 30 минут до старта.</string>
+  <string name="big_game_join">Войти в лобби</string>
+  <string name="big_game_full">Мест нет</string>
+  <string name="big_game_status_lobby">Лобби открыто</string>
+  <string name="big_game_status_running">Идёт</string>
+  <string name="unit_ha">%1$s га</string>
+  <string name="unit_km2">%1$s км²</string>
+  <string name="error_big_game_signup_required">Сначала запишитесь на игру.</string>
+  <string name="big_lobby_starts_in">Старт через %1$s</string>
+  <string name="big_lobby_starting">Стартуем…</string>
+  <string name="big_lobby_counts">В лобби: %1$d · записались: %2$d</string>
+  <string name="big_lobby_roles">Ищущих выберет сервер при старте.</string>
+  <string name="big_lobby_friends">Друзья в лобби</string>
+  <string name="big_lobby_no_friends">Друзей в лобби пока нет.</string>
 </resources>

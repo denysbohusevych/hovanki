@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -51,6 +53,13 @@ import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_dismiss
 import app.hovanki.client.resources.action_leave
+import app.hovanki.client.resources.big_games_title
+import app.hovanki.client.resources.big_lobby_counts
+import app.hovanki.client.resources.big_lobby_friends
+import app.hovanki.client.resources.big_lobby_no_friends
+import app.hovanki.client.resources.big_lobby_roles
+import app.hovanki.client.resources.big_lobby_starting
+import app.hovanki.client.resources.big_lobby_starts_in
 import app.hovanki.client.resources.building_rule_off
 import app.hovanki.client.resources.ic_back
 import app.hovanki.client.resources.ic_copy
@@ -95,6 +104,7 @@ import app.hovanki.client.resources.lobby_you
 import app.hovanki.client.resources.lobby_you_hide
 import app.hovanki.client.resources.lobby_you_seek
 import app.hovanki.client.resources.street_zone_off
+import app.hovanki.client.session.ServerClock
 import app.hovanki.client.share.ShareSheet
 import app.hovanki.client.ui.chat.ChatIconButton
 import app.hovanki.client.ui.chat.ChatPanel
@@ -113,8 +123,10 @@ import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopSurface
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
+import app.hovanki.client.ui.common.SectionTitle
 import app.hovanki.client.ui.common.SessionBanners
 import app.hovanki.client.ui.common.Toast
+import app.hovanki.client.ui.common.formatDateTimeIn
 import app.hovanki.client.ui.common.plainTextClipEntry
 import app.hovanki.client.ui.common.rememberReduceMotion
 import app.hovanki.client.ui.common.rememberToastVisible
@@ -123,7 +135,10 @@ import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.theme.color
 import app.hovanki.client.ui.theme.onColor
+import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.BuildingsState
+import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.ZoneShape
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -178,7 +193,12 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
         Column(modifier = Modifier.fillMaxSize().testTag(TestTags.LOBBY_SCREEN)) {
             ScreenColumn(modifier = Modifier.weight(1f)) {
                 Header(chatUnread = chatState.unread, onOpenChat = chat::open, onLeave = viewModel::leave)
-                JoinCodeCard(state.joinCode, onCopied = { codeCopies++ })
+                val bigGame = state.bigGame
+                if (bigGame != null) {
+                    BigGameCard(bigGame, playersHere = state.players.size)
+                } else {
+                    JoinCodeCard(state.joinCode, onCopied = { codeCopies++ })
+                }
                 SessionBanners(
                     connectionStatus = state.connectionStatus,
                     isSharingLocation = state.isSharingLocation,
@@ -202,87 +222,11 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                 state.crowding?.let { crowding ->
                     CrowdingBanner(crowding, onPlayAnyway = viewModel::playAnyway)
                 }
-                if (!state.isHost) MyRoleCard(isSeeker = state.amSeeker)
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = stringResource(Res.string.lobby_players, state.players.size),
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (state.isHost) {
-                        PopButton(
-                            onClick = viewModel::drawSeekers,
-                            enabled = state.players.size >= 2,
-                            style = PopStyle.Pink,
-                            height = 40.dp,
-                            contentPadding = PaddingValues(horizontal = 12.dp),
-                            modifier = Modifier.testTag(TestTags.LOBBY_RANDOM),
-                        ) {
-                            val wobble = remember { Animatable(0f) }
-                            LaunchedEffect(shuffles) {
-                                if (shuffles == 0 || reduceMotion) return@LaunchedEffect
-                                for (angle in DICE_WOBBLE) wobble.animateTo(angle, tween(DICE_STEP_MILLIS))
-                            }
-                            Icon(
-                                painterResource(Res.drawable.ic_dice),
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp).rotate(wobble.value),
-                            )
-                            Text(stringResource(Res.string.lobby_random), style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                    if (state.canInvite) {
-                        PopIconButton(
-                            icon = Res.drawable.ic_person_add,
-                            contentDescription = stringResource(Res.string.lobby_invite),
-                            onClick = { viewModel.openInvites(state.gameId) },
-                            size = 40.dp,
-                            iconSize = 20.dp,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.testTag(TestTags.LOBBY_INVITE),
-                        )
-                    }
-                }
-                if (viewModel.invitesSentIn == state.gameId) {
-                    Banner(
-                        text = stringResource(Res.string.invites_sent),
-                        modifier = Modifier.testTag(TestTags.INVITES_SENT),
-                        actionLabel = stringResource(Res.string.action_dismiss),
-                        onAction = viewModel::dismissInvitesSent,
-                    )
-                }
-                if (state.isHost) SecondaryText(stringResource(Res.string.lobby_pick_seekers))
-                PopCard(contentPadding = PaddingValues(0.dp), verticalArrangement = Arrangement.Top) {
-                    state.players.forEachIndexed { index, player ->
-                        key(player.id) {
-                            val isNew = player.id !in initialPlayers && !reduceMotion
-                            val appeared = remember { MutableTransitionState(!isNew) }
-                            appeared.targetState = true
-                            AnimatedVisibility(
-                                visibleState = appeared,
-                                enter = expandVertically(Motion.base()) + slideInVertically(Motion.base()) { it } +
-                                    fadeIn(Motion.base()),
-                            ) {
-                                Column {
-                                    if (index > 0) HorizontalDivider(color = Palette.Line, thickness = 1.5.dp)
-                                    PlayerRow(
-                                        player = player,
-                                        canPickRoles = state.isHost,
-                                        isBusy = isBusy,
-                                        isNew = isNew,
-                                        shuffles = if (reduceMotion) 0 else shuffles,
-                                        onToggleSeeker = { viewModel.toggleSeeker(player.id) },
-                                        onAddFriend = { player.account.userId?.let(viewModel::addFriend) },
-                                    )
-                                }
-                            }
-                        }
-                    }
+                if (state.bigGame != null) {
+                    BigGameFriends(state, isBusy = isBusy, onAddFriend = viewModel::addFriend)
+                } else {
+                    if (!state.isHost) MyRoleCard(isSeeker = state.amSeeker)
+                    PlayersSection(state, viewModel, isBusy, reduceMotion, shuffles, initialPlayers)
                 }
                 CommandStatus(
                     isBusy = false,
@@ -297,7 +241,10 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                if (state.isHost) {
+                val bigGame = state.bigGame
+                if (bigGame != null) {
+                    BigGameCountdown(bigGame.startsAtMillis)
+                } else if (state.isHost) {
                     PopButton(
                         text = stringResource(Res.string.lobby_start),
                         onClick = viewModel::start,
@@ -328,6 +275,100 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
             text = stringResource(Res.string.lobby_code_copied),
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp),
         )
+    }
+}
+
+/** The players with their roles: «Random» and the invitations for the host, the list with the role pills. */
+@Composable
+private fun PlayersSection(
+    state: LobbyUiState,
+    viewModel: LobbyViewModel,
+    isBusy: Boolean,
+    reduceMotion: Boolean,
+    shuffles: Int,
+    initialPlayers: Set<PlayerId>,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(Res.string.lobby_players, state.players.size),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
+            if (state.isHost) {
+                PopButton(
+                    onClick = viewModel::drawSeekers,
+                    enabled = state.players.size >= 2,
+                    style = PopStyle.Pink,
+                    height = 40.dp,
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    modifier = Modifier.testTag(TestTags.LOBBY_RANDOM),
+                ) {
+                    val wobble = remember { Animatable(0f) }
+                    LaunchedEffect(shuffles) {
+                        if (shuffles == 0 || reduceMotion) return@LaunchedEffect
+                        for (angle in DICE_WOBBLE) wobble.animateTo(angle, tween(DICE_STEP_MILLIS))
+                    }
+                    Icon(
+                        painterResource(Res.drawable.ic_dice),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp).rotate(wobble.value),
+                    )
+                    Text(stringResource(Res.string.lobby_random), style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            if (state.canInvite) {
+                PopIconButton(
+                    icon = Res.drawable.ic_person_add,
+                    contentDescription = stringResource(Res.string.lobby_invite),
+                    onClick = { viewModel.openInvites(state.gameId) },
+                    size = 40.dp,
+                    iconSize = 20.dp,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.testTag(TestTags.LOBBY_INVITE),
+                )
+            }
+        }
+        if (viewModel.invitesSentIn == state.gameId) {
+            Banner(
+                text = stringResource(Res.string.invites_sent),
+                modifier = Modifier.testTag(TestTags.INVITES_SENT),
+                actionLabel = stringResource(Res.string.action_dismiss),
+                onAction = viewModel::dismissInvitesSent,
+            )
+        }
+        if (state.isHost) SecondaryText(stringResource(Res.string.lobby_pick_seekers))
+        PopCard(contentPadding = PaddingValues(0.dp), verticalArrangement = Arrangement.Top) {
+            state.players.forEachIndexed { index, player ->
+                key(player.id) {
+                    val isNew = player.id !in initialPlayers && !reduceMotion
+                    val appeared = remember { MutableTransitionState(!isNew) }
+                    appeared.targetState = true
+                    AnimatedVisibility(
+                        visibleState = appeared,
+                        enter = expandVertically(Motion.base()) + slideInVertically(Motion.base()) { it } +
+                            fadeIn(Motion.base()),
+                    ) {
+                        Column {
+                            if (index > 0) HorizontalDivider(color = Palette.Line, thickness = 1.5.dp)
+                            PlayerRow(
+                                player = player,
+                                canPickRoles = state.isHost,
+                                isBusy = isBusy,
+                                isNew = isNew,
+                                shuffles = if (reduceMotion) 0 else shuffles,
+                                onToggleSeeker = { viewModel.toggleSeeker(player.id) },
+                                onAddFriend = { player.account.userId?.let(viewModel::addFriend) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -632,6 +673,96 @@ private fun rememberFlicker(trigger: Int, actual: Boolean, seed: Int): Boolean {
     }
     return shown ?: actual
 }
+
+/**
+ * A big game's lobby (docs/adr/0010-big-games.md): the title on violet, when it starts in the place's time, and how many
+ * are here and signed up. No join code: only the signed-up come in, from their «Play» tab.
+ */
+@Composable
+private fun BigGameCard(bigGame: BigGameInfo, playersHere: Int) {
+    PopCard(
+        modifier = Modifier.fillMaxWidth().testTag(TestTags.BIG_LOBBY),
+        color = Palette.Violet,
+        borderWidth = 2.5.dp,
+        shadow = 5.dp,
+        shape = RoundedCornerShape(24.dp),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        CapsText(stringResource(Res.string.big_games_title), color = Color.White)
+        Text(text = bigGame.title, style = MaterialTheme.typography.headlineSmall, color = Color.White)
+        Text(
+            text = formatDateTimeIn(bigGame.startsAtMillis, bigGame.timeZone),
+            style = MaterialTheme.typography.titleSmall,
+            color = Color.White,
+        )
+        Text(
+            text = stringResource(Res.string.big_lobby_counts, playersHere, bigGame.signedUp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White,
+        )
+    }
+}
+
+/** Friends in a big game's lobby (the list of everybody would be hundreds long); the server draws the roles. */
+@Composable
+private fun BigGameFriends(state: LobbyUiState, isBusy: Boolean, onAddFriend: (UserId) -> Unit) {
+    SecondaryText(stringResource(Res.string.big_lobby_roles))
+    SectionTitle(stringResource(Res.string.big_lobby_friends))
+    if (state.friendsHere.isEmpty()) {
+        SecondaryText(stringResource(Res.string.big_lobby_no_friends))
+        return
+    }
+    PopCard(contentPadding = PaddingValues(0.dp), verticalArrangement = Arrangement.Top) {
+        state.friendsHere.forEachIndexed { index, player ->
+            key(player.id) {
+                if (index > 0) HorizontalDivider(color = Palette.Line, thickness = 1.5.dp)
+                PlayerRow(
+                    player = player,
+                    canPickRoles = false,
+                    isBusy = isBusy,
+                    isNew = false,
+                    shuffles = 0,
+                    onToggleSeeker = {},
+                    onAddFriend = { player.account.userId?.let(onAddFriend) },
+                )
+            }
+        }
+    }
+}
+
+/** Until the start by the server's clock, every second; then «Starting…» until the round is there. */
+@Composable
+private fun BigGameCountdown(startsAtMillis: Long) {
+    val clock = koinInject<ServerClock>()
+    val left by produceState(startsAtMillis - clock.now(), startsAtMillis) {
+        while (true) {
+            value = startsAtMillis - clock.now()
+            delay(COUNTDOWN_TICK_MILLIS)
+        }
+    }
+    Text(
+        text = if (left > 0) {
+            stringResource(Res.string.big_lobby_starts_in, countdownText(left))
+        } else {
+            stringResource(Res.string.big_lobby_starting)
+        },
+        style = MaterialTheme.typography.titleMedium,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.padding(vertical = 12.dp).testTag(TestTags.BIG_LOBBY_COUNTDOWN),
+    )
+}
+
+/** «1:05:09», «4:07». */
+private fun countdownText(millis: Long): String {
+    val seconds = (millis + 999) / 1000
+    val hours = seconds / 3600
+    val minutes = seconds % 3600 / 60
+    val rest = (seconds % 60).toString().padStart(2, '0')
+    return if (hours > 0) "$hours:${minutes.toString().padStart(2, '0')}:$rest" else "$minutes:$rest"
+}
+
+private const val COUNTDOWN_TICK_MILLIS = 1_000L
 
 private val DICE_WOBBLE = listOf(-22f, 18f, -10f, 0f)
 private const val DICE_STEP_MILLIS = 90

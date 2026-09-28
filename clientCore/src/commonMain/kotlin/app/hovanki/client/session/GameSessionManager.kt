@@ -13,16 +13,20 @@ import app.hovanki.client.storage.SavedSession
 import app.hovanki.client.tracking.AlertRepeats
 import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.client.tracking.hiderAlerts
+import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.CreateGameRequest
+import app.hovanki.shared.protocol.ErrorCode
+import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.GroupId
 import app.hovanki.shared.protocol.InviteRequest
+import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.PlayerId
@@ -99,6 +103,9 @@ class GameSessionManager(
      */
     private var unansweredJoin: JoinGameRequest? = null
 
+    /** The same for a big game's lobby ([joinBigGame]). */
+    private var unansweredBigGameJoin: Pair<BigGameId, JoinBigGameRequest>? = null
+
     /** The chat message that got no answer; sent again, it keeps its [SendChatRequest.clientMessageId]. */
     private var unansweredChat: SendChatRequest? = null
 
@@ -124,6 +131,23 @@ class GameSessionManager(
             ?: typed.copy(requestId = newRequestId())
         val joined = command(token) { begin(api.joinGame(request, token)) }
         unansweredJoin = request.takeIf { !joined && mutableState.value.lastError is SessionError.Network }
+        return joined
+    }
+
+    /**
+     * Into the open lobby of big game [id] (docs/adr/0010-big-games.md), or back to the player's round in it: only with
+     * an account that signed up. [leaveOtherGame] as in [create]. Pressed again after a lost answer, the same request id
+     * goes out, as with [join].
+     */
+    suspend fun joinBigGame(id: BigGameId, leaveOtherGame: Boolean = false): Boolean {
+        val token = account.accountToken
+            ?: return fail(SessionError.Rejected(ErrorCode.FORBIDDEN, "Log in first", ErrorReason.ACCOUNT_REQUIRED))
+        val typed = JoinBigGameRequest(leaveOtherGame = leaveOtherGame)
+        val request = unansweredBigGameJoin?.takeIf { it.first == id && it.second.copy(requestId = null) == typed }
+            ?.second ?: typed.copy(requestId = newRequestId())
+        val joined = command(token) { begin(api.joinBigGame(id, request, token)) }
+        unansweredBigGameJoin =
+            (id to request).takeIf { !joined && mutableState.value.lastError is SessionError.Network }
         return joined
     }
 

@@ -1,5 +1,6 @@
 package app.hovanki.client.network
 
+import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
@@ -13,6 +14,7 @@ import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.InviteRequest
+import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.MyState
@@ -88,8 +90,21 @@ class FakeGameApi(
     private val onStreetZone: suspend () -> StreetZoneResponse = { unused() },
     private val onLeave: suspend () -> Unit = {},
     private val onAcceptCrowding: suspend () -> GameSnapshot = { unused() },
+    private val onJoinBigGame: suspend (BigGameId, JoinBigGameRequest) -> SessionResponse = { _, _ -> unused() },
     private val onSync: suspend (SyncRequest) -> GameSnapshot,
 ) : GameApi {
+    /** Every big-game join as (big game, request, account token). */
+    val bigGameJoins = mutableListOf<Triple<BigGameId, JoinBigGameRequest, String>>()
+
+    override suspend fun joinBigGame(
+        id: BigGameId,
+        request: JoinBigGameRequest,
+        accountToken: String,
+    ): SessionResponse {
+        bigGameJoins += Triple(id, request, accountToken)
+        return onJoinBigGame(id, request)
+    }
+
     var crowdingAccepts = 0
 
     override suspend fun acceptCrowding(session: PlayerSession): GameSnapshot {

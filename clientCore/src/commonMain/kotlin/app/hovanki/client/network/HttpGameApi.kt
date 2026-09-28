@@ -1,6 +1,7 @@
 package app.hovanki.client.network
 
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ClaimCatchRequest
@@ -8,6 +9,7 @@ import app.hovanki.shared.protocol.ConfirmCatchRequest
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.InviteRequest
+import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
@@ -31,6 +33,12 @@ class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
 
     override suspend fun joinGame(request: JoinGameRequest, accountToken: String?): SessionResponse =
         http.post(ApiRoutes.JOIN, accountToken, request)
+
+    override suspend fun joinBigGame(
+        id: BigGameId,
+        request: JoinBigGameRequest,
+        accountToken: String,
+    ): SessionResponse = http.post(ApiRoutes.bigGameJoin(id), accountToken, request)
 
     override suspend fun startGame(session: PlayerSession, request: StartGameRequest): GameSnapshot =
         http.post(ApiRoutes.start(session.gameId), session.token, request)

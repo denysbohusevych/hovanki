@@ -26,3 +26,9 @@ expect fun formatDateTime(epochMillis: Long): String
 
 /** [epochMillis] as a date in the phone's language and time zone ("27 Sep 2026"). */
 expect fun formatDate(epochMillis: Long): String
+
+/**
+ * [epochMillis] as a date and time in the phone's language, in the IANA [timeZone] ("Europe/Kyiv"): a big game starts
+ * at the place's time. An unknown zone: the phone's.
+ */
+expect fun formatDateTimeIn(epochMillis: Long, timeZone: String): String

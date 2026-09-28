@@ -234,6 +234,10 @@ object TestTags {
     const val LOBBY_CROWDED = "lobby_crowded"
     const val LOBBY_PLAY_ANYWAY = "lobby_play_anyway"
 
+    /** A big game's lobby: its title and countdown, and the friends in it. */
+    const val BIG_LOBBY = "big_lobby"
+    const val BIG_LOBBY_COUNTDOWN = "big_lobby_countdown"
+
     /** The host's game settings: the button in the lobby, the panel, its «Save». */
     const val LOBBY_SETTINGS = "lobby_settings"
     const val SETTINGS_PANEL = "settings_panel"
@@ -323,6 +327,15 @@ object TestTags {
     fun voteConfirm(catchId: CatchId) = "vote_confirm_${catchId.value}"
 
     fun voteReject(catchId: CatchId) = "vote_reject_${catchId.value}"
+
+    /** A big game on «Play» (docs/adr/0010-big-games.md): its card, «Sign up», «Cancel», «Into the lobby». */
+    fun bigGame(id: String) = "big_game_$id"
+
+    fun bigGameSignUp(id: String) = "big_game_sign_up_$id"
+
+    fun bigGameCancel(id: String) = "big_game_cancel_$id"
+
+    fun bigGameJoin(id: String) = "big_game_join_$id"
 
     /** A game invite on the «Play» tab, by the game's join code (one invite per game). */
     fun invite(joinCode: String) = "invite_$joinCode"

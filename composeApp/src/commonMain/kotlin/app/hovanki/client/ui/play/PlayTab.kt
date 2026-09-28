@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.big_games_title
 import app.hovanki.client.resources.home_code_label
 import app.hovanki.client.resources.home_create
 import app.hovanki.client.resources.home_create_hint
@@ -70,6 +71,7 @@ import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.verify.ConfirmEmailCard
 import app.hovanki.client.ui.verify.VerifyEmailViewModel
+import app.hovanki.shared.protocol.BigGameCard
 import app.hovanki.shared.protocol.GameInvite
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -77,7 +79,8 @@ import org.koin.compose.viewmodel.koinViewModel
 
 /**
  * «Play»: a hello, the offer to confirm the email (until confirmed or «Later»), invites, then the big «Create a game»
- * card and joining a game by its code (docs/design.md, «Главная»).
+ * card, joining a game by its code (docs/design.md, «Главная»), and the big games to sign up for
+ * (docs/adr/0010-big-games.md).
  */
 @Composable
 fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: PlayViewModel = koinViewModel()) {
@@ -85,12 +88,18 @@ fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: 
     val status by viewModel.startStatus.collectAsStateWithLifecycle()
     val sessionError by viewModel.sessionError.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val bigGames by viewModel.bigGames.collectAsStateWithLifecycle()
+    val isSigningUp by viewModel.isSigningUp.collectAsStateWithLifecycle()
     val requestLocationThenCreate = rememberLocationRequest { granted -> viewModel.createGame(granted) }
     // Asked before joining as well, so location is already on when the round starts.
     val requestLocationThenJoin = rememberLocationRequest { viewModel.joinGame() }
     var acceptedInvite by remember { mutableStateOf<GameInvite?>(null) }
     val requestLocationThenAccept = rememberLocationRequest {
         acceptedInvite?.let(viewModel::acceptInvite)
+    }
+    var joinedBigGame by remember { mutableStateOf<BigGameCard?>(null) }
+    val requestLocationThenJoinBigGame = rememberLocationRequest {
+        joinedBigGame?.let(viewModel::joinBigGame)
     }
     val isBusy = status.isBusy
 
@@ -159,6 +168,22 @@ fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: 
             )
         }
         SecondaryText(stringResource(Res.string.home_location_note))
+
+        if (bigGames.games.isNotEmpty()) {
+            SectionTitle(stringResource(Res.string.big_games_title))
+            bigGames.games.forEach { game ->
+                BigGameCardView(
+                    game = game,
+                    isBusy = isBusy || isSigningUp,
+                    onSignUp = { viewModel.signUp(game) },
+                    onCancel = { viewModel.cancelSignup(game) },
+                    onJoin = {
+                        joinedBigGame = game
+                        requestLocationThenJoinBigGame()
+                    },
+                )
+            }
+        }
 
         StartStatusBanners(
             status = status,

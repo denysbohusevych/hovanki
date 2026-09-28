@@ -1,12 +1,14 @@
 package app.hovanki.client.network
 
 import app.hovanki.shared.protocol.ApiError
+import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.InviteRequest
+import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
@@ -31,6 +33,12 @@ interface GameApi {
 
     /** [accountToken] as in [createGame]; with it, joining a game the account is already in returns that player. */
     suspend fun joinGame(request: JoinGameRequest, accountToken: String? = null): SessionResponse
+
+    /**
+     * Into the open lobby of big game [id] the account of [accountToken] signed up for, or back to its player
+     * (docs/adr/0010-big-games.md).
+     */
+    suspend fun joinBigGame(id: BigGameId, request: JoinBigGameRequest, accountToken: String): SessionResponse
 
     suspend fun startGame(session: PlayerSession, request: StartGameRequest): GameSnapshot
 

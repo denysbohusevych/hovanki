@@ -3,13 +3,16 @@ package app.hovanki.client.di
 import app.hovanki.client.account.AccountManager
 import app.hovanki.client.automation.LaunchOptions
 import app.hovanki.client.automation.LaunchOptionsHolder
+import app.hovanki.client.bigGames.BigGameManager
 import app.hovanki.client.defaultServerUrl
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.network.AccountApi
+import app.hovanki.client.network.BigGameApi
 import app.hovanki.client.network.GameApi
 import app.hovanki.client.network.GameConnection
 import app.hovanki.client.network.HistoryApi
 import app.hovanki.client.network.HttpAccountApi
+import app.hovanki.client.network.HttpBigGameApi
 import app.hovanki.client.network.HttpGameApi
 import app.hovanki.client.network.HttpHistoryApi
 import app.hovanki.client.network.HttpSocialApi
@@ -66,11 +69,13 @@ val commonModule: Module = module {
     single<AccountApi> { HttpAccountApi(get(), get()) }
     single<SocialApi> { HttpSocialApi(get(), get()) }
     single<HistoryApi> { HttpHistoryApi(get(), get()) }
+    single<BigGameApi> { HttpBigGameApi(get(), get()) }
     single<GameConnection> { PollingGameConnection(get()) }
     single { ServerClock() }
     single { AccountManager(get(), get(), get()) }
     single { SocialManager(get(), get()) }
     single { HistoryManager(get(), get()) }
+    single { BigGameManager(get(), get()) }
     single { GameSessionManager(get(), get(), get(), get(), get(), get(), get(), account = get<AccountManager>()) }
 
     viewModelOf(::WelcomeViewModel)
