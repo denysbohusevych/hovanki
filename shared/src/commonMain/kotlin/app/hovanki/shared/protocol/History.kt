@@ -92,6 +92,11 @@ data class GameRoute(
     /** Start of the zone schedule (= start of seeking); null: the game ended before seeking. */
     val zoneStartedAtMillis: Long? = null,
     val finishedAtMillis: Long,
+    /**
+     * The zone by streets, one polygon per stage of [zone] (docs/adr/0009-game-setup-glow-streets.md); null: the game
+     * played with circles, or the route was saved before the polygons were kept with it.
+     */
+    val streetZone: List<ZonePolygon>? = null,
     /** Oldest first. */
     val points: List<RoutePoint> = emptyList(),
     /** The route is deleted after this (retention). */

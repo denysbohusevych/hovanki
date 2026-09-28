@@ -1028,16 +1028,17 @@ class Game(
     }
 
     /**
-     * Inside a building: warned as soon as the server is confident (several fixes, each deeper inside than its
-     * accuracy), revealed to the seekers after [GameRules.insideBuildingRevealSeconds]. Never eliminated: GPS near
-     * houses is a hint, not a judge. Out again, also judged on several fixes, lifts the warning and the reveal.
+     * Inside a building: warned as soon as the server is confident (the dot of most recent fixes inside, see
+     * [BuildingRules]), revealed to the seekers after [GameRules.insideBuildingRevealSeconds]. Never eliminated: GPS
+     * near houses is a hint, not a judge. Out again, also judged on several fixes, lifts the warning and the reveal.
      */
     private fun checkBuildings(nowMillis: Long) {
         val map = buildingMap ?: return
         for (hider in players.values.filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
             // Players in an open catch claim or dispute are frozen until it is resolved.
             if (catches.values.any { it.isOpen && it.hiderId == hider.id }) continue
-            val recent = hider.track.recentUsableFixes(nowMillis)
+            // Of any accuracy: indoors GPS is worse than the other rules accept, the rule filters for itself.
+            val recent = hider.track.recentFixes(nowMillis)
             val since = hider.insideBuildingSinceMillis
             if (since == null && BuildingRules.isConfidentlyInside(recent, map, rules)) {
                 hider.insideBuildingSinceMillis = nowMillis
@@ -1127,6 +1128,7 @@ class Game(
             disputes = catches.values.count { it.wasDisputed },
             chatMessages = lastChatSeq.toInt(),
             buildings = buildingsState,
+            streetZone = streetZone?.stages,
             results = players.values.mapNotNull { player ->
                 val userId = player.userId ?: return@mapNotNull null
                 val route = checkNotNull(player.route)

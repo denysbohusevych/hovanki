@@ -19,9 +19,13 @@ data class ZoneState(
     val millisUntilChange: Long?,
     /**
      * How many stages are over: the index of the zone by streets in force (`StreetZone.stages`); [next] is the one
-     * after it. A zone by streets switches when a stage is over, it does not shrink smoothly.
+     * after it. While a stage shrinks, a zone by streets goes from one to the next block by block ([ZoneArea.Shrinking]).
      */
     val stage: Int = 0,
+    /** The circle the current stage started from: [current] before its shrink began. Null after the last stage. */
+    val stageStart: ZoneCircle? = null,
+    /** How far the current shrink is, 0 → 1; 0 while the zone holds. */
+    val shrinkFraction: Double = 0.0,
 )
 
 /** Zone state [elapsedMillis] after the zone schedule started. */
@@ -31,13 +35,28 @@ fun ZoneSchedule.stateAt(elapsedMillis: Long): ZoneState {
     for ((index, stage) in stages.withIndex()) {
         val holdMillis = stage.holdSeconds * 1000L
         if (remaining < holdMillis) {
-            return ZoneState(current, stage.target, isShrinking = false, holdMillis - remaining, stage = index)
+            return ZoneState(
+                current,
+                stage.target,
+                isShrinking = false,
+                millisUntilChange = holdMillis - remaining,
+                stage = index,
+                stageStart = current,
+            )
         }
         remaining -= holdMillis
         val shrinkMillis = stage.shrinkSeconds * 1000L
         if (remaining < shrinkMillis) {
-            val circle = interpolate(current, stage.target, remaining.toDouble() / shrinkMillis)
-            return ZoneState(circle, stage.target, isShrinking = true, shrinkMillis - remaining, stage = index)
+            val fraction = remaining.toDouble() / shrinkMillis
+            return ZoneState(
+                interpolate(current, stage.target, fraction),
+                stage.target,
+                isShrinking = true,
+                millisUntilChange = shrinkMillis - remaining,
+                stage = index,
+                stageStart = current,
+                shrinkFraction = fraction,
+            )
         }
         remaining -= shrinkMillis
         current = stage.target
@@ -55,11 +74,13 @@ fun ZoneSchedule.boundingCircle(marginMeters: Double = 0.0): ZoneCircle {
 }
 
 private fun interpolate(from: ZoneCircle, to: ZoneCircle, fraction: Double): ZoneCircle = ZoneCircle(
-    center = GeoPoint(
-        lat = from.center.lat + (to.center.lat - from.center.lat) * fraction,
-        lon = from.center.lon + (to.center.lon - from.center.lon) * fraction,
-    ),
+    center = interpolate(from.center, to.center, fraction),
     radiusMeters = from.radiusMeters + (to.radiusMeters - from.radiusMeters) * fraction,
+)
+
+internal fun interpolate(from: GeoPoint, to: GeoPoint, fraction: Double): GeoPoint = GeoPoint(
+    lat = from.lat + (to.lat - from.lat) * fraction,
+    lon = from.lon + (to.lon - from.lon) * fraction,
 )
 
 /**

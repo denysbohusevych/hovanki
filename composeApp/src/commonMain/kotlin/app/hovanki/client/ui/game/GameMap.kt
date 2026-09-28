@@ -20,9 +20,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -31,6 +34,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
@@ -62,7 +67,10 @@ import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.ZoneCircle
 import app.hovanki.shared.rules.ZoneState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -114,22 +122,23 @@ import kotlin.time.Duration.Companion.milliseconds
  * game layers are drawn on a plain background.
  *
  * The zone moves with [cue] (docs/design.md, «Зона — главная анимация»): the part about to go blinks pink before a
- * shrink, the ring turns pink and pulses while it shrinks and snaps back to lime when done. Nothing on the map moves
- * while the zone is calm. A zone by streets ([streetZone], docs/adr/0009-game-setup-glow-streets.md) is drawn by its
- * polygons instead of the circles: it does not shrink smoothly, it switches to the next one when the stage is over.
+ * shrink, the ring turns pink while the zone closes in and snaps back to lime when done. The map redraws the zone many
+ * times a second while it shrinks, by the server time [serverNow]: a circle shrinks smoothly, a zone by streets
+ * ([ZoneTimeline.streets], docs/adr/0009-game-setup-glow-streets.md) loses its outer blocks from the outside in, both
+ * exactly as the rules judge. The camera stays on the zone and closes in with it ([zoneCameraConstraints]).
  * [recenterRequests]: each increase moves the camera to our own position. [onCameraBearing]:
  * the map's rotation (degrees clockwise from north) whenever the player turns it, for what points somewhere on screen.
  */
 @Composable
 fun GameMap(
-    zone: ZoneState,
+    zone: ZoneTimeline,
+    serverNow: () -> Long,
     cue: ZoneCue,
     myLocation: LocationSample?,
     myRole: Role,
     markers: List<MapMarker>,
     buildings: BuildingsResponse?,
     modifier: Modifier = Modifier,
-    streetZone: StreetOutline? = null,
     recenterRequests: Int = 0,
     reduceMotion: Boolean = false,
     attributionPadding: PaddingValues = PaddingValues(0.dp),
@@ -155,84 +164,50 @@ fun GameMap(
     }
     val me = myLocation?.let { it.copy(point = smoothPoint(it.point)) }
     val myColor = myRole.color
+    val zoneShape = rememberZoneShape(zone, serverNow)
+    // Where the camera starts: computed once, not read from the shape, so a moving zone redraws its layers only.
+    val startZone = remember(zone) { zone.shapeAt(serverNow()).extent }
+    val forbidden = remember(buildings) {
+        buildings?.let { FeatureCollection(it.buildings.map { building -> Feature(building.toPolygon(), null) }) }
+    }
+    val passageAreas = remember(buildings) {
+        buildings?.let {
+            FeatureCollection(it.passages.flatMap(::corridor).map { area -> Feature(Polygon(area), null) })
+        }
+    }
 
     val mapState = rememberMapState(
         baseStyle = if (styleFailed) MapStyle.fallback else BaseStyle.Uri(MapStyle.URL),
-        initialCameraPosition = CameraPosition(
-            target = zone.current.center.toPosition(),
-            zoom = zoomToFit(zone.current),
-        ),
+        initialCameraPosition = CameraPosition(target = startZone.center.toPosition(), zoom = zoomToFit(startZone)),
     ) {
-        val current = streetZone?.current?.toCounterclockwiseRing() ?: circle(zone.current)
-        val next = if (streetZone != null) streetZone.next?.toCounterclockwiseRing() else zone.next?.let(::circle)
-
-        // Outside the zone is darker: the world with the zone cut out.
-        val shade = rememberGeoJsonSource(
-            GeoJsonData.Features(features(Polygon(listOf(around(zone.current), current.asReversed())))),
-        )
-        FillLayer(id = "zone-shade", source = shade, color = const(Palette.Ink), opacity = const(SHADE_OPACITY))
-
-        // The part of the zone about to go: blinks before a shrink, stays pink while it shrinks.
-        if (next != null) {
-            val band =
-                rememberGeoJsonSource(GeoJsonData.Features(features(Polygon(listOf(current, next.asReversed())))))
-            FillLayer(id = "zone-band", source = band, color = const(Palette.Pink), opacity = const(look.bandOpacity))
-        }
+        // Outside the zone darker; the part about to go blinks before a shrink and stays pink while it goes.
+        ZoneFills(zoneShape, bandOpacity = look.bandOpacity)
 
         // Where hiding is not allowed: the server's own outlines, not the base map's buildings.
-        if (buildings != null) {
-            val forbidden = rememberGeoJsonSource(
-                GeoJsonData.Features(FeatureCollection(buildings.buildings.map { Feature(it.toPolygon(), null) })),
+        if (forbidden != null && passageAreas != null) {
+            val buildingSource = rememberGeoJsonSource(GeoJsonData.Features(forbidden))
+            FillLayer(
+                id = "buildings-fill",
+                source = buildingSource,
+                color = const(Palette.Pink),
+                opacity = const(0.3f),
             )
-            FillLayer(id = "buildings-fill", source = forbidden, color = const(Palette.Pink), opacity = const(0.3f))
-            LineLayer(id = "buildings-border", source = forbidden, color = const(Palette.Pink), width = const(1.5.dp))
+            LineLayer(
+                id = "buildings-border",
+                source = buildingSource,
+                color = const(Palette.Pink),
+                width = const(1.5.dp),
+            )
             // Passages are outdoors: drawn over the buildings in the light color of the base map.
-            val passages = rememberGeoJsonSource(
-                GeoJsonData.Features(
-                    FeatureCollection(buildings.passages.flatMap(::corridor).map { Feature(Polygon(it), null) }),
-                ),
-            )
+            val passages = rememberGeoJsonSource(GeoJsonData.Features(passageAreas))
             FillLayer(id = "buildings-passages", source = passages, color = const(Color.White), opacity = const(0.9f))
         }
 
-        if (next != null) {
-            val nextSource = rememberGeoJsonSource(GeoJsonData.Features(features(LineString(next))))
-            LineLayer(
-                id = "zone-next",
-                source = nextSource,
-                color = const(Palette.Ink),
-                width = const(2.dp),
-                opacity = const(look.nextOpacity),
-                dasharray = const(listOf<Number>(4, 2.5)),
-            )
-        }
-
-        val ring = rememberGeoJsonSource(GeoJsonData.Features(features(LineString(current))))
-        if (look.pulseOpacity > 0f) {
-            LineLayer(
-                id = "zone-pulse",
-                source = ring,
-                color = const(Palette.Pink),
-                width = const(look.pulseWidth),
-                opacity = const(look.pulseOpacity),
-            )
-        }
-        LineLayer(
-            id = "zone-casing",
-            source = ring,
-            color = const(Palette.Ink),
-            width = const(look.casingWidth),
-            join = const(LineJoin.Round),
-            cap = const(LineCap.Round),
-        )
-        LineLayer(
-            id = "zone-core",
-            source = ring,
-            color = const(look.coreColor),
-            colorTransition = TransitionOptions(Motion.BASE_MILLIS.milliseconds),
-            width = const(RING_CORE_WIDTH),
-            join = const(LineJoin.Round),
-            cap = const(LineCap.Round),
+        ZoneBorder(
+            zoneShape,
+            casingWidth = look.casingWidth,
+            coreColor = look.coreColor,
+            nextOpacity = look.nextOpacity,
         )
 
         val playerAccuracy = rememberGeoJsonSource(
@@ -337,14 +312,47 @@ fun GameMap(
         if (recenterRequests > 0 && point != null) mapState.animateCamera(CameraUpdate(target = point.toPosition()))
     }
 
-    Box(modifier = modifier.testTag(TestTags.GAME_MAP)) {
+    var shortSideDp by remember { mutableStateOf(0f) }
+    val density = LocalDensity.current
+    val myPoint = myLocation?.point
+    val constraints by remember(myPoint) {
+        derivedStateOf {
+            val extent = zoneShape.value.extent
+            // Out of the zone the camera may go as far as the player, to show the way back.
+            val outside = myPoint?.takeIf { it.distanceTo(extent.center) > extent.radiusMeters }
+            zoneCameraConstraints(extent, shortSideDp, listOfNotNull(outside))
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .testTag(TestTags.GAME_MAP)
+            .onSizeChanged { size -> shortSideDp = with(density) { minOf(size.width, size.height).toDp().value } },
+    ) {
         MaplibreMap(
             state = mapState,
+            cameraConstraints = constraints,
             // The credit is our own line: always visible, also over the plain fallback background and for the
             // building outlines (OpenStreetMap too). MapLibre's expanding one would repeat it.
             overlay = { include(MapOverlay.None) },
         )
         MapCredit(Modifier.align(Alignment.BottomStart).padding(attributionPadding))
+    }
+}
+
+/**
+ * The zone as the map draws it, by the server time: redrawn many times a second while it shrinks, once a second
+ * otherwise. The path operations of a zone by streets run off the main thread.
+ */
+@Composable
+private fun rememberZoneShape(zone: ZoneTimeline, serverNow: () -> Long): State<ZoneShape> {
+    val clock by rememberUpdatedState(serverNow)
+    return produceState(initialValue = remember(zone) { zone.shapeAt(serverNow()) }, zone) {
+        while (true) {
+            val now = clock()
+            value = withContext(Dispatchers.Default) { zone.shapeAt(now) }
+            delay(if (zone.isShrinkingAt(now)) SHRINK_FRAME_MILLIS else CALM_FRAME_MILLIS)
+        }
     }
 }
 
@@ -366,15 +374,8 @@ internal fun MapCredit(modifier: Modifier = Modifier) {
     )
 }
 
-/** How the zone looks at the moment: what blinks, pulses and pops. */
-private class ZoneLook(
-    val bandOpacity: Float,
-    val nextOpacity: Float,
-    val pulseWidth: Dp,
-    val pulseOpacity: Float,
-    val casingWidth: Dp,
-    val coreColor: Color,
-)
+/** How the zone looks at the moment: what blinks and pops. */
+private class ZoneLook(val bandOpacity: Float, val nextOpacity: Float, val casingWidth: Dp, val coreColor: Color)
 
 @Composable
 private fun zoneLook(cue: ZoneCue, reduceMotion: Boolean): ZoneLook {
@@ -396,18 +397,10 @@ private fun zoneLook(cue: ZoneCue, reduceMotion: Boolean): ZoneLook {
         ZoneCue.SHRUNK, ZoneCue.FINAL -> 0f
         else -> 1f
     }
-    val pulse = if (cue == ZoneCue.SHRINKING && !reduceMotion) shrinkPulse() else 0f
     // The ring «snaps» when a shrink is done: the outline swells and springs back.
     val casing by animateDpAsState(if (cue == ZoneCue.SHRUNK) 20.dp else RING_CASING_WIDTH, Motion.pop())
     val core by animateColorAsState(if (cue == ZoneCue.SHRINKING) Palette.Pink else Palette.Lime, Motion.base())
-    return ZoneLook(
-        bandOpacity = band,
-        nextOpacity = next,
-        pulseWidth = RING_CORE_WIDTH + 30.dp * pulse,
-        pulseOpacity = if (cue == ZoneCue.SHRINKING && !reduceMotion) 0.8f * (1f - pulse) else 0f,
-        casingWidth = casing,
-        coreColor = core,
-    )
+    return ZoneLook(bandOpacity = band, nextOpacity = next, casingWidth = casing, coreColor = core)
 }
 
 /** 0 → 1 → 0 over [periodMillis], for as long as it is composed. */
@@ -418,18 +411,6 @@ private fun blinking(periodMillis: Int): Float {
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(periodMillis / 2, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-    )
-    return value
-}
-
-/** 0 → 1 every 1.6 s: a wave leaving the shrinking ring. */
-@Composable
-private fun shrinkPulse(): Float {
-    val transition = rememberInfiniteTransition()
-    val value by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(PULSE_MILLIS, easing = LinearEasing), RepeatMode.Restart),
     )
     return value
 }
@@ -485,7 +466,10 @@ internal const val SHADE_OPACITY = 0.18f
 private const val BAND_MIN = 0.14f
 private const val BAND_MAX = 0.5f
 private const val BAND_SHRINKING = 0.3f
-private const val PULSE_MILLIS = 1_600
+
+/** How often a map redraws the zone: while it shrinks, and while it holds (for the next second's state). */
+private const val SHRINK_FRAME_MILLIS = 100L
+private const val CALM_FRAME_MILLIS = 1_000L
 private const val PING_MILLIS = 2_400
 private const val MARKER_GLIDE_MILLIS = 800
 private const val SNAP_METERS = 150.0
@@ -606,9 +590,4 @@ internal fun around(zone: ZoneCircle): List<Position> {
 private const val WORLD_DEGREES = 0.5
 
 /** Zoom at which [zone] fills a phone-sized map (~360 dp wide) with a small margin. */
-internal fun zoomToFit(zone: ZoneCircle): Double {
-    val metersPerDp = 2.4 * zone.radiusMeters / 360
-    // At zoom 0 a 512 dp tile covers the equator (40 075 km); meters per dp shrink by cos(latitude).
-    val metersPerDpAtZoom0 = 40_075_016.7 / 512 * cos(zone.center.lat * PI / 180)
-    return (ln(metersPerDpAtZoom0 / metersPerDp) / ln(2.0)).coerceIn(2.0, 18.0)
-}
+internal fun zoomToFit(zone: ZoneCircle): Double = fitZoom(zone.center, 1.2 * zone.radiusMeters, 360f)

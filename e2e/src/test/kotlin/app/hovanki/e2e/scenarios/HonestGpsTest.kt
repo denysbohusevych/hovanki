@@ -23,8 +23,9 @@ class HonestGpsTest {
     @Test
     fun honestHidersWithBadGps() = scenario("Honest hiders with bad GPS", timeout = 4.minutes) {
         val zone = GameSetups.fixedZone(ZONE_METERS).copy(seekingSeconds = 150)
-        // 12 m south of the quarter, in its arch, 5 m inside the zone border, and along the border 6 to 10 m inside.
-        val nextToTheWall = PARK.offset(DebugBuildings.INSIDE_EAST, DebugBuildings.SOUTH - 12)
+        // 5 m south of the quarter (the rule goes by the dot, so a wall is where it would err), in its arch, 5 m inside
+        // the zone border, and along the border 6 to 10 m inside.
+        val nextToTheWall = PARK.offset(DebugBuildings.INSIDE_EAST, DebugBuildings.SOUTH - 5)
         val inTheArch = PARK.offset(DebugBuildings.ARCH_EAST, DebugBuildings.INSIDE_NORTH)
         val atTheBorder = PARK.offset(eastMeters = ZONE_METERS - 5)
         val south = PARK.offset(eastMeters = ZONE_METERS - 10, northMeters = -40.0)

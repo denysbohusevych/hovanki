@@ -16,9 +16,11 @@ import app.hovanki.shared.protocol.FriendsResponse
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.rules.StreetZone
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
@@ -49,6 +51,11 @@ class ResultsViewModel(
     val tracks: StateFlow<TracksResponse?> = sessionManager.state.map { it.tracks }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), sessionManager.state.value.tracks)
 
+    /** The zone by streets of the game, for the replay; null when it played with circles. */
+    val streetZone: StateFlow<StreetZone?> = sessionManager.state.map(::streetZoneOf).distinctUntilChanged { a, b ->
+        a?.stages == b?.stages
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), streetZoneOf(sessionManager.state.value))
+
     /**
      * Whether the player keeps their routes; null: this game has no history of theirs (played as a guest, or logged in
      * as someone else since).
@@ -76,6 +83,15 @@ class ResultsViewModel(
     fun leave() {
         commands.dismiss()
         sessionManager.leave()
+    }
+
+    private fun streetZoneOf(state: SessionState): StreetZone? {
+        val snapshot = state.snapshot ?: return null
+        val zone = state.streetZone ?: return null
+        val usable = zone.mapRevision == snapshot.mapRevision &&
+            zone.stages.size == snapshot.settings.zone.stages.size + 1 &&
+            zone.stages.all { it.outline.size >= 4 }
+        return if (usable) StreetZone(zone.stages) else null
     }
 
     private fun saveRoutes(state: SessionState, accountState: AccountState): Boolean? {
