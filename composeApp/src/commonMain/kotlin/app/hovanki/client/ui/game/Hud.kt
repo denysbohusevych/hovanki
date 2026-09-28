@@ -103,6 +103,7 @@ import app.hovanki.client.ui.common.PopChip
 import app.hovanki.client.ui.common.PopIconButton
 import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopSurface
+import app.hovanki.client.ui.common.SpectatorsChip
 import app.hovanki.client.ui.common.appSafeDrawing
 import app.hovanki.client.ui.common.formatCountdown
 import app.hovanki.client.ui.theme.Hovanki
@@ -195,8 +196,8 @@ fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
 }
 
 /**
- * The role and how far the border is; under them, what the zone is doing when it is not calm, and when the next glow
- * comes.
+ * The role and how far the border is; under them, what the zone is doing when it is not calm, when the next glow
+ * comes, and how many watch an open game.
  */
 @Composable
 fun HudChips(state: GameUiState, modifier: Modifier = Modifier) {
@@ -237,6 +238,7 @@ fun HudChips(state: GameUiState, modifier: Modifier = Modifier) {
         ) {
             if (state.isZoneRunning) ZoneChip(state)
             state.glow?.let { GlowChip(it) }
+            if (state.spectators > 0) SpectatorsChip(state.spectators)
         }
     }
 }

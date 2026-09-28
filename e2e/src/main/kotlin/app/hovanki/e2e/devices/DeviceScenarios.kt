@@ -4,6 +4,7 @@ import app.hovanki.client.automation.TestTags
 import app.hovanki.e2e.bot.BotPlayer
 import app.hovanki.e2e.route.BuildingSearch
 import app.hovanki.e2e.route.offset
+import app.hovanki.e2e.scenario.GameSetups
 import app.hovanki.shared.debug.DebugPlayer
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.BuildingsState
@@ -31,6 +32,7 @@ object DeviceScenarios {
     val all: Map<String, suspend DeviceRun.() -> Unit> = linkedMapOf(
         "full-round" to { fullRound() },
         "restart" to { restartMidRound() },
+        "watch" to { watchAndRecording() },
     )
 }
 
@@ -42,6 +44,12 @@ private const val HIDING_SECONDS = 60
 
 /** How far the backgrounded app is moved to see that its locations flow before the walk is measured. */
 private const val FIRST_STEP_METERS = 5.0
+
+/** The «watch» scenario: a fixed zone, a short hiding, the spectators this far behind, a short search to record. */
+private const val WATCH_ZONE_METERS = 300.0
+private const val WATCH_HIDING_SECONDS = 30
+private const val WATCH_DELAY_SECONDS = 10
+private const val RECORDED_SEEKING_SECONDS = 45
 
 /** A seeker this close to the hider by their fixes has caught up (the server allows 40 m). */
 private const val CAUGHT_UP_METERS = 15.0
@@ -126,6 +134,82 @@ private suspend fun DeviceRun.checkStartScreensInPlace() = with(scenario) {
         val after = player.topOf(player.startScreen)
         check(after == before, "${player.name}'s start screen keeps clear of the status bar (top $before, now $after)")
     }
+}
+
+/**
+ * Watching an open game, then a game's recording (docs/adr/0011-spectators-and-recordings.md). Bots play an open game;
+ * the first device, logged in, types its code on the «Play» tab and watches it: the lobby, the round the delay behind
+ * on the map, the end; «Stop watching» leads back to «Play». Then the device plays a short game with bots, hides until
+ * the time is up, and opens that game's recording from its history.
+ */
+private suspend fun DeviceRun.watchAndRecording() = with(scenario) {
+    val fan = devicePlayers.first()
+    val center = location ?: DeviceRun.FALLBACK_LOCATION
+    origin = center
+    placeDevices(center)
+    val account = accounts.create(fan.name)
+    fan.account = account
+    note("${fan.name} has the confirmed account ${account.nickname} (registered through the API)")
+
+    val host = player("Bot-host", at = center)
+    host.signsUp()
+    val seeker = player("Bot-seeker", at = center.offset(eastMeters = -8.0))
+    val hiders = (1..botCount.coerceAtLeast(1)).map { player("Bot-$it", at = center.offset(northMeters = -8.0 * it)) }
+    host.createsGame(
+        GameSetups.fixedZone(WATCH_ZONE_METERS, center).copy(
+            hidingSeconds = WATCH_HIDING_SECONDS,
+            openGame = true,
+            spectatorDelaySeconds = WATCH_DELAY_SECONDS,
+        ),
+    )
+    join(seeker, *hiders.toTypedArray())
+
+    fan.launchApp(joinCode = joinCode)
+    fan.awaitVisible(TestTags.HOME_SCREEN)
+    fan.flow("watch-game")
+    fan.awaitVisible(TestTags.SPECTATOR_DELAY)
+    eventually("the players see that ${fan.name} watches") { host.snapshot?.spectators?.takeIf { it == 1 } }
+    screenshot("watching the lobby", listOf(fan))
+
+    host.startsGame(seekers = listOf(seeker))
+    hiders.forEachIndexed { index, bot ->
+        bot.walksTo(center.offset(eastMeters = 40.0 + 15.0 * index, northMeters = 30.0), speed = 2.0)
+    }
+    awaitPhase(GamePhase.SEEKING, within = (WATCH_HIDING_SECONDS + 30).seconds)
+    // The spectators see the hiding the delay later: everybody on the map, with their last minute.
+    delay((WATCH_DELAY_SECONDS + 5).seconds)
+    screenshot("watching the round", listOf(fan))
+    for (bot in hiders) seeker.catches(bot)
+    awaitPhase(GamePhase.FINISHED)
+    delay((WATCH_DELAY_SECONDS + 5).seconds)
+    screenshot("watching the end", listOf(fan))
+    fan.flow("stop-watching")
+
+    // The device's account plays a short game: it hides until the time is up; then the game's recording.
+    host.createsGame(
+        GameSetups.fixedZone(WATCH_ZONE_METERS, center).copy(
+            hidingSeconds = WATCH_HIDING_SECONDS,
+            seekingSeconds = RECORDED_SEEKING_SECONDS,
+        ),
+    )
+    join(seeker)
+    fan.launchApp(joinCode = joinCode)
+    fan.awaitVisible(TestTags.HOME_SCREEN)
+    fan.flow("join-game")
+    val lobby = eventually("${fan.name} is in the lobby") { state().takeIf { it.players.size == 3 } }
+    fan.playerId = lobby.players.single { it.name == fan.playerName }.id
+    check(fan.playerName == account.nickname, "${fan.name} plays under the nickname ${account.nickname}")
+    screenshot("the lobby says the game is recorded", listOf(fan))
+    host.startsGame(seekers = listOf(seeker))
+    awaitPhase(GamePhase.FINISHED, within = (WATCH_HIDING_SECONDS + RECORDED_SEEKING_SECONDS + 60).seconds)
+    fan.awaitVisible(TestTags.RESULTS_SCREEN)
+    fan.flow("close-results", "UNTIL" to TestTags.HOME_SCREEN)
+    eventually("the game's recording is kept", within = 30.seconds) {
+        host.refreshHistory()
+        host.history.games.firstOrNull { it.gameId == gameId && it.hasRecording }
+    }
+    fan.flow("open-recording", "GAME_ID" to gameId.value)
+    screenshot("the game's recording", listOf(fan))
 }
 
 /**

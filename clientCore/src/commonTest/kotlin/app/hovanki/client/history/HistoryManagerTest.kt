@@ -18,10 +18,13 @@ import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameHistoryEntry
 import app.hovanki.shared.protocol.GameHistoryResponse
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameRoute
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStats
 import app.hovanki.shared.protocol.PlayerStatus
+import app.hovanki.shared.protocol.RecordedPlayer
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.RoutePoint
 import app.hovanki.shared.protocol.UserProfile
@@ -111,6 +114,17 @@ class HistoryManagerTest {
     }
 
     @Test
+    fun aGamesRecordingIsLoadedWhileItIsKept() = runTest {
+        val history = history()
+
+        val recording = assertIs<ApiResult.Success<GameRecording>>(history.recording(GameId("g1"))).value
+        assertEquals(api.recording, recording)
+        val gone = assertIs<ApiResult.Rejected>(history.recording(GameId("old")))
+        assertEquals(ErrorCode.NOT_FOUND, gone.code)
+        assertEquals(listOf("recording g1", "recording old"), api.calls)
+    }
+
+    @Test
     fun needsAnAccountAndForgetsItOnLogout() = runTest {
         val loggedOut = history(user = null)
         assertEquals(ErrorReason.ACCOUNT_REQUIRED, assertIs<ApiResult.Rejected>(loggedOut.refresh()).reason)
@@ -160,6 +174,17 @@ class HistoryManagerTest {
             points = listOf(RoutePoint(50.45, 30.52, 5.0, 1)),
             expiresAtMillis = 3,
         )
+        val recording = GameRecording(
+            gameId = GameId("g1"),
+            zone = shrinkingZone(GeoPoint(50.45, 30.52)),
+            startedAtMillis = 1,
+            finishedAtMillis = 2,
+            players = listOf(
+                RecordedPlayer(PlayerId("p1"), "Olya", Role.SEEKER, PlayerStatus.ACTIVE, isMe = true),
+                RecordedPlayer(PlayerId("p2"), "Guest", Role.HIDER, PlayerStatus.CAUGHT, points = listOf()),
+            ),
+            expiresAtMillis = 3,
+        )
         var failWith: Exception? = null
         val calls = mutableListOf<String>()
 
@@ -177,6 +202,11 @@ class HistoryManagerTest {
         }
 
         override suspend fun deleteRoute(token: String, gameId: GameId) = call("deleteRoute ${gameId.value}") {}
+
+        override suspend fun recording(token: String, gameId: GameId) = call("recording ${gameId.value}") {
+            if (gameId != recording.gameId) throw ApiException(404, ApiError(ErrorCode.NOT_FOUND, "No recording"))
+            recording
+        }
 
         private fun <T> call(description: String, answer: () -> T): T {
             calls += description

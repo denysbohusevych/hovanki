@@ -349,6 +349,9 @@ class LobbyViewModel(
                     fewCovers = it.fewCovers,
                 )
             },
+            openGame = settings.openGame,
+            spectatorDelaySeconds = settings.spectatorDelaySeconds,
+            spectators = snapshot.spectators,
         )
     }
 
@@ -408,6 +411,11 @@ data class LobbyUiState(
     val friendsHere: List<LobbyPlayer> = emptyList(),
     /** Everybody in the lobby, also those a big game's [players] leaves out. */
     val playerCount: Int = players.size,
+    /** Open to spectators (docs/adr/0011-spectators-and-recordings.md), [spectatorDelaySeconds] behind. */
+    val openGame: Boolean = false,
+    val spectatorDelaySeconds: Int = 0,
+    /** How many watch right now. */
+    val spectators: Int = 0,
 )
 
 /** Too many players for the zone ([isCrowded]: [players] where it fits [capacity]), or few places to hide. */

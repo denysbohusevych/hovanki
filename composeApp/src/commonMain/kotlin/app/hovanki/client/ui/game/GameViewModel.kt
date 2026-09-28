@@ -204,6 +204,7 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             zoneTimeline = ZoneTimeline(snapshot.settings.zone, zoneStartedAt, streets),
             isStreetZoneOff = snapshot.streetZone == StreetZoneState.UNAVAILABLE,
             glow = glow,
+            spectators = if (snapshot.settings.openGame) snapshot.spectators else 0,
             markers = snapshot.players.mapNotNull { player ->
                 player.location?.let {
                     val reason = it.exactReason
@@ -312,6 +313,8 @@ data class GameUiState(
     val isStreetZoneOff: Boolean,
     /** The glow while the seekers search; null in a game without it, and after the last one. */
     val glow: GlowUi?,
+    /** How many watch this open game right now (docs/adr/0011-spectators-and-recordings.md); 0 in a closed one. */
+    val spectators: Int = 0,
     /** Players the server lets us see right now. */
     val markers: List<MapMarker>,
     val hidersLeft: Int,

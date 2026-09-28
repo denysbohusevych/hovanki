@@ -66,12 +66,15 @@ import app.hovanki.client.resources.ic_copy
 import app.hovanki.client.resources.ic_dice
 import app.hovanki.client.resources.ic_person_add
 import app.hovanki.client.resources.ic_share
+import app.hovanki.client.resources.ic_eye
 import app.hovanki.client.resources.ic_sliders
 import app.hovanki.client.resources.invites_sent
 import app.hovanki.client.resources.lobby_buildings_loading
 import app.hovanki.client.resources.lobby_buildings_ready
 import app.hovanki.client.resources.lobby_chip_capacity
 import app.hovanki.client.resources.lobby_chip_glow
+import app.hovanki.client.resources.lobby_chip_open
+import app.hovanki.client.resources.lobby_chip_open_live
 import app.hovanki.client.resources.lobby_chip_streets
 import app.hovanki.client.resources.lobby_chip_time
 import app.hovanki.client.resources.lobby_chip_zone
@@ -89,6 +92,7 @@ import app.hovanki.client.resources.lobby_pick_seekers
 import app.hovanki.client.resources.lobby_play_anyway
 import app.hovanki.client.resources.lobby_players
 import app.hovanki.client.resources.lobby_random
+import app.hovanki.client.resources.lobby_recorded
 import app.hovanki.client.resources.lobby_roles_by_host
 import app.hovanki.client.resources.lobby_seeker
 import app.hovanki.client.resources.lobby_settings
@@ -124,6 +128,7 @@ import app.hovanki.client.ui.common.PopSurface
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SectionTitle
+import app.hovanki.client.ui.common.SpectatorsChip
 import app.hovanki.client.ui.common.SessionBanners
 import app.hovanki.client.ui.common.Toast
 import app.hovanki.client.ui.common.formatDateTimeIn
@@ -207,6 +212,14 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                     onLocationPermissionGranted = viewModel::onLocationPermissionGranted,
                 )
                 SettingsChips(state, onOpenSettings = viewModel::openSettings)
+                // Everybody is told before the round (docs/adr/0011-spectators-and-recordings.md), guests too. A big
+                // game is not recorded.
+                if (state.bigGame == null) {
+                    SecondaryText(
+                        stringResource(Res.string.lobby_recorded),
+                        Modifier.testTag(TestTags.LOBBY_RECORDED),
+                    )
+                }
                 if (state.isBuildingRuleOff) {
                     Banner(
                         text = stringResource(Res.string.building_rule_off),
@@ -571,6 +584,20 @@ private fun SettingsChips(state: LobbyUiState, onOpenSettings: () -> Unit) {
                 text = pluralStringResource(Res.plurals.lobby_chip_capacity, capacity, capacity),
                 modifier = Modifier.testTag(TestTags.LOBBY_CAPACITY),
             )
+        }
+        if (state.openGame) {
+            PopChip(
+                text = if (state.spectatorDelaySeconds > 0) {
+                    stringResource(Res.string.lobby_chip_open, spectatorDelayText(state.spectatorDelaySeconds))
+                } else {
+                    stringResource(Res.string.lobby_chip_open_live)
+                },
+                color = Palette.Ink,
+                contentColor = Palette.Lime,
+                icon = Res.drawable.ic_eye,
+                modifier = Modifier.testTag(TestTags.LOBBY_OPEN),
+            )
+            if (state.spectators > 0) SpectatorsChip(state.spectators)
         }
         when {
             state.isBuildingStreetZone -> PopChip(

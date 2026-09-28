@@ -47,6 +47,7 @@ import app.hovanki.client.ui.groups.GroupsTab
 import app.hovanki.client.ui.groups.GroupsViewModel
 import app.hovanki.client.ui.history.HistoryPanel
 import app.hovanki.client.ui.history.HistoryViewModel
+import app.hovanki.client.ui.history.RecordingPanel
 import app.hovanki.client.ui.history.RoutePanel
 import app.hovanki.client.ui.play.PlayTab
 import app.hovanki.client.ui.profile.ProfileTab
@@ -63,8 +64,8 @@ import org.koin.compose.viewmodel.koinViewModel
 
 /**
  * Logged in (the email confirmed or not), not in a game: «Play», «Friends», «Groups» and «Profile» in a navigation bar,
- * or a panel over all of it (confirming the email, a group, the game history and a saved route). While it is shown,
- * the inbox (game invites, friend requests) is polled for the tabs and their badges.
+ * or a panel over all of it (confirming the email, a group, the game history, a saved route and a game's recording).
+ * While it is shown, the inbox (game invites, friend requests) is polled for the tabs and their badges.
  */
 @Composable
 fun MainScreen(
@@ -87,6 +88,11 @@ fun MainScreen(
     val openRoute = historyViewModel.route
     if (openRoute != null) {
         RoutePanel(historyViewModel, openRoute)
+        return
+    }
+    val openRecording = historyViewModel.recording
+    if (openRecording != null) {
+        RecordingPanel(historyViewModel, openRecording)
         return
     }
     if (historyViewModel.isOpen) {

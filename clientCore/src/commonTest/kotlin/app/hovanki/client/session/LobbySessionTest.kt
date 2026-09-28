@@ -110,6 +110,11 @@ class LobbySessionTest {
         assertEquals(1, api.settingsRequests.size)
         assertEquals(setup, manager.lastGameSetup())
         assertEquals(setup, manager(api, storage).lastGameSetup(), "after the app was started again")
+
+        // An open game: the next one starts closed, with the delay chosen.
+        val open = setup.copy(openGame = true, spectatorDelaySeconds = 120)
+        manager.updateSettings(open.settings(GeoPoint(50.0, 30.0)), open)
+        assertEquals(open.copy(openGame = false), manager.lastGameSetup())
     }
 
     @Test

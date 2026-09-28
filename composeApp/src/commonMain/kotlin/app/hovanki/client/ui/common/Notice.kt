@@ -13,6 +13,7 @@ import app.hovanki.client.resources.error_chat_muted_forever
 import app.hovanki.client.resources.error_code_expired
 import app.hovanki.client.resources.error_email_not_verified
 import app.hovanki.client.resources.error_email_taken
+import app.hovanki.client.resources.error_game_not_open
 import app.hovanki.client.resources.error_in_another_game
 import app.hovanki.client.resources.error_invalid_email
 import app.hovanki.client.resources.error_invalid_group_name
@@ -25,6 +26,7 @@ import app.hovanki.client.resources.error_nickname_taken
 import app.hovanki.client.resources.error_not_friends
 import app.hovanki.client.resources.error_not_group_member
 import app.hovanki.client.resources.error_not_group_owner
+import app.hovanki.client.resources.error_playing_this_game
 import app.hovanki.client.resources.error_session_expired
 import app.hovanki.client.resources.error_too_many_requests
 import app.hovanki.client.resources.error_too_many_requests_wait
@@ -121,6 +123,10 @@ fun reasonNotice(
         ErrorReason.ZONE_NOT_READY -> Res.string.error_zone_not_ready
 
         ErrorReason.BIG_GAME_SIGNUP_REQUIRED -> Res.string.error_big_game_signup_required
+
+        ErrorReason.GAME_NOT_OPEN -> Res.string.error_game_not_open
+
+        ErrorReason.PLAYING_THIS_GAME -> Res.string.error_playing_this_game
 
         ErrorReason.ACCOUNT_BANNED -> return untilMillis?.let {
             Notice.Text(Res.string.error_account_banned, listOf(formatDateTime(it)))

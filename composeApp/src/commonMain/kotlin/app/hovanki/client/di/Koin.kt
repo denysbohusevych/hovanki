@@ -16,13 +16,16 @@ import app.hovanki.client.network.HttpBigGameApi
 import app.hovanki.client.network.HttpGameApi
 import app.hovanki.client.network.HttpHistoryApi
 import app.hovanki.client.network.HttpSocialApi
+import app.hovanki.client.network.HttpSpectatorApi
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.SocialApi
+import app.hovanki.client.network.SpectatorApi
 import app.hovanki.client.network.createHttpClient
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
 import app.hovanki.client.social.SocialManager
+import app.hovanki.client.spectator.SpectatorManager
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.ui.chat.ChatViewModel
 import app.hovanki.client.ui.friends.FriendsViewModel
@@ -35,6 +38,7 @@ import app.hovanki.client.ui.main.MainViewModel
 import app.hovanki.client.ui.play.PlayViewModel
 import app.hovanki.client.ui.profile.ProfileViewModel
 import app.hovanki.client.ui.results.ResultsViewModel
+import app.hovanki.client.ui.spectator.SpectatorViewModel
 import app.hovanki.client.ui.verify.VerifyEmailViewModel
 import app.hovanki.client.ui.welcome.WelcomeViewModel
 import app.hovanki.shared.rules.AccountRules
@@ -70,12 +74,14 @@ val commonModule: Module = module {
     single<SocialApi> { HttpSocialApi(get(), get()) }
     single<HistoryApi> { HttpHistoryApi(get(), get()) }
     single<BigGameApi> { HttpBigGameApi(get(), get()) }
+    single<SpectatorApi> { HttpSpectatorApi(get(), get()) }
     single<GameConnection> { PollingGameConnection(get()) }
     single { ServerClock() }
     single { AccountManager(get(), get(), get()) }
     single { SocialManager(get(), get()) }
     single { HistoryManager(get(), get()) }
     single { BigGameManager(get(), get()) }
+    single { SpectatorManager(get(), get()) }
     single { GameSessionManager(get(), get(), get(), get(), get(), get(), get(), account = get<AccountManager>()) }
 
     viewModelOf(::WelcomeViewModel)
@@ -91,6 +97,7 @@ val commonModule: Module = module {
     viewModelOf(::ResultsViewModel)
     viewModelOf(::ChatViewModel)
     viewModelOf(::InviteBannerViewModel)
+    viewModelOf(::SpectatorViewModel)
 }
 
 /** Hands debug start parameters (UI automation) to the screens; see [LaunchOptions]. */

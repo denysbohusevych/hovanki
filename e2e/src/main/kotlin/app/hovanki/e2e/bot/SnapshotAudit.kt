@@ -5,6 +5,7 @@ import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.SpectatorSnapshot
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.rules.ChatRules
 import kotlinx.serialization.json.Json
@@ -33,6 +34,32 @@ object SnapshotAudit {
         VisibilityReason.MOCK_LOCATION,
         VisibilityReason.STALE_SIGNAL,
     )
+
+    /**
+     * Violations in what a spectator of an open game got (docs/adr/0011-spectators-and-recordings.md): the game the
+     * delay behind, nothing newer than that moment, and of everybody's way only the last minute before it.
+     */
+    fun checkSpectator(view: SpectatorSnapshot): List<String> {
+        val problems = mutableListOf<String>()
+        val shown = view.atMillis
+        if (shown != view.serverTimeMillis - view.settings.spectatorDelaySeconds * 1000L) {
+            problems += "spectator shown ${view.serverTimeMillis - shown} ms behind, not the game's delay"
+        }
+        for (player in view.players) {
+            val location = player.location
+            if (location != null && location.atMillis > shown) {
+                problems += "spectator sees ${player.id.value} where they were after the moment shown"
+            }
+            if (player.trail.any { it.atMillis > shown || it.atMillis < shown - SPECTATOR_TRAIL_MILLIS }) {
+                problems += "spectator sees ${player.id.value}'s way outside the minute before the moment shown"
+            }
+            val out = player.outAtMillis
+            if (out != null && out > shown) problems += "spectator sees ${player.id.value} out before it happened"
+        }
+        return problems
+    }
+
+    private const val SPECTATOR_TRAIL_MILLIS = 60_000L
 
     /** Violations found in [snapshot]; [rawJson] is the response body as it came over the wire. */
     fun check(snapshot: GameSnapshot, rawJson: String): List<String> {

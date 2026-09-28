@@ -6,6 +6,7 @@ import app.hovanki.client.network.HistoryApi
 import app.hovanki.client.network.apiResult
 import app.hovanki.shared.protocol.GameHistoryEntry
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameRoute
 import app.hovanki.shared.protocol.PlayerStats
 import kotlinx.coroutines.CoroutineScope
@@ -62,6 +63,12 @@ class HistoryManager(
 
     /** The player's saved route of [gameId]; rejected with 404 (`NOT_FOUND`) when none is saved. */
     suspend fun route(gameId: GameId): ApiResult<GameRoute> = command { token -> api.route(token, gameId) }
+
+    /**
+     * The recording of [gameId] (docs/adr/0011-spectators-and-recordings.md): everybody's way through it; rejected with
+     * 404 (`NOT_FOUND`) when it is no longer kept.
+     */
+    suspend fun recording(gameId: GameId): ApiResult<GameRecording> = command { token -> api.recording(token, gameId) }
 
     /** Deletes the saved route of [gameId]; the game stays in the history. */
     suspend fun deleteRoute(gameId: GameId): ApiResult<Unit> = command { token ->

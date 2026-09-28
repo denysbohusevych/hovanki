@@ -1,0 +1,15 @@
+# The logged-in player watches the open game whose code the launch options prefilled on the «Play» tab
+# (docs/adr/0011-spectators-and-recordings.md). The button can be below the fold of a small screen.
+appId: ${APP_ID}
+---
+- scrollUntilVisible:
+    element:
+      id: home_watch
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    id: home_watch
+- extendedWaitUntil:
+    visible:
+      id: spectator_screen
+    timeout: 30000
