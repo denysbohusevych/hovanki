@@ -35,6 +35,7 @@ class AdminPageTest(@Autowired private val mvc: MockMvc) {
         assertEquals("DENY", page.getHeader("X-Frame-Options"))
         assertEquals("no-referrer", page.getHeader("Referrer-Policy"))
         mvc.get("/admin/admin.js").andExpect { status { isOk() } }
+        mvc.get("/admin/map.js").andExpect { status { isOk() } }
     }
 }
 

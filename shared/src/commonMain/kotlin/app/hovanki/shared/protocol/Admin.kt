@@ -379,3 +379,21 @@ data class AdminZoneEstimate(
     val areas: TerrainAreas? = null,
     val fewCovers: Boolean = false,
 )
+
+/**
+ * A tile of the players' map for the admin's map (docs/adr/0010-big-games.md), drawn by the page itself: coordinates in
+ * tile units (0..[extent], y down), a line or a ring as `[x0, y0, x1, y1, …]`. A polygon is its rings (the outline and
+ * its holes: the page fills them even-odd). Only what the page draws: streets, houses, water, green.
+ */
+@Serializable
+data class AdminTile(
+    val extent: Int = 4096,
+    val streets: List<AdminTileLine> = emptyList(),
+    val buildings: List<List<List<Int>>> = emptyList(),
+    val water: List<List<List<Int>>> = emptyList(),
+    val green: List<List<List<Int>>> = emptyList(),
+)
+
+/** A street: [major] for the main roads (drawn wider), [points] as in [AdminTile]. */
+@Serializable
+data class AdminTileLine(val major: Boolean, val points: List<Int>)

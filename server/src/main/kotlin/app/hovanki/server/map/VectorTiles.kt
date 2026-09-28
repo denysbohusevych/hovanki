@@ -58,6 +58,27 @@ class VectorTiles(private val properties: MapProperties, private val json: Json,
         }
     }
 
+    /** One tile at zoom [TileId.z] up to the most detailed one (the admin's map); throws [MapDataUnavailableException]. */
+    fun tile(id: TileId): MvtTile {
+        val template = template()
+        if (id.z !in 0..template.zoom || id.x !in 0 until (1 shl id.z) || id.y !in 0 until (1 shl id.z)) {
+            throw MapDataUnavailableException("No tile $id", retry = false)
+        }
+        evictOld()
+        return try {
+            tile(id, template).get(properties.requestTimeout.toNanos() * 2, TimeUnit.NANOSECONDS)
+        } catch (e: TimeoutException) {
+            throw MapDataUnavailableException("Tile $id timed out", e)
+        } catch (e: ExecutionException) {
+            val cause = e.cause
+            throw cause as? MapDataUnavailableException
+                ?: MapDataUnavailableException("Tile $id: ${cause?.javaClass?.simpleName}", cause)
+        }
+    }
+
+    /** The most detailed zoom of the tiles. */
+    fun maxZoom(): Int = template().zoom
+
     /** The tile from the cache, or on its way there: two games (or buildings and streets) fetch it once. */
     private fun tile(id: TileId, template: TileTemplate): CompletableFuture<MvtTile> {
         val now = clock.millis()

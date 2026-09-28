@@ -1,6 +1,7 @@
 package app.hovanki.server.api
 
 import app.hovanki.server.admin.AdminLogin
+import app.hovanki.server.admin.AdminMap
 import app.hovanki.server.admin.AdminProperties
 import app.hovanki.server.admin.AdminService
 import app.hovanki.server.admin.Staff
@@ -24,6 +25,7 @@ import app.hovanki.shared.protocol.AdminRevealedEmail
 import app.hovanki.shared.protocol.AdminSetRoleRequest
 import app.hovanki.shared.protocol.AdminStaff
 import app.hovanki.shared.protocol.AdminStats
+import app.hovanki.shared.protocol.AdminTile
 import app.hovanki.shared.protocol.AdminTotpRequest
 import app.hovanki.shared.protocol.AdminUserCard
 import app.hovanki.shared.protocol.AdminUsers
@@ -58,6 +60,7 @@ class AdminController(
     private val admin: AdminService,
     private val properties: AdminProperties,
     private val bigGames: BigGameService,
+    private val map: AdminMap,
 ) {
     @PostMapping(ApiRoutes.ADMIN_LOGIN)
     fun login(@RequestBody request: AdminLoginRequest, http: HttpServletRequest): AdminLoginResponse =
@@ -208,6 +211,11 @@ class AdminController(
     @PostMapping(ApiRoutes.ADMIN_ZONE_ESTIMATE)
     fun estimateZone(staff: Staff, @RequestBody request: AdminZoneEstimateRequest): AdminZoneEstimate =
         bigGames.estimate(staff, request)
+
+    /** A tile of the players' map for the page's map (admins). */
+    @GetMapping(ApiRoutes.ADMIN_TILE)
+    fun tile(staff: Staff, @PathVariable z: Int, @PathVariable x: Int, @PathVariable y: Int): AdminTile =
+        map.tile(staff, z, x, y)
 
     private fun startSession(login: AdminLogin, response: HttpServletResponse): AdminMe {
         response.addHeader(HttpHeaders.SET_COOKIE, AdminWebConfig.sessionCookie(login.token, properties.sessionMax))
