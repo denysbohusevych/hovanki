@@ -36,6 +36,13 @@ data class GameSettings(
      * area as the circle, and serves them at `ApiRoutes.streetZone`; the circles still set the timing.
      */
     val zoneShape: ZoneShape = ZoneShape.CIRCLE,
+    /**
+     * An open game (docs/adr/0011-spectators-and-recordings.md): anyone with an account and the join code may watch it
+     * without playing, [spectatorDelaySeconds] behind; admins watch open games live. False (older apps): nobody.
+     */
+    val openGame: Boolean = false,
+    /** How far behind the spectators of an open game see it; 0: live. */
+    val spectatorDelaySeconds: Int = 60,
 )
 
 /** The zone's shape (docs/adr/0009-game-setup-glow-streets.md). */

@@ -18,6 +18,7 @@ import app.hovanki.shared.protocol.AdminEnrollRequest
 import app.hovanki.shared.protocol.AdminEnrollment
 import app.hovanki.shared.protocol.AdminFindByEmailRequest
 import app.hovanki.shared.protocol.AdminGames
+import app.hovanki.shared.protocol.AdminLiveGame
 import app.hovanki.shared.protocol.AdminLoginRequest
 import app.hovanki.shared.protocol.AdminLoginResponse
 import app.hovanki.shared.protocol.AdminLoginStep
@@ -59,6 +60,7 @@ import app.hovanki.shared.protocol.SanctionKind
 import app.hovanki.shared.protocol.SanctionRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserRole
 import app.hovanki.shared.protocol.VerifyEmailRequest
@@ -510,6 +512,45 @@ class AdminApiTest(
         val cancelled = post(ApiRoutes.adminBigGameCancel(created.id), AdminReasonRequest("rain"), admin)
             .ok<AdminBigGame>()
         assertEquals(BigGameStatus.CANCELLED, cancelled.status)
+    }
+
+    @Test
+    fun adminsWatchOpenGamesLiveWithAReason() {
+        val game = gameWithChat()
+        val moderator = staff(UserRole.MODERATOR)
+        val admin = staff(UserRole.ADMIN)
+        val watch = ApiRoutes.adminGameWatch(game.gameId)
+        val live = ApiRoutes.adminGameLive(game.gameId)
+
+        // Not open: nobody watches it, admins included.
+        post(watch, AdminReasonRequest("checking"), admin).error(403, ErrorCode.FORBIDDEN, ErrorReason.GAME_NOT_OPEN)
+        val settings = GameSettings(zone = shrinkingZone(PARK), openGame = true, spectatorDelaySeconds = 120)
+        playerPost(ApiRoutes.settings(game.gameId), SettingsRequest(settings).json(), game.authorPlayer).expect(200)
+        val listed = get(ApiRoutes.ADMIN_GAMES, moderator).ok<AdminGames>().games.single { it.gameId == game.gameId }
+        assertTrue(listed.openGame)
+
+        // Admins only, with a reason, and only after asking with one.
+        post(watch, AdminReasonRequest("checking"), moderator).error(403, ErrorCode.FORBIDDEN)
+        get(live, admin).error(403, ErrorCode.FORBIDDEN)
+        post(watch, AdminReasonRequest(" "), admin).error(400, ErrorCode.BAD_REQUEST)
+        val watched = post(watch, AdminReasonRequest("a report of cheating"), admin).ok<AdminLiveGame>()
+        assertEquals(GamePhase.LOBBY, watched.phase)
+        assertEquals(2, watched.players.size)
+        assertTrue(
+            get(ApiRoutes.ADMIN_AUDIT, admin).ok<AdminAudit>().entries.any {
+                it.action == AdminAction.WATCH_GAME && it.target == game.gameId.value &&
+                    it.reason == "a report of cheating"
+            },
+        )
+        // Live: not the spectators' two minutes behind.
+        assertEquals(clock.millis(), get(live, admin).ok<AdminLiveGame>().serverTimeMillis)
+        get(live, moderator).error(403, ErrorCode.FORBIDDEN)
+
+        // A reason covers half an hour.
+        clock.advance(Duration.ofMinutes(20))
+        get(live, admin).expect(200)
+        clock.advance(Duration.ofMinutes(11))
+        get(live, admin).error(403, ErrorCode.FORBIDDEN)
     }
 
     // An account, a staff member, a game with a reported message

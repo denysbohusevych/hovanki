@@ -181,8 +181,11 @@ class GameSessionManager(
      */
     suspend fun acceptCrowding(): Boolean = sessionCommand { api.acceptCrowding(it) }
 
-    /** What the host's next game starts with: the setup chosen last time on this phone, or the defaults. */
-    fun lastGameSetup(): GameSetup = storage.loadGameSetup()?.coerced() ?: GameSetup()
+    /**
+     * What the host's next game starts with: the setup chosen last time on this phone, or the defaults. Never open to
+     * spectators: everybody's position is at stake, the host opens each game on purpose (the delay they chose stays).
+     */
+    fun lastGameSetup(): GameSetup = storage.loadGameSetup()?.coerced()?.copy(openGame = false) ?: GameSetup()
 
     suspend fun claimCatch(hiderId: PlayerId): Boolean = sessionCommand { api.claimCatch(it, hiderId) }
 

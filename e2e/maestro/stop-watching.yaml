@@ -1,0 +1,9 @@
+# «Stop watching» on the spectator's screen: back on the «Play» tab.
+appId: ${APP_ID}
+---
+- tapOn:
+    id: spectator_leave
+- extendedWaitUntil:
+    visible:
+      id: home_screen
+    timeout: 30000

@@ -14,6 +14,7 @@ import app.hovanki.server.ratelimit.RateLimiter
 import app.hovanki.server.social.FriendRepository
 import app.hovanki.server.social.InviteRegistry
 import app.hovanki.shared.protocol.AdminGame
+import app.hovanki.shared.protocol.AdminLiveGame
 import app.hovanki.shared.protocol.AreaNorms
 import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.BuildingsResponse
@@ -35,12 +36,17 @@ import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsRequest
+import app.hovanki.shared.protocol.SpectatorId
+import app.hovanki.shared.protocol.SpectatorSession
+import app.hovanki.shared.protocol.SpectatorSnapshot
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.VoteRequest
+import app.hovanki.shared.protocol.WatchRequest
+import app.hovanki.shared.protocol.WatchResponse
 import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.RequestIds
@@ -246,9 +252,13 @@ class GameService(
     fun updateSettings(caller: PlayerRef, gameId: GameId, request: SettingsRequest): GameSnapshot {
         validate(request.settings)
         var mapChanged = false
+        var closed = emptyList<SpectatorId>()
         val snapshot = update(caller, gameId) { game, now ->
             mapChanged = game.updateSettings(caller.playerId, request.settings, now)
+            // Closed to spectators: whoever watches stops right away.
+            if (!game.isOpenToSpectators) closed = game.dropSpectators()
         }
+        if (closed.isNotEmpty()) registry.revokeSpectatorTokens(gameId, closed)
         if (mapChanged) registry.get(gameId)?.let { game -> synchronized(game) { loadMap(game) } }
         return snapshot
     }
@@ -259,6 +269,53 @@ class GameService(
      */
     fun acceptCrowding(caller: PlayerRef, gameId: GameId): GameSnapshot =
         update(caller, gameId) { game, now -> game.acceptCrowding(caller.playerId, now) }
+
+    /**
+     * [user] watches the open game of [WatchRequest.joinCode] (docs/adr/0011-spectators-and-recordings.md): a spectator
+     * token of its own, and the game as the spectators see it. Not a game [user] plays in.
+     */
+    fun watch(request: WatchRequest, user: AuthenticatedUser): WatchResponse {
+        rateLimiter.acquire(RateLimit.WATCH, user.userId.value)
+        val game = registry.findByJoinCode(request.joinCode.trim())
+            ?: throw GameException(ErrorCode.NOT_FOUND, "No game with this code")
+        return locked(game) { now ->
+            val spectatorId = game.watch(ids.spectatorId(), user.userId, now)
+            val token = ids.token()
+            registry.registerSpectatorToken(token, SpectatorRef(game.id, spectatorId))
+            WatchResponse(SpectatorSession(game.id, spectatorId, token), game.spectatorSnapshot(spectatorId, now))
+        }
+    }
+
+    /** The game as [caller] sees it as a spectator, the game's delay behind. */
+    fun spectate(caller: SpectatorRef, gameId: GameId): SpectatorSnapshot =
+        watched(caller, gameId) { game, now -> game.spectatorSnapshot(caller.spectatorId, now) }
+
+    fun streetZoneForSpectator(caller: SpectatorRef, gameId: GameId): StreetZoneResponse =
+        watched(caller, gameId) { game, _ -> game.streetZoneForSpectator(caller.spectatorId) }
+
+    /** [caller] stops watching; their spectator token stops working. */
+    fun stopWatching(caller: SpectatorRef, gameId: GameId) {
+        watched(caller, gameId) { game, _ -> game.stopWatching(caller.spectatorId) }
+        registry.revokeSpectatorTokens(gameId, listOf(caller.spectatorId))
+    }
+
+    /** An open game right now, for an admin watching it (docs/adr/0011-spectators-and-recordings.md); null: no game. */
+    fun liveView(gameId: GameId): AdminLiveGame? {
+        val game = registry.get(gameId) ?: return null
+        return locked(game) { now -> game.liveView(now) }
+    }
+
+    /** Whether game [gameId] is open to spectators; false: no such game. */
+    fun isOpenGame(gameId: GameId): Boolean {
+        val game = registry.get(gameId) ?: return false
+        return synchronized(game) { game.isOpenToSpectators }
+    }
+
+    private fun <T> watched(caller: SpectatorRef, gameId: GameId, block: (Game, Long) -> T): T {
+        if (caller.gameId != gameId) throw GameException(ErrorCode.FORBIDDEN, "The token belongs to another game")
+        val game = registry.get(gameId) ?: throw GameException(ErrorCode.NOT_FOUND, "The game is over or never existed")
+        return locked(game) { now -> block(game, now) }
+    }
 
     /**
      * The caller leaves the game for good ([Game.leave]); their token stops working. An empty lobby is removed with its
@@ -350,8 +407,9 @@ class GameService(
     }
 
     /** Every game in memory as staff see it (docs/adr/0008-admin.md), newest first. */
-    fun adminGames(): List<AdminGame> =
-        registry.all().map { game -> locked(game) { game.adminView() } }.sortedByDescending { it.createdAtMillis }
+    fun adminGames(): List<AdminGame> = registry.all().map { game ->
+        locked(game) { now -> game.adminView(now) }
+    }.sortedByDescending { it.createdAtMillis }
 
     /**
      * Staff end game [gameId] (docs/adr/0008-admin.md): a started one finishes now, its players see the results; one

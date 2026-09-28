@@ -8,6 +8,7 @@ import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameHistoryResponse
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameRoute
 import app.hovanki.shared.protocol.PlayerStats
 import app.hovanki.shared.protocol.PrivacyRequest
@@ -21,7 +22,8 @@ import java.time.Instant
 /**
  * The caller's own history (docs/adr/0007-game-history-and-routes.md): statistics, their games, their saved routes, and
  * the consent to keep routes. Every method is about the caller only: there is no way to read another player's
- * history, numbers or route.
+ * history, numbers or route. The one thing shared is the recording of a game they played together
+ * (docs/adr/0011-spectators-and-recordings.md): its players see everybody's way in it.
  */
 @Service
 class HistoryService(
@@ -48,6 +50,14 @@ class HistoryService(
     fun route(user: AuthenticatedUser, gameId: GameId): GameRoute =
         history.route(user.userId, gameId, properties.routeRetention)
             ?: throw GameException(ErrorCode.NOT_FOUND, "No route of this game is saved")
+
+    /**
+     * The recording of [gameId], everybody's way (docs/adr/0011-spectators-and-recordings.md); 404 unless the caller
+     * played it with an account and it is still kept.
+     */
+    fun recording(user: AuthenticatedUser, gameId: GameId): GameRecording =
+        history.recording(user.userId, gameId, properties.recordingRetention)
+            ?: throw GameException(ErrorCode.NOT_FOUND, "No recording of this game for you")
 
     /** Deletes the caller's saved route of [gameId], if any; the game stays in the history. */
     fun deleteRoute(user: AuthenticatedUser, gameId: GameId) {

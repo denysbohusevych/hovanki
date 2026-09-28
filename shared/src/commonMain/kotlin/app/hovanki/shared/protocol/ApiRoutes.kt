@@ -50,6 +50,20 @@ object ApiRoutes {
     /** POST: reports the chat message with this seq to the moderators. */
     const val CHAT_REPORT = "$CHAT/{seq}/report"
 
+    // Watching an open game (docs/adr/0011-spectators-and-recordings.md).
+
+    /** POST [WatchRequest] with the account token: [WatchResponse]; the spectator token is for the routes below. */
+    const val WATCH = "$GAMES/watch"
+
+    /** GET with the spectator token: [SpectatorSnapshot], the game as it was the game's delay ago. */
+    const val SPECTATE = "$GAMES/{gameId}/spectate"
+
+    /** GET with the spectator token: the zone by streets ([StreetZoneResponse]), once READY. */
+    const val SPECTATE_STREET_ZONE = "$SPECTATE/street-zone"
+
+    /** POST, no body, 204: stop watching; the spectator token stops working. */
+    const val SPECTATE_LEAVE = "$SPECTATE/leave"
+
     // Accounts.
     const val ACCOUNTS = "/api/v1/accounts"
     const val LOGIN = "$ACCOUNTS/login"
@@ -83,6 +97,9 @@ object ApiRoutes {
 
     /** POST: deletes the saved route of this game (the game stays in the history). */
     const val ME_GAME_ROUTE_DELETE = "$ME_GAME_ROUTE/delete"
+
+    /** GET: [GameRecording], everybody's way through the game; 404 unless the caller played it with an account. */
+    const val ME_GAME_RECORDING = "$ME_GAMES/{gameId}/recording"
 
     // Big games (docs/adr/0010-big-games.md), with the account token.
 
@@ -143,6 +160,12 @@ object ApiRoutes {
     const val ADMIN_USER_RESET_TOTP = "$ADMIN_USER/reset-totp"
     const val ADMIN_GAMES = "$ADMIN/games"
     const val ADMIN_GAME_END = "$ADMIN_GAMES/{gameId}/end"
+
+    /** POST [AdminReasonRequest]: an admin starts watching an open game live (audit log). */
+    const val ADMIN_GAME_WATCH = "$ADMIN_GAMES/{gameId}/watch"
+
+    /** GET: [AdminLiveGame], the open game right now, while the admin watches it. */
+    const val ADMIN_GAME_LIVE = "$ADMIN_GAMES/{gameId}/live"
     const val ADMIN_STATS = "$ADMIN/stats"
     const val ADMIN_STAFF = "$ADMIN/staff"
     const val ADMIN_AUDIT = "$ADMIN/audit"
@@ -228,12 +251,20 @@ object ApiRoutes {
 
     fun inviteDismiss(inviteId: InviteId): String = INVITE_DISMISS.fill("inviteId" to inviteId.value)
 
+    fun spectate(gameId: GameId): String = SPECTATE.fill("gameId" to gameId.value)
+
+    fun spectateStreetZone(gameId: GameId): String = SPECTATE_STREET_ZONE.fill("gameId" to gameId.value)
+
+    fun spectateLeave(gameId: GameId): String = SPECTATE_LEAVE.fill("gameId" to gameId.value)
+
     /** [ME_GAMES], the page of games that ended before [before] (null: the newest). */
     fun meGames(before: Long? = null): String = if (before == null) ME_GAMES else "$ME_GAMES?before=$before"
 
     fun meGameRoute(gameId: GameId): String = ME_GAME_ROUTE.fill("gameId" to gameId.value)
 
     fun meGameRouteDelete(gameId: GameId): String = ME_GAME_ROUTE_DELETE.fill("gameId" to gameId.value)
+
+    fun meGameRecording(gameId: GameId): String = ME_GAME_RECORDING.fill("gameId" to gameId.value)
 
     fun friendRequestAccept(userId: UserId): String = FRIEND_REQUEST_ACCEPT.fill("userId" to userId.value)
 
@@ -254,6 +285,10 @@ object ApiRoutes {
     }
 
     fun adminGameEnd(gameId: GameId): String = ADMIN_GAME_END.fill("gameId" to gameId.value)
+
+    fun adminGameWatch(gameId: GameId): String = ADMIN_GAME_WATCH.fill("gameId" to gameId.value)
+
+    fun adminGameLive(gameId: GameId): String = ADMIN_GAME_LIVE.fill("gameId" to gameId.value)
 
     fun groupMembers(groupId: GroupId): String = GROUP_MEMBERS.fill("groupId" to groupId.value)
 

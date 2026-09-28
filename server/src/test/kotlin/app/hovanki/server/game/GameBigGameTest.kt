@@ -152,7 +152,7 @@ class GameBigGameTest {
     }
 
     /** The host after everybody left: still the server (a snapshot needs a player, so the admin's view). */
-    private fun Game.snapshotForEmpty(): PlayerId = if (adminView().hostName ==
+    private fun Game.snapshotForEmpty(): PlayerId = if (adminView(now).hostName ==
         Game.SERVER_HOST_NAME
     ) {
         Game.SERVER_HOST

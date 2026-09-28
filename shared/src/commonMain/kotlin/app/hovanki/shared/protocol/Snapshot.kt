@@ -55,6 +55,8 @@ data class GameSnapshot(
      * their friends. How many there are in all is here.
      */
     val counts: PlayerCounts? = null,
+    /** How many people watch this open game right now ([GameSettings.openGame]): the players see it. */
+    val spectators: Int = 0,
 )
 
 /** How many players a game has in all, by role and state (the snapshot of a big game lists only some of them). */

@@ -166,4 +166,10 @@ enum class ErrorReason {
 
     /** Only players who signed up for a big game come into its lobby (docs/adr/0010-big-games.md). */
     BIG_GAME_SIGNUP_REQUIRED,
+
+    /** The game is not open to spectators (docs/adr/0011-spectators-and-recordings.md). */
+    GAME_NOT_OPEN,
+
+    /** The caller plays in this game: players never watch their own game as spectators. */
+    PLAYING_THIS_GAME,
 }

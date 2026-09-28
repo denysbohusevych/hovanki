@@ -2,6 +2,7 @@ package app.hovanki.client.ui.lobby
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -22,6 +23,8 @@ import androidx.compose.ui.unit.sp
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_dismiss
+import app.hovanki.client.resources.settings_delay_hint
+import app.hovanki.client.resources.settings_delay_live
 import app.hovanki.client.resources.settings_glow
 import app.hovanki.client.resources.settings_glow_every
 import app.hovanki.client.resources.settings_glow_for
@@ -29,6 +32,8 @@ import app.hovanki.client.resources.settings_glow_hint
 import app.hovanki.client.resources.settings_hiding
 import app.hovanki.client.resources.settings_meters
 import app.hovanki.client.resources.settings_minutes
+import app.hovanki.client.resources.settings_open_game
+import app.hovanki.client.resources.settings_open_game_hint
 import app.hovanki.client.resources.settings_save
 import app.hovanki.client.resources.settings_seconds
 import app.hovanki.client.resources.settings_seeking
@@ -36,6 +41,7 @@ import app.hovanki.client.resources.settings_shape_circle
 import app.hovanki.client.resources.settings_shape_streets
 import app.hovanki.client.resources.settings_shape_streets_hint
 import app.hovanki.client.resources.settings_shrinks
+import app.hovanki.client.resources.settings_spectator_delay
 import app.hovanki.client.resources.settings_title
 import app.hovanki.client.resources.settings_zone
 import app.hovanki.client.resources.working
@@ -56,7 +62,8 @@ import org.jetbrains.compose.resources.stringResource
 
 /**
  * The host's game setup, full screen (docs/adr/0009-game-setup-glow-streets.md): the zone's size, shape and whether
- * it shrinks, the time to hide and to search, and the glow: how often and for how long the seekers see the hiders.
+ * it shrinks, the time to hide and to search, the glow: how often and for how long the seekers see the hiders, and
+ * whether the game is open to spectators, and how far behind they see it (docs/adr/0011-spectators-and-recordings.md).
  * «Save» sends it; every phone in the lobby shows the new setup. Back and the close button return without saving.
  */
 @Composable
@@ -169,6 +176,36 @@ fun SettingsPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                 }
             }
 
+            PopCard(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                SwitchRow(
+                    text = stringResource(Res.string.settings_open_game),
+                    checked = setup.openGame,
+                    onCheckedChange = { edit(setup.copy(openGame = it)) },
+                    tag = TestTags.SETTINGS_OPEN_GAME,
+                )
+                SecondaryText(stringResource(Res.string.settings_open_game_hint))
+                if (setup.openGame) {
+                    Text(
+                        text = stringResource(Res.string.settings_spectator_delay),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        for (delay in GameSetup.SPECTATOR_DELAYS) {
+                            ShapeButton(
+                                text = spectatorDelayText(delay),
+                                selected = setup.spectatorDelaySeconds == delay,
+                                onClick = { edit(setup.copy(spectatorDelaySeconds = delay)) },
+                                modifier = Modifier.testTag(TestTags.settingsDelay(delay)),
+                            )
+                        }
+                    }
+                    SecondaryText(stringResource(Res.string.settings_delay_hint))
+                }
+            }
+
             PopButton(
                 text = stringResource(Res.string.settings_save),
                 onClick = viewModel::saveSettings,
@@ -187,6 +224,14 @@ fun SettingsPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
             }
         }
     }
+}
+
+/** How far behind spectators see a game (docs/adr/0011-spectators-and-recordings.md): «Live», «30 s», «2 min». */
+@Composable
+internal fun spectatorDelayText(seconds: Int): String = when {
+    seconds <= 0 -> stringResource(Res.string.settings_delay_live)
+    seconds < SECONDS_PER_MINUTE -> stringResource(Res.string.settings_seconds, seconds)
+    else -> stringResource(Res.string.settings_minutes, seconds / SECONDS_PER_MINUTE)
 }
 
 /** The glow lengths the panel offers: short ones one by one, then coarser; each shorter than the interval. */

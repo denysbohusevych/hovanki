@@ -45,8 +45,11 @@ import app.hovanki.client.resources.home_create_hint
 import app.hovanki.client.resources.home_join_short
 import app.hovanki.client.resources.home_location_note
 import app.hovanki.client.resources.home_or_join
+import app.hovanki.client.resources.home_watch
+import app.hovanki.client.resources.home_watch_hint
 import app.hovanki.client.resources.ic_arrow_right
 import app.hovanki.client.resources.ic_close
+import app.hovanki.client.resources.ic_eye
 import app.hovanki.client.resources.invite_accept
 import app.hovanki.client.resources.invite_dismiss
 import app.hovanki.client.resources.invite_from
@@ -168,6 +171,19 @@ fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: 
             )
         }
         SecondaryText(stringResource(Res.string.home_location_note))
+        // An open game can be watched without playing (docs/adr/0011-spectators-and-recordings.md).
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SecondaryText(stringResource(Res.string.home_watch_hint), Modifier.weight(1f))
+            PopButton(
+                text = stringResource(Res.string.home_watch),
+                onClick = viewModel::watchGame,
+                enabled = !isBusy,
+                style = PopStyle.Outline,
+                icon = Res.drawable.ic_eye,
+                height = 44.dp,
+                modifier = Modifier.testTag(TestTags.HOME_WATCH),
+            )
+        }
 
         if (bigGames.games.isNotEmpty()) {
             SectionTitle(stringResource(Res.string.big_games_title))

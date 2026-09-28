@@ -48,15 +48,17 @@ export function areaSquareMeters(points) {
 export class ZoneMap {
   /**
    * [canvas]: where to draw; [loadTile](z, x, y): a promise of the tile's JSON; [points]: the zone's corners
-   * ({lat, lon}), changed in place; [onChange]: called after every change of the zone.
+   * ({lat, lon}), changed in place; [onChange]: called after every change of the zone; [overlay](g, screen): draws
+   * over the map, screen({lat, lon}) gives its pixels (an open game watched live, docs/adr/0011).
    */
-  constructor(canvas, { loadTile, center, zoom = 14, points = [], editable = true, onChange = () => {} }) {
+  constructor(canvas, { loadTile, center, zoom = 14, points = [], editable = true, onChange = () => {}, overlay = null }) {
     this.canvas = canvas;
     this.context = canvas.getContext("2d");
     this.loadTile = loadTile;
     this.center = center;
     this.zoom = zoom;
     this.points = points;
+    this.overlay = overlay;
     this.editable = editable;
     this.pencil = editable && points.length === 0;
     this.onChange = onChange;
@@ -79,7 +81,7 @@ export class ZoneMap {
     this.canvas.width = Math.round(width * ratio);
     this.canvas.height = Math.round(height * ratio);
     this.context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    if (this.fitPending && width > 0) this.fit();
+    if (this.fitPending && width > 0) this.fit(this.fitPoints);
     this.redraw();
   }
 
@@ -111,18 +113,19 @@ export class ZoneMap {
     this.redraw();
   }
 
-  /** The whole zone in view. */
-  fit() {
-    if (this.points.length < 2) return;
+  /** The whole zone in view, or all of [points]. */
+  fit(points = this.points) {
+    if (points.length < 2) return;
     // Not laid out yet: once the canvas has its size.
     this.fitPending = !this.width;
+    this.fitPoints = points;
     if (this.fitPending) return;
-    const lats = this.points.map((p) => p.lat);
-    const lons = this.points.map((p) => p.lon);
+    const lats = points.map((p) => p.lat);
+    const lons = points.map((p) => p.lon);
     this.center = { lat: (Math.min(...lats) + Math.max(...lats)) / 2, lon: (Math.min(...lons) + Math.max(...lons)) / 2 };
     for (let zoom = MAX_ZOOM; zoom >= MIN_ZOOM; zoom -= 0.25) {
       this.zoom = zoom;
-      const corners = this.points.map((p) => this.screen(p));
+      const corners = points.map((p) => this.screen(p));
       const inside = corners.every((p) => p.x > 30 && p.x < this.width - 30 && p.y > 30 && p.y < this.height - 30);
       if (inside) break;
     }
@@ -249,6 +252,11 @@ export class ZoneMap {
     streets(false, COLORS.street, width);
     streets(true, COLORS.major, width * 1.6);
     this.drawZone(g);
+    if (this.overlay) {
+      g.save();
+      this.overlay(g, (point) => this.screen(point));
+      g.restore();
+    }
   }
 
   drawZone(g) {

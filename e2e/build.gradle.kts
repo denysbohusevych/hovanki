@@ -53,7 +53,7 @@ tasks.register<JavaExec>("route") {
 // Studio (run configurations in .run/). Builds the server jar and the debug APK, installs the app on every running
 // emulator, starts the server with the `e2e` profile next to an embedded PostgreSQL (LocalServer), runs Maestro and the
 // bots; the emulators stay as they were.
-// Options: -Pe2e.scenario=full-round|restart|all -Pe2e.bots=3 -Pe2e.emulators=auto|emulator-5554,... -Pe2e.port=8080
+// Options: -Pe2e.scenario=full-round|restart|watch|all -Pe2e.bots=3 -Pe2e.emulators=auto|emulator-5554,... -Pe2e.port=8080
 // -Pe2e.failFast=true -Pe2e.maestro=<path> -Pe2e.location=<lat,lon> (default: where the first emulator is)
 // -Pe2e.buildings=tiles|overpass|fake|off (default tiles: real buildings around the game, as in production).
 // Report: e2e/build/reports/devices/. e2e/run-devices.sh does the same with headless emulators it starts itself (CI)

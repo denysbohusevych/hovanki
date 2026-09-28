@@ -36,3 +36,8 @@ value class InviteId(val value: String)
 @Serializable
 @JvmInline
 value class BigGameId(val value: String)
+
+/** Someone watching an open game without playing it (docs/adr/0011-spectators-and-recordings.md). */
+@Serializable
+@JvmInline
+value class SpectatorId(val value: String)

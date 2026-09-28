@@ -7,11 +7,15 @@ import app.hovanki.server.game.GameRecord
 import app.hovanki.server.game.PlayerResult
 import app.hovanki.shared.protocol.GameHistoryEntry
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameRoute
+import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStats
 import app.hovanki.shared.protocol.PlayerStatus
+import app.hovanki.shared.protocol.RecordedPlayer
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.RoutePoint
+import app.hovanki.shared.protocol.TrackPoint
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.protocol.ZoneSchedule
@@ -124,14 +128,107 @@ class HistoryRepository(private val jdbc: JdbcClient) {
             .update()
     }
 
+    /**
+     * Saves the recording of [record] (docs/adr/0011-spectators-and-recordings.md): the game's zone, and every player's
+     * way. Players with an account only when their account is among [accounts] (still there when saved): an account
+     * deleted meanwhile takes its way with it, as it would have afterwards.
+     */
+    fun insertRecording(record: GameRecord, accounts: Set<UserId>, savedAt: Instant) {
+        jdbc.sql(
+            """
+            INSERT INTO game_recordings (game_id, saved_at, started_at, zone_started_at, finished_at, zone, street_zone)
+            VALUES (:gameId, :savedAt, :startedAt, :zoneStartedAt, :finishedAt, CAST(:zone AS jsonb),
+                    CAST(:streetZone AS jsonb))
+            ON CONFLICT (game_id) DO NOTHING
+            """.trimIndent(),
+        )
+            .param("gameId", record.gameId.value)
+            .param("savedAt", savedAt.toTimestamptz())
+            .param("startedAt", millis(record.startedAtMillis))
+            .param("zoneStartedAt", record.zoneStartedAtMillis?.let(::millis))
+            .param("finishedAt", millis(record.finishedAtMillis))
+            .param("zone", protocolJson.encodeToString(ZoneSchedule.serializer(), record.settings.zone))
+            .param("streetZone", record.streetZone?.let { protocolJson.encodeToString(streetZoneSerializer, it) })
+            .update()
+        for (track in record.recording.filter { it.userId == null || it.userId in accounts }) {
+            jdbc.sql(
+                """
+                INSERT INTO game_recording_tracks (game_id, player_id, user_id, name, role, status, out_at, caught_by,
+                                                   points)
+                VALUES (:gameId, :playerId, :userId, :name, :role, :status, :outAt, :caughtBy, CAST(:points AS jsonb))
+                ON CONFLICT (game_id, player_id) DO NOTHING
+                """.trimIndent(),
+            )
+                .param("gameId", record.gameId.value)
+                .param("playerId", track.playerId.value)
+                .param("userId", track.userId?.value)
+                .param("name", track.name)
+                .param("role", track.role.name)
+                .param("status", track.status.name)
+                .param("outAt", track.outAtMillis?.let(::millis))
+                .param("caughtBy", track.caughtBy?.value)
+                .param("points", protocolJson.encodeToString(trackSerializer, track.points))
+                .update()
+        }
+    }
+
+    /**
+     * The recording of [gameId] for [userId], who played it with an account; null when they did not, or when it is
+     * gone (expired, never saved). [retention] tells when it goes.
+     */
+    fun recording(userId: UserId, gameId: GameId, retention: Duration): GameRecording? {
+        val recording = jdbc.sql(
+            """
+            SELECT rec.*
+            FROM game_recordings rec
+            JOIN game_results r ON r.game_id = rec.game_id AND r.user_id = :userId
+            WHERE rec.game_id = :gameId
+            """.trimIndent(),
+        )
+            .param("userId", userId.value)
+            .param("gameId", gameId.value)
+            .query { rs, _ ->
+                GameRecording(
+                    gameId = GameId(rs.getString("game_id")),
+                    zone = protocolJson.decodeFromString(ZoneSchedule.serializer(), rs.getString("zone")),
+                    startedAtMillis = rs.getInstant("started_at").toEpochMilli(),
+                    zoneStartedAtMillis = rs.getInstantOrNull("zone_started_at")?.toEpochMilli(),
+                    finishedAtMillis = rs.getInstant("finished_at").toEpochMilli(),
+                    streetZone = rs.getString("street_zone")?.let {
+                        protocolJson.decodeFromString(streetZoneSerializer, it)
+                    },
+                    expiresAtMillis = rs.getInstant("saved_at").plus(retention).toEpochMilli(),
+                )
+            }
+            .optional()
+            .orElse(null) ?: return null
+        val players = jdbc.sql("SELECT * FROM game_recording_tracks WHERE game_id = :gameId ORDER BY player_id")
+            .param("gameId", gameId.value)
+            .query { rs, _ ->
+                RecordedPlayer(
+                    playerId = PlayerId(rs.getString("player_id")),
+                    name = rs.getString("name"),
+                    role = Role.valueOf(rs.getString("role")),
+                    status = PlayerStatus.valueOf(rs.getString("status")),
+                    outAtMillis = rs.getInstantOrNull("out_at")?.toEpochMilli(),
+                    caughtBy = rs.getString("caught_by")?.let(::PlayerId),
+                    isMe = rs.getString("user_id") == userId.value,
+                    points = protocolJson.decodeFromString(trackSerializer, rs.getString("points")),
+                )
+            }
+            .list()
+        return recording.copy(players = players)
+    }
+
     /** [userId]'s games that ended before [before] (null: all), newest first, at most [limit]. */
     fun games(userId: UserId, before: Instant?, limit: Int): List<GameHistoryEntry> {
         val page = if (before == null) "" else "AND r.finished_at < :before"
         return jdbc.sql(
             """
-            SELECT r.*, (g.user_id IS NOT NULL) AS has_route
+            SELECT r.*, (g.user_id IS NOT NULL) AS has_route, (rec.game_id IS NOT NULL) AS has_recording
             FROM game_results r
             LEFT JOIN game_routes g ON g.user_id = r.user_id AND g.game_id = r.game_id
+            LEFT JOIN game_recordings rec ON rec.game_id = r.game_id
             WHERE r.user_id = :userId $page
             ORDER BY r.finished_at DESC, r.game_id
             LIMIT :limit
@@ -231,6 +328,7 @@ class HistoryRepository(private val jdbc: JdbcClient) {
     private companion object {
         val pointsSerializer = ListSerializer(RoutePoint.serializer())
         val streetZoneSerializer = ListSerializer(ZonePolygon.serializer())
+        val trackSerializer = ListSerializer(TrackPoint.serializer())
 
         fun millis(epochMillis: Long) = Instant.ofEpochMilli(epochMillis).toTimestamptz()
 
@@ -254,6 +352,7 @@ class HistoryRepository(private val jdbc: JdbcClient) {
                 movingSeconds = rs.getInt("moving_seconds"),
                 maxSpeedMetersPerSecond = rs.getDoubleOrNull("max_speed_mps"),
                 hasRoute = rs.getBoolean("has_route"),
+                hasRecording = rs.getBoolean("has_recording"),
             )
         }
     }

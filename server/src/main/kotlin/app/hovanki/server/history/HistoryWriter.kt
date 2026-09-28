@@ -26,6 +26,8 @@ import kotlin.concurrent.thread
  *
  * Every game played to its end goes to `played_games`; each player with an account (still there) gets a row in
  * `game_results`; and those of them who agreed to keep their routes when it is saved, their route in `game_routes`.
+ * With at least one of them, the game's recording, everybody's way, goes to `game_recordings`
+ * (docs/adr/0011-spectators-and-recordings.md).
  * The accounts are locked meanwhile, like [HistoryService.setPrivacy] locks them: a route is never saved after its
  * owner turned saving off.
  */
@@ -69,6 +71,11 @@ class HistoryWriter(
             for (result in record.results.filter { it.userId in existing }) {
                 history.insertResult(record, result)
                 if (result.userId in saving) history.insertRoute(record, result, now)
+            }
+            // The recording is for the players with an account: without one of them, nobody could ever watch it. A big
+            // game has none (Game.buildRecord).
+            if (existing.isNotEmpty() && record.recording.isNotEmpty()) {
+                history.insertRecording(record, existing.toSet(), now)
             }
         }
     }

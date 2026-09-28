@@ -41,7 +41,7 @@ Options:
   --android-serials a,b    use running emulators instead (adb serials)
   --ios-udids a,b          use booted simulators instead
   --bots K                 headless bots in the game (default 3)
-  --scenario NAME          full-round | restart | all (default full-round)
+  --scenario NAME          full-round | restart | watch | all (default full-round)
   --port P                 server port on this machine (default 8080)
   --location LAT,LON       play there (default: where the first device is, its own location)
   --device-location LAT,LON  put the devices there before the run, as Extended Controls → Location would: the
@@ -89,6 +89,7 @@ fi
 STARTED_EMULATORS=()
 CREATED_SIMULATORS=()
 cleanup() {
+  [[ -n ${LOAD_SAMPLER:-} ]] && kill "$LOAD_SAMPLER" 2>/dev/null || true
   if ((KEEP)); then return; fi
   for serial in ${STARTED_EMULATORS[@]+"${STARTED_EMULATORS[@]}"}; do adb -s "$serial" emu kill >/dev/null 2>&1 || true; done
   for udid in ${CREATED_SIMULATORS[@]+"${CREATED_SIMULATORS[@]}"}; do
@@ -278,6 +279,24 @@ for udid in ${IOS_UDIDS[@]+"${IOS_UDIDS[@]}"}; do
 done
 
 # ---- Scenarios ----
+# CI: the busiest processes every 15 s ($REPORT/logs/load.log). When the runner stalls (a `simctl` call hangs for a
+# minute, the server answers in seconds), it shows who had the machine.
+if [[ -n ${CI:-} ]]; then
+  (
+    while true; do
+      echo "===== $(date -u +%H:%M:%S)"
+      if [[ $(uname) == Darwin ]]; then
+        ps -Aco pcpu=,rss=,comm= -r | head -8
+        sysctl -n vm.swapusage
+      else
+        ps -eo pcpu=,rss=,comm= --sort=-pcpu | head -8
+        free -m | sed -n 2p
+      fi
+      sleep 15
+    done
+  ) >"$REPORT/logs/load.log" 2>&1 &
+  LOAD_SAMPLER=$!
+fi
 args=(devices --port "$PORT" --bots "$BOTS" --scenario "$SCENARIO" --report "$REPORT" --flows e2e/maestro
   --server-jar "$SERVER_JAR" --buildings "$BUILDINGS")
 ((FAIL_FAST)) && args+=(--fail-fast true)

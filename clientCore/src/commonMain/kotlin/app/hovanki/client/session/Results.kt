@@ -2,6 +2,7 @@ package app.hovanki.client.session
 
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.GamePhase
+import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.PlayerId
@@ -154,6 +155,28 @@ class Replay(val lines: List<ReplayLine>, val startMillis: Long, val endMillis: 
             val hidingStart = snapshot.zoneStartedAtMillis?.let { it - snapshot.settings.hidingSeconds * 1000L }
             val start = minOf(hidingStart ?: firstPoint, firstPoint)
             val end = maxOf(snapshot.finishedAtMillis ?: lastPoint, lastPoint)
+            return Replay(lines, start, end)
+        }
+
+        /**
+         * The replay of a game's recording from the history (docs/adr/0011-spectators-and-recordings.md): everybody
+         * still in it, from the start of hiding to the end. Null when nobody has a way in it.
+         */
+        fun of(recording: GameRecording): Replay? {
+            val lines = recording.players.filter { it.points.isNotEmpty() }.map { player ->
+                val view = PlayerView(
+                    id = player.playerId,
+                    name = player.name,
+                    role = player.role,
+                    status = player.status,
+                    outAtMillis = player.outAtMillis,
+                    caughtBy = player.caughtBy,
+                )
+                ReplayLine(view, player.points)
+            }
+            if (lines.isEmpty()) return null
+            val start = minOf(recording.startedAtMillis, lines.minOf { it.points.first().atMillis })
+            val end = maxOf(recording.finishedAtMillis, lines.maxOf { it.points.last().atMillis })
             return Replay(lines, start, end)
         }
     }

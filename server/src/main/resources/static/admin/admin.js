@@ -16,6 +16,7 @@ const ACTION = {
   FIND_BY_EMAIL: "искал по email", END_GAME: "завершил игру", SET_ROLE: "сменил роль", RESET_TOTP: "сбросил аутентификатор",
   BIG_GAME_CREATE: "создал большую игру", BIG_GAME_UPDATE: "изменил большую игру", BIG_GAME_START: "запустил большую игру",
   BIG_GAME_CANCEL: "отменил большую игру",
+  WATCH_GAME: "смотрел игру вживую",
 };
 const MODERATOR_MAX_DAYS = 30;
 
@@ -334,6 +335,7 @@ function frame(page, openReports) {
 }
 
 async function route() {
+  stopLive();
   if (!me) {
     try {
       me = await get("/me");
@@ -351,6 +353,7 @@ async function route() {
   try {
     if (page === "users" && id) await userView(decodeURIComponent(id));
     else if (page === "users") await usersView();
+    else if (page === "games" && id && isAdmin()) await liveView(decodeURIComponent(id));
     else if (page === "games") await gamesView();
     else if (page === "stats") await statsView();
     else if (page === "staff" && isAdmin()) await staffView();
@@ -575,9 +578,11 @@ async function gamesView() {
   const { games } = await run(() => get("/games"));
   frame("games");
   show(el("h1", {}, `Игры сейчас: ${games.length}`),
-    el("p", { class: "muted small" }, "Без центра зоны, позиций и чата: только числа."),
+    el("p", { class: "muted small" }, "Без центра зоны, позиций и чата: только числа. Открытые игры (хост разрешил зрителей) " +
+      "админы могут смотреть вживую, с причиной в журнале."),
     games.length ? el("table", {},
-      el("tr", {}, ["Игра", "Фаза", "Хост", "Игроки (гости, ищущие)", "Создана", "В фазе с", "Активность", "Зона", "Карта", "Чат", ""]
+      el("tr", {}, ["Игра", "Фаза", "Хост", "Игроки (гости, ищущие)", "Создана", "В фазе с", "Активность", "Зона", "Карта", "Чат",
+        "Зрители", ""]
         .map((t) => el("th", {}, t))),
       games.map((game) => el("tr", {},
         el("td", { class: "mono" }, game.gameId),
@@ -590,7 +595,11 @@ async function gamesView() {
         el("td", {}, `${Math.round(game.zoneRadiusMeters)} м`, capacitySummary(game)),
         el("td", {}, mapSummary(game)),
         el("td", {}, game.chatMessages),
-        el("td", {}, isAdmin() && game.phase !== "FINISHED" ? el("button", {
+        el("td", {}, game.openGame ? `открыта · ${game.spectators}` : "—"),
+        el("td", { class: "row" }, isAdmin() && game.openGame ? el("button", {
+          class: "secondary",
+          onclick: () => watchGame(game.gameId),
+        }, "Смотреть") : null, isAdmin() && game.phase !== "FINISHED" ? el("button", {
           class: "danger",
           async onclick() {
             const values = await ask(`Завершить игру ${game.gameId}`, {
@@ -610,6 +619,190 @@ function capacitySummary(game) {
   return el("div", { class: "small muted" }, `до ${fmt.plural(game.capacity, "игрока", "игроков", "игроков")}`,
     crowded ? [" ", el("span", { class: "tag mute" }, "тесно")] : null,
     game.crowdingAccepted ? [" ", el("span", { class: "tag" }, "играют всё равно")] : null);
+}
+
+// Watching an open game live (docs/adr/0011-spectators-and-recordings.md): admins only, after a reason that goes to the
+// audit log; the server then serves the game for half an hour. The players' map (map.js, tiles through the server) with
+// the zone, everybody's position and the last two minutes of their way drawn over it; names are canvas text.
+
+const LIVE_POLL_MS = 3000;
+const LIVE_ROLE = { HIDER: "прячется", SEEKER: "ищет" };
+const LIVE_STATUS = { ACTIVE: "в игре", CAUGHT: "пойман", ELIMINATED: "выбыл" };
+const LIVE_COLOR = { SEEKER: "#b00060", HIDER: "#6b4bff", OUT: "#6b6b78" };
+let liveTimer = null;
+
+function stopLive() {
+  clearTimeout(liveTimer);
+  liveTimer = null;
+}
+
+/** Asks for the reason, then shows open game [gameId] live. */
+async function watchGame(gameId) {
+  const values = await ask(`Смотреть игру ${gameId}`, {
+    text: "Открытая игра вживую: где сейчас каждый игрок и его путь за последние 2 минуты. Причина попадёт в журнал; " +
+      "смотреть можно 30 минут, потом — снова с причиной.",
+    confirm: "Смотреть",
+  });
+  if (!values) return;
+  await run(() => post(`/games/${encodeURIComponent(gameId)}/watch`, { reason: values.reason }));
+  go(`#/games/${encodeURIComponent(gameId)}`);
+}
+
+async function liveView(gameId) {
+  frame("games");
+  const hash = `#/games/${encodeURIComponent(gameId)}`;
+  const path = `/games/${encodeURIComponent(gameId)}/live`;
+  let live;
+  try {
+    live = await get(path);
+  } catch (e) {
+    await liveEnded(gameId, e);
+    return;
+  }
+  const header = el("div");
+  const players = el("div");
+  const canvas = el("canvas", { class: "map live" });
+  const map = new ZoneMap(canvas, {
+    loadTile: (z, x, y) => get(`/tiles/${z}/${x}/${y}`),
+    center: live.settings.zone.initial.center,
+    zoom: 15,
+    editable: false,
+    overlay: (g, screen) => drawLive(g, screen, live),
+  });
+  const render = () => {
+    header.replaceChildren(liveHeader(live));
+    players.replaceChildren(livePlayers(live));
+    map.redraw();
+  };
+  show(el("a", { href: "#/games" }, "← Все игры"), header, canvas, players);
+  map.fit(circleBounds(live.settings.zone.initial));
+  render();
+  async function tick() {
+    try {
+      live = await get(path);
+    } catch (e) {
+      if (location.hash === hash) await liveEnded(gameId, e);
+      return;
+    }
+    if (location.hash !== hash) return;
+    render();
+    liveTimer = setTimeout(tick, LIVE_POLL_MS);
+  }
+  liveTimer = setTimeout(tick, LIVE_POLL_MS);
+}
+
+/** Watching ended: the reason's half hour is over, the host closed the game, or it is gone. */
+async function liveEnded(gameId, e) {
+  const back = el("a", { href: "#/games" }, "← Все игры");
+  if (e instanceof ApiError && e.status === 403) {
+    const closed = e.body?.reason === "GAME_NOT_OPEN";
+    show(back, el("div", { class: "card narrow" }, el("h1", {}, closed ? "Игра закрыта" : "Нужна причина"),
+      el("p", {}, closed
+        ? "Хост закрыл игру для зрителей: смотреть её больше нельзя."
+        : "Доступ к этой игре закончился (30 минут после причины) или ещё не открыт."),
+      closed ? null : el("button", { onclick: () => watchGame(gameId) }, "Смотреть с причиной")));
+  } else if (e instanceof ApiError && e.status === 404) {
+    show(back, el("div", { class: "card narrow" }, el("h1", {}, "Игры больше нет"),
+      el("p", {}, "Она закончилась и удалена с сервера.")));
+  } else {
+    await run(() => Promise.reject(e)).catch(() => {});
+  }
+}
+
+function liveHeader(live) {
+  const left = live.phaseEndsAtMillis ? Math.max(0, Math.round((live.phaseEndsAtMillis - live.serverTimeMillis) / 1000)) : null;
+  const clock = left == null ? "" : ` · ещё ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  return el("div", {},
+    el("h1", {}, `Игра ${live.gameId} · ${PHASE[live.phase]}${clock}`),
+    el("p", { class: "muted small" }, `Вживую, обновляется каждые 3 секунды. Зрителей: ${live.spectators}. ` +
+      "Путь каждого — за последние 2 минуты. Каждое открытие записано в журнал."));
+}
+
+/** The corners of the square around [circle]: the map fits them. */
+function circleBounds(circle) {
+  const dLat = circle.radiusMeters / 110540;
+  const dLon = circle.radiusMeters / (111320 * Math.cos((circle.center.lat * Math.PI) / 180));
+  const { lat, lon } = circle.center;
+  return [{ lat: lat - dLat, lon: lon - dLon }, { lat: lat + dLat, lon: lon + dLon }];
+}
+
+/** Over the map: the zone (dashed: the next one), the rule's buildings, everybody's way and where they are. */
+function drawLive(g, screen, live) {
+  const path = (points, close) => {
+    g.beginPath();
+    points.forEach((point, i) => {
+      const p = screen(point);
+      if (i === 0) g.moveTo(p.x, p.y); else g.lineTo(p.x, p.y);
+    });
+    if (close) g.closePath();
+  };
+  const circle = (zone) => {
+    const [south, north] = circleBounds(zone);
+    const center = screen(zone.center);
+    g.beginPath();
+    g.arc(center.x, center.y, Math.abs(screen(north).y - screen(south).y) / 2, 0, 2 * Math.PI);
+  };
+  const color = (player) => (player.status !== "ACTIVE" ? LIVE_COLOR.OUT : LIVE_COLOR[player.role]);
+
+  g.fillStyle = "rgba(176, 0, 96, 0.2)";
+  for (const building of live.buildings) {
+    path(building.outline, true);
+    g.fill();
+  }
+  const streets = live.streetZone?.length ? live.streetZone : null;
+  const stage = Math.min(live.zoneStage ?? 0, (streets?.length ?? 1) - 1);
+  g.strokeStyle = "#0e0e12";
+  g.lineWidth = 3;
+  if (streets) path(streets[stage].outline, true); else circle(live.zoneNow ?? live.settings.zone.initial);
+  g.stroke();
+  const next = streets ? streets[stage + 1] : live.nextZone;
+  if (next) {
+    g.setLineDash([8, 6]);
+    g.lineWidth = 1.5;
+    if (streets) path(next.outline, true); else circle(next);
+    g.stroke();
+    g.setLineDash([]);
+  }
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  for (const player of live.players) {
+    if (!(player.trail?.length > 1)) continue;
+    path(player.trail, false);
+    g.strokeStyle = color(player);
+    g.globalAlpha = 0.6;
+    g.lineWidth = 3;
+    g.stroke();
+    g.globalAlpha = 1;
+  }
+  g.font = "600 12px system-ui, sans-serif";
+  for (const player of live.players) {
+    if (!player.location) continue;
+    const p = screen(player.location);
+    g.beginPath();
+    g.arc(p.x, p.y, 6, 0, 2 * Math.PI);
+    g.fillStyle = color(player);
+    g.fill();
+    g.strokeStyle = "#fff";
+    g.lineWidth = 2;
+    g.stroke();
+    g.lineWidth = 3;
+    g.strokeText(player.name, p.x + 10, p.y + 4);
+    g.fillStyle = "#0e0e12";
+    g.fillText(player.name, p.x + 10, p.y + 4);
+  }
+}
+
+function livePlayers(live) {
+  const seen = (p) => (p.location
+    ? `${Math.max(0, Math.round((live.serverTimeMillis - p.location.atMillis) / 1000))} с назад`
+    : "нет точек");
+  return el("table", {},
+    el("tr", {}, ["Игрок", "Роль", "Статус", "Последняя точка"].map((t) => el("th", {}, t))),
+    live.players.map((p) => el("tr", {},
+      el("td", {}, p.name),
+      el("td", {}, LIVE_ROLE[p.role]),
+      el("td", {}, LIVE_STATUS[p.status]),
+      el("td", {}, seen(p)))));
 }
 
 const BUILDINGS = { LOADING: "грузятся", READY: "есть", UNAVAILABLE: "нет данных, правило выключено" };

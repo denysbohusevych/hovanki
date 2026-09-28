@@ -1,0 +1,24 @@
+# From the «Play» tab: «Profile», «Game history», and the recording of game GAME_ID
+# (docs/adr/0011-spectators-and-recordings.md).
+appId: ${APP_ID}
+---
+- tapOn:
+    id: tab_profile
+- scrollUntilVisible:
+    element:
+      id: profile_history
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    id: profile_history
+- scrollUntilVisible:
+    element:
+      id: history_recording_${GAME_ID}
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    id: history_recording_${GAME_ID}
+- extendedWaitUntil:
+    visible:
+      id: recording_panel
+    timeout: 30000

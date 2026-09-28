@@ -221,10 +221,40 @@ data class AdminGame(
     val crowdingAccepted: Boolean = false,
     /** A big game's round (docs/adr/0010-big-games.md): the server hosts it. */
     val bigGameId: BigGameId? = null,
+    /** Open to spectators: an admin may watch it live ([ApiRoutes.ADMIN_GAME_WATCH]). */
+    val openGame: Boolean = false,
+    val spectators: Int = 0,
 )
 
 @Serializable
 data class AdminGames(val games: List<AdminGame>)
+
+/**
+ * An open game right now, for an admin who watches it (docs/adr/0011-spectators-and-recordings.md): the zone, the
+ * buildings and everybody's position with the last two minutes of their way. Only open games, only after
+ * [ApiRoutes.ADMIN_GAME_WATCH] with a reason.
+ */
+@Serializable
+data class AdminLiveGame(
+    val gameId: GameId,
+    val phase: GamePhase,
+    val serverTimeMillis: Long,
+    val settings: GameSettings,
+    val zoneStartedAtMillis: Long? = null,
+    val phaseEndsAtMillis: Long? = null,
+    /** The zone by streets, one polygon per stage; null: circles. */
+    val streetZone: List<ZonePolygon>? = null,
+    /** The outlines of the buildings the rule judges by (empty until loaded). */
+    val buildings: List<BuildingArea> = emptyList(),
+    val players: List<SpectatedPlayer> = emptyList(),
+    val spectators: Int = 0,
+    /** The zone's circle now; null before the search (the schedule's first circle then). */
+    val zoneNow: ZoneCircle? = null,
+    /** The circle it shrinks to next; null after the last stage. */
+    val nextZone: ZoneCircle? = null,
+    /** How many stages are over: the polygon of [streetZone] in force, the next one after it. */
+    val zoneStage: Int = 0,
+)
 
 /**
  * Numbers for the dashboard: counts, and averages only over at least 5 games (null otherwise, docs/metrics.md).
@@ -293,6 +323,9 @@ enum class AdminAction {
     BIG_GAME_UPDATE,
     BIG_GAME_START,
     BIG_GAME_CANCEL,
+
+    /** An admin started watching an open game live. */
+    WATCH_GAME,
 }
 
 @Serializable

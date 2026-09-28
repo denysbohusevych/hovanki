@@ -31,11 +31,13 @@ import app.hovanki.client.resources.history_lost
 import app.hovanki.client.resources.history_more
 import app.hovanki.client.resources.history_open
 import app.hovanki.client.resources.history_players
+import app.hovanki.client.resources.history_recording
 import app.hovanki.client.resources.history_route
 import app.hovanki.client.resources.history_won
 import app.hovanki.client.resources.ic_arrow_right
 import app.hovanki.client.resources.ic_check
 import app.hovanki.client.resources.ic_clock
+import app.hovanki.client.resources.ic_play
 import app.hovanki.client.resources.lobby_hider
 import app.hovanki.client.resources.lobby_seeker
 import app.hovanki.client.resources.results_route_saved
@@ -234,7 +236,7 @@ fun HistoryButton(onClick: () -> Unit, enabled: Boolean, modifier: Modifier = Mo
     )
 }
 
-/** The player's games, newest first; a game with a saved route opens it. */
+/** The player's games, newest first; a game with a saved route opens it, one with a recording that. */
 @Composable
 fun HistoryPanel(viewModel: HistoryViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -249,7 +251,14 @@ fun HistoryPanel(viewModel: HistoryViewModel) {
             if (state.isLoaded && state.games.isEmpty()) {
                 SecondaryText(stringResource(Res.string.history_empty), Modifier.testTag(TestTags.HISTORY_EMPTY))
             }
-            for (game in state.games) GameRow(game, onRoute = { viewModel.openRoute(game) }, enabled = !isBusy)
+            for (game in state.games) {
+                GameRow(
+                    game = game,
+                    onRoute = { viewModel.openRoute(game) },
+                    onRecording = { viewModel.openRecording(game) },
+                    enabled = !isBusy,
+                )
+            }
             if (state.hasMore) {
                 PopButton(
                     text = stringResource(Res.string.history_more),
@@ -265,7 +274,7 @@ fun HistoryPanel(viewModel: HistoryViewModel) {
 }
 
 @Composable
-private fun GameRow(game: GameHistoryEntry, onRoute: () -> Unit, enabled: Boolean) {
+private fun GameRow(game: GameHistoryEntry, onRoute: () -> Unit, onRecording: () -> Unit, enabled: Boolean) {
     PopCard(
         modifier = Modifier.fillMaxWidth().testTag(TestTags.historyGame(game.gameId)),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -297,16 +306,32 @@ private fun GameRow(game: GameHistoryEntry, onRoute: () -> Unit, enabled: Boolea
             if (game.role == Role.SEEKER) stringResource(Res.string.history_catches, game.catches) else null,
         )
         SecondaryText(details.joinToString(" · "))
-        if (game.hasRoute) {
-            PopButton(
-                text = stringResource(Res.string.history_route),
-                onClick = onRoute,
-                enabled = enabled,
-                icon = Res.drawable.ic_arrow_right,
-                style = PopStyle.Dark,
-                height = 44.dp,
-                modifier = Modifier.testTag(TestTags.historyRoute(game.gameId)),
-            )
+        if (game.hasRoute || game.hasRecording) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (game.hasRoute) {
+                    PopButton(
+                        text = stringResource(Res.string.history_route),
+                        onClick = onRoute,
+                        enabled = enabled,
+                        icon = Res.drawable.ic_arrow_right,
+                        style = PopStyle.Dark,
+                        height = 44.dp,
+                        modifier = Modifier.testTag(TestTags.historyRoute(game.gameId)),
+                    )
+                }
+                // Everybody's way (docs/adr/0011-spectators-and-recordings.md).
+                if (game.hasRecording) {
+                    PopButton(
+                        text = stringResource(Res.string.history_recording),
+                        onClick = onRecording,
+                        enabled = enabled,
+                        icon = Res.drawable.ic_play,
+                        style = PopStyle.Outline,
+                        height = 44.dp,
+                        modifier = Modifier.testTag(TestTags.historyRecording(game.gameId)),
+                    )
+                }
+            }
         }
     }
 }

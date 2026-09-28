@@ -15,6 +15,7 @@ import app.hovanki.shared.protocol.AdminEnrollRequest
 import app.hovanki.shared.protocol.AdminEnrollment
 import app.hovanki.shared.protocol.AdminFindByEmailRequest
 import app.hovanki.shared.protocol.AdminGames
+import app.hovanki.shared.protocol.AdminLiveGame
 import app.hovanki.shared.protocol.AdminLoginRequest
 import app.hovanki.shared.protocol.AdminLoginResponse
 import app.hovanki.shared.protocol.AdminMe
@@ -168,6 +169,15 @@ class AdminController(
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun endGame(staff: Staff, @PathVariable gameId: String, @RequestBody request: AdminReasonRequest) =
         admin.endGame(staff, GameId(gameId), request.reason)
+
+    /** Admins start watching an open game live, with a reason (docs/adr/0011-spectators-and-recordings.md). */
+    @PostMapping(ApiRoutes.ADMIN_GAME_WATCH)
+    fun watchGame(staff: Staff, @PathVariable gameId: String, @RequestBody request: AdminReasonRequest): AdminLiveGame =
+        admin.watchGame(staff, GameId(gameId), request.reason)
+
+    /** Polled while an admin watches: the open game right now. */
+    @GetMapping(ApiRoutes.ADMIN_GAME_LIVE)
+    fun liveGame(staff: Staff, @PathVariable gameId: String): AdminLiveGame = admin.liveGame(staff, GameId(gameId))
 
     @GetMapping(ApiRoutes.ADMIN_STATS)
     fun stats(@Suppress("UNUSED_PARAMETER") staff: Staff): AdminStats = admin.stats()
