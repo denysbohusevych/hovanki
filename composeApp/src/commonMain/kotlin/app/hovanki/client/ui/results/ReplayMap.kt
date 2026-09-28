@@ -7,29 +7,31 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.hovanki.client.session.Replay
 import app.hovanki.client.session.ReplayLine
 import app.hovanki.client.ui.game.MapCredit
 import app.hovanki.client.ui.game.MapStyle
-import app.hovanki.client.ui.game.SHADE_OPACITY
-import app.hovanki.client.ui.game.around
-import app.hovanki.client.ui.game.circle
-import app.hovanki.client.ui.game.features
+import app.hovanki.client.ui.game.ZoneBorder
+import app.hovanki.client.ui.game.ZoneFills
+import app.hovanki.client.ui.game.ZoneTimeline
 import app.hovanki.client.ui.game.toPosition
+import app.hovanki.client.ui.game.zoneCameraConstraints
+import app.hovanki.client.ui.game.zoneShapeAt
 import app.hovanki.client.ui.game.zoomToFit
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.theme.color
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
-import app.hovanki.shared.protocol.ZoneSchedule
-import app.hovanki.shared.rules.stateAt
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -62,34 +64,24 @@ import org.maplibre.spatialk.geojson.Polygon
 
 /**
  * The replay's map (docs/design.md, «Итоги»): everybody's way until [atMillis] in the color of their role, where each
- * of them was at that moment (a hider who was out already in gray) and the zone as it was. Still: the screen around it
- * scrolls, and the zone is all there is to see.
+ * of them was at that moment (a hider who was out already in gray) and the zone as it was, by streets too, as it
+ * closed in. Pinch and drag to look closer; the camera stays on the zone of the start.
  */
 @Composable
-internal fun ReplayMap(
-    replay: Replay,
-    zone: ZoneSchedule,
-    zoneStartedAtMillis: Long?,
-    atMillis: Long,
-    modifier: Modifier = Modifier,
-) {
+internal fun ReplayMap(replay: Replay, zone: ZoneTimeline, atMillis: Long, modifier: Modifier = Modifier) {
     var styleFailed by remember { mutableStateOf(false) }
-    val circleNow = zone.stateAt(zoneStartedAtMillis?.let { (atMillis - it).coerceAtLeast(0) } ?: 0L).current
+    val shape = rememberUpdatedState(remember(zone, atMillis) { zone.shapeAt(atMillis) })
+    val start = remember(zone) { zoneShapeAt(zone.schedule, zone.streets, 0L).extent }
     val frame = replay.lines.map { line -> line to line.pathUntil(atMillis) }
     val mapState = rememberMapState(
         baseStyle = if (styleFailed) MapStyle.fallback else BaseStyle.Uri(MapStyle.URL),
         initialCameraPosition = CameraPosition(
-            target = zone.initial.center.toPosition(),
-            zoom = zoomToFit(zone.initial.copy(radiusMeters = zone.initial.radiusMeters * FIT_MARGIN)),
+            target = start.center.toPosition(),
+            zoom = zoomToFit(start.copy(radiusMeters = start.radiusMeters * FIT_MARGIN)),
         ),
     ) {
-        val ring = circle(circleNow)
-        val shade =
-            rememberGeoJsonSource(GeoJsonData.Features(features(Polygon(listOf(around(circleNow), ring.asReversed())))))
-        FillLayer(id = "zone-shade", source = shade, color = const(Palette.Ink), opacity = const(SHADE_OPACITY))
-        val zoneRing = rememberGeoJsonSource(GeoJsonData.Features(features(LineString(ring))))
-        LineLayer(id = "zone-casing", source = zoneRing, color = const(Palette.Ink), width = const(6.dp))
-        LineLayer(id = "zone-core", source = zoneRing, color = const(Palette.Lime), width = const(3.dp))
+        ZoneFills(shape)
+        ZoneBorder(shape, casingWidth = 6.dp, coreWidth = 3.dp)
 
         for (role in Role.entries) {
             val paths = frame.filter { (line, path) -> line.player.role == role && path.size >= 2 }
@@ -147,8 +139,25 @@ internal fun ReplayMap(
     LaunchedEffect(mapState) {
         mapState.events.collect { event -> if (event is MapEvent.StyleLoadFailed) styleFailed = true }
     }
-    Box(modifier = modifier) {
-        MaplibreMap(state = mapState, interactions = MapInteractions.None, overlay = { include(MapOverlay.None) })
+    var shortSideDp by remember { mutableStateOf(0f) }
+    val density = LocalDensity.current
+    Box(
+        modifier = modifier.onSizeChanged { size ->
+            shortSideDp = with(density) { minOf(size.width, size.height).toDp().value }
+        },
+    ) {
+        MaplibreMap(
+            state = mapState,
+            cameraConstraints = zoneCameraConstraints(start, shortSideDp),
+            // Pinch and drag; no turning or tilting: a picture of the round, north up.
+            interactions = MapInteractions(MapInteractions.Standard) {
+                camera {
+                    rotate { enabled = false }
+                    tilt { enabled = false }
+                }
+            },
+            overlay = { include(MapOverlay.None) },
+        )
         MapCredit(Modifier.align(Alignment.BottomStart))
     }
 }

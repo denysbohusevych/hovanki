@@ -7,6 +7,7 @@ import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.RoutePoint
 import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.protocol.ZonePolygon
 
 /**
  * A finished game as the history keeps it (docs/adr/0007-game-history-and-routes.md), taken from
@@ -35,6 +36,8 @@ class GameRecord(
     val buildings: BuildingsState,
     /** Players with an account only; guests have no history. */
     val results: List<PlayerResult>,
+    /** The zone by streets the game played with, one polygon per stage; kept only with the saved routes. */
+    val streetZone: List<ZonePolygon>? = null,
 ) {
     override fun toString(): String = "GameRecord(${gameId.value}, ${results.size} accounts)"
 }

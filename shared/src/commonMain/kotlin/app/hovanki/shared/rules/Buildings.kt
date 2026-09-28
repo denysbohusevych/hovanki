@@ -143,31 +143,46 @@ class BuildingMap(buildings: List<BuildingArea>, passages: List<Passage>, privat
 }
 
 /**
- * "No hiding in buildings" without making GPS the judge (docs/adr/0003-map-and-buildings.md): near buildings a fix
- * can jump 20–30 m, also into a building. A fix only counts as inside when its whole accuracy circle plus a margin is
- * within the walls, and a player only counts as inside on several such fixes in a row. The server never eliminates
- * for it: it warns the hider and later reveals them to the seekers.
+ * "No hiding in buildings" by the dot the player sees on the map (docs/adr/0003-map-and-buildings.md, «Изменение:
+ * правило по точке на карте»): GPS indoors is too coarse to fit its accuracy circle within the walls of an ordinary
+ * house, so a fix counts by its dot, with a margin at the walls, and a player only counts as inside when the dot stays
+ * inside for most of the decision window. The server never eliminates for it: it warns the hider and later reveals
+ * them to the seekers, so a false alarm next to a wall costs a step away from it.
  */
 object BuildingRules {
-    fun isClearlyInside(fix: LocationSample, buildings: BuildingMap, rules: GameRules): Boolean {
-        if (!fix.isUsable(rules)) return false
-        val depth = buildings.depthInsideMeters(fix.point) ?: return false
-        return depth > fix.accuracyMeters + rules.buildingWallMarginMeters
+    /** Where the dot of one fix is. */
+    enum class Spot {
+        /** In a building, at least [GameRules.buildingDotMarginMeters] from every wall. */
+        INSIDE,
+
+        /** In a building but closer to a wall: GPS can't tell this from just outside, so it decides nothing. */
+        AT_WALL,
+
+        /** In the open, in a courtyard or in an arch. */
+        OUTSIDE,
     }
 
-    /** Enough recent usable fixes, and all of them clearly inside a building. */
-    fun isConfidentlyInside(
-        recentUsableFixes: List<LocationSample>,
-        buildings: BuildingMap,
-        rules: GameRules,
-    ): Boolean = recentUsableFixes.size >= rules.minFixesForDecision &&
-        recentUsableFixes.all { isClearlyInside(it, buildings, rules) }
+    /** Null when the fix is too coarse for the rule or mocked. */
+    fun spotOf(fix: LocationSample, buildings: BuildingMap, rules: GameRules): Spot? {
+        if (fix.isMock || fix.accuracyMeters > rules.buildingMaxAccuracyMeters) return null
+        val depth = buildings.depthInsideMeters(fix.point) ?: return Spot.OUTSIDE
+        return if (depth >= rules.buildingDotMarginMeters) Spot.INSIDE else Spot.AT_WALL
+    }
+
+    /** Enough recent fixes, and at least [GameRules.buildingInsideShare] of them inside a building. */
+    fun isConfidentlyInside(recentFixes: List<LocationSample>, buildings: BuildingMap, rules: GameRules): Boolean {
+        val spots = recentFixes.mapNotNull { spotOf(it, buildings, rules) }
+        return spots.size >= rules.minFixesForDecision &&
+            spots.count { it == Spot.INSIDE } >= spots.size * rules.buildingInsideShare
+    }
 
     /**
-     * Out again after a warning: the latest [GameRules.minFixesForDecision] usable fixes are all not clearly inside
-     * (outside, at a wall, in a passage). One fix that jumps out resets nothing; in doubt, the player is out.
+     * Out again after a warning: the latest [GameRules.minFixesForDecision] fixes are all outside. One fix that jumps
+     * out resets nothing, and neither does a dot at a wall: that is where a player by a window is, too.
      */
-    fun hasLeft(recentUsableFixes: List<LocationSample>, buildings: BuildingMap, rules: GameRules): Boolean =
-        recentUsableFixes.size >= rules.minFixesForDecision &&
-            recentUsableFixes.takeLast(rules.minFixesForDecision).none { isClearlyInside(it, buildings, rules) }
+    fun hasLeft(recentFixes: List<LocationSample>, buildings: BuildingMap, rules: GameRules): Boolean {
+        val spots = recentFixes.mapNotNull { spotOf(it, buildings, rules) }
+        return spots.size >= rules.minFixesForDecision &&
+            spots.takeLast(rules.minFixesForDecision).all { it == Spot.OUTSIDE }
+    }
 }

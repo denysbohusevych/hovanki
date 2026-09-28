@@ -382,8 +382,8 @@ private suspend fun DeviceRun.checkMyCode(hider: DevicePlayer) = with(scenario) 
 /**
  * The building rule on a phone, with the zone's real buildings: the hider walks into a building deep enough for the
  * server to be sure, is warned, stays until the seekers see them (never eliminated), and walks out into the open,
- * which lifts both. Skipped with a warning when the game has no building data or no building near the center is deep
- * enough for the device's GPS accuracy.
+ * which lifts both. Skipped with a warning when the game has no building data or no building near the center is a few
+ * meters deep.
  */
 private suspend fun DeviceRun.checkBuildingRule(hider: DevicePlayer, seeker: DevicePlayer?): Unit = with(scenario) {
     val search = buildings ?: return note("⚠ building rule not checked: the game has no building data")
@@ -391,8 +391,8 @@ private suspend fun DeviceRun.checkBuildingRule(hider: DevicePlayer, seeker: Dev
     val rules = game.settings.rules
     val zone = game.zone ?: game.settings.zone.initial
     val accuracy = playerOnServer(hider.id).latestUsableFix?.accuracyMeters ?: 0.0
-    // Clearly inside takes a fix deeper than accuracy + margin; a few meters more for the walk's last fixes.
-    val needed = accuracy + rules.buildingWallMarginMeters + 3.0
+    // Inside takes the dot at least the margin from every wall; a few meters more for the walk's last fixes.
+    val needed = rules.buildingDotMarginMeters + 3.0
     val target = search.insideNear(
         hider.truePosition,
         zone.center,

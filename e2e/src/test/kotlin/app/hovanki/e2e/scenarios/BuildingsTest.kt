@@ -20,8 +20,9 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * No hiding in buildings (docs/adr/0003-map-and-buildings.md), on the test quarter the server puts next to every zone
- * center with the `e2e` profile (DebugBuildings): a fix counts as inside when it is deeper inside than its accuracy
- * plus 5 m, a player when 3 usable fixes in the 10 s window are; the reveal follows after 20 s (FAST_RULES).
+ * center with the `e2e` profile (DebugBuildings): a fix counts as inside when its dot is at least 3 m from every wall
+ * (any accuracy up to 40 m), a player when at least 3 fixes in the 10 s window are and 80 % of them inside; the reveal
+ * follows after 20 s (FAST_RULES).
  */
 class BuildingsTest {
     private val rules = GameSetups.FAST_RULES
@@ -69,6 +70,33 @@ class BuildingsTest {
             sam.snapshot?.players?.single { it.id == anna.id }?.location == null
         }
         check(anna.snapshot?.me?.insideBuildingRevealAtMillis == null, "the warning is lifted")
+    }
+
+    /**
+     * What a phone reports indoors: 20-odd meters of accuracy, from next to the windows. The rule goes by the dot on
+     * the map, so 6 m from the wall is inside; before, it wanted the dot deeper than the accuracy plus 5 m.
+     */
+    @Test
+    fun byAWindowWithIndoorGpsIsRevealed() = scenario("By a window with indoor GPS") {
+        val sam = player("Sam", at = PARK)
+        val indoorGps = GpsNoise(accuracyMeters = 22.0, accuracyJitterMeters = 0.0, exact = true)
+        val byTheWindow = PARK.offset(DebugBuildings.INSIDE_EAST, DebugBuildings.SOUTH + 6)
+        val anna = player("Anna", at = PARK, noise = indoorGps)
+
+        sam.createsGame(GameSetups.fast())
+        join(anna)
+        sam.startsGame(seekers = listOf(sam))
+        anna.walksTo(byTheWindow, speed = 4.0)
+        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+
+        eventually("Anna is warned", within = 60.seconds) { anna.snapshot?.me?.insideBuildingRevealAtMillis }
+        awaitReveal(
+            anna,
+            VisibilityReason.INSIDE_BUILDING,
+            to = sam,
+            within = (rules.insideBuildingRevealSeconds + 5).seconds,
+        )
+        check(anna.onServer().status == PlayerStatus.ACTIVE, "revealed, never eliminated")
     }
 
     @Test

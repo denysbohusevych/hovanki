@@ -98,6 +98,7 @@ import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.formatElapsed
 import app.hovanki.client.ui.common.rememberReduceMotion
+import app.hovanki.client.ui.game.ZoneTimeline
 import app.hovanki.client.ui.history.SaveRoutesOffer
 import app.hovanki.client.ui.history.distanceText
 import app.hovanki.client.ui.theme.Hovanki
@@ -112,6 +113,7 @@ import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.rules.StreetZone
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
@@ -136,6 +138,7 @@ fun ResultsScreen(
     val saveRoutes by viewModel.saveRoutes.collectAsStateWithLifecycle()
     val chatState by chat.uiState.collectAsStateWithLifecycle()
     val tracks by viewModel.tracks.collectAsStateWithLifecycle()
+    val streetZone by viewModel.streetZone.collectAsStateWithLifecycle()
     if (chatState.isOpen) {
         ChatPanel(chat)
         return
@@ -236,7 +239,7 @@ fun ResultsScreen(
             // The results keep polling for the chat: new snapshots, the same final state.
             val awards = remember(tracks, snapshot.finishedAtMillis) { snapshot.awards(tracks) }
             if (awards.isNotEmpty()) Awards(awards, snapshot, reduceMotion)
-            ReplayCard(snapshot, tracks, reduceMotion)
+            ReplayCard(snapshot, tracks, streetZone, reduceMotion)
             SaveRoutesOffer(saveRoutes = saveRoutes, isBusy = isBusy, onSave = viewModel::turnOnSaveRoutes)
             CommandStatus(
                 isBusy = false,
@@ -419,7 +422,7 @@ private const val AWARD_DELAY_MILLIS = 80L
  * themselves in for 1.5 s when the tracks arrive, the slider starts at the end; «play» runs the round again.
  */
 @Composable
-private fun ReplayCard(snapshot: GameSnapshot, tracks: TracksResponse?, reduceMotion: Boolean) {
+private fun ReplayCard(snapshot: GameSnapshot, tracks: TracksResponse?, streets: StreetZone?, reduceMotion: Boolean) {
     // Keyed on what makes the replay, not on every poll: the slider stays where the player left it.
     val replay = remember(tracks, snapshot.finishedAtMillis) { Replay.of(snapshot, tracks) }
     if (tracks != null && replay == null) return
@@ -450,8 +453,7 @@ private fun ReplayCard(snapshot: GameSnapshot, tracks: TracksResponse?, reduceMo
         val shownAt = replay.startMillis + ((at - replay.startMillis) * drawIn.value).toLong()
         ReplayMap(
             replay = replay,
-            zone = snapshot.settings.zone,
-            zoneStartedAtMillis = snapshot.zoneStartedAtMillis,
+            zone = ZoneTimeline(snapshot.settings.zone, snapshot.zoneStartedAtMillis, streets),
             atMillis = shownAt,
             modifier = Modifier
                 .fillMaxWidth()

@@ -13,6 +13,7 @@ import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.RoutePoint
 import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.protocol.ZoneSchedule
 import app.hovanki.shared.protocol.protocolJson
 import kotlinx.serialization.builtins.ListSerializer
@@ -103,9 +104,9 @@ class HistoryRepository(private val jdbc: JdbcClient) {
         jdbc.sql(
             """
             INSERT INTO game_routes (user_id, game_id, saved_at, role, zone, started_at, zone_started_at, finished_at,
-                                     points)
+                                     points, street_zone)
             SELECT :userId, :gameId, :savedAt, :role, CAST(:zone AS jsonb), :startedAt, :zoneStartedAt, :finishedAt,
-                   CAST(:points AS jsonb)
+                   CAST(:points AS jsonb), CAST(:streetZone AS jsonb)
             WHERE EXISTS (SELECT 1 FROM game_results WHERE user_id = :userId AND game_id = :gameId)
             ON CONFLICT (user_id, game_id) DO NOTHING
             """.trimIndent(),
@@ -119,6 +120,7 @@ class HistoryRepository(private val jdbc: JdbcClient) {
             .param("zoneStartedAt", record.zoneStartedAtMillis?.let(::millis))
             .param("finishedAt", millis(record.finishedAtMillis))
             .param("points", protocolJson.encodeToString(pointsSerializer, result.route))
+            .param("streetZone", record.streetZone?.let { protocolJson.encodeToString(streetZoneSerializer, it) })
             .update()
     }
 
@@ -209,6 +211,9 @@ class HistoryRepository(private val jdbc: JdbcClient) {
                 finishedAtMillis = rs.getInstant("finished_at").toEpochMilli(),
                 points = protocolJson.decodeFromString(pointsSerializer, rs.getString("points")),
                 expiresAtMillis = rs.getInstant("saved_at").plus(retention).toEpochMilli(),
+                streetZone = rs.getString("street_zone")?.let {
+                    protocolJson.decodeFromString(streetZoneSerializer, it)
+                },
             )
         }
         .optional()
@@ -225,6 +230,7 @@ class HistoryRepository(private val jdbc: JdbcClient) {
 
     private companion object {
         val pointsSerializer = ListSerializer(RoutePoint.serializer())
+        val streetZoneSerializer = ListSerializer(ZonePolygon.serializer())
 
         fun millis(epochMillis: Long) = Instant.ofEpochMilli(epochMillis).toTimestamptz()
 

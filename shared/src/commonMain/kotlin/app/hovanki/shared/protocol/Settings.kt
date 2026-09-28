@@ -57,7 +57,7 @@ enum class ZoneShape {
  */
 @Serializable
 data class GameRules(
-    /** Fixes with a worse accuracy are ignored by every rule check. */
+    /** Fixes with a worse accuracy are ignored by every rule check; the building rule has [buildingMaxAccuracyMeters]. */
     val maxUsableAccuracyMeters: Double = 20.0,
     /** Decisions are never made on a single fix: they need [minFixesForDecision] fixes within this window. */
     val decisionWindowSeconds: Int = 20,
@@ -82,6 +82,15 @@ data class GameRules(
     val syncIntervalSeconds: Int = 3,
     /** A hider confidently inside a building for this long is revealed to seekers; they are warned right away. */
     val insideBuildingRevealSeconds: Int = 60,
-    /** A fix counts as inside a building only when it is this far from every wall, on top of its accuracy. */
+    /**
+     * Unused since 2026-09-28 (the margin on top of the fix accuracy, which ordinary houses never allowed); older apps
+     * still send it with their settings. The building rule uses [buildingDotMarginMeters].
+     */
     val buildingWallMarginMeters: Double = 5.0,
+    /** A fix counts as inside a building when its dot on the map is at least this far from every wall. */
+    val buildingDotMarginMeters: Double = 3.0,
+    /** The building rule also takes fixes up to this accuracy: indoors, phones rarely do better than 20–35 m. */
+    val buildingMaxAccuracyMeters: Double = 40.0,
+    /** A player counts as inside a building when at least this share of the recent fixes is inside. */
+    val buildingInsideShare: Double = 0.8,
 )
