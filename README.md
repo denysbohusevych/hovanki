@@ -3,12 +3,12 @@
 [![CI](https://github.com/denysbohusevych/hovanki/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/denysbohusevych/hovanki/actions/workflows/ci.yml?query=branch%3Amain)
 [![Nightly](https://github.com/denysbohusevych/hovanki/actions/workflows/nightly.yml/badge.svg?event=schedule)](https://github.com/denysbohusevych/hovanki/actions/workflows/nightly.yml?query=event%3Aschedule)
 
-Уличные прятки для Android и iOS: сужающаяся зона, геолокация игроков через сервер, находка подтверждается одноразовым кодом с телефона прячущегося (QR или 4 цифры). Сервер решает, кто кого видит, и раскрывает подозрительных игроков вместо наказаний. Аккаунты по нику, email и паролю (email можно подтвердить позже), друзья, группы-«компании» с приглашением в игру и чат внутри игры — всем или своей команде.
+Уличные прятки для Android и iOS: сужающаяся зона, геолокация игроков через сервер, находка подтверждается одноразовым кодом с телефона прячущегося (QR или 4 цифры). Сервер решает, кто кого видит, и раскрывает подозрительных игроков вместо наказаний. Аккаунты по нику, email и паролю (email можно подтвердить позже), друзья, группы-«компании» с приглашением в игру и чат внутри игры — всем или своей команде. В профиле — статистика (игры, победы, находки, пройденные километры, средняя скорость) и история игр; маршрут игры сохраняется на 90 дней, только если игрок сам это включил, и виден только ему.
 
 ## Стек
 
 - **Клиент:** Kotlin Multiplatform + Compose Multiplatform (Android и iOS из одного кода), Koin, Ktor Client, kotlinx.coroutines/serialization.
-- **Сервер:** Spring Boot на Kotlin, REST (`/api/v1`), состояние игр в памяти, аккаунты и друзья — в PostgreSQL (Flyway).
+- **Сервер:** Spring Boot на Kotlin, REST (`/api/v1`), состояние игр в памяти, аккаунты, друзья и история законченных игр — в PostgreSQL (Flyway).
 - **Общий модуль:** протокол, TOTP-коды находки, гео-математика и правила игры — один код на клиенте и сервере.
 - **Версии:** Kotlin 2.4.20, Gradle 9.7.1, AGP 9.3.3, Compose Multiplatform 1.12.1, Ktor 3.6.0, Koin 4.2.2, Spring Boot 4.1.1. Android: minSdk 26, targetSdk 36, compileSdk 37. iOS 16+. Все версии — в `gradle/libs.versions.toml`.
 
@@ -19,13 +19,13 @@
 | Путь | Что это |
 |---|---|
 | `shared/` | KMP (JVM, Android, iOS): DTO протокола, `ApiRoutes`, TOTP, гео, расписание зоны, правила GPS |
-| `server/` | Spring Boot сервер: игры в памяти, аккаунты, друзья, группы и жалобы в PostgreSQL |
+| `server/` | Spring Boot сервер: игры в памяти, аккаунты, друзья, группы, жалобы и история игр в PostgreSQL |
 | `clientCore/` | KMP (JVM, Android, iOS): клиентская логика без UI — API сервера, синхронизация, `ServerClock`, игровая сессия с чатом, аккаунт, друзья и группы |
 | `composeApp/` | KMP-библиотека клиента: Compose UI, DI, платформенные сервисы (геолокация, фон, Keystore/Keychain) |
 | `androidApp/` | Android-приложение: точка входа (`Application`, `MainActivity`) |
 | `e2e/` | End-to-end тесты: headless-боты на клиентском коде играют партии против настоящего сервера; оркестратор приложения на эмуляторах и симуляторах (Maestro) |
 | `iosApp/` | Xcode-проект: SwiftUI-оболочка вокруг Compose UI |
-| `docs/` | [архитектура](docs/architecture.md), [e2e-тесты](docs/e2e.md) и [их локальный запуск](docs/e2e-local.md), [CI/CD](docs/ci-cd.md), [деплой сервера](docs/deploy.md), [roadmap](docs/roadmap.md), [ADR](docs/adr/) |
+| `docs/` | [архитектура](docs/architecture.md), [e2e-тесты](docs/e2e.md) и [их локальный запуск](docs/e2e-local.md), [CI/CD](docs/ci-cd.md), [деплой сервера](docs/deploy.md), [метрики и аналитика](docs/metrics.md), [roadmap](docs/roadmap.md), [ADR](docs/adr/) |
 | `gradle/libs.versions.toml` | версии зависимостей и плагинов |
 
 ## Что нужно

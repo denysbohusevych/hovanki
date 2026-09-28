@@ -10,6 +10,7 @@ import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.LoginRequest
 import app.hovanki.shared.protocol.PasswordResetConfirmRequest
 import app.hovanki.shared.protocol.PasswordResetRequest
+import app.hovanki.shared.protocol.PrivacyRequest
 import app.hovanki.shared.protocol.RegisterRequest
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserProfile
@@ -77,6 +78,12 @@ class FakeAccountApi(var user: UserProfile = testUser, var token: String = TEST_
         call("changePassword", token) {}
 
     override suspend fun deleteAccount(token: String, password: String) = call("deleteAccount", token) {}
+
+    override suspend fun setSaveRoutes(token: String, enabled: Boolean): UserProfile =
+        call("setSaveRoutes", token, PrivacyRequest(enabled)) {
+            user = user.copy(saveRoutes = enabled)
+            user
+        }
 
     private suspend fun <T> call(name: String, token: String? = null, request: Any? = null, answer: () -> T): T {
         calls += listOfNotNull(name, token).joinToString(" ")

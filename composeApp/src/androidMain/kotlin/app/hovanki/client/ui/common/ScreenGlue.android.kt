@@ -9,6 +9,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalContext
+import java.text.DateFormat
+import java.util.Date
 
 @Composable
 actual fun KeepScreenBright() {
@@ -35,3 +37,9 @@ actual fun rememberReduceMotion(): Boolean {
 }
 
 actual fun plainTextClipEntry(text: String): ClipEntry = ClipEntry(ClipData.newPlainText(text, text))
+
+actual fun formatDateTime(epochMillis: Long): String =
+    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(epochMillis))
+
+actual fun formatDate(epochMillis: Long): String =
+    DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(epochMillis))

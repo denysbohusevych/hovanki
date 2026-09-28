@@ -60,6 +60,10 @@ hovanki:
     request-retention: 90d
   moderation:
     report-retention: 90d
+  # Game history (docs/adr/0007-game-history-and-routes.md): saved routes of the players who turned it on. Results
+  # and statistics stay until the account is deleted.
+  history:
+    route-retention: 90d
   # DataRetention: deletes what the retention periods above allow, once a day (server time is UTC).
   retention:
     cron: "0 17 3 * * *"
@@ -81,7 +85,8 @@ hovanki:
     invites: { count: 30, window: 1h }
     reports: { count: 10, window: 1h }
   games:
-    # Game data (including location history) is kept in memory only and deleted after the game (GDPR).
+    # Game data (all positions, chat) is kept in memory only and deleted after the game (GDPR); only what the history
+    # keeps (docs/adr/0007-game-history-and-routes.md) is saved when the game ends.
     finished-retention: 30m
     idle-retention: 6h
     cleanup-interval: 1m

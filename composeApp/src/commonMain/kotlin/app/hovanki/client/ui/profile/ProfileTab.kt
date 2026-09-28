@@ -12,6 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,22 +45,32 @@ import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.history.HistoryButton
+import app.hovanki.client.ui.history.HistoryViewModel
+import app.hovanki.client.ui.history.RoutesCard
+import app.hovanki.client.ui.history.StatsCard
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.verify.VerifyEmailViewModel
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * «Profile»: nickname and email (not confirmed yet: confirm it here), change the password, log out, delete the account.
+ * «Profile»: nickname and email (not confirmed yet: confirm it here), the player's statistics and game history, «save
+ * my routes», change the password, log out, delete the account.
  */
 @Composable
-fun ProfileTab(verify: VerifyEmailViewModel, viewModel: ProfileViewModel = koinViewModel()) {
+fun ProfileTab(verify: VerifyEmailViewModel, history: HistoryViewModel, viewModel: ProfileViewModel = koinViewModel()) {
     val account by viewModel.accountState.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
+    val historyState by history.state.collectAsStateWithLifecycle()
+    val historyMessage by history.message.collectAsStateWithLifecycle()
+    val historyBusy by history.isBusy.collectAsStateWithLifecycle()
     val user = account.user ?: return
     val form = viewModel.form
     SystemBackHandler(enabled = form != null, onBack = viewModel::closeForm)
+    // Fresh numbers every time the profile opens: a game may have ended meanwhile.
+    LaunchedEffect(user.id) { history.refresh() }
 
     ScreenColumn(modifier = Modifier.testTag(TestTags.PROFILE_SCREEN)) {
         PopCard(modifier = Modifier.fillMaxWidth(), shadow = 5.dp, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -100,6 +111,11 @@ fun ProfileTab(verify: VerifyEmailViewModel, viewModel: ProfileViewModel = koinV
                 }
             }
         }
+
+        StatsCard(historyState.stats)
+        HistoryButton(onClick = history::open, enabled = !historyBusy)
+        RoutesCard(history, saveRoutes = user.saveRoutes, isBusy = historyBusy)
+        CommandStatus(isBusy = false, message = historyMessage, onDismiss = history::dismissMessage)
 
         PopButton(
             text = stringResource(Res.string.profile_change_password),

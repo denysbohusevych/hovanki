@@ -95,5 +95,7 @@ class DeviceAccountsTest {
             error("not used")
 
         override suspend fun deleteAccount(token: String, password: String) = error("not used")
+
+        override suspend fun setSaveRoutes(token: String, enabled: Boolean): UserProfile = error("not used")
     }
 }

@@ -35,6 +35,11 @@ data class UserProfile(
     /** Optional: the account works either way, a confirmed email is known to reach its owner (password reset). */
     val emailVerified: Boolean,
     val createdAtMillis: Long,
+    /**
+     * The player agreed to keep the routes of their games (docs/adr/0007-game-history-and-routes.md); off by default
+     * and from servers that don't know it. Changed with [PrivacyRequest].
+     */
+    val saveRoutes: Boolean = false,
 )
 
 /** Another user as everyone may see them: no email. */
