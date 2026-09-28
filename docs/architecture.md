@@ -1,6 +1,6 @@
 # Архитектура
 
-Решение по стеку и его обоснование — в [ADR 0001](adr/0001-stack.md), хранение сессии на устройстве — в [ADR 0002](adr/0002-session-storage.md), карта и здания как запретная зона — в [ADR 0003](adr/0003-map-and-buildings.md), аккаунты, друзья, группы и чат — в [ADR 0004](adr/0004-accounts-friends-chat.md), история игр, маршруты и статистика — в [ADR 0007](adr/0007-game-history-and-routes.md), что можно считать для аналитики — в [metrics.md](metrics.md). Здесь — как устроен код.
+Решение по стеку и его обоснование — в [ADR 0001](adr/0001-stack.md), хранение сессии на устройстве — в [ADR 0002](adr/0002-session-storage.md), карта и здания как запретная зона — в [ADR 0003](adr/0003-map-and-buildings.md), аккаунты, друзья, группы и чат — в [ADR 0004](adr/0004-accounts-friends-chat.md), история игр, маршруты и статистика — в [ADR 0007](adr/0007-game-history-and-routes.md), вместимость зоны и большие игры — в [ADR 0010](adr/0010-big-games.md), что можно считать для аналитики — в [metrics.md](metrics.md). Здесь — как устроен код.
 
 ## Модули
 
@@ -11,7 +11,7 @@ flowchart LR
     composeApp["composeApp<br/>KMP: UI, DI, платформенные сервисы"] --> clientCore
     clientCore["clientCore<br/>KMP: сеть, сессия, ServerClock"] --> shared
     server["server<br/>Spring Boot"] --> shared
-    server -->|"аккаунты, друзья, группы, жалобы, история игр"| db[("PostgreSQL")]
+    server -->|"аккаунты, друзья, группы, жалобы, история игр, большие игры"| db[("PostgreSQL")]
     e2e["e2e<br/>JVM: боты и сценарии"] --> clientCore
     e2e -.->|"тесты"| server
     shared["shared<br/>KMP: протокол, TOTP, гео, правила"]
@@ -20,9 +20,9 @@ flowchart LR
 
 | Модуль | Таргеты | Что внутри |
 |---|---|---|
-| `:shared` | jvm, android, iosArm64, iosSimulatorArm64 | DTO протокола и `ApiRoutes`, `protocolJson`, TOTP-коды находки и сотрудников (свои SHA-1/HMAC на чистом Kotlin), кодировщик QR, гео-математика, расписание зоны, правила GPS: `LocationTrack`, `ZoneRules`, `CatchRules`; зона по улицам (`ZoneArea`), свечение (`Glow`), настройки хоста и их границы (`GameSetup`, `SettingsLimits`); маршрут для истории: `RouteRecorder` (прореживание точек, расстояние без дрожания GPS). Без платформенных API. |
-| `:server` | JVM 21 | Spring Boot, REST под `/api/v1`. Игры — в памяти: `GameRegistry`, доменный объект `Game` (с чатом), `GameJanitor`. Аккаунты, друзья, блокировки, группы, жалобы и история законченных игр — в PostgreSQL (`JdbcClient`, миграции Flyway). Пакеты: `game/`, `account/`, `mail/`, `social/` (друзья, группы, приглашения в памяти), `history/` (итоги игр, маршруты, статистика), `moderation/` (жалобы, баны и запреты чата), `admin/` (вход сотрудников с TOTP, админ-сессии, журнал, [ADR 0008](adr/0008-admin.md)), `ratelimit/`, `db/`, `api/`, `buildings/` (здания зоны), `map/` (векторные тайлы, декодер MVT, зона по улицам). Страница админки — статика `src/main/resources/static/admin/` на `/admin`. |
-| `:clientCore` | jvm, android, iosArm64, iosSimulatorArm64 | Клиентская логика без UI: `GameApi`/`HttpGameApi`, `AccountApi`, `SocialApi` (Ktor), `GameConnection`/`PollingGameConnection`, `LocationOutbox`, `ServerClock`, `GameSessionManager` (с чатом), `AccountManager`, `SocialManager`, `HistoryManager`, `ClientStorage`, интерфейсы `LocationProvider`, `BackgroundTracker` и `SecureStore`. Без Compose и платформенного кода; JVM-таргет нужен headless-ботам e2e-тестов, чтобы они ходили через тот же сетевой код, что и приложение. |
+| `:shared` | jvm, android, iosArm64, iosSimulatorArm64 | DTO протокола и `ApiRoutes`, `protocolJson`, TOTP-коды находки и сотрудников (свои SHA-1/HMAC на чистом Kotlin), кодировщик QR, гео-математика, расписание зоны, правила GPS: `LocationTrack`, `ZoneRules`, `CatchRules`; зона по улицам (`ZoneArea`), сужение до конца поиска (`withEndgame`), свечение (`Glow`), настройки хоста и их границы (`GameSetup`, `SettingsLimits`); вместимость зоны (`Capacity`, `AreaNorms`), большие игры (`BigGameSetup`, `BigGameLimits`); маршрут для истории: `RouteRecorder` (прореживание точек, расстояние без дрожания GPS). Без платформенных API. |
+| `:server` | JVM 21 | Spring Boot, REST под `/api/v1`. Игры — в памяти: `GameRegistry`, доменный объект `Game` (с чатом), `GameJanitor`. Аккаунты, друзья, блокировки, группы, жалобы, история законченных игр, расписание больших игр и записи на них — в PostgreSQL (`JdbcClient`, миграции Flyway). Пакеты: `game/`, `account/`, `mail/`, `social/` (друзья, группы, приглашения в памяти), `history/` (итоги игр, маршруты, статистика), `moderation/` (жалобы, баны и запреты чата), `admin/` (вход сотрудников с TOTP, админ-сессии, журнал, [ADR 0008](adr/0008-admin.md)), `ratelimit/`, `db/`, `api/`, `buildings/` (здания зоны), `map/` (векторные тайлы, декодер MVT, зона по улицам, местность для вместимости: `TerrainReader`, `TerrainLoader`), `bigGames/` (большие игры: расписание, записи, планировщик, нарисованная зона, `RestartHoldEndpoint`, [ADR 0010](adr/0010-big-games.md)). Страница админки — статика `src/main/resources/static/admin/` на `/admin`. |
+| `:clientCore` | jvm, android, iosArm64, iosSimulatorArm64 | Клиентская логика без UI: `GameApi`/`HttpGameApi`, `AccountApi`, `SocialApi`, `BigGameApi` (Ktor), `GameConnection`/`PollingGameConnection`, `LocationOutbox`, `ServerClock`, `GameSessionManager` (с чатом), `AccountManager`, `SocialManager`, `HistoryManager`, `BigGameManager`, `ClientStorage`, интерфейсы `LocationProvider`, `BackgroundTracker` и `SecureStore`. Без Compose и платформенного кода; JVM-таргет нужен headless-ботам e2e-тестов, чтобы они ходили через тот же сетевой код, что и приложение. |
 | `:composeApp` | android, iosArm64, iosSimulatorArm64 | KMP-библиотека (`com.android.kotlin.multiplatform.library`): Compose UI, Koin, движки Ktor, реализации платформенных сервисов. На iOS собирается во framework `ComposeApp` (вместе с `:clientCore`). |
 | `:androidApp` | Android | Тонкая точка входа: `Application` + `MainActivity`. AGP 9 со встроенным Kotlin. |
 | `:e2e` | JVM 21 | End-to-end тесты: headless-боты на коде `:clientCore` с имитацией GPS, часов и сети играют целые партии против настоящего сервера (в тестах он поднимается в том же процессе). Там же оркестратор слоя устройств: debug-приложение на эмуляторах и симуляторах, UI через Maestro. См. [e2e.md](e2e.md). |
@@ -37,9 +37,9 @@ flowchart LR
 | UI | Экраны на Compose, карта `GameMap` (maplibre-compose, тайлы OpenFreeMap, [ADR 0003](adr/0003-map-and-buildings.md)), навигация по состоянию: какой экран показывать, решает состояние сессии, а не стек переходов | `:composeApp`, `commonMain` |
 | Состояние экранов | ViewModel'и / стейт-холдеры: превращают `GameSnapshot`, аккаунт, друзей и локальные данные в UI-state, принимают действия пользователя | `:composeApp`, `commonMain` |
 | Игровая сессия | `GameSessionManager`: цикл синхронизации, outbox координат, `ServerClock`, чат (слияние по `seq`, курсор в каждом опросе, непрочитанные), сохранение сессии и возврат в игру после перезапуска, загрузка зданий зоны и зоны по улицам (один раз на `mapRevision`, когда снапшот говорит `READY`), команды лобби (роли, настройки, выход) и треков для разбора (один раз, когда игра `FINISHED`); итоги и награды считает `session/Results.kt` из последнего снапшота и треков | `:clientCore`, `commonMain` |
-| Аккаунт и друзья | `AccountManager`: кто вошёл, команды аккаунта, восстановление после перезапуска, 401 → выход. `SocialManager`: друзья, группы, входящие (опрос раз в 10 с, пока их кто-то слушает). `HistoryManager`: своя статистика, история игр и маршруты, согласие «Сохранять мои маршруты» (загрузка по требованию экрана) | `:clientCore`, `commonMain` |
+| Аккаунт и друзья | `AccountManager`: кто вошёл, команды аккаунта, восстановление после перезапуска, 401 → выход. `SocialManager`: друзья, группы, входящие (опрос раз в 10 с, пока их кто-то слушает). `HistoryManager`: своя статистика, история игр и маршруты, согласие «Сохранять мои маршруты» (загрузка по требованию экрана). `BigGameManager`: список больших игр (опрос раз в 30 с, пока открыта вкладка «Играть»), запись и отмена | `:clientCore`, `commonMain` |
 | Хранилище | `ClientStorage` поверх `SecureStore`: сохранённая сессия игры, аккаунт (токен и профиль), имя гостя, последние настройки хоста | `:clientCore`, `commonMain`; реализации `SecureStore` — `:composeApp` `androidMain` / `iosMain` |
-| Сеть | `GameApi`, `AccountApi`, `SocialApi`, `HistoryApi` (Ktor, `protocolJson`, общие хелперы `HttpSupport`), `GameConnection` — транспорт за интерфейсом (сейчас HTTP-опрос) | `:clientCore`, `commonMain`; движок Ktor выбирает `:composeApp`: OkHttp (Android), Darwin (iOS) |
+| Сеть | `GameApi`, `AccountApi`, `SocialApi`, `HistoryApi`, `BigGameApi` (Ktor, `protocolJson`, общие хелперы `HttpSupport`), `GameConnection` — транспорт за интерфейсом (сейчас HTTP-опрос) | `:clientCore`, `commonMain`; движок Ktor выбирает `:composeApp`: OkHttp (Android), Darwin (iOS) |
 | Платформенные сервисы | `LocationProvider`, `BackgroundTracker`, `SecureStore`, `ProximityScanner`, `CatchCodeScanner`, `ShareSheet` | интерфейсы в `commonMain` (`LocationProvider`, `BackgroundTracker` и `SecureStore` — в `:clientCore`), реализации в `:composeApp` `androidMain` / `iosMain` |
 | DI | Koin-модули: общий + платформенный | `:composeApp`, `commonMain` + `androidMain` / `iosMain` |
 
@@ -207,6 +207,8 @@ stateDiagram-v2
 | Ищущий | активного прячущегося | SEEKING, во время свечения: `glowForSeconds` раз в `glowEverySeconds` ([ADR 0009](adr/0009-game-setup-glow-streets.md#2-свечение)) | `GLOW` — только в `cause`; в `reason` — `OUT_OF_ZONE` |
 | Ищущий | метку активного прячущегося | SEEKING, между свечениями: его последняя точка не позже конца последнего свечения | `GLOW`, как выше |
 
+В большой игре снапшот приносит не всех игроков, а только самого игрока, тех, кого он видит по таблице, участников его заявок и друзей (без позиции, если видеть их нельзя), плюс счётчики `PlayerCounts` ([ADR 0010](adr/0010-big-games.md#5-масштаб)).
+
 Показывается последняя принятая точка игрока с её accuracy и временем; метка свечения — старая точка со своим временем, новее конца свечения сервер её не отдаёт. В LOBBY и FINISHED позиции не отдаются никому. Если причин несколько, берётся первая по порядку таблицы. Точная причина — `VisibleLocation.cause` (клиенты читают `exactReason`), `reason` остаётся в наборе первой версии протокола.
 
 ## Честная игра: GPS — подсказка, а не судья
@@ -267,7 +269,7 @@ sequenceDiagram
 - Если у прячущегося нет свежих пригодных точек, GPS не может опровергнуть заявку — решает код.
 - Пока заявка или спор открыты, участники «заморожены»: у них не может быть других заявок, а прячущегося не выбивают за выход из зоны.
 - QR содержит `hovanki:1:<gameId>:<playerId>:<code>` (`CatchCodePayload`); те же 4 цифры можно продиктовать и ввести вручную. Код меняется каждые 30 с. Сканер ищущего без заявки принимает только QR этой игры и прячущегося, который ещё играет (`catchableScan`), остальное игнорирует.
-- Голосуют все игроки, кроме двух участников спора. Если голосовать некому, спор решается сразу. Спор закрывается, когда проголосовали все, или по дедлайну.
+- Голосуют все игроки, кроме двух участников спора. Если голосовать некому, спор решается сразу. В большой игре голосования нет: спор сразу решает правило по умолчанию ([ADR 0010](adr/0010-big-games.md#5-масштаб)). Спор закрывается, когда проголосовали все, или по дедлайну.
 - Правило по умолчанию (нет голосов или ничья): засчитать, если наиболее вероятное расстояние в момент заявки не больше `catchMaxDistanceMeters` (40 м) или неизвестно (прячущийся не присылал точки). Заявку можно открыть при «возможно, рядом» (с учётом accuracy), а правило по умолчанию требует «вероятно, рядом».
 - Когда активных прячущихся не остаётся, игра переходит в FINISHED: в момент последней находки или, если последний выбыл за зоной, когда кончилось его время на возврат.
 - Снапшот говорит, когда и как каждый прячущийся вышел из игры: `PlayerView.outAtMillis` (находка или выбывание; для выбывшего — момент, когда кончилось время на возврат, а не когда сервер это заметил) и `caughtBy` (ищущий из подтверждённой заявки), и когда кончился раунд — `GameSnapshot.finishedAtMillis`. По ним экран итогов показывает время находок и награды.
@@ -284,6 +286,7 @@ sequenceDiagram
 - **Админка** ([ADR 0008](adr/0008-admin.md)). Сотрудники видят текст сообщений, на которые пожаловались, ники, числа об аккаунте (игры, устройства, друзья, жалобы) и email скрытым (`d•••@gmail.com`); целиком email — только админу, с причиной, в журнал. Координаты, маршруты, чат вне жалоб, пароли и токены админка не показывает никому; у игр — ни центра зоны, ни позиций. Баны и запреты чата хранятся, пока есть аккаунт (закончившиеся — год после конца), журнал действий сотрудников — год, без внешних ключей: он переживает удаление аккаунтов. Секреты TOTP в базе зашифрованы ключом `hovanki.admin.secret-key`.
 - Контуры зданий и улицы (открытые данные OSM) сервер берёт из векторных тайлов OpenFreeMap: туда уходят только запросы тайлов района зоны, без данных игроков. В лог попадает только id игры, не район: центр зоны — позиция хоста. Полигоны живут в памяти игры и удаляются вместе с ней.
 - Метка свечения — точка трека прячущегося, который и так в памяти игры; удаляется вместе с игрой.
+- Местность под зоной (для вместимости) сервер читает из тех же тайлов, что и здания; в игре остаются только площади по видам местности, числа без координат. Нарисованная зона большой игры — место встречи, выбранное сотрудником. Записи на большие игры — в базе, удаляются с аккаунтом и через 90 дней после игры; другие игроки видят только их число и своих друзей. Разбор большой игры отдаёт только свой трек и треки друзей ([ADR 0010](adr/0010-big-games.md)).
 - Карта грузит тайлы с OpenFreeMap: провайдер видит IP устройства и район игры, как любой сайт с картой. Камера показывает зону и не следует за игроком, свои координаты приложение провайдеру не отправляет.
 - Секрет кода находки получает только сам прячущийся (`MyState.catchCodeSecret`).
 - На устройстве хранятся только сессия игры (токен, id игры и игрока), аккаунт (токен и профиль), имя гостя и последние настройки хоста (радиус, форма зоны, времена, свечение; без места) — в Keystore/Keychain ([ADR 0002](adr/0002-session-storage.md)). Сессия стирается после игры, аккаунт — при выходе; координаты, маршруты и чат на устройстве не хранятся.
@@ -298,7 +301,7 @@ sequenceDiagram
 | Метод | Путь | Токен | Кто вызывает | Тело запроса | Ответ |
 |---|---|---|---|---|---|
 | POST | `/api/v1/games` | аккаунт, необязательно | любой, становится хостом; с аккаунтом имя — ник, аккаунт выходит из лобби других игр, из идущего раунда — только с `leaveOtherGame` (иначе `IN_ANOTHER_GAME`); настройки в пределах `SettingsLimits` | `CreateGameRequest` | `SessionResponse` |
-| POST | `/api/v1/games/join` | аккаунт, необязательно | любой, по join-коду; с аккаунтом — ник, а в своей игре — свой же игрок в любой фазе; повтор с тем же `requestId` — тот же игрок; другие игры аккаунта — как при создании | `JoinGameRequest` | `SessionResponse` |
+| POST | `/api/v1/games/join` | аккаунт, необязательно | любой, по join-коду; с аккаунтом — ник, а в своей игре — свой же игрок в любой фазе; повтор с тем же `requestId` — тот же игрок; другие игры аккаунта — как при создании; в большую игру по коду не войти (`NOT_FOUND`) | `JoinGameRequest` | `SessionResponse` |
 | POST | `/api/v1/games/{gameId}/start` | игровой | хост, в LOBBY; пока строится зона по улицам — `ZONE_NOT_READY` | `StartGameRequest` | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/roles` | игровой | хост, в LOBBY: ищущие или жребий на сервере (`randomSeekers`) | `RolesRequest` | `GameSnapshot` |
 | POST | `/api/v1/games/{gameId}/settings` | игровой | хост, в LOBBY; пороги остаются прежними, новая зона — `mapRevision` + 1 | `SettingsRequest` | `GameSnapshot` |
@@ -310,10 +313,11 @@ sequenceDiagram
 | POST | `/api/v1/games/{gameId}/catches/{catchId}/vote` | игровой | игрок вне спора | `VoteRequest` | `GameSnapshot` |
 | GET | `/api/v1/games/{gameId}/buildings` | игровой | любой игрок, один раз на `mapRevision`, когда `GameSnapshot.buildings = READY` | — | `BuildingsResponse`: контуры зданий и проходы, по которым судит сервер (сотни КБ, gzip) |
 | GET | `/api/v1/games/{gameId}/street-zone` | игровой | любой игрок, один раз на `mapRevision`, когда `GameSnapshot.streetZone = READY` | — | `StreetZoneResponse`: многоугольник зоны на старт и на каждую стадию |
-| GET | `/api/v1/games/{gameId}/tracks` | игровой | любой игрок, один раз, когда игра `FINISHED`; раньше — `WRONG_STATE` | — | `TracksResponse`: трек раунда каждого игрока для разбора (до мегабайта, gzip) |
+| GET | `/api/v1/games/{gameId}/tracks` | игровой | любой игрок, один раз, когда игра `FINISHED`; раньше — `WRONG_STATE` | — | `TracksResponse`: трек раунда каждого игрока для разбора (до мегабайта, gzip); в большой игре — свой и друзей |
 | POST | `/api/v1/games/{gameId}/chat` | игровой | любой игрок, в любой фазе; повтор с тем же `clientMessageId` сообщение не дублирует | `SendChatRequest` | `GameSnapshot` с новыми сообщениями |
 | POST | `/api/v1/games/{gameId}/chat/{seq}/report` | игровой | любой игрок, на чужое сообщение, которое он видит | — | `GameSnapshot` |
-| POST | `/api/v1/games/{gameId}/invites` | игровой | игрок с аккаунтом, в LOBBY: своих друзей или свою группу | `InviteRequest` | `GameSnapshot` |
+| POST | `/api/v1/games/{gameId}/invites` | игровой | игрок с аккаунтом, в LOBBY: своих друзей или свою группу; в большую игру — нет | `InviteRequest` | `GameSnapshot` |
+| POST | `/api/v1/games/{gameId}/crowding/accept` | игровой | хост, в LOBBY: «Играть всё равно», предупреждение «Тесно» и «Мало укрытий» в этой игре больше не появляется ([ADR 0010](adr/0010-big-games.md#1-сколько-игроков-помещается-в-зону)) | — | `GameSnapshot` |
 
 **Аккаунт.** Подтверждать email необязательно: аккаунт работает сразу после регистрации, все маршруты — и без подтверждения.
 
@@ -345,7 +349,7 @@ sequenceDiagram
 
 | Метод | Путь | Тело запроса | Ответ |
 |---|---|---|---|
-| GET | `/api/v1/me/inbox` | — | `Inbox`: приглашения в игры и входящие заявки в друзья |
+| GET | `/api/v1/me/inbox` | — | `Inbox`: приглашения в игры, открытые лобби больших игр, на которые игрок записан (`bigGames`), и входящие заявки в друзья |
 | POST | `/api/v1/me/invites/{inviteId}/dismiss` | — | `Inbox` |
 | GET | `/api/v1/friends` | — | `FriendsResponse` |
 | POST | `/api/v1/friends/requests` | `SendFriendRequest` (точный ник или `userId`) | `FriendsResponse`; встречная заявка — сразу дружба |
@@ -356,6 +360,14 @@ sequenceDiagram
 | POST | `/api/v1/groups/{groupId}/members` | `AddGroupMembersRequest` (владелец) | `GroupsResponse` |
 | POST | `/api/v1/groups/{groupId}/members/{userId}/remove` | — (владелец убирает, участник выходит сам) | `GroupsResponse` |
 | POST | `/api/v1/groups/{groupId}/rename`, `/delete` | `RenameGroupRequest` / — (владелец) | `GroupsResponse` |
+
+**Большие игры** ([ADR 0010](adr/0010-big-games.md)). Токен — аккаунт.
+
+| Метод | Путь | Тело запроса | Ответ |
+|---|---|---|---|
+| GET | `/api/v1/big-games` | — | `BigGamesResponse`: впереди и идущие, ближайшие сначала; у каждой `BigGameCard` — записались, лимит, друзья среди записавшихся, записан ли я, можно ли войти |
+| POST | `/api/v1/big-games/{bigGameId}/signup`, `/signup/cancel` | — | `BigGameCard`; до старта раунда, пока есть места; организатор записаться не может (`FORBIDDEN`) |
+| POST | `/api/v1/big-games/{bigGameId}/join` | `JoinBigGameRequest` (`requestId`, `leaveOtherGame`: как при входе по коду) | `SessionResponse`: лобби большой игры, когда оно открыто (за 30 минут до старта); без записи — `BIG_GAME_SIGNUP_REQUIRED` |
 
 **Админка** ([ADR 0008](adr/0008-admin.md)). Страница `/admin` и `AdminController`, DTO — `Admin.kt`. Каждый запрос — с заголовком `X-Hovanki-Admin: 1` (защита от CSRF, без него 403); после входа — cookie `__Host-hovanki-admin` (`HttpOnly`, `Secure`, `SameSite=Strict`), токен аккаунта из приложения здесь не работает. Без ключа `hovanki.admin.secret-key` все маршруты — 404. «Мод.» — модератор и админ, «Адм.» — только админ; каждое изменение требует причину и пишется в журнал.
 
@@ -380,12 +392,18 @@ sequenceDiagram
 | POST | `/api/v1/admin/games/{gameId}/end` | Адм. | `AdminReasonRequest` | 204 |
 | GET | `/api/v1/admin/stats` | Мод. | — | `AdminStats` |
 | GET | `/api/v1/admin/staff`, `/audit?before=` | Адм. | — | `AdminStaff` / `AdminAudit` |
+| GET, POST | `/api/v1/admin/big-games` | Адм.: список; новая большая игра | создание: `AdminBigGameRequest` | `AdminBigGames` / `AdminBigGame` |
+| POST | `/api/v1/admin/big-games/{bigGameId}/update` | Адм., до старта раунда: название, время, место, зона, настройки, нормы, лимит | `AdminBigGameRequest` | `AdminBigGame` |
+| POST | `/api/v1/admin/big-games/{bigGameId}/start`, `/cancel` | Адм.: начать сейчас (лобби открыто), отменить (и в раунде) | `AdminReasonRequest` | `AdminBigGame` |
+| POST | `/api/v1/admin/zone-estimate` | Адм.: площадь нарисованной зоны и сколько игроков помещается | `AdminZoneEstimateRequest` | `AdminZoneEstimate` |
+| GET | `/api/v1/admin/tiles/{z}/{x}/{y}` | Адм.: тайл карты игроков для карты админки, разобранный сервером | — | `AdminTile`: линии улиц, дома, вода, зелень |
 
 **Служебное.**
 
 | Метод | Путь | Кто вызывает | Ответ |
 |---|---|---|---|
 | GET | `/actuator/health` (+ `/liveness`, `/readiness`) | мониторинг | статус Spring Boot |
+| GET | `/actuator/restarthold` | `hovanki-update.sh` перед перезапуском | `{"held": true, "until": "…"}`, пока перезапуск оборвал бы большую игру, иначе `{"held": false}` ([ADR 0010](adr/0010-big-games.md#6-обновление-сервера-во-время-большой-игры)) |
 | GET | `/api/v1/debug/games`, `/api/v1/debug/games/{gameId}`, `/api/v1/debug/emails/{email}`, `/api/v1/debug/reports` | только e2e-тесты, **только Spring-профиль `e2e`** | `DebugGameList`, `DebugGameState`, `DebugEmails`, `DebugReportList` (`app.hovanki.shared.debug`): полное состояние игр без фильтрации (все позиции, заявки, причины раскрытий, весь чат), отправленные письма с кодами, жалобы. В обычном профиле маршрутов нет (404), это закреплено тестом `DebugEndpointAbsentTest` |
 | POST | `/api/v1/debug/users/{userId}/role` | только e2e-тесты, **только профиль `e2e`** | `DebugSetRole`: сделать аккаунт сотрудником, как оператор делает SQL-запросом; 204 |
 
@@ -395,7 +413,7 @@ sequenceDiagram
 |---|---|---|---|
 | `BAD_REQUEST` | 400 | Некорректное тело, путь или настройки, неверное имя, больше 100 точек в `sync` | `INVALID_NICKNAME`, `INVALID_EMAIL`, `INVALID_PASSWORD`, `INVALID_GROUP_NAME`, `INVALID_MESSAGE` |
 | `UNAUTHORIZED` | 401 | Нет токена, игра уже удалена вместе с токенами, аккаунт-токен отозван или истёк | `SESSION_EXPIRED` |
-| `FORBIDDEN` | 403 | Действие не для этой роли / игрока, токен от другой игры, неверный логин или пароль, бан, запрет чата | `WRONG_CREDENTIALS`, `ACCOUNT_REQUIRED`, `NOT_FRIENDS`, `NOT_GROUP_OWNER`, `NOT_GROUP_MEMBER`, `ACCOUNT_BANNED` и `CHAT_MUTED` (с `untilMillis`: до когда; нет — навсегда) |
+| `FORBIDDEN` | 403 | Действие не для этой роли / игрока, токен от другой игры, неверный логин или пароль, бан, запрет чата | `WRONG_CREDENTIALS`, `ACCOUNT_REQUIRED`, `NOT_FRIENDS`, `NOT_GROUP_OWNER`, `NOT_GROUP_MEMBER`, `BIG_GAME_SIGNUP_REQUIRED`, `ACCOUNT_BANNED` и `CHAT_MUTED` (с `untilMillis`: до когда; нет — навсегда) |
 | `NOT_FOUND` | 404 | Нет игры, игрока, заявки, пользователя, группы | `USER_NOT_FOUND` |
 | `WRONG_STATE` | 409 | Не та фаза, заявка закрыта, игра заполнена, ник или email заняты, лимит, email не подтверждён, аккаунт ещё в раунде другой игры, зона по улицам ещё строится | `NICKNAME_TAKEN`, `EMAIL_TAKEN`, `LIMIT_REACHED`, `BLOCKED_BY_YOU`, `EMAIL_NOT_VERIFIED`, `IN_ANOTHER_GAME`, `ZONE_NOT_READY` |
 | `WRONG_STATE` | 429 | Слишком много запросов; `Retry-After` — через сколько секунд повторить | `TOO_MANY_REQUESTS` |
