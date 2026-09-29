@@ -112,7 +112,7 @@
   <string name="profile_save_password">Сохранить пароль</string>
   <string name="profile_password_changed">Пароль изменён. На других устройствах вы вышли из аккаунта.</string>
   <string name="profile_delete">Удалить аккаунт</string>
-  <string name="profile_delete_warning">Аккаунт удалится навсегда: ник, email, друзья и группы. Отменить это нельзя.</string>
+  <string name="profile_delete_warning">Аккаунт удалится навсегда: ник, email, друзья, группы, ваши маршруты и ваш путь в записях игр. Отменить это нельзя.</string>
   <string name="profile_delete_confirm">Удалить навсегда</string>
 
   <!-- Друзья и группы -->
@@ -298,8 +298,8 @@
   <string name="back_in_zone">Вы в зоне</string>
   <string name="consent_title">Геолокация для игры</string>
   <string name="consent_text">Прятки на улице работают по точной геолокации — только во время раунда.</string>
-  <string name="consent_who">Кто видит: сервер игры. Ищущие видят друг друга, а прячущихся — только когда их раскрывают правила: вышли из зоны, зашли в здание, пропал сигнал. После раунда игроки этой игры видят на карте, кто где ходил.</string>
-  <string name="consent_when">Когда удаляется: вместе с игрой, не позже чем через полчаса после раунда. Если вы сами включите «Сохранять мои маршруты» в профиле — через 90 дней, и видите их только вы. На телефоне ничего не хранится.</string>
+  <string name="consent_who">Кто видит: сервер игры. Ищущие видят друг друга, а прячущихся — только когда их раскрывают правила: вышли из зоны, зашли в здание, пропал сигнал. Если хост откроет игру, зрители с аккаунтом видят всех с задержкой, а админы — вживую. После раунда игроки этой игры видят на карте, кто где ходил.</string>
+  <string name="consent_when">Когда удаляется: каждая игра записывается — пути всех игроков хранятся 90 дней, видят их только игроки этой игры с аккаунтом; ваш путь удаляется вместе с аккаунтом. «Сохранять мои маршруты» в профиле хранит ваши маршруты тоже 90 дней, только для вас. На телефоне ничего не хранится.</string>
   <string name="consent_pocket">В кармане: игра отправляет место и с выключенным экраном, иначе прятаться не получится.</string>
   <string name="consent_allow">Разрешить геолокацию</string>
   <string name="consent_later">Не сейчас</string>
@@ -331,7 +331,7 @@
   <string name="unit_min">%1$s мин</string>
   <string name="routes_title">Маршруты</string>
   <string name="routes_save">Сохранять мои маршруты</string>
-  <string name="routes_explain">Путь каждой игры хранится 90 дней, чтобы вы могли посмотреть, где ходили. Видите его только вы: сохранённые маршруты другим игрокам не показываются. Статистика считается и без этого.</string>
+  <string name="routes_explain">Ваш путь в каждой игре хранится 90 дней, точка за точкой, чтобы вы могли посмотреть, где ходили; видите его только вы. Статистика считается и без этого. Запись каждой игры — пути всех для её игроков — хранится 90 дней в любом случае.</string>
   <string name="routes_off_warning">Выключить и сразу удалить все сохранённые маршруты? История игр и статистика останутся.</string>
   <string name="routes_off_confirm">Удалить маршруты</string>
   <string name="history_open">История игр</string>
@@ -628,4 +628,68 @@
   <string name="results_sparks">Искры</string>
   <string name="award_sparks">Больше всех искр</string>
   <string name="award_sparks_value">✦ %1$d</string>
+  <!-- Сколько игроков помещается в зону (docs/adr/0010-big-games.md). -->
+  <plurals name="lobby_chip_capacity">
+    <item quantity="one">До %1$d игрока</item>
+    <item quantity="few">До %1$d игроков</item>
+    <item quantity="many">До %1$d игроков</item>
+    <item quantity="other">До %1$d игроков</item>
+  </plurals>
+  <plurals name="lobby_crowded">
+    <item quantity="one">Тесно: в зоне места примерно для %1$d игрока, а вас %2$d.</item>
+    <item quantity="few">Тесно: в зоне места примерно для %1$d игроков, а вас %2$d.</item>
+    <item quantity="many">Тесно: в зоне места примерно для %1$d игроков, а вас %2$d.</item>
+    <item quantity="other">Тесно: в зоне места примерно для %1$d игроков, а вас %2$d.</item>
+  </plurals>
+  <string name="lobby_few_covers">Мало укрытий: почти вся зона — открытое место.</string>
+  <string name="lobby_play_anyway">Играть всё равно</string>
+  <!-- Большие игры (docs/adr/0010-big-games.md). -->
+  <string name="big_games_title">Большие игры</string>
+  <string name="big_game_signed_up">Записались: %1$d из %2$d</string>
+  <string name="big_game_friends">Друзья: %1$s</string>
+  <string name="big_game_zone">Зона %1$s</string>
+  <string name="big_game_sign_up">Записаться</string>
+  <string name="big_game_cancel_signup">Отменить запись</string>
+  <string name="big_game_signed_up_note">Вы записаны. Лобби откроется за 30 минут до старта.</string>
+  <string name="big_game_join">Войти в лобби</string>
+  <string name="big_game_full">Мест нет</string>
+  <string name="big_game_status_lobby">Лобби открыто</string>
+  <string name="big_game_status_running">Идёт</string>
+  <string name="unit_ha">%1$s га</string>
+  <string name="unit_km2">%1$s км²</string>
+  <string name="error_big_game_signup_required">Сначала запишитесь на игру.</string>
+  <string name="big_lobby_starts_in">Старт через %1$s</string>
+  <string name="big_lobby_starting">Стартуем…</string>
+  <string name="big_lobby_counts">В лобби: %1$d · записались: %2$d</string>
+  <string name="big_lobby_roles">Ищущих выберет сервер при старте.</string>
+  <string name="big_lobby_friends">Друзья в лобби</string>
+  <string name="big_lobby_no_friends">Друзей в лобби пока нет.</string>
+  <!-- Spectators and recordings (docs/adr/0011-spectators-and-recordings.md). -->
+  <string name="settings_open_game">Открытая игра</string>
+  <string name="settings_open_game_hint">Любой с аккаунтом и кодом сможет смотреть игру, не играя: все игроки на карте, с задержкой. Админы могут смотреть вживую.</string>
+  <string name="settings_spectator_delay">Зрители видят игру</string>
+  <string name="settings_delay_live">Вживую</string>
+  <string name="settings_delay_hint">Задержка не даёт зрителям подсказывать ищущим, где сейчас прячутся.</string>
+  <string name="lobby_chip_open">Открытая · задержка %1$s</string>
+  <string name="lobby_chip_open_live">Открытая · вживую</string>
+  <string name="spectators_count">Смотрят: %1$d</string>
+  <string name="lobby_recorded">Игра записывается: пути всех игроков хранятся 90 дней, смотреть их могут только игроки этой игры с аккаунтом.</string>
+  <string name="home_watch">Смотреть</string>
+  <string name="home_watch_hint">Открытую игру можно смотреть, не играя: введите её код и нажмите «Смотреть».</string>
+  <string name="spectator_title">Вы смотрите игру</string>
+  <string name="spectator_delay">Задержка %1$s</string>
+  <string name="spectator_live">Вживую</string>
+  <string name="spectator_leave">Выйти</string>
+  <string name="spectator_lobby">Игра ещё не началась: игроки в лобби.</string>
+  <string name="spectator_finished">Игра закончилась.</string>
+  <string name="spectator_ended">Трансляция закончилась: игра завершилась или хост закрыл её для зрителей.</string>
+  <string name="spectator_caught">найден</string>
+  <string name="spectator_out">выбыл</string>
+  <string name="history_recording">Запись игры</string>
+  <string name="recording_title">Запись игры</string>
+  <string name="recording_expires">Хранится до %1$s. Её видят только игроки этой игры.</string>
+  <string name="recording_empty">В этой игре ничей путь не записался.</string>
+  <string name="recording_you">%1$s (вы)</string>
+  <string name="error_game_not_open">Эта игра закрыта для зрителей.</string>
+  <string name="error_playing_this_game">Вы играете в этой игре, смотреть её нельзя.</string>
 </resources>

@@ -59,6 +59,9 @@ internal class Player(
     /** Where the last glow left this hider: what the seekers see between glows. */
     var glowMark: LocationSample? = null
 
+    /** The accounts of the player's friends, loaded at the join of a big game: its snapshot shows them. */
+    var friends: Set<UserId> = emptySet()
+
     /** The glow [glowMark] comes from (its index), for the quests that follow a glow. */
     var glowMarkIndex = 0
 

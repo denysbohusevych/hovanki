@@ -4,6 +4,7 @@ import io.zonky.test.db.postgres.embedded.EmbeddedPostgres
 import java.net.URLDecoder
 import java.security.SecureRandom
 import java.sql.DriverManager
+import java.time.Duration
 import java.util.HexFormat
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -59,7 +60,8 @@ class LocalPostgres private constructor(
 
         private fun embedded(): LocalPostgres {
             val postgres = try {
-                EmbeddedPostgres.builder().start()
+                // Not the default 10 s: next to a booting simulator or emulators the machine can be that slow.
+                EmbeddedPostgres.builder().setPGStartupWait(Duration.ofSeconds(60)).start()
             } catch (e: Exception) {
                 throw IllegalStateException(
                     "Could not start the embedded PostgreSQL. Point $DATABASE_URL_ENV at a PostgreSQL server " +

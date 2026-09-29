@@ -63,6 +63,13 @@ data class GameInvite(
     val expiresAtMillis: Long,
 )
 
-/** What the start screen polls while it is open: game invites and incoming friend requests. */
+/**
+ * What the start screen polls while it is open: game invites, incoming friend requests, and the open lobbies of the big
+ * games the caller signed up for (docs/adr/0010-big-games.md).
+ */
 @Serializable
-data class Inbox(val invites: List<GameInvite> = emptyList(), val friendRequests: List<UserSummary> = emptyList())
+data class Inbox(
+    val invites: List<GameInvite> = emptyList(),
+    val friendRequests: List<UserSummary> = emptyList(),
+    val bigGames: List<BigGameCard> = emptyList(),
+)

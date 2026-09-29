@@ -97,10 +97,34 @@ button:disabled { opacity: .5; cursor: default; }
 .qr { display: block; width: 220px; height: 220px; margin: 12px auto; background: var(--paper); }
 .secret { word-break: break-all; text-align: center; }
 
+/* Big games: the map with the pencil next to the form (docs/adr/0010-big-games.md). */
+a.button { display: inline-block; font-weight: 600; padding: 8px 16px; border-radius: 999px; background: var(--ink);
+  color: var(--paper); }
+a.button:hover { text-decoration: none; }
+.map-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr); gap: 16px; align-items: start; }
+.map-layout .card { margin: 0; }
+canvas.map { display: block; width: 100%; height: 540px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--sand); touch-action: none; cursor: grab; }
+canvas.map.pencil { cursor: crosshair; }
+canvas.map.live { margin: 8px 0 16px; }
+.map-tools { margin-bottom: 8px; gap: 6px; }
+.map-tools button { padding: 6px 12px; }
+.map-tools form { gap: 6px; }
+input.place { width: 230px; }
+.estimate { display: grid; gap: 6px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 14px; }
+.estimate b { font-size: 20px; margin-left: 8px; }
+.estimate p { margin: 0; }
+
 dialog { border: 0; border-radius: var(--radius); padding: 20px; width: min(440px, 92vw); }
 dialog::backdrop { background: rgba(14, 14, 18, .45); }
 dialog h3 { margin: 0 0 8px; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+@media (max-width: 900px) {
+  .map-layout { grid-template-columns: minmax(0, 1fr); }
+  canvas.map { height: 420px; }
+}
 
 @media (max-width: 700px) {
   .top { position: static; gap: 10px; }

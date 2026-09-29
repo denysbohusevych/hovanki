@@ -36,6 +36,8 @@ data class GameHistoryEntry(
     /** Sparks left at the end and quests done (docs/adr/0013); zero in games without them. */
     val sparks: Int = 0,
     val questsDone: Int = 0,
+    /** The recording of this game, everybody's way, is kept: [ApiRoutes.meGameRecording]. */
+    val hasRecording: Boolean = false,
 )
 
 /** A page of the caller's games, newest first; [nextBefore] asks for the next page ([ApiRoutes.ME_GAMES]). */
@@ -98,6 +100,11 @@ data class GameRoute(
     /** Start of the zone schedule (= start of seeking); null: the game ended before seeking. */
     val zoneStartedAtMillis: Long? = null,
     val finishedAtMillis: Long,
+    /**
+     * The zone by streets, one polygon per stage of [zone] (docs/adr/0009-game-setup-glow-streets.md); null: the game
+     * played with circles, or the route was saved before the polygons were kept with it.
+     */
+    val streetZone: List<ZonePolygon>? = null,
     /** Oldest first. */
     val points: List<RoutePoint> = emptyList(),
     /** The route is deleted after this (retention). */
@@ -112,4 +119,39 @@ data class PrivacyRequest(
      * the history and statistics stay.
      */
     val saveRoutes: Boolean,
+)
+
+/**
+ * The recording of a finished game (docs/adr/0011-spectators-and-recordings.md): where everybody went during the round,
+ * to watch it again from the history. Only for those who played it with an account; kept until [expiresAtMillis].
+ */
+@Serializable
+data class GameRecording(
+    val gameId: GameId,
+    val zone: ZoneSchedule,
+    /** Hiding started; the recording starts here. */
+    val startedAtMillis: Long,
+    /** Start of the zone schedule (= start of seeking); null: the game ended before seeking. */
+    val zoneStartedAtMillis: Long? = null,
+    val finishedAtMillis: Long,
+    /** The zone by streets, one polygon per stage of [zone]; null: the game played with circles. */
+    val streetZone: List<ZonePolygon>? = null,
+    /** Everybody who played, guests too; a player who deleted their account since is not here any more. */
+    val players: List<RecordedPlayer> = emptyList(),
+    val expiresAtMillis: Long,
+)
+
+/** One player of a [GameRecording] and their way, oldest first (accurate fixes, at most one every few seconds). */
+@Serializable
+data class RecordedPlayer(
+    val playerId: PlayerId,
+    val name: String,
+    val role: Role,
+    /** How the round ended for them. */
+    val status: PlayerStatus,
+    val outAtMillis: Long? = null,
+    val caughtBy: PlayerId? = null,
+    /** The caller themselves. */
+    val isMe: Boolean = false,
+    val points: List<TrackPoint> = emptyList(),
 )

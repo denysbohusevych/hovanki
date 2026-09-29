@@ -112,6 +112,7 @@ import app.hovanki.client.ui.common.PopChip
 import app.hovanki.client.ui.common.PopIconButton
 import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopSurface
+import app.hovanki.client.ui.common.SpectatorsChip
 import app.hovanki.client.ui.common.appSafeDrawing
 import app.hovanki.client.ui.common.bandTitle
 import app.hovanki.client.ui.common.distanceBandTitle
@@ -214,9 +215,9 @@ fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
 }
 
 /**
- * The role and how far the border is; under them, what the zone is doing when it is not calm, and when the next glow
- * comes; then the radar (docs/adr/0012-nearby-radar.md), the sparks and a hint (docs/adr/0013), and the buttons for
- * the quests, the perks and a checkpoint's code, when the game has them.
+ * The role and how far the border is; under them, what the zone is doing when it is not calm, when the next glow
+ * comes, and how many watch an open game; then the radar (docs/adr/0012-nearby-radar.md), the sparks and a hint
+ * (docs/adr/0013), and the buttons for the quests, the perks and a checkpoint's code, when the game has them.
  */
 @Composable
 fun HudChips(
@@ -264,6 +265,7 @@ fun HudChips(
         ) {
             if (state.isZoneRunning) ZoneChip(state)
             state.glow?.let { GlowChip(it) }
+            if (state.spectators > 0) SpectatorsChip(state.spectators)
         }
         val inSearch = state.phase == GamePhase.SEEKING && state.myStatus == PlayerStatus.ACTIVE
         val isHider = state.myRole == Role.HIDER

@@ -1,18 +1,24 @@
 package app.hovanki.server.api
 
 import app.hovanki.server.admin.AdminLogin
+import app.hovanki.server.admin.AdminMap
 import app.hovanki.server.admin.AdminProperties
 import app.hovanki.server.admin.AdminService
 import app.hovanki.server.admin.Staff
 import app.hovanki.server.admin.StaffAuthService
+import app.hovanki.server.bigGames.BigGameService
 import app.hovanki.server.game.GameException
 import app.hovanki.shared.protocol.AdminAudit
+import app.hovanki.shared.protocol.AdminBigGame
+import app.hovanki.shared.protocol.AdminBigGameRequest
+import app.hovanki.shared.protocol.AdminBigGames
 import app.hovanki.shared.protocol.AdminEnrollRequest
 import app.hovanki.shared.protocol.AdminEnrollment
 import app.hovanki.shared.protocol.AdminFeatureRequest
 import app.hovanki.shared.protocol.AdminFeatures
 import app.hovanki.shared.protocol.AdminFindByEmailRequest
 import app.hovanki.shared.protocol.AdminGames
+import app.hovanki.shared.protocol.AdminLiveGame
 import app.hovanki.shared.protocol.AdminLoginRequest
 import app.hovanki.shared.protocol.AdminLoginResponse
 import app.hovanki.shared.protocol.AdminMe
@@ -23,10 +29,14 @@ import app.hovanki.shared.protocol.AdminRevealedEmail
 import app.hovanki.shared.protocol.AdminSetRoleRequest
 import app.hovanki.shared.protocol.AdminStaff
 import app.hovanki.shared.protocol.AdminStats
+import app.hovanki.shared.protocol.AdminTile
 import app.hovanki.shared.protocol.AdminTotpRequest
 import app.hovanki.shared.protocol.AdminUserCard
 import app.hovanki.shared.protocol.AdminUsers
+import app.hovanki.shared.protocol.AdminZoneEstimate
+import app.hovanki.shared.protocol.AdminZoneEstimateRequest
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.ResolveReportRequest
@@ -55,6 +65,8 @@ class AdminController(
     private val auth: StaffAuthService,
     private val admin: AdminService,
     private val properties: AdminProperties,
+    private val bigGames: BigGameService,
+    private val map: AdminMap,
 ) {
     @PostMapping(ApiRoutes.ADMIN_LOGIN)
     fun login(@RequestBody request: AdminLoginRequest, http: HttpServletRequest): AdminLoginResponse =
@@ -163,6 +175,15 @@ class AdminController(
     fun endGame(staff: Staff, @PathVariable gameId: String, @RequestBody request: AdminReasonRequest) =
         admin.endGame(staff, GameId(gameId), request.reason)
 
+    /** Admins start watching an open game live, with a reason (docs/adr/0011-spectators-and-recordings.md). */
+    @PostMapping(ApiRoutes.ADMIN_GAME_WATCH)
+    fun watchGame(staff: Staff, @PathVariable gameId: String, @RequestBody request: AdminReasonRequest): AdminLiveGame =
+        admin.watchGame(staff, GameId(gameId), request.reason)
+
+    /** Polled while an admin watches: the open game right now. */
+    @GetMapping(ApiRoutes.ADMIN_GAME_LIVE)
+    fun liveGame(staff: Staff, @PathVariable gameId: String): AdminLiveGame = admin.liveGame(staff, GameId(gameId))
+
     @GetMapping(ApiRoutes.ADMIN_STATS)
     fun stats(@Suppress("UNUSED_PARAMETER") staff: Staff): AdminStats = admin.stats()
 
@@ -186,6 +207,45 @@ class AdminController(
 
     @GetMapping(ApiRoutes.ADMIN_AUDIT)
     fun audit(staff: Staff, @RequestParam(required = false) before: Long?): AdminAudit = admin.audit(staff, before)
+
+    // Big games (docs/adr/0010-big-games.md): admins only, the rules in BigGameService.
+
+    @GetMapping(ApiRoutes.ADMIN_BIG_GAMES)
+    fun bigGames(staff: Staff): AdminBigGames = bigGames.list(staff)
+
+    @PostMapping(ApiRoutes.ADMIN_BIG_GAMES)
+    fun createBigGame(staff: Staff, @RequestBody request: AdminBigGameRequest): AdminBigGame =
+        bigGames.create(staff, request)
+
+    @PostMapping(ApiRoutes.ADMIN_BIG_GAME_UPDATE)
+    fun updateBigGame(
+        staff: Staff,
+        @PathVariable bigGameId: String,
+        @RequestBody request: AdminBigGameRequest,
+    ): AdminBigGame = bigGames.update(staff, BigGameId(bigGameId), request)
+
+    @PostMapping(ApiRoutes.ADMIN_BIG_GAME_START)
+    fun startBigGame(
+        staff: Staff,
+        @PathVariable bigGameId: String,
+        @RequestBody request: AdminReasonRequest,
+    ): AdminBigGame = bigGames.start(staff, BigGameId(bigGameId), request.reason)
+
+    @PostMapping(ApiRoutes.ADMIN_BIG_GAME_CANCEL)
+    fun cancelBigGame(
+        staff: Staff,
+        @PathVariable bigGameId: String,
+        @RequestBody request: AdminReasonRequest,
+    ): AdminBigGame = bigGames.cancel(staff, BigGameId(bigGameId), request.reason)
+
+    @PostMapping(ApiRoutes.ADMIN_ZONE_ESTIMATE)
+    fun estimateZone(staff: Staff, @RequestBody request: AdminZoneEstimateRequest): AdminZoneEstimate =
+        bigGames.estimate(staff, request)
+
+    /** A tile of the players' map for the page's map (admins). */
+    @GetMapping(ApiRoutes.ADMIN_TILE)
+    fun tile(staff: Staff, @PathVariable z: Int, @PathVariable x: Int, @PathVariable y: Int): AdminTile =
+        map.tile(staff, z, x, y)
 
     private fun startSession(login: AdminLogin, response: HttpServletResponse): AdminMe {
         response.addHeader(HttpHeaders.SET_COOKIE, AdminWebConfig.sessionCookie(login.token, properties.sessionMax))

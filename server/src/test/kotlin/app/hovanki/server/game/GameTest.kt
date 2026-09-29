@@ -2,6 +2,7 @@ package app.hovanki.server.game
 
 import app.hovanki.shared.debug.DebugBuildings
 import app.hovanki.shared.geo.moveBy
+import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
@@ -439,6 +440,24 @@ class GameTest {
         assertEquals(emptyList(), trackOf(host), "no fixes, no track")
     }
 
+    @Test
+    fun theReplayStaysAsItWasAtTheEnd() {
+        startedGame()
+        report(hider, center.moveBy(10.0, 0.0))
+        report(seeker, center.moveBy(0.0, 10.0))
+        tick(settings.seekingSeconds)
+        assertEquals(GamePhase.FINISHED, game.phase)
+        val atTheEnd = game.tracks()
+        val recording = checkNotNull(game.finishedRecord()).recording.associate { it.playerId to it.points }
+
+        // The seeker's phone sends its last fix from before the end only after it: the first phones already loaded
+        // the replay, the others would get another one.
+        val late = LocationSample(center.moveBy(0.0, 20.0), 5.0, now - 1_000)
+        game.recordLocations(seeker, listOf(late), now)
+        assertEquals(atTheEnd, game.tracks(), "every phone gets the same replay")
+        assertEquals(atTheEnd.tracks.associate { it.playerId to it.points }, recording, "the recording is the replay")
+    }
+
     // ---- Buildings (docs/adr/0003-map-and-buildings.md) ----
 
     private val insideBlock = center.moveBy(DebugBuildings.INSIDE_EAST, DebugBuildings.INSIDE_NORTH)
@@ -453,11 +472,11 @@ class GameTest {
     }
 
     /** [player] keeps reporting [point] every 3 s for [seconds], the seeker stays put. */
-    private fun stay(player: PlayerId, point: GeoPoint, seconds: Int) {
+    private fun stay(player: PlayerId, point: GeoPoint, seconds: Int, accuracy: Double = 5.0) {
         repeat(seconds / 3) {
             now += 3_000
             report(seeker, center)
-            report(player, point)
+            report(player, point, accuracy)
         }
     }
 
@@ -486,6 +505,40 @@ class GameTest {
             }.revealedToSeekers,
         )
         assertEquals(PlayerStatus.ACTIVE, statusOf(hider), "GPS near houses is a hint, not a judge")
+    }
+
+    /**
+     * An ordinary apartment block, a C around a yard with wings 16 m deep, and the 20-odd meters phones report
+     * indoors: the rule goes by the dot on the map. Before, a fix counted only deeper than its accuracy plus 5 m, which
+     * no point of such a house is, and a hider inside was never warned.
+     */
+    @Test
+    fun anOrdinaryHouseWithIndoorGpsCountsToo() {
+        fun at(east: Double, north: Double) = center.moveBy(DebugBuildings.WEST + east, DebugBuildings.SOUTH + north)
+        val block = listOf(
+            at(0.0, 0.0), at(35.0, 0.0), at(35.0, 16.0), at(16.0, 16.0), at(16.0, 29.0), at(35.0, 29.0),
+            at(35.0, 45.0), at(0.0, 45.0), at(0.0, 0.0),
+        )
+        game.onBuildingsLoaded(listOf(BuildingArea(block)), emptyList())
+        startedGame()
+        // In the back wing, 5 m from the yard's wall.
+        stay(hider, at(11.0, 22.5), 9, accuracy = 21.0)
+
+        assertEquals(now + revealMillis, warning(), "warned")
+        stay(hider, at(11.0, 22.5), settings.rules.insideBuildingRevealSeconds, accuracy = 21.0)
+        assertEquals(VisibilityReason.INSIDE_BUILDING, assertNotNull(hiderAsSeenBySeeker()).cause)
+    }
+
+    @Test
+    fun aHiderByTheWallOutsideIsNotWarned() {
+        withTestQuarter()
+        // 1 m outside the south wall, the dot jumping 2 m into the block every other fix.
+        repeat(settings.rules.insideBuildingRevealSeconds / 3) {
+            val north = if (it % 2 == 0) DebugBuildings.SOUTH - 1 else DebugBuildings.SOUTH + 2
+            stay(hider, center.moveBy(DebugBuildings.INSIDE_EAST, north), 3, accuracy = 8.0)
+        }
+
+        assertNull(warning())
     }
 
     @Test

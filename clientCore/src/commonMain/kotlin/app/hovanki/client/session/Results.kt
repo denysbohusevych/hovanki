@@ -2,6 +2,7 @@ package app.hovanki.client.session
 
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.GamePhase
+import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.PlayerId
@@ -43,12 +44,26 @@ data class Award(val kind: AwardKind, val playerId: PlayerId, val value: Long)
 /** How long into the search [atMillis] was (the zone starts with the search); null before it started. */
 fun GameSnapshot.searchMillisAt(atMillis: Long): Long? = zoneStartedAtMillis?.let { (atMillis - it).coerceAtLeast(0) }
 
+/** How the hiders ended the round: the headline and the numbers of the results. */
+data class HiderTally(val caught: Int, val survived: Int, val eliminated: Int)
+
+/** [HiderTally] from the server's counts in a big game (its list of players is partial), else from the list. */
+fun GameSnapshot.hiderTally(): HiderTally {
+    counts?.let { return HiderTally(it.hidersCaught, it.hidersActive, it.hidersEliminated) }
+    val hiders = players.filter { it.role == Role.HIDER }
+    return HiderTally(
+        caught = hiders.count { it.status == PlayerStatus.CAUGHT },
+        survived = hiders.count { it.status == PlayerStatus.ACTIVE },
+        eliminated = hiders.count { it.status == PlayerStatus.ELIMINATED },
+    )
+}
+
 /** How many hiders [seekerId] caught. */
 fun GameSnapshot.catchesBy(seekerId: PlayerId): Int = players.count { it.caughtBy == seekerId }
 
 /**
  * The badges of a finished game, in the order the results show them; ties give nobody the badge. [tracks]: the replay
- * once loaded; badges that need it come with it.
+ * once loaded; badges that need it come with it. A big game (a partial list of players): only who was never found.
  */
 fun GameSnapshot.awards(tracks: TracksResponse? = null): List<Award> {
     if (phase != GamePhase.FINISHED) return emptyList()
@@ -73,6 +88,8 @@ fun GameSnapshot.awards(tracks: TracksResponse? = null): List<Award> {
         }
     }
 
+    // A big game lists only some players: who was first, most or last can't be told from them.
+    if (this.counts != null) return awards.filter { it.kind == AwardKind.SURVIVOR }
     if (tracks != null) {
         val lengths = tracks.tracks.associate { it.playerId to it.points.lengthMeters() }
         lengths.entries.uniqueMaxBy { it.value }?.takeIf { it.value >= MARATHON_MIN_METERS }?.let { (player, meters) ->
@@ -144,6 +161,28 @@ class Replay(val lines: List<ReplayLine>, val startMillis: Long, val endMillis: 
             val hidingStart = snapshot.zoneStartedAtMillis?.let { it - snapshot.settings.hidingSeconds * 1000L }
             val start = minOf(hidingStart ?: firstPoint, firstPoint)
             val end = maxOf(snapshot.finishedAtMillis ?: lastPoint, lastPoint)
+            return Replay(lines, start, end)
+        }
+
+        /**
+         * The replay of a game's recording from the history (docs/adr/0011-spectators-and-recordings.md): everybody
+         * still in it, from the start of hiding to the end. Null when nobody has a way in it.
+         */
+        fun of(recording: GameRecording): Replay? {
+            val lines = recording.players.filter { it.points.isNotEmpty() }.map { player ->
+                val view = PlayerView(
+                    id = player.playerId,
+                    name = player.name,
+                    role = player.role,
+                    status = player.status,
+                    outAtMillis = player.outAtMillis,
+                    caughtBy = player.caughtBy,
+                )
+                ReplayLine(view, player.points)
+            }
+            if (lines.isEmpty()) return null
+            val start = minOf(recording.startedAtMillis, lines.minOf { it.points.first().atMillis })
+            val end = maxOf(recording.finishedAtMillis, lines.maxOf { it.points.last().atMillis })
             return Replay(lines, start, end)
         }
     }

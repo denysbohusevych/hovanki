@@ -112,7 +112,7 @@
   <string name="profile_save_password">Save the password</string>
   <string name="profile_password_changed">Password changed. Your other devices were logged out.</string>
   <string name="profile_delete">Delete the account</string>
-  <string name="profile_delete_warning">This deletes your account for good: nickname, email, friends and groups. You cannot undo it.</string>
+  <string name="profile_delete_warning">This deletes your account for good: nickname, email, friends, groups, your routes and your way in the games’ recordings. You cannot undo it.</string>
   <string name="profile_delete_confirm">Delete for good</string>
 
   <!-- Friends and groups -->
@@ -298,8 +298,8 @@
   <string name="back_in_zone">You are in the zone</string>
   <string name="consent_title">Location for the game</string>
   <string name="consent_text">Hide-and-seek on the street needs your precise location during the round.</string>
-  <string name="consent_who">Who sees it: the game server. Seekers see each other; hiders only when the rules reveal them: out of the zone, inside a building, no signal. After the round, the players of the game see everybody’s way on the map.</string>
-  <string name="consent_when">When it is deleted: with the game, half an hour after the round at the latest. If you turn on «Save my routes» in your profile: after 90 days, and only you see them. Nothing is kept on your phone.</string>
+  <string name="consent_who">Who sees it: the game server. Seekers see each other; hiders only when the rules reveal them: out of the zone, inside a building, no signal. If the host opens the game, spectators with an account see everybody a little later, and admins live. After the round, the game’s players see everybody’s way on the map.</string>
+  <string name="consent_when">When it is deleted: every game is recorded, everybody’s way is kept for 90 days and only the game’s players with an account see it; your way goes with your account. «Save my routes» in your profile keeps your own routes 90 days too, only for you. Nothing is kept on your phone.</string>
   <string name="consent_pocket">In your pocket: the game keeps sending your location with the screen off, otherwise hiding would not work.</string>
   <string name="consent_allow">Allow location</string>
   <string name="consent_later">Not now</string>
@@ -331,7 +331,7 @@
   <string name="unit_min">%1$s min</string>
   <string name="routes_title">Routes</string>
   <string name="routes_save">Save my routes</string>
-  <string name="routes_explain">The path of each game is kept for 90 days so you can see where you went. Only you see it: saved routes are never shown to other players. Your stats are counted either way.</string>
+  <string name="routes_explain">Your own path of each game is kept for 90 days, fix by fix, so you can see where you went; only you see it. Your stats are counted either way. Each game’s recording, everybody’s way for its players, is kept 90 days anyway.</string>
   <string name="routes_off_warning">Turn this off and delete all saved routes right away? Your game history and stats stay.</string>
   <string name="routes_off_confirm">Delete routes</string>
   <string name="history_open">Game history</string>
@@ -628,4 +628,64 @@
   <string name="results_sparks">Sparks</string>
   <string name="award_sparks">Most sparks</string>
   <string name="award_sparks_value">✦ %1$d</string>
+  <!-- How many players the zone fits (docs/adr/0010-big-games.md). -->
+  <plurals name="lobby_chip_capacity">
+    <item quantity="one">Up to %1$d player</item>
+    <item quantity="other">Up to %1$d players</item>
+  </plurals>
+  <plurals name="lobby_crowded">
+    <item quantity="one">Crowded: the zone has room for about %1$d player, you are %2$d.</item>
+    <item quantity="other">Crowded: the zone has room for about %1$d players, you are %2$d.</item>
+  </plurals>
+  <string name="lobby_few_covers">Few places to hide: most of the zone is open ground.</string>
+  <string name="lobby_play_anyway">Play anyway</string>
+  <!-- Big games (docs/adr/0010-big-games.md). -->
+  <string name="big_games_title">Big games</string>
+  <string name="big_game_signed_up">Signed up: %1$d of %2$d</string>
+  <string name="big_game_friends">Friends: %1$s</string>
+  <string name="big_game_zone">Zone %1$s</string>
+  <string name="big_game_sign_up">Sign up</string>
+  <string name="big_game_cancel_signup">Cancel my sign-up</string>
+  <string name="big_game_signed_up_note">You’re in. The lobby opens 30 minutes before the start.</string>
+  <string name="big_game_join">Into the lobby</string>
+  <string name="big_game_full">No places left</string>
+  <string name="big_game_status_lobby">Lobby open</string>
+  <string name="big_game_status_running">Going on</string>
+  <string name="unit_ha">%1$s ha</string>
+  <string name="unit_km2">%1$s km²</string>
+  <string name="error_big_game_signup_required">Sign up for the game first.</string>
+  <string name="big_lobby_starts_in">Starts in %1$s</string>
+  <string name="big_lobby_starting">Starting…</string>
+  <string name="big_lobby_counts">In the lobby: %1$d · signed up: %2$d</string>
+  <string name="big_lobby_roles">The server draws the seekers at the start.</string>
+  <string name="big_lobby_friends">Your friends here</string>
+  <string name="big_lobby_no_friends">None of your friends is here yet.</string>
+  <!-- Spectators and recordings (docs/adr/0011-spectators-and-recordings.md). -->
+  <string name="settings_open_game">Open game</string>
+  <string name="settings_open_game_hint">Anyone with an account and the code can watch without playing: everybody on the map, a little behind. Admins can watch it live.</string>
+  <string name="settings_spectator_delay">Spectators see the game</string>
+  <string name="settings_delay_live">Live</string>
+  <string name="settings_delay_hint">A delay keeps spectators from telling the seekers where the hiders are right now.</string>
+  <string name="lobby_chip_open">Open · %1$s behind</string>
+  <string name="lobby_chip_open_live">Open · live</string>
+  <string name="spectators_count">%1$d watching</string>
+  <string name="lobby_recorded">The game is recorded: everybody’s way is kept for 90 days, and only this game’s players with an account can watch it.</string>
+  <string name="home_watch">Watch</string>
+  <string name="home_watch_hint">An open game can be watched without playing: type its code and tap “Watch”.</string>
+  <string name="spectator_title">You’re watching</string>
+  <string name="spectator_delay">%1$s behind</string>
+  <string name="spectator_live">Live</string>
+  <string name="spectator_leave">Stop watching</string>
+  <string name="spectator_lobby">The game hasn’t started yet: the players are in the lobby.</string>
+  <string name="spectator_finished">The game is over.</string>
+  <string name="spectator_ended">The broadcast is over: the game has ended, or its host closed it to spectators.</string>
+  <string name="spectator_caught">caught</string>
+  <string name="spectator_out">out</string>
+  <string name="history_recording">Recording</string>
+  <string name="recording_title">Recording</string>
+  <string name="recording_expires">Kept until %1$s. Only this game’s players see it.</string>
+  <string name="recording_empty">Nobody’s way was recorded in this game.</string>
+  <string name="recording_you">%1$s (you)</string>
+  <string name="error_game_not_open">This game is not open to spectators.</string>
+  <string name="error_playing_this_game">You play in this game, so you can’t watch it.</string>
 </resources>

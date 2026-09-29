@@ -4,6 +4,8 @@
 //   nothing here ever sets innerHTML;
 // - every request carries the X-Hovanki-Admin header (CSRF) and the session cookie, which scripts can't read.
 
+import { ZoneMap, areaSquareMeters } from "./map.js";
+
 const API = "/api/v1/admin";
 const ROLE = { PLAYER: "игрок", MODERATOR: "модератор", ADMIN: "админ" };
 const PHASE = { LOBBY: "лобби", HIDING: "прячутся", SEEKING: "поиск", FINISHED: "закончена" };
@@ -13,6 +15,9 @@ const ACTION = {
   LOGOUT_DEVICES: "выход на всех устройствах", DELETE_ACCOUNT: "удалил аккаунт", SHOW_EMAIL: "показал email",
   FIND_BY_EMAIL: "искал по email", END_GAME: "завершил игру", SET_ROLE: "сменил роль", RESET_TOTP: "сбросил аутентификатор",
   SET_FEATURE: "переключил возможность",
+  BIG_GAME_CREATE: "создал большую игру", BIG_GAME_UPDATE: "изменил большую игру", BIG_GAME_START: "запустил большую игру",
+  BIG_GAME_CANCEL: "отменил большую игру",
+  WATCH_GAME: "смотрел игру вживую",
 };
 const MODERATOR_MAX_DAYS = 30;
 
@@ -307,7 +312,7 @@ function qrSvg(rows) {
 
 const PAGES = [
   ["reports", "Жалобы"], ["users", "Пользователи"], ["games", "Игры"], ["features", "Возможности"], ["stats", "Цифры"],
-  ["staff", "Сотрудники", true], ["audit", "Журнал", true],
+  ["big", "Большие игры", true], ["staff", "Сотрудники", true], ["audit", "Журнал", true],
 ];
 
 function frame(page, openReports) {
@@ -331,6 +336,7 @@ function frame(page, openReports) {
 }
 
 async function route() {
+  stopLive();
   if (!me) {
     try {
       me = await get("/me");
@@ -348,11 +354,14 @@ async function route() {
   try {
     if (page === "users" && id) await userView(decodeURIComponent(id));
     else if (page === "users") await usersView();
+    else if (page === "games" && id && isAdmin()) await liveView(decodeURIComponent(id));
     else if (page === "games") await gamesView();
     else if (page === "features") await featuresView();
     else if (page === "stats") await statsView();
     else if (page === "staff" && isAdmin()) await staffView();
     else if (page === "audit" && isAdmin()) await auditView();
+    else if (page === "big" && isAdmin() && id) await bigGameEditor(decodeURIComponent(id));
+    else if (page === "big" && isAdmin()) await bigGamesView();
     else await reportsView(id === "all");
   } catch {
     // run() showed it.
@@ -571,9 +580,11 @@ async function gamesView() {
   const { games } = await run(() => get("/games"));
   frame("games");
   show(el("h1", {}, `Игры сейчас: ${games.length}`),
-    el("p", { class: "muted small" }, "Без центра зоны, позиций и чата: только числа."),
+    el("p", { class: "muted small" }, "Без центра зоны, позиций и чата: только числа. Открытые игры (хост разрешил зрителей) " +
+      "админы могут смотреть вживую, с причиной в журнале."),
     games.length ? el("table", {},
-      el("tr", {}, ["Игра", "Фаза", "Хост", "Игроки (гости, ищущие)", "Создана", "В фазе с", "Активность", "Зона", "Карта", "Чат", ""]
+      el("tr", {}, ["Игра", "Фаза", "Хост", "Игроки (гости, ищущие)", "Создана", "В фазе с", "Активность", "Зона", "Карта", "Чат",
+        "Зрители", ""]
         .map((t) => el("th", {}, t))),
       games.map((game) => el("tr", {},
         el("td", { class: "mono" }, game.gameId),
@@ -583,10 +594,14 @@ async function gamesView() {
         el("td", {}, fmt.ago(game.createdAtMillis)),
         el("td", {}, fmt.ago(game.phaseStartedAtMillis)),
         el("td", {}, fmt.ago(game.lastActivityMillis)),
-        el("td", {}, `${Math.round(game.zoneRadiusMeters)} м`),
+        el("td", {}, `${Math.round(game.zoneRadiusMeters)} м`, capacitySummary(game)),
         el("td", {}, mapSummary(game)),
         el("td", {}, game.chatMessages),
-        el("td", {}, isAdmin() && game.phase !== "FINISHED" ? el("button", {
+        el("td", {}, game.openGame ? `открыта · ${game.spectators}` : "—"),
+        el("td", { class: "row" }, isAdmin() && game.openGame ? el("button", {
+          class: "secondary",
+          onclick: () => watchGame(game.gameId),
+        }, "Смотреть") : null, isAdmin() && game.phase !== "FINISHED" ? el("button", {
           class: "danger",
           async onclick() {
             const values = await ask(`Завершить игру ${game.gameId}`, {
@@ -597,6 +612,199 @@ async function gamesView() {
             gamesView();
           },
         }, "Завершить") : null)))) : el("p", { class: "muted" }, "Сейчас никто не играет."));
+}
+
+/** How many players the zone fits (docs/adr/0010-big-games.md), and whether the host played anyway in a crowded one. */
+function capacitySummary(game) {
+  if (game.capacity == null) return null;
+  const crowded = game.players > game.capacity;
+  return el("div", { class: "small muted" }, `до ${fmt.plural(game.capacity, "игрока", "игроков", "игроков")}`,
+    crowded ? [" ", el("span", { class: "tag mute" }, "тесно")] : null,
+    game.crowdingAccepted ? [" ", el("span", { class: "tag" }, "играют всё равно")] : null);
+}
+
+// Watching an open game live (docs/adr/0011-spectators-and-recordings.md): admins only, after a reason that goes to the
+// audit log; the server then serves the game for half an hour. The players' map (map.js, tiles through the server) with
+// the zone, everybody's position and the last two minutes of their way drawn over it; names are canvas text.
+
+const LIVE_POLL_MS = 3000;
+const LIVE_ROLE = { HIDER: "прячется", SEEKER: "ищет" };
+const LIVE_STATUS = { ACTIVE: "в игре", CAUGHT: "пойман", ELIMINATED: "выбыл" };
+const LIVE_COLOR = { SEEKER: "#b00060", HIDER: "#6b4bff", OUT: "#6b6b78" };
+let liveTimer = null;
+
+function stopLive() {
+  clearTimeout(liveTimer);
+  liveTimer = null;
+}
+
+/** Asks for the reason, then shows open game [gameId] live. */
+async function watchGame(gameId) {
+  const values = await ask(`Смотреть игру ${gameId}`, {
+    text: "Открытая игра вживую: где сейчас каждый игрок и его путь за последние 2 минуты. Причина попадёт в журнал; " +
+      "смотреть можно 30 минут, потом — снова с причиной.",
+    confirm: "Смотреть",
+  });
+  if (!values) return;
+  await run(() => post(`/games/${encodeURIComponent(gameId)}/watch`, { reason: values.reason }));
+  go(`#/games/${encodeURIComponent(gameId)}`);
+}
+
+async function liveView(gameId) {
+  frame("games");
+  const hash = `#/games/${encodeURIComponent(gameId)}`;
+  const path = `/games/${encodeURIComponent(gameId)}/live`;
+  let live;
+  try {
+    live = await get(path);
+  } catch (e) {
+    await liveEnded(gameId, e);
+    return;
+  }
+  const header = el("div");
+  const players = el("div");
+  const canvas = el("canvas", { class: "map live" });
+  const map = new ZoneMap(canvas, {
+    loadTile: (z, x, y) => get(`/tiles/${z}/${x}/${y}`),
+    center: live.settings.zone.initial.center,
+    zoom: 15,
+    editable: false,
+    overlay: (g, screen) => drawLive(g, screen, live),
+  });
+  const render = () => {
+    header.replaceChildren(liveHeader(live));
+    players.replaceChildren(livePlayers(live));
+    map.redraw();
+  };
+  show(el("a", { href: "#/games" }, "← Все игры"), header, canvas, players);
+  map.fit(circleBounds(live.settings.zone.initial));
+  render();
+  async function tick() {
+    try {
+      live = await get(path);
+    } catch (e) {
+      if (location.hash === hash) await liveEnded(gameId, e);
+      return;
+    }
+    if (location.hash !== hash) return;
+    render();
+    liveTimer = setTimeout(tick, LIVE_POLL_MS);
+  }
+  liveTimer = setTimeout(tick, LIVE_POLL_MS);
+}
+
+/** Watching ended: the reason's half hour is over, the host closed the game, or it is gone. */
+async function liveEnded(gameId, e) {
+  const back = el("a", { href: "#/games" }, "← Все игры");
+  if (e instanceof ApiError && e.status === 403) {
+    const closed = e.body?.reason === "GAME_NOT_OPEN";
+    show(back, el("div", { class: "card narrow" }, el("h1", {}, closed ? "Игра закрыта" : "Нужна причина"),
+      el("p", {}, closed
+        ? "Хост закрыл игру для зрителей: смотреть её больше нельзя."
+        : "Доступ к этой игре закончился (30 минут после причины) или ещё не открыт."),
+      closed ? null : el("button", { onclick: () => watchGame(gameId) }, "Смотреть с причиной")));
+  } else if (e instanceof ApiError && e.status === 404) {
+    show(back, el("div", { class: "card narrow" }, el("h1", {}, "Игры больше нет"),
+      el("p", {}, "Она закончилась и удалена с сервера.")));
+  } else {
+    await run(() => Promise.reject(e)).catch(() => {});
+  }
+}
+
+function liveHeader(live) {
+  const left = live.phaseEndsAtMillis ? Math.max(0, Math.round((live.phaseEndsAtMillis - live.serverTimeMillis) / 1000)) : null;
+  const clock = left == null ? "" : ` · ещё ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  return el("div", {},
+    el("h1", {}, `Игра ${live.gameId} · ${PHASE[live.phase]}${clock}`),
+    el("p", { class: "muted small" }, `Вживую, обновляется каждые 3 секунды. Зрителей: ${live.spectators}. ` +
+      "Путь каждого — за последние 2 минуты. Каждое открытие записано в журнал."));
+}
+
+/** The corners of the square around [circle]: the map fits them. */
+function circleBounds(circle) {
+  const dLat = circle.radiusMeters / 110540;
+  const dLon = circle.radiusMeters / (111320 * Math.cos((circle.center.lat * Math.PI) / 180));
+  const { lat, lon } = circle.center;
+  return [{ lat: lat - dLat, lon: lon - dLon }, { lat: lat + dLat, lon: lon + dLon }];
+}
+
+/** Over the map: the zone (dashed: the next one), the rule's buildings, everybody's way and where they are. */
+function drawLive(g, screen, live) {
+  const path = (points, close) => {
+    g.beginPath();
+    points.forEach((point, i) => {
+      const p = screen(point);
+      if (i === 0) g.moveTo(p.x, p.y); else g.lineTo(p.x, p.y);
+    });
+    if (close) g.closePath();
+  };
+  const circle = (zone) => {
+    const [south, north] = circleBounds(zone);
+    const center = screen(zone.center);
+    g.beginPath();
+    g.arc(center.x, center.y, Math.abs(screen(north).y - screen(south).y) / 2, 0, 2 * Math.PI);
+  };
+  const color = (player) => (player.status !== "ACTIVE" ? LIVE_COLOR.OUT : LIVE_COLOR[player.role]);
+
+  g.fillStyle = "rgba(176, 0, 96, 0.2)";
+  for (const building of live.buildings) {
+    path(building.outline, true);
+    g.fill();
+  }
+  const streets = live.streetZone?.length ? live.streetZone : null;
+  const stage = Math.min(live.zoneStage ?? 0, (streets?.length ?? 1) - 1);
+  g.strokeStyle = "#0e0e12";
+  g.lineWidth = 3;
+  if (streets) path(streets[stage].outline, true); else circle(live.zoneNow ?? live.settings.zone.initial);
+  g.stroke();
+  const next = streets ? streets[stage + 1] : live.nextZone;
+  if (next) {
+    g.setLineDash([8, 6]);
+    g.lineWidth = 1.5;
+    if (streets) path(next.outline, true); else circle(next);
+    g.stroke();
+    g.setLineDash([]);
+  }
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  for (const player of live.players) {
+    if (!(player.trail?.length > 1)) continue;
+    path(player.trail, false);
+    g.strokeStyle = color(player);
+    g.globalAlpha = 0.6;
+    g.lineWidth = 3;
+    g.stroke();
+    g.globalAlpha = 1;
+  }
+  g.font = "600 12px system-ui, sans-serif";
+  for (const player of live.players) {
+    if (!player.location) continue;
+    const p = screen(player.location);
+    g.beginPath();
+    g.arc(p.x, p.y, 6, 0, 2 * Math.PI);
+    g.fillStyle = color(player);
+    g.fill();
+    g.strokeStyle = "#fff";
+    g.lineWidth = 2;
+    g.stroke();
+    g.lineWidth = 3;
+    g.strokeText(player.name, p.x + 10, p.y + 4);
+    g.fillStyle = "#0e0e12";
+    g.fillText(player.name, p.x + 10, p.y + 4);
+  }
+}
+
+function livePlayers(live) {
+  const seen = (p) => (p.location
+    ? `${Math.max(0, Math.round((live.serverTimeMillis - p.location.atMillis) / 1000))} с назад`
+    : "нет точек");
+  return el("table", {},
+    el("tr", {}, ["Игрок", "Роль", "Статус", "Последняя точка"].map((t) => el("th", {}, t))),
+    live.players.map((p) => el("tr", {},
+      el("td", {}, p.name),
+      el("td", {}, LIVE_ROLE[p.role]),
+      el("td", {}, LIVE_STATUS[p.status]),
+      el("td", {}, seen(p)))));
 }
 
 const BUILDINGS = { LOADING: "грузятся", READY: "есть", UNAVAILABLE: "нет данных, правило выключено" };
@@ -753,6 +961,244 @@ async function auditView() {
 function featureSwitched(entry) {
   const match = entry.action === "SET_FEATURE" ? /^(\w+) (on|off)$/.exec(entry.target ?? "") : null;
   return match ? { name: match[1], enabled: match[2] === "on" } : null;
+}
+
+// Big games (docs/adr/0010-big-games.md): admins only. The zone is drawn on the map with the pencil; next to it the
+// area and how many players the zone fits by its ground (the server's estimate). Every change needs a reason.
+
+const BIG_STATUS = {
+  SCHEDULED: "запись", LOBBY: "лобби открыто", RUNNING: "идёт", FINISHED: "закончилась", CANCELLED: "отменена",
+  INTERRUPTED: "прервана",
+};
+const BIG_EDITABLE = ["SCHEDULED", "LOBBY", "INTERRUPTED"];
+const MAP_CENTER_KEY = "hovanki.admin.mapCenter";
+
+async function bigGamesView() {
+  const page = await run(() => get("/big-games"));
+  frame("big");
+  show(
+    el("div", { class: "row spread" }, el("h1", {}, "Большие игры"), el("a", { class: "button", href: "#/big/new" }, "Новая игра")),
+    el("p", { class: "muted small" }, `Запись заранее, лобби открывается за 30 минут до старта, старт по времени или кнопкой. До ${fmt.number(page.maxPlayers)} игроков. Хост — сервер.`),
+    page.games.length ? el("table", {},
+      el("tr", {}, ["Игра", "Статус", "Старт (время места)", "Записались", "Вмещает", "В игре", ""].map((t) => el("th", {}, t))),
+      page.games.map((game) => el("tr", {},
+        el("td", {}, el("a", { href: `#/big/${encodeURIComponent(game.id)}` }, game.title)),
+        el("td", {}, el("span", { class: `tag ${game.status === "RUNNING" || game.status === "LOBBY" ? "ok" : ""}` }, BIG_STATUS[game.status] ?? game.status)),
+        el("td", {}, game.startsAtLocal.replace("T", " "), el("div", { class: "small muted" }, game.timeZone)),
+        el("td", {}, `${fmt.number(game.signedUp)} / ${fmt.number(game.playerLimit)}`),
+        el("td", {}, game.capacity == null ? "—" : fmt.number(game.capacity),
+          game.capacity != null && game.playerLimit > game.capacity ? el("div", { class: "small" }, el("span", { class: "tag mute" }, "лимит выше")) : null),
+        el("td", {}, game.players == null ? "—" : fmt.number(game.players)),
+        el("td", {}, bigGameActions(game, bigGamesView))))) : el("p", { class: "muted" }, "Больших игр ещё не было."));
+}
+
+/** Start (the lobby is open) and cancel, each with a reason. */
+function bigGameActions(game, reload) {
+  const action = (title, path, text, danger) => el("button", {
+    class: danger ? "danger" : "secondary",
+    async onclick() {
+      const values = await ask(`${title}: ${game.title}`, { text, confirm: title, danger });
+      if (!values) return;
+      await run(() => post(`/big-games/${encodeURIComponent(game.id)}/${path}`, { reason: values.reason }), "Готово.");
+      reload();
+    },
+  }, title);
+  return el("div", { class: "row" },
+    game.status === "LOBBY" ? action("Старт", "start", "Раунд начнётся сейчас с теми, кто в лобби; ищущих выберет сервер.") : null,
+    [...BIG_EDITABLE, "RUNNING"].includes(game.status)
+      ? action("Отменить", "cancel", "Записавшиеся увидят, что игра отменена; идущий раунд закончится, лобби закроется.", true)
+      : null);
+}
+
+async function bigGameEditor(id) {
+  const page = await run(() => get("/big-games"));
+  frame("big");
+  const game = id === "new" ? null : page.games.find((g) => g.id === id);
+  if (id !== "new" && !game) {
+    show(el("p", {}, "Нет такой игры. ", el("a", { href: "#/big" }, "К списку")));
+    return;
+  }
+  const editable = !game || BIG_EDITABLE.includes(game.status);
+  const corners = game ? game.zone.outline.map((p) => ({ lat: p.lat, lon: p.lon })) : [];
+  if (corners.length > 1 && corners[0].lat === corners.at(-1).lat && corners[0].lon === corners.at(-1).lon) corners.pop();
+  const setup = game?.setup ?? { hidingMinutes: 10, seekingMinutes: 60, shrinks: true, glowEveryMinutes: 5, glowForSeconds: 10, seekers: 10 };
+  const norms = game?.norms ?? page.norms;
+
+  // The form
+  const input = (name, value, attrs = {}) => el("input", { name, value: value ?? "", ...attrs });
+  const number = (name, value, min, max) => input(name, value, { type: "number", min, max, class: "days" });
+  const zones = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
+  const ownZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zoneValue = game?.timeZone ?? ownZone;
+  const timeZone = zones.length
+    ? el("select", { name: "timeZone" }, (zones.includes(zoneValue) ? zones : [zoneValue, ...zones]).map((z) => el("option", { value: z, selected: z === zoneValue }, z)))
+    : input("timeZone", zoneValue);
+  const fields = {
+    title: input("title", game?.title, { maxLength: 80, required: true }),
+    start: input("start", game?.startsAtLocal, { type: "datetime-local", required: true }),
+    timeZone,
+    hiding: number("hiding", setup.hidingMinutes, 1, 60),
+    seeking: number("seeking", setup.seekingMinutes, 10, 240),
+    shrinks: el("input", { type: "checkbox", name: "shrinks", checked: setup.shrinks }),
+    glowEvery: number("glowEvery", setup.glowEveryMinutes, 0, 60),
+    glowFor: number("glowFor", setup.glowForSeconds, 2, 600),
+    seekers: number("seekers", setup.seekers, 1, page.maxPlayers - 1),
+    limit: input("limit", game ? game.playerLimit : "", { type: "number", min: 2, max: page.maxPlayers, class: "days", placeholder: "авто" }),
+    dense: number("dense", norms.denseSquareMeters, 10, 1000000),
+    forest: number("forest", norms.forestSquareMeters, 10, 1000000),
+    mixed: number("mixed", norms.mixedSquareMeters, 10, 1000000),
+    open: number("open", norms.openSquareMeters, 10, 1000000),
+    reason: input("reason", "", { maxLength: 500, required: true }),
+  };
+  if (!editable) for (const field of Object.values(fields)) field.disabled = true;
+  const currentNorms = () => ({
+    denseSquareMeters: Number(fields.dense.value), forestSquareMeters: Number(fields.forest.value),
+    mixedSquareMeters: Number(fields.mixed.value), openSquareMeters: Number(fields.open.value),
+  });
+
+  // The estimate
+  const estimate = el("div", { class: "estimate" });
+  let estimateTimer = null;
+  let estimated = game ? { capacity: game.capacity, areas: game.areas, fewCovers: game.fewCovers, state: game.capacity == null ? "UNAVAILABLE" : "READY" } : null;
+  function showEstimate() {
+    const area = areaSquareMeters(corners);
+    const hectares = (m2) => (m2 >= 1_000_000 ? `${fmt.number(m2 / 1_000_000, 2)} км²` : `${fmt.number(m2 / 10_000, 1)} га`);
+    const rows = [el("div", {}, el("span", { class: "muted small" }, "Площадь"), el("b", {}, corners.length > 2 ? hectares(area) : "—"))];
+    if (estimated?.state === "READY" && corners.length > 2) {
+      rows.push(el("div", {}, el("span", { class: "muted small" }, "Помещается"), el("b", {}, fmt.plural(estimated.capacity, "игрок", "игрока", "игроков"))));
+      const a = estimated.areas;
+      rows.push(el("div", { class: "small muted" },
+        `застройка ${hectares(a.denseSquareMeters)} · лес ${hectares(a.forestSquareMeters)} · парк и смешанная ${hectares(a.mixedSquareMeters)} · открытое ${hectares(a.openSquareMeters)} · дома и вода ${hectares(a.blockedSquareMeters)}`));
+      if (estimated.fewCovers) rows.push(el("p", { class: "tag mute" }, "Мало укрытий: почти вся зона — открытое место."));
+      const limit = Number(fields.limit.value);
+      if (limit && limit > estimated.capacity) rows.push(el("p", { class: "tag mute" }, `Лимит ${limit} выше оценки: причина попадёт в журнал.`));
+    } else if (estimated?.state === "UNAVAILABLE" && corners.length > 2) {
+      rows.push(el("p", { class: "small muted" }, "Нет данных карты для оценки: задайте лимит сами."));
+    } else if (corners.length > 2) {
+      rows.push(el("p", { class: "small muted" }, "Считаем…"));
+    }
+    estimate.replaceChildren(...rows);
+  }
+  function askEstimate() {
+    clearTimeout(estimateTimer);
+    estimated = null;
+    showEstimate();
+    if (corners.length < 3) return;
+    estimateTimer = setTimeout(async () => {
+      try {
+        estimated = await post("/zone-estimate", { zone: { outline: corners }, norms: currentNorms() });
+      } catch (e) {
+        estimated = { state: "ERROR" };
+        if (e instanceof ApiError) notice(errorText(e));
+      }
+      showEstimate();
+    }, 600);
+  }
+  for (const name of ["dense", "forest", "mixed", "open"]) fields[name].addEventListener("change", askEstimate);
+  fields.limit.addEventListener("input", showEstimate);
+
+  // The map
+  let savedCenter = null;
+  try { savedCenter = JSON.parse(localStorage.getItem(MAP_CENTER_KEY)); } catch { /* no storage: the default */ }
+  const canvas = el("canvas", { class: "map" });
+  const map = new ZoneMap(canvas, {
+    loadTile: (z, x, y) => get(`/tiles/${z}/${x}/${y}`),
+    center: savedCenter?.lat != null ? savedCenter : { lat: 50.4501, lon: 30.5234 },
+    zoom: 15,
+    points: corners,
+    editable,
+    onChange: askEstimate,
+  });
+  const pencil = el("button", {
+    type: "button", class: "secondary",
+    onclick() { map.setPencil(!map.pencil); pencil.textContent = map.pencil ? "Карандаш: вкл" : "Карандаш: выкл"; },
+  }, map.pencil ? "Карандаш: вкл" : "Карандаш: выкл");
+  map.setPencil(map.pencil);
+  const place = el("input", { placeholder: "Широта, долгота: 50.4501, 30.5234", class: "place" });
+  const tools = el("div", { class: "row map-tools" },
+    el("button", { type: "button", class: "secondary", onclick: () => map.zoomAt(map.zoom + 1) }, "+"),
+    el("button", { type: "button", class: "secondary", onclick: () => map.zoomAt(map.zoom - 1) }, "−"),
+    editable ? pencil : null,
+    editable ? el("button", { type: "button", class: "secondary", onclick() { corners.pop(); map.changed(); } }, "Убрать точку") : null,
+    editable ? el("button", { type: "button", class: "secondary", onclick() { map.setPoints([]); map.setPencil(true); pencil.textContent = "Карандаш: вкл"; } }, "Очистить") : null,
+    el("button", { type: "button", class: "secondary", onclick: () => map.fit() }, "Вся зона"),
+    el("form", {
+      class: "row",
+      onsubmit(event) {
+        event.preventDefault();
+        const [lat, lon] = place.value.split(/[,;\s]+/).map(Number);
+        if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 85 && Math.abs(lon) <= 180) {
+          map.goTo({ lat, lon }, 15);
+          try { localStorage.setItem(MAP_CENTER_KEY, JSON.stringify({ lat, lon })); } catch { /* fine */ }
+        } else {
+          notice("Координаты: широта, долгота, например 50.4501, 30.5234.");
+        }
+      },
+    }, place, el("button", { type: "submit", class: "secondary" }, "Перейти")),
+    navigator.geolocation ? el("button", {
+      type: "button", class: "secondary",
+      onclick() {
+        navigator.geolocation.getCurrentPosition(
+          (position) => map.goTo({ lat: position.coords.latitude, lon: position.coords.longitude }, 15),
+          () => notice("Браузер не дал место."));
+      },
+    }, "Где я") : null);
+
+  const label = (text, field, note) => el("label", {}, text, el("br"), field, note ? el("span", { class: "small muted" }, " ", note) : null);
+  const form = el("form", {
+    class: "card",
+    async onsubmit(event) {
+      event.preventDefault();
+      if (corners.length < 3) { notice("Нарисуйте зону: хотя бы три точки."); return; }
+      const limit = fields.limit.value.trim();
+      const body = {
+        title: fields.title.value.trim(),
+        timeZone: fields.timeZone.value,
+        startsAtLocal: fields.start.value,
+        zone: { outline: corners },
+        setup: {
+          hidingMinutes: Number(fields.hiding.value), seekingMinutes: Number(fields.seeking.value), shrinks: fields.shrinks.checked,
+          glowEveryMinutes: Number(fields.glowEvery.value), glowForSeconds: Number(fields.glowFor.value), seekers: Number(fields.seekers.value),
+        },
+        norms: currentNorms(),
+        playerLimit: limit ? Number(limit) : null,
+        reason: fields.reason.value.trim(),
+      };
+      const saved = await run(() => (game ? post(`/big-games/${encodeURIComponent(game.id)}/update`, body) : post("/big-games", body)),
+        game ? "Изменено: записавшиеся увидят." : "Игра создана: она в списке у игроков.");
+      go(`#/big/${encodeURIComponent(saved.id)}`);
+    },
+  },
+  el("h2", {}, "Игра"),
+  label("Название", fields.title),
+  el("div", { class: "row" }, label("Старт, время места", fields.start), label("Часовой пояс места", fields.timeZone)),
+  el("div", { class: "row" }, label("Прятки, мин", fields.hiding), label("Поиск, мин", fields.seeking), label("Ищущих", fields.seekers)),
+  el("label", {}, fields.shrinks, " Зона сужается к центру (до конца поиска)"),
+  el("div", { class: "row" }, label("Свечение раз в, мин (0 — нет)", fields.glowEvery), label("на, с", fields.glowFor)),
+  label("Лимит игроков", fields.limit, `пусто — сколько помещается, не больше ${fmt.number(page.maxPlayers)}`),
+  el("h2", {}, "Норма, м² на игрока"),
+  el("div", { class: "row" }, label("Застройка", fields.dense), label("Лес", fields.forest), label("Парк", fields.mixed), label("Открытое", fields.open)),
+  label("Причина (попадёт в журнал)", fields.reason),
+  editable ? el("p", {}, el("button", { type: "submit" }, game ? "Сохранить" : "Создать")) : el("p", { class: "muted" }, "Раунд начался или игра закончилась: менять нельзя."));
+
+  show(
+    el("div", { class: "row spread" },
+      el("h1", {}, game ? game.title : "Новая большая игра",
+        game ? el("span", { class: "tag" }, " ", BIG_STATUS[game.status] ?? game.status) : null),
+      el("a", { href: "#/big" }, "← к списку")),
+    game ? el("div", { class: "row" },
+      el("span", { class: "muted" }, `Записались ${fmt.number(game.signedUp)} из ${fmt.number(game.playerLimit)}`,
+        game.players != null ? ` · в игре ${fmt.number(game.players)}` : ""),
+      bigGameActions(game, () => bigGameEditor(id))) : null,
+    el("div", { class: "map-layout" },
+      el("div", {}, tools, canvas,
+        el("p", { class: "small muted" }, editable ? "Карандаш: клик ставит точку. Точку можно тащить, серую точку посреди стороны — тоже (появится новая), правый клик убирает. " : "",
+          "Карта: © OpenMapTiles © участники OpenStreetMap, тайлы OpenFreeMap через наш сервер."),
+        estimate),
+      form));
+  showEstimate();
+  if (corners.length > 2) map.fit();
+  if (!game) fields.title.focus();
 }
 
 /** Shows [hash]'s page: through hashchange, or right away when it is the current one. */

@@ -10,7 +10,9 @@ import platform.Foundation.NSDateFormatter
 import platform.Foundation.NSDateFormatterMediumStyle
 import platform.Foundation.NSDateFormatterNoStyle
 import platform.Foundation.NSDateFormatterShortStyle
+import platform.Foundation.NSTimeZone
 import platform.Foundation.dateWithTimeIntervalSince1970
+import platform.Foundation.timeZoneWithName
 import platform.UIKit.UIAccessibilityIsReduceMotionEnabled
 import platform.UIKit.UIApplication
 import platform.UIKit.UIScreen
@@ -39,9 +41,13 @@ actual fun formatDateTime(epochMillis: Long): String = format(epochMillis, withT
 
 actual fun formatDate(epochMillis: Long): String = format(epochMillis, withTime = false)
 
-private fun format(epochMillis: Long, withTime: Boolean): String {
+actual fun formatDateTimeIn(epochMillis: Long, timeZone: String): String =
+    format(epochMillis, withTime = true, timeZone = NSTimeZone.timeZoneWithName(timeZone))
+
+private fun format(epochMillis: Long, withTime: Boolean, timeZone: NSTimeZone? = null): String {
     val formatter = NSDateFormatter()
     formatter.dateStyle = NSDateFormatterMediumStyle
     formatter.timeStyle = if (withTime) NSDateFormatterShortStyle else NSDateFormatterNoStyle
+    if (timeZone != null) formatter.timeZone = timeZone
     return formatter.stringFromDate(NSDate.dateWithTimeIntervalSince1970(epochMillis / 1000.0))
 }

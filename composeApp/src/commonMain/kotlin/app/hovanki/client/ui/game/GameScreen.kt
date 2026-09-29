@@ -297,13 +297,13 @@ private fun GameContent(
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 GameMap(
-                    zone = state.zone,
+                    zone = state.zoneTimeline,
+                    serverNow = viewModel::serverNow,
                     cue = state.zoneMoment.cue,
                     myLocation = state.myLocation,
                     myRole = state.myRole,
                     markers = state.markers,
                     buildings = state.buildings,
-                    streetZone = state.streetZone,
                     recenterRequests = recenter,
                     reduceMotion = reduceMotion,
                     attributionPadding = bottomInset,

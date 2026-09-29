@@ -112,7 +112,7 @@
   <string name="profile_save_password">Зберегти пароль</string>
   <string name="profile_password_changed">Пароль змінено. На інших пристроях ви вийшли з акаунта.</string>
   <string name="profile_delete">Видалити акаунт</string>
-  <string name="profile_delete_warning">Акаунт видалиться назавжди: нік, email, друзі та групи. Скасувати це не можна.</string>
+  <string name="profile_delete_warning">Акаунт видалиться назавжди: нік, email, друзі, групи, ваші маршрути та ваш шлях у записах ігор. Скасувати це не можна.</string>
   <string name="profile_delete_confirm">Видалити назавжди</string>
 
   <!-- Друзі та групи -->
@@ -298,8 +298,8 @@
   <string name="back_in_zone">Ви в зоні</string>
   <string name="consent_title">Геолокація для гри</string>
   <string name="consent_text">Хованки на вулиці працюють за точною геолокацією — лише під час раунду.</string>
-  <string name="consent_who">Хто бачить: сервер гри. Шукачі бачать одне одного, а тих, хто ховається, — лише коли їх розкривають правила: вийшли із зони, зайшли в будівлю, зник сигнал. Після раунду гравці цієї гри бачать на мапі, хто де ходив.</string>
-  <string name="consent_when">Коли видаляється: разом із грою, не пізніше ніж за пів години після раунду. Якщо ви самі ввімкнете «Зберігати мої маршрути» в профілі — через 90 днів, і бачите їх лише ви. На телефоні нічого не зберігається.</string>
+  <string name="consent_who">Хто бачить: сервер гри. Шукачі бачать одне одного, а тих, хто ховається, — лише коли їх розкривають правила: вийшли із зони, зайшли в будівлю, зник сигнал. Якщо хост відкриє гру, глядачі з акаунтом бачать усіх із затримкою, а адміни — наживо. Після раунду гравці цієї гри бачать на мапі, хто де ходив.</string>
+  <string name="consent_when">Коли видаляється: кожна гра записується — шляхи всіх гравців зберігаються 90 днів, бачать їх лише гравці цієї гри з акаунтом; ваш шлях видаляється разом з акаунтом. «Зберігати мої маршрути» в профілі зберігає ваші маршрути теж 90 днів, лише для вас. На телефоні нічого не зберігається.</string>
   <string name="consent_pocket">У кишені: гра надсилає місце й з вимкненим екраном, інакше ховатися не вийде.</string>
   <string name="consent_allow">Дозволити геолокацію</string>
   <string name="consent_later">Не зараз</string>
@@ -331,7 +331,7 @@
   <string name="unit_min">%1$s хв</string>
   <string name="routes_title">Маршрути</string>
   <string name="routes_save">Зберігати мої маршрути</string>
-  <string name="routes_explain">Шлях кожної гри зберігається 90 днів, щоб ви могли подивитися, де ходили. Бачите його лише ви: збережені маршрути іншим гравцям не показуються. Статистика рахується й без цього.</string>
+  <string name="routes_explain">Ваш шлях у кожній грі зберігається 90 днів, точка за точкою, щоб ви могли подивитися, де ходили; бачите його лише ви. Статистика рахується й без цього. Запис кожної гри — шляхи всіх для її гравців — зберігається 90 днів у будь-якому разі.</string>
   <string name="routes_off_warning">Вимкнути й одразу видалити всі збережені маршрути? Історія ігор і статистика залишаться.</string>
   <string name="routes_off_confirm">Видалити маршрути</string>
   <string name="history_open">Історія ігор</string>
@@ -628,4 +628,68 @@
   <string name="results_sparks">Іскри</string>
   <string name="award_sparks">Найбільше іскор</string>
   <string name="award_sparks_value">✦ %1$d</string>
+  <!-- Скільки гравців уміщує зона (docs/adr/0010-big-games.md). -->
+  <plurals name="lobby_chip_capacity">
+    <item quantity="one">До %1$d гравця</item>
+    <item quantity="few">До %1$d гравців</item>
+    <item quantity="many">До %1$d гравців</item>
+    <item quantity="other">До %1$d гравців</item>
+  </plurals>
+  <plurals name="lobby_crowded">
+    <item quantity="one">Тісно: у зоні місця приблизно для %1$d гравця, а вас %2$d.</item>
+    <item quantity="few">Тісно: у зоні місця приблизно для %1$d гравців, а вас %2$d.</item>
+    <item quantity="many">Тісно: у зоні місця приблизно для %1$d гравців, а вас %2$d.</item>
+    <item quantity="other">Тісно: у зоні місця приблизно для %1$d гравців, а вас %2$d.</item>
+  </plurals>
+  <string name="lobby_few_covers">Мало схованок: майже вся зона — відкрите місце.</string>
+  <string name="lobby_play_anyway">Грати все одно</string>
+  <!-- Великі ігри (docs/adr/0010-big-games.md). -->
+  <string name="big_games_title">Великі ігри</string>
+  <string name="big_game_signed_up">Записалися: %1$d з %2$d</string>
+  <string name="big_game_friends">Друзі: %1$s</string>
+  <string name="big_game_zone">Зона %1$s</string>
+  <string name="big_game_sign_up">Записатися</string>
+  <string name="big_game_cancel_signup">Скасувати запис</string>
+  <string name="big_game_signed_up_note">Ви записані. Лобі відкриється за 30 хвилин до старту.</string>
+  <string name="big_game_join">Увійти в лобі</string>
+  <string name="big_game_full">Місць немає</string>
+  <string name="big_game_status_lobby">Лобі відкрите</string>
+  <string name="big_game_status_running">Триває</string>
+  <string name="unit_ha">%1$s га</string>
+  <string name="unit_km2">%1$s км²</string>
+  <string name="error_big_game_signup_required">Спершу запишіться на гру.</string>
+  <string name="big_lobby_starts_in">Старт через %1$s</string>
+  <string name="big_lobby_starting">Стартуємо…</string>
+  <string name="big_lobby_counts">У лобі: %1$d · записалися: %2$d</string>
+  <string name="big_lobby_roles">Шукачів обере сервер на старті.</string>
+  <string name="big_lobby_friends">Друзі в лобі</string>
+  <string name="big_lobby_no_friends">Друзів у лобі поки немає.</string>
+  <!-- Spectators and recordings (docs/adr/0011-spectators-and-recordings.md). -->
+  <string name="settings_open_game">Відкрита гра</string>
+  <string name="settings_open_game_hint">Будь-хто з акаунтом і кодом зможе дивитися гру, не граючи: усі гравці на мапі, із затримкою. Адміни можуть дивитися наживо.</string>
+  <string name="settings_spectator_delay">Глядачі бачать гру</string>
+  <string name="settings_delay_live">Наживо</string>
+  <string name="settings_delay_hint">Затримка не дає глядачам підказувати тим, хто шукає, де зараз ховаються.</string>
+  <string name="lobby_chip_open">Відкрита · затримка %1$s</string>
+  <string name="lobby_chip_open_live">Відкрита · наживо</string>
+  <string name="spectators_count">Дивляться: %1$d</string>
+  <string name="lobby_recorded">Гра записується: шляхи всіх гравців зберігаються 90 днів, дивитися їх можуть лише гравці цієї гри з акаунтом.</string>
+  <string name="home_watch">Дивитися</string>
+  <string name="home_watch_hint">Відкриту гру можна дивитися, не граючи: введіть її код і натисніть «Дивитися».</string>
+  <string name="spectator_title">Ви дивитеся гру</string>
+  <string name="spectator_delay">Затримка %1$s</string>
+  <string name="spectator_live">Наживо</string>
+  <string name="spectator_leave">Вийти</string>
+  <string name="spectator_lobby">Гра ще не почалася: гравці в лобі.</string>
+  <string name="spectator_finished">Гра закінчилася.</string>
+  <string name="spectator_ended">Трансляцію завершено: гра закінчилася або хост закрив її для глядачів.</string>
+  <string name="spectator_caught">знайдений</string>
+  <string name="spectator_out">вибув</string>
+  <string name="history_recording">Запис гри</string>
+  <string name="recording_title">Запис гри</string>
+  <string name="recording_expires">Зберігається до %1$s. Його бачать лише гравці цієї гри.</string>
+  <string name="recording_empty">У цій грі нічий шлях не записався.</string>
+  <string name="recording_you">%1$s (ви)</string>
+  <string name="error_game_not_open">Ця гра закрита для глядачів.</string>
+  <string name="error_playing_this_game">Ви граєте в цій грі, дивитися її не можна.</string>
 </resources>

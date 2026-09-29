@@ -2,6 +2,7 @@ package app.hovanki.server.db
 
 import app.hovanki.server.account.AccountProperties
 import app.hovanki.server.admin.AdminProperties
+import app.hovanki.server.bigGames.BigGameProperties
 import app.hovanki.server.history.HistoryProperties
 import app.hovanki.server.moderation.ModerationProperties
 import org.springframework.beans.factory.annotation.Autowired
@@ -75,6 +76,10 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         insertResult(alice, game)
         insertResult(bob, game)
         insertRoute(alice, game, savedAt = now)
+        insertRecording(game, savedAt = now)
+        insertTrack(game, "p-alice", alice)
+        insertTrack(game, "p-bob", bob)
+        insertTrack(game, "p-guest", userId = null)
         insert(
             """
             INSERT INTO reports (game_id, message_seq, reporter_player_id, reporter_user_id, reported_user_id,
@@ -102,6 +107,9 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         // The game itself stays: it has nothing about anybody. So do the other players' results.
         assertEquals(listOf(game), jdbc.sql("SELECT id FROM played_games WHERE id = :a").ids(game))
         assertEquals(listOf(bob), jdbc.sql("SELECT user_id FROM game_results WHERE game_id = :a").ids(game))
+        // The recording stays for the others, without alice's way (docs/adr/0011-spectators-and-recordings.md).
+        val tracks = jdbc.sql("SELECT player_id FROM game_recording_tracks WHERE game_id = :a").ids(game)
+        assertEquals(setOf("p-bob", "p-guest"), tracks.toSet())
     }
 
     @Test
@@ -113,6 +121,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             ModerationProperties(),
             HistoryProperties(),
             AdminProperties(),
+            BigGameProperties(),
             Clock.fixed(now, ZoneOffset.UTC),
         )
         val longAgo = now.minus(Duration.ofDays(400))
@@ -131,6 +140,10 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         insertResult(oldVerified, recentGame)
         insertRoute(oldVerified, oldGame, savedAt = now.minus(Duration.ofDays(91)))
         insertRoute(oldVerified, recentGame, savedAt = now.minus(Duration.ofDays(89)))
+        insertRecording(oldGame, savedAt = now.minus(Duration.ofDays(91)))
+        insertTrack(oldGame, "p1", oldVerified)
+        insertRecording(recentGame, savedAt = now.minus(Duration.ofDays(89)))
+        insertTrack(recentGame, "p1", oldVerified)
         // The admin (docs/adr/0008-admin.md): sessions end after 8 hours, sanctions go a year after their end, the
         // audit log after a year; a ban forever stays.
         insertAt(
@@ -165,9 +178,16 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
 
         // Other tests share the database: at least ours went, and the fresh rows stay.
         assertTrue(
-            deleted.sessions >= 1 && deleted.emailCodes >= 1 && deleted.friendRequests >= 1 && deleted.routes >= 1,
+            deleted.sessions >= 1 && deleted.emailCodes >= 1 && deleted.friendRequests >= 1 && deleted.routes >= 1 &&
+                deleted.recordings >= 1,
             "$deleted",
         )
+        // Recordings go after 90 days, everybody's way in them with them.
+        val recordings = jdbc.sql("SELECT game_id FROM game_recordings WHERE game_id IN (:a, :b)")
+            .ids(oldGame, recentGame)
+        assertEquals(listOf(recentGame), recordings)
+        val recorded = jdbc.sql("SELECT game_id FROM game_recording_tracks WHERE user_id = :a").ids(oldVerified)
+        assertEquals(listOf(recentGame), recorded)
         // Routes go after 90 days; the games stay in the history.
         val routes = jdbc.sql("SELECT game_id FROM game_routes WHERE user_id = :a").ids(oldVerified)
         assertEquals(listOf(recentGame), routes)
@@ -256,6 +276,30 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         savedAt,
     )
 
+    private fun insertRecording(gameId: String, savedAt: Instant) = insertAt(
+        """
+        INSERT INTO game_recordings (game_id, saved_at, started_at, finished_at, zone)
+        VALUES (:a, :t, :t, :t, '{}')
+        """,
+        gameId,
+        gameId,
+        savedAt,
+    )
+
+    /** One player's way in the recording of [gameId]; [userId] null: a guest. */
+    private fun insertTrack(gameId: String, playerId: String, userId: String?) {
+        jdbc.sql(
+            """
+            INSERT INTO game_recording_tracks (game_id, player_id, user_id, name, role, status, points)
+            VALUES (:game, :player, :user, 'Name', 'HIDER', 'ACTIVE', '[]')
+            """.trimIndent(),
+        )
+            .param("game", gameId)
+            .param("player", playerId)
+            .param("user", userId)
+            .update()
+    }
+
     private fun insertSession(userId: String, lastUsedAt: Instant): String {
         val token = unique("token")
         jdbc.sql("INSERT INTO account_sessions VALUES (:token, :user, :t, :t)")
@@ -292,6 +336,8 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             "game_results",
             "game_routes",
             "radio_calibration",
+            "game_recordings",
+            "game_recording_tracks",
         )
 
         /** Every column that points at a user, with ON DELETE CASCADE. */
@@ -310,6 +356,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             "game_results" to "user_id",
             // Through game_results.
             "game_routes" to "user_id",
+            "game_recording_tracks" to "user_id",
         )
     }
 }

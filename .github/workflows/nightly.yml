@@ -16,7 +16,7 @@ on:
       scenario:
         description: Device scenario
         type: choice
-        options: [all, full-round, restart]
+        options: [all, full-round, restart, watch]
         default: all
       bots:
         description: Headless bots per device game

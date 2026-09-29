@@ -188,7 +188,7 @@ PR из той же репы проверяются push-запуском на �
 
 **Запуск вручную** — Actions → Nightly → Run workflow, выбрать ветку и:
 - `suite`: `all` (по умолчанию), `bots` (только боты) или `devices` (только эмуляторы и симулятор);
-- `scenario`: сценарий устройств — `all`, `full-round` или `restart`;
+- `scenario`: сценарий устройств — `all`, `full-round`, `restart` или `watch`;
 - `bots`: число ботов в партии на устройствах.
 
 То же из командной строки: `gh workflow run nightly.yml --ref <ветка> -f suite=devices -f scenario=restart`. Workflow берётся из выбранной ветки, так что изменения в нём самом проверяются тем же запуском.

@@ -8,4 +8,6 @@ import java.time.Duration
 data class HistoryProperties(
     /** Saved routes are deleted this long after they were saved (DataRetention). */
     val routeRetention: Duration = Duration.ofDays(90),
+    /** Game recordings (docs/adr/0011-spectators-and-recordings.md) are deleted this long after they were saved. */
+    val recordingRetention: Duration = Duration.ofDays(90),
 )

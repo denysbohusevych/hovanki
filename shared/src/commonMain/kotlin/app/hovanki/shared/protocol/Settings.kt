@@ -44,6 +44,13 @@ data class GameSettings(
     val features: GameFeatures = GameFeatures(),
     /** The catalog quests the host picked, when [GameFeatures.quests] is on; the quest points are placed on the map. */
     val quests: List<QuestKind> = emptyList(),
+    /**
+     * An open game (docs/adr/0011-spectators-and-recordings.md): anyone with an account and the join code may watch it
+     * without playing, [spectatorDelaySeconds] behind; admins watch open games live. False (older apps): nobody.
+     */
+    val openGame: Boolean = false,
+    /** How far behind the spectators of an open game see it; 0: live. */
+    val spectatorDelaySeconds: Int = 60,
 )
 
 /** The zone's shape (docs/adr/0009-game-setup-glow-streets.md). */
@@ -57,6 +64,13 @@ enum class ZoneShape {
      * Shrinks block by block: the next zone is announced by the schedule's hold, then the zone switches.
      */
     STREETS,
+
+    /**
+     * Drawn by an admin for a big game (docs/adr/0010-big-games.md): the server serves the polygons at
+     * `ApiRoutes.streetZone` like a zone by streets, the drawn figure shrinking towards its center stage by stage. Older
+     * apps read it as [CIRCLE] (the property has a default) and still draw the polygons they are served.
+     */
+    DRAWN,
 }
 
 /**
@@ -65,7 +79,7 @@ enum class ZoneShape {
  */
 @Serializable
 data class GameRules(
-    /** Fixes with a worse accuracy are ignored by every rule check. */
+    /** Fixes with a worse accuracy are ignored by every rule check; the building rule has [buildingMaxAccuracyMeters]. */
     val maxUsableAccuracyMeters: Double = 20.0,
     /** Decisions are never made on a single fix: they need [minFixesForDecision] fixes within this window. */
     val decisionWindowSeconds: Int = 20,
@@ -90,7 +104,10 @@ data class GameRules(
     val syncIntervalSeconds: Int = 3,
     /** A hider confidently inside a building for this long is revealed to seekers; they are warned right away. */
     val insideBuildingRevealSeconds: Int = 60,
-    /** A fix counts as inside a building only when it is this far from every wall, on top of its accuracy. */
+    /**
+     * Unused since 2026-09-28 (the margin on top of the fix accuracy, which ordinary houses never allowed); older apps
+     * still send it with their settings. The building rule uses [buildingDotMarginMeters].
+     */
     val buildingWallMarginMeters: Double = 5.0,
     /**
      * The radar is required and a hider's phone has had Bluetooth off for this long: the seekers see them
@@ -107,4 +124,10 @@ data class GameRules(
     val perkCooldownSeconds: Int = 30,
     /** How long a «Spotlight» shows a hider. */
     val spotlightSeconds: Int = 3,
+    /** A fix counts as inside a building when its dot on the map is at least this far from every wall. */
+    val buildingDotMarginMeters: Double = 3.0,
+    /** The building rule also takes fixes up to this accuracy: indoors, phones rarely do better than 20–35 m. */
+    val buildingMaxAccuracyMeters: Double = 40.0,
+    /** A player counts as inside a building when at least this share of the recent fixes is inside. */
+    val buildingInsideShare: Double = 0.8,
 )

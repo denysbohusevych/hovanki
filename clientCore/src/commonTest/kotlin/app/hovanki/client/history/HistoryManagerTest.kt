@@ -18,10 +18,13 @@ import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameHistoryEntry
 import app.hovanki.shared.protocol.GameHistoryResponse
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameRoute
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStats
 import app.hovanki.shared.protocol.PlayerStatus
+import app.hovanki.shared.protocol.RecordedPlayer
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.RoutePoint
 import app.hovanki.shared.protocol.UserProfile
@@ -71,7 +74,24 @@ class HistoryManagerTest {
         val calls = api.calls.size
         assertIs<ApiResult.Success<Unit>>(history.loadMore())
         assertEquals(calls, api.calls.size)
-        assertEquals(listOf("stats", "games null", "games 2"), api.calls)
+        assertEquals(listOf("games null", "stats", "games 2"), api.calls)
+    }
+
+    @Test
+    fun aListedGameIsAlwaysCountedInTheStatistics() = runTest {
+        val history = history()
+        api.stats = api.stats.copy(games = 0)
+        // The game is saved while the app loads the history, between its two requests.
+        api.afterCall = {
+            api.afterCall = null
+            api.pages = listOf(listOf(game("g1")))
+            api.stats = api.stats.copy(games = 1)
+        }
+
+        assertIs<ApiResult.Success<Unit>>(history.refresh())
+        val state = history.state.value
+        val counted = checkNotNull(state.stats).games
+        assertTrue(state.games.size <= counted, "${state.games.size} games listed, $counted counted")
     }
 
     @Test
@@ -108,6 +128,17 @@ class HistoryManagerTest {
         val missing = assertIs<ApiResult.Rejected>(history.route(GameId("nope")))
         assertEquals(ErrorCode.NOT_FOUND, missing.code)
         assertEquals(api.route, assertIs<ApiResult.Success<GameRoute>>(history.route(GameId("g1"))).value)
+    }
+
+    @Test
+    fun aGamesRecordingIsLoadedWhileItIsKept() = runTest {
+        val history = history()
+
+        val recording = assertIs<ApiResult.Success<GameRecording>>(history.recording(GameId("g1"))).value
+        assertEquals(api.recording, recording)
+        val gone = assertIs<ApiResult.Rejected>(history.recording(GameId("old")))
+        assertEquals(ErrorCode.NOT_FOUND, gone.code)
+        assertEquals(listOf("recording g1", "recording old"), api.calls)
     }
 
     @Test
@@ -150,7 +181,7 @@ class HistoryManagerTest {
     /** Answers with [pages] one after the other (`nextBefore` is the page's number), [stats] and [route] for g1. */
     private class FakeHistoryApi : HistoryApi {
         var pages: List<List<GameHistoryEntry>> = listOf(emptyList())
-        val stats = PlayerStats(games = 3, distanceMeters = 4200.0, movingSeconds = 3000)
+        var stats = PlayerStats(games = 3, distanceMeters = 4200.0, movingSeconds = 3000)
         val route = GameRoute(
             gameId = GameId("g1"),
             role = Role.HIDER,
@@ -160,7 +191,21 @@ class HistoryManagerTest {
             points = listOf(RoutePoint(50.45, 30.52, 5.0, 1)),
             expiresAtMillis = 3,
         )
+        val recording = GameRecording(
+            gameId = GameId("g1"),
+            zone = shrinkingZone(GeoPoint(50.45, 30.52)),
+            startedAtMillis = 1,
+            finishedAtMillis = 2,
+            players = listOf(
+                RecordedPlayer(PlayerId("p1"), "Olya", Role.SEEKER, PlayerStatus.ACTIVE, isMe = true),
+                RecordedPlayer(PlayerId("p2"), "Guest", Role.HIDER, PlayerStatus.CAUGHT, points = listOf()),
+            ),
+            expiresAtMillis = 3,
+        )
         var failWith: Exception? = null
+
+        /** Runs after each answer: what changes on the server between two requests. */
+        var afterCall: (() -> Unit)? = null
         val calls = mutableListOf<String>()
 
         override suspend fun stats(token: String) = call("stats") { stats }
@@ -178,10 +223,15 @@ class HistoryManagerTest {
 
         override suspend fun deleteRoute(token: String, gameId: GameId) = call("deleteRoute ${gameId.value}") {}
 
+        override suspend fun recording(token: String, gameId: GameId) = call("recording ${gameId.value}") {
+            if (gameId != recording.gameId) throw ApiException(404, ApiError(ErrorCode.NOT_FOUND, "No recording"))
+            recording
+        }
+
         private fun <T> call(description: String, answer: () -> T): T {
             calls += description
             failWith?.let { throw it }
-            return answer()
+            return answer().also { afterCall?.invoke() }
         }
     }
 }

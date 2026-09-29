@@ -1,5 +1,6 @@
 package app.hovanki.server.game
 
+import app.hovanki.server.map.TerrainGrid
 import app.hovanki.shared.debug.DebugCatch
 import app.hovanki.shared.debug.DebugFixCounts
 import app.hovanki.shared.debug.DebugGameState
@@ -9,12 +10,16 @@ import app.hovanki.shared.geo.bearingTo
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.Activity
 import app.hovanki.shared.protocol.AdminGame
+import app.hovanki.shared.protocol.AdminLiveGame
+import app.hovanki.shared.protocol.AreaNorms
+import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.BoardItem
 import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.Capabilities
+import app.hovanki.shared.protocol.CapacityState
 import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
@@ -41,6 +46,7 @@ import app.hovanki.shared.protocol.PerkKind
 import app.hovanki.shared.protocol.PerkView
 import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.Platform
+import app.hovanki.shared.protocol.PlayerCounts
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerTrack
@@ -51,19 +57,25 @@ import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.RadarContact
 import app.hovanki.shared.protocol.RadarState
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.SpectatedPlayer
+import app.hovanki.shared.protocol.SpectatorId
+import app.hovanki.shared.protocol.SpectatorSnapshot
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.StreetZoneState
+import app.hovanki.shared.protocol.TerrainAreas
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UsePerkRequest
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UwbPeer
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.VisibleLocation
+import app.hovanki.shared.protocol.ZoneCapacity
 import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.BoardRules
 import app.hovanki.shared.rules.BuildingMap
 import app.hovanki.shared.rules.BuildingRules
+import app.hovanki.shared.rules.Capacity
 import app.hovanki.shared.rules.CatchRules
 import app.hovanki.shared.rules.ChatRules
 import app.hovanki.shared.rules.Glow
@@ -78,6 +90,7 @@ import app.hovanki.shared.rules.StreetZone
 import app.hovanki.shared.rules.ZoneRules
 import app.hovanki.shared.rules.areaAt
 import app.hovanki.shared.rules.circleAt
+import app.hovanki.shared.rules.hasPolygons
 import app.hovanki.shared.rules.isUsable
 import app.hovanki.shared.rules.stateAt
 import app.hovanki.shared.totp.catchCodeTotp
@@ -97,7 +110,32 @@ class Game(
     hostId: PlayerId,
     settings: GameSettings,
     private val createdAtMillis: Long,
+    /** How much ground one player needs (docs/adr/0010-big-games.md): the server's settings when the game was made. */
+    private var norms: AreaNorms = AreaNorms(),
+    /**
+     * A big game's round (docs/adr/0010-big-games.md): the server hosts it ([hostId] is nobody's player), the lobby is
+     * never handed over or removed when empty, up to [maxPlayers] come in.
+     */
+    bigGame: BigGameInfo? = null,
+    maxPlayers: Int = MAX_PLAYERS,
 ) {
+    /** The big game this round belongs to; the service updates the title, the time and the count of sign-ups. */
+    var bigGame: BigGameInfo? = bigGame
+        private set
+
+    /** How many players the lobby takes. */
+    var maxPlayers: Int = maxPlayers
+        private set
+
+    /** Hosted by the server: nobody's player is the host. */
+    val isServerHosted: Boolean get() = bigGame != null
+
+    /**
+     * Open to spectators (docs/adr/0011-spectators-and-recordings.md): its host opened it. Never a big game: up to 1 600
+     * players, and each of them is shown only a few (docs/adr/0010-big-games.md).
+     */
+    val isOpenToSpectators: Boolean get() = settings.openGame && !isServerHosted
+
     /** Starts and sets up the game; when they leave the lobby, the player who joined after them takes over. */
     var hostId: PlayerId = hostId
         private set
@@ -107,6 +145,9 @@ class Game(
         private set
     private val rules = settings.rules
     private val players = LinkedHashMap<PlayerId, Player>()
+
+    /** Who watches this open game without playing it (docs/adr/0011-spectators-and-recordings.md); memory only. */
+    private val spectators = LinkedHashMap<SpectatorId, Spectator>()
 
     /** Players by the join request that created them (`JoinGameRequest.requestId`), see [playerOfJoinRequest]. */
     private val playersByJoinRequest = HashMap<String, PlayerId>()
@@ -154,6 +195,23 @@ class Game(
     /** When the host last drew the roles at random ([drawRoles]). */
     private var rolesDrawnAtMillis: Long? = null
 
+    /**
+     * The ground under the zone (docs/adr/0010-big-games.md), for how many players it fits; null until loaded, and when
+     * it can't be ([capacityState] says which).
+     */
+    private var terrain: TerrainGrid? = null
+    private var capacityState = CapacityState.LOADING
+    private var capacityAreas: TerrainAreas? = null
+
+    /** Since when the ground is being read: after [MAP_PATIENCE_MILLIS] the game goes without an estimate. */
+    private var terrainSinceMillis = createdAtMillis
+
+    /** The host chose to play in a crowded zone, or one with few places to hide: no more warning in this game. */
+    private var crowdingAccepted = false
+
+    /** When [advance] last looked at the hiders (zone, buildings, glow); see [BIG_GAME_CHECKS_MILLIS]. */
+    private var lastChecksMillis: Long? = null
+
     /** The last glow that left its marks on the hiders ([updateGlow]); 0: none yet. */
     private var glowMarksOf = 0
 
@@ -172,7 +230,18 @@ class Game(
     private var nextQuestNumber = 1
 
     init {
-        if (settings.zoneShape == ZoneShape.STREETS) streetZoneState = StreetZoneState.LOADING
+        if (settings.zoneShape.hasPolygons) streetZoneState = StreetZoneState.LOADING
+    }
+
+    /**
+     * The service's news about the big game: its title, time and sign-ups, the limit and the norms an admin changed.
+     * Only for a big game's round.
+     */
+    fun updateBigGame(info: BigGameInfo, maxPlayers: Int, norms: AreaNorms) {
+        check(isServerHosted) { "Not a big game" }
+        bigGame = info
+        this.maxPlayers = maxPlayers
+        if (norms != this.norms) this.norms = norms
     }
 
     /** The zone's buildings of [revision] arrived (see `BuildingLoader`): the rule is on from now on. */
@@ -193,22 +262,72 @@ class Game(
 
     /** The zone by streets of [revision] is built: one polygon for the start and one per stage of the schedule. */
     fun onStreetZoneBuilt(stages: List<ZonePolygon>, revision: Int = mapRevision) {
-        if (revision != mapRevision || settings.zoneShape != ZoneShape.STREETS) return
+        if (revision != mapRevision || !settings.zoneShape.hasPolygons) return
         if (stages.size != settings.zone.stages.size + 1 || stages.any { it.outline.size < 4 }) {
             onStreetZoneUnavailable(revision)
             return
         }
         streetZone = StreetZone(stages)
         streetZoneState = StreetZoneState.READY
+        countCapacity()
     }
 
     /**
      * No zone by streets for [revision] (no streets, map data down): the game uses the circles, the players are told.
      */
     fun onStreetZoneUnavailable(revision: Int = mapRevision) {
-        if (revision != mapRevision || settings.zoneShape != ZoneShape.STREETS) return
+        if (revision != mapRevision || !settings.zoneShape.hasPolygons) return
         streetZone = null
         streetZoneState = StreetZoneState.UNAVAILABLE
+        countCapacity()
+    }
+
+    /** The ground under the zone of [revision] was read: how many players it fits is known from now on. */
+    fun onTerrainLoaded(grid: TerrainGrid, revision: Int = mapRevision) {
+        if (revision != mapRevision) return
+        terrain = grid
+        countCapacity()
+    }
+
+    /** The ground under the zone can't be read: no estimate, no warning. */
+    fun onTerrainUnavailable(revision: Int = mapRevision) {
+        if (revision != mapRevision) return
+        terrain = null
+        capacityAreas = null
+        capacityState = CapacityState.UNAVAILABLE
+    }
+
+    /**
+     * The host plays anyway (docs/adr/0010-big-games.md): the zone fits fewer players than there are, or has few places
+     * to hide. The lobby warns no more in this game, whatever the zone becomes.
+     */
+    fun acceptCrowding(by: PlayerId, nowMillis: Long) {
+        requirePhase(GamePhase.LOBBY)
+        requireHost(by, "decide to play anyway")
+        crowdingAccepted = true
+        lastActivityMillis = nowMillis
+    }
+
+    /** About how many players the zone at the start fits, as the lobby shows it. */
+    fun capacity(): ZoneCapacity {
+        val areas = capacityAreas
+        return ZoneCapacity(
+            state = capacityState,
+            players = areas?.let { Capacity.players(it, norms) },
+            areas = areas,
+            fewCovers = areas?.let(Capacity::fewCovers) == true,
+            accepted = crowdingAccepted,
+        )
+    }
+
+    /**
+     * The ground within the zone at the start: the zone by streets once it is there, the circle meanwhile (and when it
+     * could not be built).
+     */
+    private fun countCapacity() {
+        val grid = terrain ?: return
+        capacityAreas = grid.areasWithin(settings.zone.areaAt(0, streetZone))
+        capacityState = CapacityState.READY
     }
 
     /** The zone by streets for [viewerId] to draw exactly what the rules check. */
@@ -230,7 +349,7 @@ class Game(
      */
     fun addPlayer(id: PlayerId, name: String, nowMillis: Long, userId: UserId? = null, joinRequestId: String? = null) {
         requirePhase(GamePhase.LOBBY)
-        if (players.size >= MAX_PLAYERS) throw GameException(ErrorCode.WRONG_STATE, "The game is full")
+        if (players.size >= maxPlayers) throw GameException(ErrorCode.WRONG_STATE, "The game is full")
         if (userId != null && playerOf(userId) != null) {
             throw GameException(ErrorCode.WRONG_STATE, "This account already plays in this game")
         }
@@ -244,6 +363,8 @@ class Game(
             odometer = RouteRecorder(rules, keepPoints = false),
         )
         if (joinRequestId != null) playersByJoinRequest[joinRequestId] = id
+        // Watching it until now: a player never sees everybody.
+        if (userId != null) spectators.values.removeIf { it.userId == userId }
         lastActivityMillis = nowMillis
     }
 
@@ -305,8 +426,12 @@ class Game(
             buildings = BuildingsResponse()
             buildingMap = null
             streetZone = null
-            streetZoneState = if (next.zoneShape == ZoneShape.STREETS) StreetZoneState.LOADING else null
+            streetZoneState = if (next.zoneShape.hasPolygons) StreetZoneState.LOADING else null
             streetZoneSinceMillis = nowMillis
+            terrain = null
+            capacityAreas = null
+            capacityState = CapacityState.LOADING
+            terrainSinceMillis = nowMillis
         }
         return mapChanged
     }
@@ -324,6 +449,8 @@ class Game(
             GamePhase.LOBBY -> {
                 players.remove(playerId)
                 playersByJoinRequest.values.removeAll { it == playerId }
+                // A big game's lobby waits for its start, empty or not; the server stays its host.
+                if (isServerHosted) return false
                 if (players.isEmpty()) return true
                 if (hostId == playerId) hostId = players.keys.first()
             }
@@ -367,7 +494,7 @@ class Game(
     fun start(by: PlayerId, seekers: Set<PlayerId>, newCatchCodeSecret: () -> String, nowMillis: Long) {
         requirePhase(GamePhase.LOBBY)
         requireHost(by, "start the game")
-        if (settings.zoneShape == ZoneShape.STREETS && streetZoneState == StreetZoneState.LOADING) {
+        if (settings.zoneShape.hasPolygons && streetZoneState == StreetZoneState.LOADING) {
             throw GameException(ErrorCode.WRONG_STATE, "The zone by streets is being built", ErrorReason.ZONE_NOT_READY)
         }
         if (seekers.isEmpty() || !players.keys.containsAll(seekers)) {
@@ -398,6 +525,21 @@ class Game(
         lastActivityMillis = nowMillis
     }
 
+    /**
+     * The server starts a big game's round (docs/adr/0010-big-games.md): it draws [seekers] seekers with [random] among
+     * the players in the lobby (at least one, and at least one hider), the others hide. [ErrorCode.WRONG_STATE] with
+     * fewer than two players.
+     */
+    fun startByServer(seekers: Int, random: java.util.Random, newCatchCodeSecret: () -> String, nowMillis: Long) {
+        check(isServerHosted) { "Not a big game" }
+        requirePhase(GamePhase.LOBBY)
+        if (players.size < 2) throw GameException(ErrorCode.WRONG_STATE, "A round needs at least two players")
+        val count = seekers.coerceIn(1, players.size - 1)
+        val drawn = players.keys.shuffled(random).take(count).toSet()
+        rolesDrawnAtMillis = nowMillis
+        start(hostId, drawn, newCatchCodeSecret, nowMillis)
+    }
+
     fun recordLocations(playerId: PlayerId, samples: List<LocationSample>, nowMillis: Long) {
         val player = player(playerId)
         val inRound = phase == GamePhase.HIDING || phase == GamePhase.SEEKING
@@ -409,13 +551,13 @@ class Game(
             if (result != LocationTrack.Result.ACCEPTED) continue
             // Staleness is about location updates, not requests: an app with GPS off still syncs.
             player.lastFixReceivedMillis = nowMillis
-            // The route is the round: not the lobby, not the results screen.
-            if (inRound) {
-                player.route?.add(fix)
-                player.odometer.add(fix)
-                if (phase == GamePhase.SEEKING && player.seekingStartFix == null && fix.isUsable(rules)) {
-                    player.seekingStartFix = fix
-                }
+            // The route and the replay are the round: not the lobby, not the results screen. Fixes sent after the
+            // end leave the replay as it was then: every phone gets the same one, and the game's recording is it too.
+            if (!inRound) continue
+            player.route?.add(fix)
+            player.odometer.add(fix)
+            if (phase == GamePhase.SEEKING && player.seekingStartFix == null && fix.isUsable(rules)) {
+                player.seekingStartFix = fix
             }
             if (fix.isUsable(rules) && isInRound(player, fix.timestampMillis)) player.replay.add(fix)
         }
@@ -671,9 +813,21 @@ class Game(
      * Every player's way through the round, for the replay: only once the game is over, when nothing is hidden any more
      * ([ErrorCode.WRONG_STATE] before, the tracks would give the hiders away).
      */
-    fun tracks(): TracksResponse {
+    fun tracks(viewerId: PlayerId? = null): TracksResponse {
         requirePhase(GamePhase.FINISHED)
-        return TracksResponse(players.values.map { PlayerTrack(it.id, it.replay.points()) })
+        // A big game's replay: the viewer and their friends, not a thousand tracks.
+        val shown = if (isServerHosted && viewerId != null) {
+            val viewer = player(viewerId)
+            players.values.filter { it === viewer || it.userId in viewer.friends }
+        } else {
+            players.values
+        }
+        return TracksResponse(shown.map { PlayerTrack(it.id, it.replay.points()) })
+    }
+
+    /** [playerId]'s friends among the accounts (loaded at the join): a big game's snapshot shows them. */
+    fun setFriends(playerId: PlayerId, friends: Set<UserId>) {
+        player(playerId).friends = friends
     }
 
     /** Applies everything that happens by itself as time passes. */
@@ -681,6 +835,9 @@ class Game(
         val streetZoneOverdue = nowMillis - streetZoneSinceMillis >= STREET_ZONE_PATIENCE_MILLIS
         if (streetZoneState == StreetZoneState.LOADING && streetZoneOverdue) {
             onStreetZoneUnavailable()
+        }
+        if (capacityState == CapacityState.LOADING && nowMillis - terrainSinceMillis >= MAP_PATIENCE_MILLIS) {
+            onTerrainUnavailable()
         }
         if (phase == GamePhase.HIDING) {
             val hidingEnds = phaseStartedAtMillis + settings.hidingSeconds * 1000L
@@ -699,10 +856,15 @@ class Game(
                 resolveDispute(claim, claim.deadlineMillis)
             }
         }
-        checkZone(nowMillis)
-        checkBuildings(nowMillis)
-        updateGlow(nowMillis)
-        advanceBoard(nowMillis)
+        // A big game's hundreds of hiders are looked at once a second, not on each of hundreds of requests a second.
+        val lastChecks = lastChecksMillis
+        if (!isServerHosted || lastChecks == null || nowMillis - lastChecks >= BIG_GAME_CHECKS_MILLIS) {
+            lastChecksMillis = nowMillis
+            checkZone(nowMillis)
+            checkBuildings(nowMillis)
+            updateGlow(nowMillis)
+            advanceBoard(nowMillis)
+        }
         val seekingEnds = phaseStartedAtMillis + settings.seekingSeconds * 1000L
         if (phase == GamePhase.SEEKING && nowMillis >= seekingEnds) finish(seekingEnds)
     }
@@ -725,6 +887,14 @@ class Game(
     fun finishedRecord(): GameRecord? {
         if (phase != GamePhase.FINISHED) return null
         return record ?: buildRecord().also { record = it }
+    }
+
+    /** When the round ends (or ended): null in the lobby. */
+    fun roundEndsAtMillis(): Long? = when (phase) {
+        GamePhase.LOBBY -> null
+        GamePhase.HIDING -> phaseStartedAtMillis + (settings.hidingSeconds + settings.seekingSeconds) * 1000L
+        GamePhase.SEEKING -> phaseStartedAtMillis + settings.seekingSeconds * 1000L
+        GamePhase.FINISHED -> finishedAtMillis
     }
 
     fun isExpired(nowMillis: Long, finishedRetentionMillis: Long, idleRetentionMillis: Long): Boolean {
@@ -758,13 +928,13 @@ class Game(
             serverTimeMillis = nowMillis,
             phaseEndsAtMillis = phaseEndsAtMillis(),
             zoneStartedAtMillis = zoneStartedAtMillis,
-            players = players.values.map { player ->
+            players = shownTo(viewer, nowMillis).map { (player, location) ->
                 PlayerView(
                     player.id,
                     player.name,
                     player.role,
                     player.status,
-                    visibleLocation(viewer, player, nowMillis),
+                    location,
                     player.userId,
                     player.outAtMillis,
                     player.caughtBy,
@@ -806,16 +976,201 @@ class Game(
             enabledFeatures = enabledFeatures,
             items = itemsFor(viewer),
             quests = if (features.quests) board.questViewsFor(viewer, isHost = viewer.id == hostId) else emptyList(),
+            capacity = capacity(),
+            bigGame = bigGame,
+            counts = if (isServerHosted) counts() else null,
+            spectators = spectatorCount(nowMillis),
+        )
+    }
+
+    /**
+     * The players [viewer] gets, each with the position they may see. Everybody in an ordinary game; in a big game
+     * (docs/adr/0010-big-games.md) only the viewer, whom they see, who is in their catch claims, and their friends: a
+     * poll of a thousand players brings a few dozen.
+     */
+    private fun shownTo(viewer: Player, nowMillis: Long): List<Pair<Player, VisibleLocation?>> {
+        if (!isServerHosted) return players.values.map { it to visibleLocation(viewer, it, nowMillis) }
+        val inClaims = catches.values.filter { it.seekerId == viewer.id || it.hiderId == viewer.id }
+            .flatMapTo(HashSet()) { listOf(it.seekerId, it.hiderId) }
+        return players.values.mapNotNull { player ->
+            val location = visibleLocation(viewer, player, nowMillis)
+            val shown = player === viewer || location != null || player.id in inClaims ||
+                (player.userId != null && player.userId in viewer.friends)
+            if (shown) player to location else null
+        }
+    }
+
+    /** How many players there are in all, by role and state. */
+    private fun counts(): PlayerCounts {
+        val hiders = players.values.filter { it.role == Role.HIDER }
+        return PlayerCounts(
+            players = players.size,
+            seekers = players.size - hiders.size,
+            hidersActive = hiders.count { it.status == PlayerStatus.ACTIVE },
+            hidersCaught = hiders.count { it.status == PlayerStatus.CAUGHT },
+            hidersEliminated = hiders.count { it.status == PlayerStatus.ELIMINATED },
         )
     }
 
     fun hasPlayer(id: PlayerId): Boolean = id in players
 
+    /** Everybody who came in (who left the lobby is gone; who left the round still counts). */
+    fun playerCount(): Int = players.size
+
+    // ---- Spectators (docs/adr/0011-spectators-and-recordings.md) ----
+
+    /**
+     * [userId] watches this game, as [spectatorId]: only an open one, and never a game they play in (they would see
+     * everybody). The same account watching again (a second phone, a reinstalled app) gets its spectator back: the id
+     * it watches as.
+     */
+    fun watch(spectatorId: SpectatorId, userId: UserId, nowMillis: Long): SpectatorId {
+        if (!isOpenToSpectators) {
+            throw GameException(ErrorCode.FORBIDDEN, "This game is not open to spectators", ErrorReason.GAME_NOT_OPEN)
+        }
+        if (playerOf(userId) != null) {
+            throw GameException(ErrorCode.FORBIDDEN, "You play in this game", ErrorReason.PLAYING_THIS_GAME)
+        }
+        spectators.values.firstOrNull { it.userId == userId }?.let { existing ->
+            existing.lastSeenMillis = nowMillis
+            return existing.id
+        }
+        if (spectators.size >= MAX_SPECTATORS) {
+            throw GameException(ErrorCode.WRONG_STATE, "Too many spectators", ErrorReason.LIMIT_REACHED)
+        }
+        spectators[spectatorId] = Spectator(spectatorId, userId, nowMillis)
+        return spectatorId
+    }
+
+    fun stopWatching(spectatorId: SpectatorId) {
+        spectators.remove(spectatorId)
+    }
+
+    /** The game is not open any more: everybody watching it stops. Their ids, for their tokens. */
+    fun dropSpectators(): List<SpectatorId> = spectators.keys.toList().also { spectators.clear() }
+
+    /** How many watch right now: those who asked for the game within the last half minute. */
+    fun spectatorCount(nowMillis: Long): Int =
+        spectators.values.count { nowMillis - it.lastSeenMillis < SPECTATOR_ACTIVE_MILLIS }
+
+    /**
+     * The game as [spectatorId] sees it: everybody, [GameSettings.spectatorDelaySeconds] behind. Only what was so at
+     * that moment: nothing the game would give away that happened since.
+     */
+    fun spectatorSnapshot(spectatorId: SpectatorId, nowMillis: Long): SpectatorSnapshot {
+        val spectator = spectators[spectatorId] ?: throw GameException(ErrorCode.NOT_FOUND, "Not watching this game")
+        spectator.lastSeenMillis = nowMillis
+        val delay = settings.spectatorDelaySeconds
+        val at = nowMillis - delay * 1000L
+        val moment = momentAt(at, SPECTATOR_TRAIL_MILLIS)
+        return SpectatorSnapshot(
+            gameId = id,
+            settings = settings,
+            serverTimeMillis = nowMillis,
+            atMillis = at,
+            delaySeconds = delay,
+            phase = moment.phase,
+            phaseEndsAtMillis = moment.phaseEndsAtMillis,
+            zoneStartedAtMillis = moment.zoneStartedAtMillis,
+            finishedAtMillis = moment.finishedAtMillis,
+            players = moment.players,
+            spectators = spectatorCount(nowMillis),
+            streetZone = streetZoneState,
+            mapRevision = mapRevision,
+        )
+    }
+
+    /** The zone by streets for [spectatorId]'s map, as players get it. */
+    fun streetZoneForSpectator(spectatorId: SpectatorId): StreetZoneResponse {
+        requireSpectator(spectatorId)
+        return StreetZoneResponse(streetZoneState, mapRevision, streetZone?.stages.orEmpty())
+    }
+
+    /**
+     * An open game right now, for an admin who watches it: live, everybody with the last two minutes of their way, the
+     * zone and the buildings. Only open games.
+     */
+    fun liveView(nowMillis: Long): AdminLiveGame {
+        if (!isOpenToSpectators) {
+            throw GameException(ErrorCode.FORBIDDEN, "This game is not open to spectators", ErrorReason.GAME_NOT_OPEN)
+        }
+        val moment = momentAt(nowMillis, ADMIN_TRAIL_MILLIS)
+        val zone = moment.zoneStartedAtMillis?.let { settings.zone.stateAt(nowMillis - it) }
+        return AdminLiveGame(
+            gameId = id,
+            phase = moment.phase,
+            serverTimeMillis = nowMillis,
+            settings = settings,
+            zoneStartedAtMillis = moment.zoneStartedAtMillis,
+            phaseEndsAtMillis = moment.phaseEndsAtMillis,
+            streetZone = streetZone?.stages,
+            buildings = if (buildingsState == BuildingsState.READY) buildings.buildings else emptyList(),
+            players = moment.players,
+            spectators = spectatorCount(nowMillis),
+            zoneNow = zone?.current,
+            nextZone = zone?.next,
+            zoneStage = zone?.stage ?: 0,
+        )
+    }
+
+    private fun requireSpectator(spectatorId: SpectatorId) {
+        if (spectatorId !in spectators) throw GameException(ErrorCode.NOT_FOUND, "Not watching this game")
+    }
+
+    private class Moment(
+        val phase: GamePhase,
+        val phaseEndsAtMillis: Long?,
+        val zoneStartedAtMillis: Long?,
+        val finishedAtMillis: Long?,
+        val players: List<SpectatedPlayer>,
+    )
+
+    /**
+     * The game as it was at [atMillis]: the phase then, everybody's status then (a hider caught later is still
+     * playing), where each of them was (their last point of the round before it) and their way over [trailMillis].
+     */
+    private fun momentAt(atMillis: Long, trailMillis: Long): Moment {
+        val hidingStart = hidingStartedAtMillis
+        val seekingStart = zoneStartedAtMillis
+        val finished = finishedAtMillis
+        val phaseThen = when {
+            hidingStart == null || atMillis < hidingStart -> GamePhase.LOBBY
+            seekingStart == null || atMillis < seekingStart -> GamePhase.HIDING
+            finished == null || atMillis < finished -> GamePhase.SEEKING
+            else -> GamePhase.FINISHED
+        }
+        val endsAt = when (phaseThen) {
+            GamePhase.HIDING -> hidingStart?.plus(settings.hidingSeconds * 1000L)
+            GamePhase.SEEKING -> seekingStart?.plus(settings.seekingSeconds * 1000L)
+            else -> null
+        }
+        return Moment(
+            phase = phaseThen,
+            phaseEndsAtMillis = endsAt,
+            zoneStartedAtMillis = seekingStart?.takeIf { atMillis >= it },
+            finishedAtMillis = finished?.takeIf { atMillis >= it },
+            players = players.values.map { player ->
+                val outThen = player.outAtMillis?.takeIf { it <= atMillis }
+                val points = player.replay.points().filter { it.atMillis <= atMillis }
+                SpectatedPlayer(
+                    id = player.id,
+                    name = player.name,
+                    role = player.role,
+                    status = if (outThen != null) player.status else PlayerStatus.ACTIVE,
+                    location = points.lastOrNull(),
+                    trail = points.filter { it.atMillis > atMillis - trailMillis },
+                    outAtMillis = outThen,
+                    caughtBy = player.caughtBy.takeIf { outThen != null },
+                )
+            },
+        )
+    }
+
     /** What staff see of this game in the admin (docs/adr/0008-admin.md): no zone center, no positions, no chat. */
-    fun adminView(): AdminGame = AdminGame(
+    fun adminView(nowMillis: Long): AdminGame = AdminGame(
         gameId = id,
         phase = phase,
-        hostName = players[hostId]?.name.orEmpty(),
+        hostName = players[hostId]?.name ?: if (isServerHosted) SERVER_HOST_NAME else "",
         players = players.size,
         guests = players.values.count { it.userId == null },
         seekers = players.values.count { it.role == Role.SEEKER },
@@ -828,6 +1183,11 @@ class Game(
         buildingCount = buildings.buildings.size.takeIf { buildingsState == BuildingsState.READY },
         zoneShape = settings.zoneShape,
         streetZone = streetZoneState,
+        capacity = capacity().players,
+        crowdingAccepted = crowdingAccepted,
+        bigGameId = bigGame?.id,
+        openGame = isOpenToSpectators,
+        spectators = spectatorCount(nowMillis),
     )
 
     /**
@@ -872,6 +1232,7 @@ class Game(
             mapRevision = mapRevision,
             rolesDrawnAtMillis = rolesDrawnAtMillis,
             buildingCount = buildings.buildings.size,
+            capacity = capacity(),
             finishedAtMillis = finishedAtMillis,
             players = players.values.map { player ->
                 DebugPlayer(
@@ -1438,16 +1799,17 @@ class Game(
     }
 
     /**
-     * Inside a building: warned as soon as the server is confident (several fixes, each deeper inside than its
-     * accuracy), revealed to the seekers after [GameRules.insideBuildingRevealSeconds]. Never eliminated: GPS near
-     * houses is a hint, not a judge. Out again, also judged on several fixes, lifts the warning and the reveal.
+     * Inside a building: warned as soon as the server is confident (the dot of most recent fixes inside, see
+     * [BuildingRules]), revealed to the seekers after [GameRules.insideBuildingRevealSeconds]. Never eliminated: GPS
+     * near houses is a hint, not a judge. Out again, also judged on several fixes, lifts the warning and the reveal.
      */
     private fun checkBuildings(nowMillis: Long) {
         val map = buildingMap ?: return
         for (hider in players.values.filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
             // Players in an open catch claim or dispute are frozen until it is resolved.
             if (catches.values.any { it.isOpen && it.hiderId == hider.id }) continue
-            val recent = hider.track.recentUsableFixes(nowMillis)
+            // Of any accuracy: indoors GPS is worse than the other rules accept, the rule filters for itself.
+            val recent = hider.track.recentFixes(nowMillis)
             val since = hider.insideBuildingSinceMillis
             if (since == null && BuildingRules.isConfidentlyInside(recent, map, rules)) {
                 hider.insideBuildingSinceMillis = nowMillis
@@ -1503,7 +1865,7 @@ class Game(
 
     /**
      * Whether a fix at [atMillis] belongs to [player]'s replay: from the start of hiding until the end of the round, for
-     * a hider until they were out. Late fixes (sent after the moment) count by their own time.
+     * a hider until they were out. Late fixes (sent after the moment) count by their own time while the round runs.
      */
     private fun isInRound(player: Player, atMillis: Long): Boolean {
         val start = hidingStartedAtMillis ?: return false
@@ -1512,8 +1874,11 @@ class Game(
     }
 
     /** Everybody but the two in the claim and those who left. */
-    private fun eligibleVoters(claim: CatchClaim): Set<PlayerId> =
-        players.values.filter { !it.left }.mapTo(HashSet()) { it.id } - setOf(claim.seekerId, claim.hiderId)
+    private fun eligibleVoters(claim: CatchClaim): Set<PlayerId> {
+        // A big game: nobody votes, the rule by GPS decides a dispute at once (a vote of a thousand is no vote).
+        if (isServerHosted) return emptySet()
+        return players.values.filter { !it.left }.mapTo(HashSet()) { it.id } - setOf(claim.seekerId, claim.hiderId)
+    }
 
     private fun buildRecord(): GameRecord {
         val finishedAt = checkNotNull(finishedAtMillis)
@@ -1538,6 +1903,24 @@ class Game(
             chatMessages = lastChatSeq.toInt(),
             buildings = buildingsState,
             radioCalibration = calibration.summary(),
+            streetZone = streetZone?.stages,
+            // Not a big game's: a thousand ways, and each of its players is shown only their own and their friends'.
+            recording = if (isServerHosted) {
+                emptyList()
+            } else {
+                players.values.map { player ->
+                    RecordedTrack(
+                        playerId = player.id,
+                        userId = player.userId,
+                        name = player.name,
+                        role = player.role,
+                        status = player.status,
+                        outAtMillis = player.outAtMillis,
+                        caughtBy = player.caughtBy,
+                        points = player.replay.points(),
+                    )
+                }
+            },
             results = players.values.mapNotNull { player ->
                 val userId = player.userId ?: return@mapNotNull null
                 val route = checkNotNull(player.route)
@@ -1604,12 +1987,24 @@ class Game(
         if (phase != expected) throw GameException(ErrorCode.WRONG_STATE, "Not possible in phase $phase")
     }
 
+    private class Spectator(val id: SpectatorId, val userId: UserId, var lastSeenMillis: Long)
+
     companion object {
         const val MAX_PLAYERS = 30
+
+        /** How often [advance] looks at a big game's hiders. */
+        const val BIG_GAME_CHECKS_MILLIS = 1_000L
+
+        /** The host of a big game's round: the server, nobody's player. */
+        val SERVER_HOST = PlayerId("server")
+        const val SERVER_HOST_NAME = "server"
         private const val MAX_CATCHES_IN_SNAPSHOT = 20
 
         /** The zone by streets is given up on (circles instead) after this long; the loader gives up well before. */
         const val STREET_ZONE_PATIENCE_MILLIS = 120_000L
+
+        /** The ground under the zone is given up on (no estimate) after this long; the loader gives up well before. */
+        const val MAP_PATIENCE_MILLIS = 120_000L
         private const val MOCK_REVEAL_MILLIS = 60_000L
 
         /** A message is sent again within seconds of the first try: a few ids per player are plenty. */
@@ -1630,6 +2025,14 @@ class Game(
 
         /** A decoy's spot looks like a fix of the usual accuracy. */
         private const val DECOY_ACCURACY_METERS = 12.0
+        const val MAX_SPECTATORS = 50
+
+        /** A spectator counts as watching while their app asked within this long (it asks every few seconds). */
+        private const val SPECTATOR_ACTIVE_MILLIS = 30_000L
+
+        /** How much of everybody's way spectators see behind them, and admins watching live. */
+        private const val SPECTATOR_TRAIL_MILLIS = 60_000L
+        private const val ADMIN_TRAIL_MILLIS = 120_000L
     }
 }
 

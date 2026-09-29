@@ -28,6 +28,16 @@ object TestTags {
     const val HOME_JOIN_CODE = "home_join_code"
     const val HOME_JOIN = "home_join"
 
+    /** Watch the open game of the code typed (docs/adr/0011-spectators-and-recordings.md): «Play» tab only. */
+    const val HOME_WATCH = "home_watch"
+
+    /** Watching a game: the screen, the delay chip, the list of players, «Stop watching», the end of it. */
+    const val SPECTATOR_SCREEN = "spectator_screen"
+    const val SPECTATOR_DELAY = "spectator_delay"
+    const val SPECTATOR_PHASE = "spectator_phase"
+    const val SPECTATOR_LEAVE = "spectator_leave"
+    const val SPECTATOR_ENDED = "spectator_ended"
+
     /** Creating or joining a game is under way (location fix, server). */
     const val HOME_BUSY = "home_busy"
 
@@ -142,6 +152,9 @@ object TestTags {
     const val ROUTE_DELETE = "route_delete"
     const val ROUTE_DELETE_CONFIRM = "route_delete_confirm"
 
+    /** A game's recording over the history, everybody's way (docs/adr/0011-spectators-and-recordings.md). */
+    const val RECORDING_PANEL = "recording_panel"
+
     /** On the results screen: keep the routes, this game's too. */
     const val RESULTS_SAVE_ROUTES = "results_save_routes"
     const val RESULTS_ROUTE_SAVED = "results_route_saved"
@@ -226,6 +239,18 @@ object TestTags {
     const val LOBBY_BUILDINGS = "lobby_buildings"
     const val LOBBY_STREETS = "lobby_streets"
 
+    /**
+     * How many players the zone fits (docs/adr/0010-big-games.md), and the host's warning of a crowded zone (or one with
+     * few places to hide) with «Play anyway».
+     */
+    const val LOBBY_CAPACITY = "lobby_capacity"
+    const val LOBBY_CROWDED = "lobby_crowded"
+    const val LOBBY_PLAY_ANYWAY = "lobby_play_anyway"
+
+    /** A big game's lobby: its title and countdown, and the friends in it. */
+    const val BIG_LOBBY = "big_lobby"
+    const val BIG_LOBBY_COUNTDOWN = "big_lobby_countdown"
+
     /** The host's game settings: the button in the lobby, the panel, its «Save». */
     const val LOBBY_SETTINGS = "lobby_settings"
     const val SETTINGS_PANEL = "settings_panel"
@@ -272,6 +297,17 @@ object TestTags {
     const val DECOY_PUT = "decoy_put"
     const val DECOY_CANCEL = "decoy_cancel"
     const val RESULTS_SPARKS = "results_sparks"
+
+    /** Open to spectators, and how far behind they see it (docs/adr/0011-spectators-and-recordings.md). */
+    const val SETTINGS_OPEN_GAME = "settings_open_game"
+
+    /** One of the spectators' delays in the settings, by seconds (0: live). */
+    fun settingsDelay(seconds: Int) = "settings_delay_$seconds"
+
+    /** In the lobby: the game is open to spectators; how many watch; the game is recorded. */
+    const val LOBBY_OPEN = "lobby_open"
+    const val SPECTATORS = "spectators"
+    const val LOBBY_RECORDED = "lobby_recorded"
 
     /** An invite into another game, over the lobby and the results: go there, or dismiss it. */
     const val INVITE_BANNER = "invite_banner"
@@ -354,6 +390,15 @@ object TestTags {
 
     fun voteReject(catchId: CatchId) = "vote_reject_${catchId.value}"
 
+    /** A big game on «Play» (docs/adr/0010-big-games.md): its card, «Sign up», «Cancel», «Into the lobby». */
+    fun bigGame(id: String) = "big_game_$id"
+
+    fun bigGameSignUp(id: String) = "big_game_sign_up_$id"
+
+    fun bigGameCancel(id: String) = "big_game_cancel_$id"
+
+    fun bigGameJoin(id: String) = "big_game_join_$id"
+
     /** A game invite on the «Play» tab, by the game's join code (one invite per game). */
     fun invite(joinCode: String) = "invite_$joinCode"
 
@@ -424,4 +469,5 @@ object TestTags {
     fun perkUse(name: String) = "perk_use_${name.lowercase()}"
 
     fun lobbyCapability(id: PlayerId) = "lobby_capability_${id.value}"
+    fun historyRecording(gameId: GameId) = "history_recording_${gameId.value}"
 }

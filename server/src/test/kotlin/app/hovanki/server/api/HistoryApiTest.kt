@@ -14,6 +14,7 @@ import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.GameHistoryResponse
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
+import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameRoute
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
@@ -206,6 +207,50 @@ class HistoryApiTest(
         }
         assertEquals(1, get(ApiRoutes.ME_GAMES, bob.token).ok<GameHistoryResponse>().games.size)
         assertEquals(game, get(ApiRoutes.ME_GAMES, bob.token).ok<GameHistoryResponse>().games.single().gameId)
+    }
+
+    @Test
+    fun theGamesPlayersWatchItsRecordingWithEverybodysWay() {
+        val alice = register()
+        val bob = register()
+        val stranger = register()
+        val game = play(host = alice, seeker = bob)
+
+        val entry = get(ApiRoutes.ME_GAMES, bob.token).ok<GameHistoryResponse>().games.single()
+        assertTrue(entry.hasRecording)
+        assertFalse(entry.hasRoute, "the recording is not bob's own saved route")
+
+        val recording = get(ApiRoutes.meGameRecording(game), bob.token).ok<GameRecording>()
+        assertEquals(game, recording.gameId)
+        assertEquals(settings.zone, recording.zone)
+        assertEquals(3, recording.players.size, "the guest too")
+        val me = recording.players.single { it.isMe }
+        assertEquals(Role.SEEKER, me.role)
+        assertTrue(me.points.isNotEmpty())
+        // Alice's walk east of the park: bob sees how she went.
+        val hider = recording.players.single { it.role == Role.HIDER }
+        assertTrue(hider.points.size >= 10, "${hider.points.size} points")
+        assertTrue(hider.points.all { it.lon >= park.lon })
+        assertTrue(recording.expiresAtMillis - Duration.ofDays(90).toMillis() >= recording.finishedAtMillis)
+        assertEquals(1, recording.players.count { it.isMe })
+        assertEquals(1, get(ApiRoutes.meGameRecording(game), alice.token).ok<GameRecording>().players.count { it.isMe })
+
+        // Only for those who played it.
+        get(ApiRoutes.meGameRecording(game), stranger.token).error(404, ErrorCode.NOT_FOUND)
+        get(ApiRoutes.meGameRecording(game), token = null).error(401, ErrorCode.UNAUTHORIZED)
+    }
+
+    @Test
+    fun aDeletedAccountTakesItsWayOutOfTheRecording() {
+        val alice = register()
+        val bob = register()
+        val game = play(host = alice, seeker = bob)
+
+        post(ApiRoutes.ME_DELETE, DeleteAccountRequest(PASSWORD).toJson(), alice.token).expect(204)
+
+        val recording = get(ApiRoutes.meGameRecording(game), bob.token).ok<GameRecording>()
+        assertTrue(recording.players.none { it.role == Role.HIDER }, "alice's way went with her account")
+        assertEquals(2, recording.players.size, "bob and the guest")
     }
 
     @Test

@@ -2,15 +2,20 @@ package app.hovanki.client.session
 
 import app.hovanki.client.network.testSnapshot
 import app.hovanki.shared.geo.moveBy
+import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
+import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.PlayerCounts
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerTrack
 import app.hovanki.shared.protocol.PlayerView
+import app.hovanki.shared.protocol.RecordedPlayer
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.TrackPoint
 import app.hovanki.shared.protocol.TracksResponse
+import app.hovanki.shared.rules.shrinkingZone
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -83,6 +88,30 @@ class ResultsTest {
         assertEquals(emptyList(), game.copy(phase = GamePhase.SEEKING).awards(), "only when the game is over")
     }
 
+    @Test
+    fun aBigGameGivesOnlyTheSurvivorsBadge() {
+        val game = finished(
+            seeker(sam),
+            caught(anna, by = sam, afterSeconds = 300),
+            PlayerView(vera, "Vera", Role.HIDER, PlayerStatus.ACTIVE),
+        ).copy(counts = PlayerCounts(players = 500, seekers = 20, hidersActive = 100, hidersCaught = 380))
+
+        assertEquals(listOf(Award(AwardKind.SURVIVOR, vera, 1_800_000)), game.awards())
+        assertEquals(HiderTally(caught = 380, survived = 100, eliminated = 0), game.hiderTally(), "the server's counts")
+    }
+
+    @Test
+    fun theTallyOfAnOrdinaryGameIsItsList() {
+        val game = finished(
+            seeker(sam),
+            caught(anna, by = sam, afterSeconds = 300),
+            PlayerView(vera, "Vera", Role.HIDER, PlayerStatus.ACTIVE),
+            PlayerView(boris, "Boris", Role.HIDER, PlayerStatus.ELIMINATED),
+        )
+
+        assertEquals(HiderTally(caught = 1, survived = 1, eliminated = 1), game.hiderTally())
+    }
+
     private fun walk(player: PlayerId, meters: Int): PlayerTrack {
         val start = GeoPoint(50.45, 30.52)
         val points = (0..meters step 50).map { TrackPoint(start.lat, start.moveBy(it.toDouble(), 0.0).lon, it * 100L) }
@@ -130,5 +159,44 @@ class ResultsTest {
         assertEquals(listOf(a, b), line.pathUntil(replay.endMillis))
         assertNull(Replay.of(game.copy(phase = GamePhase.SEEKING), tracks))
         assertNull(Replay.of(game, null))
+    }
+
+    @Test
+    fun aRecordingFromTheHistoryIsReplayedLikeTheResults() {
+        val a = GeoPoint(50.45, 30.52)
+        val b = a.moveBy(100.0, 0.0)
+        val recording = GameRecording(
+            gameId = GameId("g"),
+            zone = shrinkingZone(a),
+            startedAtMillis = searchFrom - 120_000,
+            zoneStartedAtMillis = searchFrom,
+            finishedAtMillis = searchFrom + 60_000,
+            players = listOf(
+                RecordedPlayer(
+                    anna,
+                    "Anna",
+                    Role.HIDER,
+                    PlayerStatus.CAUGHT,
+                    outAtMillis = searchFrom + 30_000,
+                    caughtBy = sam,
+                    points = listOf(
+                        TrackPoint(a.lat, a.lon, searchFrom - 100_000),
+                        TrackPoint(b.lat, b.lon, searchFrom),
+                    ),
+                ),
+                RecordedPlayer(sam, "Sam", Role.SEEKER, PlayerStatus.ACTIVE, isMe = true),
+            ),
+            expiresAtMillis = searchFrom + 90L * 24 * 3600 * 1000,
+        )
+
+        val replay = Replay.of(recording)!!
+        assertEquals(searchFrom - 120_000, replay.startMillis)
+        assertEquals(searchFrom + 60_000, replay.endMillis)
+        val line = replay.lines.single()
+        assertEquals("Anna", line.player.name)
+        assertEquals(PlayerStatus.CAUGHT, line.player.status)
+        assertEquals(sam, line.player.caughtBy)
+        assertEquals(b, line.positionAt(replay.endMillis))
+        assertNull(Replay.of(recording.copy(players = recording.players.map { it.copy(points = emptyList()) })))
     }
 }

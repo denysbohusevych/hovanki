@@ -7,6 +7,8 @@ hovanki:
   map:
     # The fixed street grid (DebugStreets) for the zone by streets.
     streets: fake
+    # Built-up ground everywhere: a zone fits one player per 1 000 m².
+    terrain: fake
   # Emails stay in memory (RecordingEmailSender); tests read the codes there.
   mail:
     sender: recording
@@ -19,3 +21,6 @@ hovanki:
   # The admin is on in tests; a test-only key, never used anywhere else.
   admin:
     secret-key: "khhmZ2aNOlQzfjpPJ9CnfdZt5I6Rysi5J2fFKitQL5M="
+  # Big games: the tests call the scheduler themselves (BigGameService.tick) as they move the clock.
+  big-games:
+    tick: 24h

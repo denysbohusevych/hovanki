@@ -48,11 +48,14 @@ class LocationTrack(private val rules: GameRules, private val retentionMillis: L
     /** The last accepted fix taken at or before [atMillis], within the kept history; null when there is none. */
     fun latestAtOrBefore(atMillis: Long): LocationSample? = fixes.lastOrNull { it.timestampMillis <= atMillis }
 
-    /** Usable fixes within the decision window that ends at [nowMillis]. */
-    fun recentUsableFixes(nowMillis: Long): List<LocationSample> {
+    /** Accepted fixes of any accuracy within the decision window that ends at [nowMillis]. */
+    fun recentFixes(nowMillis: Long): List<LocationSample> {
         val since = nowMillis - rules.decisionWindowSeconds * 1000L
-        return fixes.filter { it.timestampMillis in since..nowMillis && it.isUsable(rules) }
+        return fixes.filter { it.timestampMillis in since..nowMillis }
     }
+
+    /** Usable fixes within the decision window that ends at [nowMillis]. */
+    fun recentUsableFixes(nowMillis: Long): List<LocationSample> = recentFixes(nowMillis).filter { it.isUsable(rules) }
 
     private fun isPlausibleMove(from: LocationSample, to: LocationSample): Boolean {
         val seconds = (to.timestampMillis - from.timestampMillis) / 1000.0

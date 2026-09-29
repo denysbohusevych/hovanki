@@ -2,10 +2,14 @@ package app.hovanki.server.game
 
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.protocol.SpectatorId
 import org.springframework.stereotype.Component
 import java.util.concurrent.ConcurrentHashMap
 
 data class PlayerRef(val gameId: GameId, val playerId: PlayerId)
+
+/** Whom a spectator token belongs to (docs/adr/0011-spectators-and-recordings.md). */
+data class SpectatorRef(val gameId: GameId, val spectatorId: SpectatorId)
 
 /**
  * In-memory storage of running games. Enough for the MVP (one instance, games last an hour);
@@ -16,6 +20,7 @@ class GameRegistry {
     private val games = ConcurrentHashMap<GameId, Game>()
     private val gamesByJoinCode = ConcurrentHashMap<String, GameId>()
     private val playersByToken = ConcurrentHashMap<String, PlayerRef>()
+    private val spectatorsByToken = ConcurrentHashMap<String, SpectatorRef>()
 
     fun add(game: Game): Boolean {
         if (gamesByJoinCode.putIfAbsent(game.joinCode, game.id) != null) return false
@@ -41,6 +46,18 @@ class GameRegistry {
         playersByToken.values.removeIf { it == ref }
     }
 
+    fun registerSpectatorToken(token: String, ref: SpectatorRef) {
+        spectatorsByToken[token] = ref
+    }
+
+    fun resolveSpectatorToken(token: String): SpectatorRef? = spectatorsByToken[token]
+
+    /** Every token of these spectators of [gameId] stops working (they stopped watching, the game closed). */
+    fun revokeSpectatorTokens(gameId: GameId, spectatorIds: Collection<SpectatorId>) {
+        val refs = spectatorIds.mapTo(HashSet()) { SpectatorRef(gameId, it) }
+        spectatorsByToken.values.removeIf { it in refs }
+    }
+
     /** Removes games matching [predicate] together with their join codes and tokens. */
     fun removeIf(predicate: (Game) -> Boolean): Int {
         val removed = games.values.filter(predicate)
@@ -50,6 +67,7 @@ class GameRegistry {
         }
         val removedIds = removed.mapTo(HashSet()) { it.id }
         playersByToken.values.removeIf { it.gameId in removedIds }
+        spectatorsByToken.values.removeIf { it.gameId in removedIds }
         return removed.size
     }
 

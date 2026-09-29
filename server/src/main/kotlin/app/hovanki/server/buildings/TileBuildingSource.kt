@@ -3,14 +3,12 @@ package app.hovanki.server.buildings
 import app.hovanki.server.map.LoadedTile
 import app.hovanki.server.map.LocalProjection
 import app.hovanki.server.map.MapDataUnavailableException
-import app.hovanki.server.map.Mvt
 import app.hovanki.server.map.MvtFeature
 import app.hovanki.server.map.MvtGeometryType
 import app.hovanki.server.map.TileMath
-import app.hovanki.server.map.TilePoint
 import app.hovanki.server.map.VectorTiles
+import app.hovanki.server.map.polygonsOf
 import app.hovanki.shared.protocol.BuildingArea
-import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.Passage
 import app.hovanki.shared.protocol.ZoneCircle
 import org.locationtech.jts.geom.Envelope
@@ -48,7 +46,7 @@ class TileBuildingSource(private val tiles: VectorTiles, private val properties:
             tile.tile.layers[VectorTiles.BUILDING_LAYER]?.let { layer ->
                 for (feature in layer.features) {
                     if (feature.type != MvtGeometryType.POLYGON || isRaised(feature)) continue
-                    for (polygon in polygons(feature, tile, layer.extent, projection)) {
+                    for (polygon in projection.polygonsOf(feature, tile.id, layer.extent)) {
                         if (polygon.envelopeInternal.intersects(reach)) footprints += polygon
                     }
                 }
@@ -99,41 +97,6 @@ class TileBuildingSource(private val tiles: VectorTiles, private val properties:
         return TopologyPreservingSimplifier.simplify(merged, SIMPLIFY_METERS)
     }
 
-    /** The polygons of [feature]: an outer ring (positive area in tile coordinates) with the holes that follow it. */
-    private fun polygons(
-        feature: MvtFeature,
-        tile: LoadedTile,
-        extent: Int,
-        projection: LocalProjection,
-    ): List<Polygon> {
-        val result = ArrayList<Polygon>()
-        var outline: List<GeoPoint>? = null
-        val holes = ArrayList<List<GeoPoint>>()
-        fun flush() {
-            val ring = outline ?: return
-            val polygon = projection.polygon(ring, holes.toList())
-            // Rounding to the tile grid can make a ring cross itself; a zero buffer mends it.
-            result += if (polygon.isValid) listOf(polygon) else projection.polygons(polygon.buffer(0.0))
-            outline = null
-            holes.clear()
-        }
-        for (ring in feature.parts) {
-            if (ring.size < MIN_RING_POINTS) continue
-            val area = Mvt.signedArea(ring)
-            val points = ring.map { point: TilePoint -> TileMath.toGeo(tile.id, extent, point) }
-            when {
-                area > 0 -> {
-                    flush()
-                    outline = points
-                }
-
-                area < 0 && outline != null -> holes += points
-            }
-        }
-        flush()
-        return result
-    }
-
     /** On pillars or a bridge between houses: one can stand under it. */
     private fun isRaised(feature: MvtFeature): Boolean = (feature.number("render_min_height") ?: 0.0) >= RAISED_METERS
 
@@ -147,7 +110,6 @@ class TileBuildingSource(private val tiles: VectorTiles, private val properties:
         const val CLOSE_GAP_METERS = 0.5
         const val SIMPLIFY_METERS = 0.3
         const val MITRE_LIMIT = 4.0
-        const val MIN_RING_POINTS = 4
 
         /** A house cut by tile borders comes in several parts before merging. */
         const val TILE_PARTS_PER_BUILDING = 4

@@ -5,6 +5,7 @@ import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GroupId
 import app.hovanki.shared.protocol.InviteId
 import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.protocol.SpectatorId
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.rules.AccountRules
 import app.hovanki.shared.rules.BoardRules
@@ -19,6 +20,8 @@ class IdGenerator {
     fun gameId() = GameId(randomString(ID_LENGTH, ID_ALPHABET))
 
     fun playerId() = PlayerId(randomString(ID_LENGTH, ID_ALPHABET))
+
+    fun spectatorId() = SpectatorId(randomString(ID_LENGTH, ID_ALPHABET))
 
     fun catchId() = CatchId(randomString(ID_LENGTH, ID_ALPHABET))
 

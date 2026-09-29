@@ -9,6 +9,7 @@ import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.StreetZoneState
 import kotlin.math.roundToInt
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.seconds
@@ -91,6 +92,35 @@ class HistoryTest {
             }.let { !it.hasRoute },
             "the game stays, the route is gone",
         )
+    }
+
+    /** A game by streets: the saved route keeps the zone's polygons, so its map shows the zone the game had. */
+    @Test
+    fun aRouteKeepsTheZoneByStreets() = scenario("A saved route with the zone by streets") {
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK.offset(eastMeters = 20.0))
+        sam.signsUp()
+        anna.signsUp()
+        requireOk(anna.setSaveRoutes(true), "Anna turns on «save my routes»")
+
+        sam.createsGame(GameSetups.streets())
+        join(anna)
+        check(state().streetZone == StreetZoneState.READY, "the zone by streets is built")
+        val polygons = eventually("Anna's phone has the zone") {
+            anna.state.streetZone?.stages?.takeIf { it.isNotEmpty() }
+        }
+        sam.startsGame(seekers = listOf(sam))
+        anna.walksTo(PARK.offset(eastMeters = 50.0), speed = 4.0)
+        awaitPhase(GamePhase.SEEKING, within = 20.seconds)
+        anna.arrives()
+        sam.catches(anna)
+        awaitPhase(GamePhase.FINISHED)
+
+        val route = eventually("Anna's route is saved", within = 10.seconds) {
+            anna.openRoute(gameId)
+            anna.openedRoute?.takeIf { it.gameId == gameId }
+        }
+        check(route.streetZone == polygons, "with the zone by streets the game had (${polygons.size} polygon)")
     }
 
     /** «Save my routes» turned on on the results screen: the game just played is kept too. */

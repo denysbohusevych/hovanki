@@ -6,6 +6,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -17,6 +18,7 @@ import app.hovanki.client.account.AccountState
 import app.hovanki.client.session.ConnectionStatus
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.SessionState
+import app.hovanki.client.spectator.SpectatorManager
 import app.hovanki.client.ui.common.LoadingScreen
 import app.hovanki.client.ui.common.LocalLocationConsent
 import app.hovanki.client.ui.common.LocationConsentLayer
@@ -28,32 +30,38 @@ import app.hovanki.client.ui.invite.InviteBanner
 import app.hovanki.client.ui.lobby.LobbyScreen
 import app.hovanki.client.ui.main.MainScreen
 import app.hovanki.client.ui.results.ResultsScreen
+import app.hovanki.client.ui.spectator.SpectatorScreen
 import app.hovanki.client.ui.theme.HovankiTheme
 import app.hovanki.client.ui.welcome.WelcomeScreen
 import app.hovanki.shared.protocol.GamePhase
 import org.koin.compose.koinInject
 
 /**
- * Root of the UI on both platforms. There is no navigation library: the screen is a function of the session and
- * account state, so it always matches the game (e.g. every phone switches to the game screen when the server starts
- * the round, and the welcome screen shows when the account session ends).
+ * Root of the UI on both platforms. There is no navigation library: the screen is a function of the session, account
+ * and watching state, so it always matches the game (e.g. every phone switches to the game screen when the server
+ * starts the round, and the welcome screen shows when the account session ends).
  */
 @Composable
 fun App() {
     HovankiTheme {
         val sessionManager = koinInject<GameSessionManager>()
         val accountManager = koinInject<AccountManager>()
+        val spectatorManager = koinInject<SpectatorManager>()
         val state by sessionManager.state.collectAsStateWithLifecycle()
         val account by accountManager.state.collectAsStateWithLifecycle()
+        val watching by spectatorManager.state.collectAsStateWithLifecycle()
         val locationConsent = remember { LocationConsentState() }
         // The precision radar works only while both players look at their phones: the server hears when we do.
         LifecycleResumeEffect(sessionManager) {
             sessionManager.onScreenChanged(true)
             onPauseOrDispose { sessionManager.onScreenChanged(false) }
         }
+        // Playing a game ends watching one: a player never sees everybody.
+        val playing = state.session != null
+        LaunchedEffect(playing) { if (playing) spectatorManager.stop() }
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             CompositionLocalProvider(LocalLocationConsent provides locationConsent) {
-                Screen(state, account, onLeave = sessionManager::leave)
+                Screen(state, account, isWatching = watching.isWatching, onLeave = sessionManager::leave)
                 LocationConsentLayer(locationConsent)
             }
         }
@@ -61,7 +69,7 @@ fun App() {
 }
 
 @Composable
-private fun Screen(state: SessionState, account: AccountState, onLeave: () -> Unit) {
+private fun Screen(state: SessionState, account: AccountState, isWatching: Boolean, onLeave: () -> Unit) {
     val snapshot = state.snapshot
     // The round draws its map (and the hider's code) under the system bars and keeps its HUD clear of them itself.
     val isRound = state.session != null &&
@@ -73,7 +81,12 @@ private fun Screen(state: SessionState, account: AccountState, onLeave: () -> Un
             // the main screen).
             state.session == null -> when {
                 !account.isRestored -> LoadingScreen()
+
                 !account.isLoggedIn -> WelcomeScreen()
+
+                // Watching an open game (docs/adr/0011-spectators-and-recordings.md).
+                isWatching -> SpectatorScreen()
+
                 else -> MainScreen()
             }
 

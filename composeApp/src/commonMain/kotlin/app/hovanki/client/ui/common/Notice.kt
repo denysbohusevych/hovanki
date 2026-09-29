@@ -6,6 +6,7 @@ import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.error_account_banned
 import app.hovanki.client.resources.error_account_banned_forever
 import app.hovanki.client.resources.error_account_required
+import app.hovanki.client.resources.error_big_game_signup_required
 import app.hovanki.client.resources.error_blocked_by_you
 import app.hovanki.client.resources.error_chat_muted
 import app.hovanki.client.resources.error_chat_muted_forever
@@ -15,6 +16,7 @@ import app.hovanki.client.resources.error_email_not_verified
 import app.hovanki.client.resources.error_email_taken
 import app.hovanki.client.resources.error_feature_disabled
 import app.hovanki.client.resources.error_feature_missing
+import app.hovanki.client.resources.error_game_not_open
 import app.hovanki.client.resources.error_in_another_game
 import app.hovanki.client.resources.error_invalid_email
 import app.hovanki.client.resources.error_invalid_group_name
@@ -31,6 +33,7 @@ import app.hovanki.client.resources.error_not_group_member
 import app.hovanki.client.resources.error_not_group_owner
 import app.hovanki.client.resources.error_not_nearby
 import app.hovanki.client.resources.error_perk_unavailable
+import app.hovanki.client.resources.error_playing_this_game
 import app.hovanki.client.resources.error_quest_not_active
 import app.hovanki.client.resources.error_session_expired
 import app.hovanki.client.resources.error_too_many_requests
@@ -142,6 +145,12 @@ fun reasonNotice(
         ErrorReason.QUEST_NOT_ACTIVE -> Res.string.error_quest_not_active
 
         ErrorReason.ITEM_LIMIT -> Res.string.error_item_limit
+
+        ErrorReason.BIG_GAME_SIGNUP_REQUIRED -> Res.string.error_big_game_signup_required
+
+        ErrorReason.GAME_NOT_OPEN -> Res.string.error_game_not_open
+
+        ErrorReason.PLAYING_THIS_GAME -> Res.string.error_playing_this_game
 
         ErrorReason.ACCOUNT_BANNED -> return untilMillis?.let {
             Notice.Text(Res.string.error_account_banned, listOf(formatDateTime(it)))

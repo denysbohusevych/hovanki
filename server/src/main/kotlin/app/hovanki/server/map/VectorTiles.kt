@@ -21,7 +21,7 @@ class LoadedTile(val id: TileId, val tile: MvtTile)
 
 /**
  * The vector tiles of the players' map (OpenFreeMap, docs/adr/0003-map-and-buildings.md): no key, no request limits,
- * the same data the players see. The TileJSON names the current tile URLs; tiles are fetched in parallel, decoded
+ * the same data the players see: buildings, streets, and the ground under the zone for its capacity. The TileJSON names the current tile URLs; tiles are fetched in parallel, decoded
  * (only [LAYERS]) and kept for [MapProperties.cacheTtl], so the buildings and the streets of one game, and the next
  * game nearby, fetch each tile once. Blocking: called off the request threads.
  */
@@ -57,6 +57,27 @@ class VectorTiles(private val properties: MapProperties, private val json: Json,
             }
         }
     }
+
+    /** One tile at zoom [TileId.z] up to the most detailed one (the admin's map); throws [MapDataUnavailableException]. */
+    fun tile(id: TileId): MvtTile {
+        val template = template()
+        if (id.z !in 0..template.zoom || id.x !in 0 until (1 shl id.z) || id.y !in 0 until (1 shl id.z)) {
+            throw MapDataUnavailableException("No tile $id", retry = false)
+        }
+        evictOld()
+        return try {
+            tile(id, template).get(properties.requestTimeout.toNanos() * 2, TimeUnit.NANOSECONDS)
+        } catch (e: TimeoutException) {
+            throw MapDataUnavailableException("Tile $id timed out", e)
+        } catch (e: ExecutionException) {
+            val cause = e.cause
+            throw cause as? MapDataUnavailableException
+                ?: MapDataUnavailableException("Tile $id: ${cause?.javaClass?.simpleName}", cause)
+        }
+    }
+
+    /** The most detailed zoom of the tiles. */
+    fun maxZoom(): Int = template().zoom
 
     /** The tile from the cache, or on its way there: two games (or buildings and streets) fetch it once. */
     private fun tile(id: TileId, template: TileTemplate): CompletableFuture<MvtTile> {
@@ -176,7 +197,14 @@ class VectorTiles(private val properties: MapProperties, private val json: Json,
         /** The layers of the OpenMapTiles schema the server reads. */
         const val BUILDING_LAYER = "building"
         const val TRANSPORTATION_LAYER = "transportation"
-        val LAYERS = setOf(BUILDING_LAYER, TRANSPORTATION_LAYER)
+
+        /** The ground under the zone (docs/adr/0010-big-games.md): woods, parks, fields; land use; water; parks. */
+        const val LANDCOVER_LAYER = "landcover"
+        const val LANDUSE_LAYER = "landuse"
+        const val WATER_LAYER = "water"
+        const val PARK_LAYER = "park"
+        val LAYERS =
+            setOf(BUILDING_LAYER, TRANSPORTATION_LAYER, LANDCOVER_LAYER, LANDUSE_LAYER, WATER_LAYER, PARK_LAYER)
 
         private const val HTTP_OK = 200
         private const val HTTP_NO_CONTENT = 204

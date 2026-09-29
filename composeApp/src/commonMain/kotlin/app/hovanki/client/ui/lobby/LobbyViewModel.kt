@@ -12,15 +12,18 @@ import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
 import app.hovanki.client.social.SocialManager
+import app.hovanki.client.social.UserRelation
 import app.hovanki.client.ui.common.CommandRunner
 import app.hovanki.client.ui.common.FormMessage
 import app.hovanki.client.ui.common.PlayerAccount
 import app.hovanki.client.ui.common.playerAccount
 import app.hovanki.shared.protocol.Audience
+import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.BoardItem
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.Capabilities
+import app.hovanki.shared.protocol.CapacityState
 import app.hovanki.shared.protocol.FriendsResponse
 import app.hovanki.shared.protocol.GameFeatures
 import app.hovanki.shared.protocol.GameId
@@ -39,6 +42,7 @@ import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.ZoneShape
+import app.hovanki.shared.rules.Capacity
 import app.hovanki.shared.rules.GameSetup
 import app.hovanki.shared.rules.Glow
 import app.hovanki.shared.rules.ZoneState
@@ -211,6 +215,12 @@ class LobbyViewModel(
                 isStarting.value = false
             }
         }
+    }
+
+    /** The host plays anyway in a crowded zone, or one with few places to hide: no more warning in this game. */
+    fun playAnyway() {
+        if (uiState.value?.isHost != true) return
+        viewModelScope.launch { sessionManager.acceptCrowding() }
     }
 
     fun leave() {
@@ -448,6 +458,7 @@ class LobbyViewModel(
             )
         }
         val seekerCount = players.count { it.isSeeker }
+        val capacity = snapshot.capacity?.takeIf { it.state == CapacityState.READY }
         val streetZone = snapshot.streetZone
         val buildings = state.buildings?.takeIf { it.mapRevision == snapshot.mapRevision }
         return LobbyUiState(
@@ -487,6 +498,22 @@ class LobbyViewModel(
             zone = settings.zone.stateAt(0L),
             bluetooth = bluetooth,
             radarEnabled = radarEnabled,
+            capacity = capacity?.players,
+            bigGame = snapshot.bigGame,
+            friendsHere = players.filter { it.account.relation == UserRelation.FRIEND },
+            // A big game's poll lists only the player and their friends; the server counts everybody.
+            playerCount = snapshot.counts?.players ?: players.size,
+            crowding = capacity?.takeIf { snapshot.hostId == me && Capacity.needsWarning(it, players.size) }?.let {
+                Crowding(
+                    capacity = it.players ?: 0,
+                    players = players.size,
+                    isCrowded = Capacity.isCrowded(it, players.size),
+                    fewCovers = it.fewCovers,
+                )
+            },
+            openGame = settings.openGame,
+            spectatorDelaySeconds = settings.spectatorDelaySeconds,
+            spectators = snapshot.spectators,
         )
     }
 
@@ -563,7 +590,27 @@ data class LobbyUiState(
     val bluetooth: BluetoothState,
     /** «The radar on my phone». */
     val radarEnabled: Boolean,
+    /** About how many players the zone fits (docs/adr/0010-big-games.md); null until the server knows. */
+    val capacity: Int? = null,
+    /** The host's warning: too many players for the zone, or few places to hide; null: none (or played anyway). */
+    val crowding: Crowding? = null,
+    /**
+     * A big game's lobby (docs/adr/0010-big-games.md): hosted by the server, it starts at [BigGameInfo.startsAtMillis];
+     * no join code, no host, the list shows only [friendsHere].
+     */
+    val bigGame: BigGameInfo? = null,
+    val friendsHere: List<LobbyPlayer> = emptyList(),
+    /** Everybody in the lobby, also those a big game's [players] leaves out. */
+    val playerCount: Int = players.size,
+    /** Open to spectators (docs/adr/0011-spectators-and-recordings.md), [spectatorDelaySeconds] behind. */
+    val openGame: Boolean = false,
+    val spectatorDelaySeconds: Int = 0,
+    /** How many watch right now. */
+    val spectators: Int = 0,
 )
+
+/** Too many players for the zone ([isCrowded]: [players] where it fits [capacity]), or few places to hide. */
+data class Crowding(val capacity: Int, val players: Int, val isCrowded: Boolean, val fewCovers: Boolean)
 
 data class LobbyPlayer(
     val id: PlayerId,

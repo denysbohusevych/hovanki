@@ -2,14 +2,17 @@ package app.hovanki.e2e.bot
 
 import app.hovanki.client.account.AccountManager
 import app.hovanki.client.account.AccountState
+import app.hovanki.client.bigGames.BigGameManager
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.history.HistoryState
 import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.ApiResult
 import app.hovanki.client.network.HttpAccountApi
+import app.hovanki.client.network.HttpBigGameApi
 import app.hovanki.client.network.HttpGameApi
 import app.hovanki.client.network.HttpHistoryApi
 import app.hovanki.client.network.HttpSocialApi
+import app.hovanki.client.network.HttpSpectatorApi
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.createHttpClient
@@ -27,11 +30,15 @@ import app.hovanki.client.session.myCatchCode
 import app.hovanki.client.session.unreadChatCount
 import app.hovanki.client.social.SocialManager
 import app.hovanki.client.social.UserRelation
+import app.hovanki.client.spectator.SpectatorManager
+import app.hovanki.client.spectator.SpectatorState
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.scenario.Timeline
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.Audience
+import app.hovanki.shared.protocol.BigGameCard
+import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.CatchId
@@ -40,6 +47,7 @@ import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.FriendsResponse
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameRoute
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
@@ -56,10 +64,12 @@ import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.QuestId
 import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SpectatorSnapshot
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.VisibilityReason
+import app.hovanki.shared.protocol.WatchResponse
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.QuestCatalog
 import io.ktor.client.engine.okhttp.OkHttp
@@ -189,6 +199,9 @@ class BotPlayer(
     /** The host changes the setup in the lobby. */
     suspend fun changesSettings(settings: GameSettings): CommandResult =
         command("changes the settings") { it.updateSettings(settings) }
+
+    /** The host taps «Play anyway» on the warning of a crowded zone (docs/adr/0010-big-games.md). */
+    suspend fun playsAnyway(): CommandResult = command("plays anyway in a crowded zone") { it.acceptCrowding() }
 
     suspend fun claimCatch(hider: BotPlayer): CommandResult = claimCatch(hider.id, hider.name)
 
@@ -442,6 +455,53 @@ class BotPlayer(
     suspend fun deleteRoute(gameId: GameId): CommandResult =
         apiCommand("deletes the route of game ${gameId.value}") { it.history.deleteRoute(gameId) }
 
+    // ---- Big games (docs/adr/0010-big-games.md) ----
+
+    /** The big games as the «Play» tab last loaded them ([refreshBigGames]). */
+    val bigGames: List<BigGameCard> get() = app?.bigGames?.state?.value?.games.orEmpty()
+
+    suspend fun refreshBigGames(): CommandResult = apiCommand("opens the big games") { it.bigGames.refresh() }
+
+    suspend fun signsUpFor(id: BigGameId): CommandResult =
+        apiCommand("signs up for big game ${id.value}") { it.bigGames.signUp(id) }
+
+    suspend fun cancelsSignup(id: BigGameId): CommandResult =
+        apiCommand("takes back the sign-up for big game ${id.value}") { it.bigGames.cancelSignup(id) }
+
+    /** «Into the lobby» on the big game's card. */
+    suspend fun joinBigGame(id: BigGameId, leaveOtherGame: Boolean = false): CommandResult =
+        command("comes into the lobby of big game ${id.value}") { it.joinBigGame(id, leaveOtherGame) }
+            .also(::onEntered)
+
+    /** The recording the last [openRecording] showed; null until one loaded. */
+    @Volatile var openedRecording: GameRecording? = null
+        private set
+
+    /** Opens a game's recording from the history (docs/adr/0011-spectators-and-recordings.md). */
+    suspend fun openRecording(gameId: GameId): CommandResult =
+        apiCommand("opens the recording of game ${gameId.value}") {
+            it.history.recording(gameId).also { result ->
+                if (result is ApiResult.Success) openedRecording = result.value
+            }
+        }
+
+    // ---- Watching an open game (docs/adr/0011-spectators-and-recordings.md) ----
+
+    /** What the spectator's screen shows; empty while not watching. */
+    val watching: SpectatorState get() = app?.spectator?.state?.value ?: SpectatorState()
+
+    /** «Watch» on the «Play» tab with [joinCode]. */
+    suspend fun watch(joinCode: String): CommandResult =
+        apiCommand("watches the game $joinCode") { it.spectator.watch(joinCode) }
+
+    /** «Stop watching». */
+    suspend fun stopWatching(): CommandResult {
+        val running = app ?: return notRunning("stops watching")
+        withContext(running.mainThread) { running.spectator.stop() }
+        log("stops watching")
+        return CommandResult.Ok
+    }
+
     // ---- Friends, groups, invites ----
 
     /** Friends, requests both ways and blocked users as the app last loaded them; null until loaded. */
@@ -655,6 +715,21 @@ class BotPlayer(
         // round (the server refuses them before, see PrivacyTest).
         val notSnapshots = listOf("/buildings", "/street-zone", "/tracks")
         if (notSnapshots.any(exchange.path::endsWith)) return
+        // A spectator's view (docs/adr/0011-spectators-and-recordings.md): nothing newer than the delay allows.
+        if (exchange.path == ApiRoutes.WATCH || exchange.path.endsWith(SPECTATE_SUFFIX)) {
+            val view = try {
+                if (exchange.path == ApiRoutes.WATCH) {
+                    protocolJson.decodeFromString<WatchResponse>(body).snapshot
+                } else {
+                    protocolJson.decodeFromString<SpectatorSnapshot>(body)
+                }
+            } catch (e: SerializationException) {
+                violations += "$name: unreadable response from ${exchange.path}: ${e.message}"
+                return
+            }
+            SnapshotAudit.checkSpectator(view).forEach { violations += "$name: $it" }
+            return
+        }
         val snapshot = try {
             if (exchange.path == ApiRoutes.GAMES || exchange.path == ApiRoutes.JOIN) {
                 protocolJson.decodeFromString<SessionResponse>(body).snapshot
@@ -683,6 +758,8 @@ class BotPlayer(
         val account = AccountManager(HttpAccountApi(httpClient, url), clientStorage, url, scope)
         val social = SocialManager(HttpSocialApi(httpClient, url), account, scope)
         val history = HistoryManager(HttpHistoryApi(httpClient, url), account, scope)
+        val bigGames = BigGameManager(HttpBigGameApi(httpClient, url), account, scope)
+        val spectator = SpectatorManager(HttpSpectatorApi(httpClient, url), account, scope)
         val session = GameSessionManager(
             api,
             PollingGameConnection(api),
@@ -823,6 +900,9 @@ class BotPlayer(
         }
     }
 }
+
+/** The spectator's view of a game: `ApiRoutes.SPECTATE` ends with it. */
+private const val SPECTATE_SUFFIX = "/spectate"
 
 sealed interface CommandResult {
     data object Ok : CommandResult

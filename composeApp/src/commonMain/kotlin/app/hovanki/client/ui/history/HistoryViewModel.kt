@@ -12,13 +12,15 @@ import app.hovanki.client.history.HistoryState
 import app.hovanki.client.ui.common.CommandRunner
 import app.hovanki.client.ui.common.FormMessage
 import app.hovanki.shared.protocol.GameHistoryEntry
+import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameRoute
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
  * The player's own history (docs/adr/0007-game-history-and-routes.md): the statistics and the «save my routes» switch
- * of the profile, the history panel and a route over it. One per main screen, shared by the profile and the panels.
+ * of the profile, the history panel and a route or a game's recording over it. One per main screen, shared by the
+ * profile and the panels.
  */
 class HistoryViewModel(private val history: HistoryManager, account: AccountManager) : ViewModel() {
     private val commands = CommandRunner(viewModelScope)
@@ -34,6 +36,10 @@ class HistoryViewModel(private val history: HistoryManager, account: AccountMana
 
     /** The route shown over the history, with its game; null: none. */
     var route by mutableStateOf<OpenRoute?>(null)
+        private set
+
+    /** A game's recording shown over the history (docs/adr/0011-spectators-and-recordings.md); null: none. */
+    var recording by mutableStateOf<OpenRecording?>(null)
         private set
 
     /** «Save my routes» is being turned off: the player confirms that the saved routes go. */
@@ -57,6 +63,7 @@ class HistoryViewModel(private val history: HistoryManager, account: AccountMana
 
     fun close() {
         closeRoute()
+        closeRecording()
         commands.dismiss()
         isOpen = false
     }
@@ -69,6 +76,13 @@ class HistoryViewModel(private val history: HistoryManager, account: AccountMana
     fun closeRoute() {
         route = null
         confirmingRouteDelete = false
+    }
+
+    fun openRecording(game: GameHistoryEntry) =
+        commands.execute({ history.recording(game.gameId) }) { recording = OpenRecording(game, it) }
+
+    fun closeRecording() {
+        recording = null
     }
 
     fun askDeleteRoute() {
@@ -106,3 +120,6 @@ class HistoryViewModel(private val history: HistoryManager, account: AccountMana
 
 /** A saved route and the game it belongs to (its numbers). */
 data class OpenRoute(val game: GameHistoryEntry, val route: GameRoute)
+
+/** A game's recording, everybody's way, and the game in the player's history. */
+data class OpenRecording(val game: GameHistoryEntry, val recording: GameRecording)

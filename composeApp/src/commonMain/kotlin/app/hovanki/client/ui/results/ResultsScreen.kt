@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
@@ -83,6 +84,7 @@ import app.hovanki.client.session.AwardKind
 import app.hovanki.client.session.Replay
 import app.hovanki.client.session.awards
 import app.hovanki.client.session.catchesBy
+import app.hovanki.client.session.hiderTally
 import app.hovanki.client.session.searchMillisAt
 import app.hovanki.client.ui.chat.ChatIconButton
 import app.hovanki.client.ui.chat.ChatPanel
@@ -101,6 +103,7 @@ import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.formatElapsed
 import app.hovanki.client.ui.common.rememberReduceMotion
+import app.hovanki.client.ui.game.ZoneTimeline
 import app.hovanki.client.ui.history.SaveRoutesOffer
 import app.hovanki.client.ui.history.distanceText
 import app.hovanki.client.ui.theme.Hovanki
@@ -113,7 +116,6 @@ import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
-import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UserId
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.StringResource
@@ -139,6 +141,7 @@ fun ResultsScreen(
     val saveRoutes by viewModel.saveRoutes.collectAsStateWithLifecycle()
     val chatState by chat.uiState.collectAsStateWithLifecycle()
     val tracks by viewModel.tracks.collectAsStateWithLifecycle()
+    val streetZone by viewModel.streetZone.collectAsStateWithLifecycle()
     if (chatState.isOpen) {
         ChatPanel(chat)
         return
@@ -159,6 +162,8 @@ fun ResultsScreen(
     LaunchedEffect(Unit) { pop.animateTo(1f, Motion.pop()) }
     val caught = hiders.filter { it.status == PlayerStatus.CAUGHT }
     val eliminated = hiders.filter { it.status == PlayerStatus.ELIMINATED }
+    // The numbers of everybody; a big game's list below has only the player and their friends.
+    val tally = snapshot.hiderTally()
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenColumn(modifier = Modifier.weight(1f).testTag(TestTags.RESULTS_SCREEN)) {
@@ -178,7 +183,7 @@ fun ResultsScreen(
                 CapsText(stringResource(Res.string.results_title))
                 Text(
                     text = stringResource(
-                        if (survivors.isEmpty()) Res.string.results_seekers_win else Res.string.results_hiders_win,
+                        if (tally.survived == 0) Res.string.results_seekers_win else Res.string.results_hiders_win,
                     ),
                     style = MaterialTheme.typography.displaySmall,
                     modifier = Modifier.graphicsLayer {
@@ -199,10 +204,10 @@ fun ResultsScreen(
                     modifier = Modifier.padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    ResultCount(Res.string.results_caught, caught.size, reduceMotion, Modifier.weight(1f))
-                    ResultCount(Res.string.results_survived, survivors.size, reduceMotion, Modifier.weight(1f))
-                    if (eliminated.isNotEmpty()) {
-                        ResultCount(Res.string.results_eliminated, eliminated.size, reduceMotion, Modifier.weight(1f))
+                    ResultCount(Res.string.results_caught, tally.caught, reduceMotion, Modifier.weight(1f))
+                    ResultCount(Res.string.results_survived, tally.survived, reduceMotion, Modifier.weight(1f))
+                    if (tally.eliminated > 0) {
+                        ResultCount(Res.string.results_eliminated, tally.eliminated, reduceMotion, Modifier.weight(1f))
                     }
                 }
             }
@@ -239,7 +244,18 @@ fun ResultsScreen(
             // The results keep polling for the chat: new snapshots, the same final state.
             val awards = remember(tracks, snapshot.finishedAtMillis) { snapshot.awards(tracks) }
             if (awards.isNotEmpty()) Awards(awards, snapshot, reduceMotion)
-            ReplayCard(snapshot, tracks, reduceMotion)
+            // Keyed on what makes the replay, not on every poll: the slider stays where the player left it.
+            val replay = remember(tracks, snapshot.finishedAtMillis) { Replay.of(snapshot, tracks) }
+            if (tracks == null || replay != null) {
+                val hidingSeconds = snapshot.settings.hidingSeconds
+                ReplayCard(
+                    replay = replay,
+                    zone = ZoneTimeline(snapshot.settings.zone, snapshot.zoneStartedAtMillis, streetZone),
+                    hidingStartMillis = snapshot.zoneStartedAtMillis?.let { it - hidingSeconds * 1000L }
+                        ?: replay?.startMillis,
+                    reduceMotion = reduceMotion,
+                )
+            }
             SaveRoutesOffer(saveRoutes = saveRoutes, isBusy = isBusy, onSave = viewModel::turnOnSaveRoutes)
             CommandStatus(
                 isBusy = false,
@@ -438,14 +454,19 @@ private fun awardDetail(award: Award): String = when (award.kind) {
 private const val AWARD_DELAY_MILLIS = 80L
 
 /**
- * The replay (docs/design.md, «Итоги»): the map with everybody's way and a slider over the round. The ways draw
- * themselves in for 1.5 s when the tracks arrive, the slider starts at the end; «play» runs the round again.
+ * The replay (docs/design.md, «Итоги»): the map with everybody's way and a slider over the round; on the results and
+ * for a recording from the history (docs/adr/0011-spectators-and-recordings.md). The ways draw themselves in for
+ * 1.5 s when they arrive, the slider starts at the end; «play» runs the round again. [replay] null: still loading.
+ * [hidingStartMillis]: when hiding started, for the time under the slider.
  */
 @Composable
-private fun ReplayCard(snapshot: GameSnapshot, tracks: TracksResponse?, reduceMotion: Boolean) {
-    // Keyed on what makes the replay, not on every poll: the slider stays where the player left it.
-    val replay = remember(tracks, snapshot.finishedAtMillis) { Replay.of(snapshot, tracks) }
-    if (tracks != null && replay == null) return
+internal fun ReplayCard(
+    replay: Replay?,
+    zone: ZoneTimeline,
+    hidingStartMillis: Long?,
+    reduceMotion: Boolean,
+    mapHeight: Dp = 300.dp,
+) {
     PopCard(
         modifier = Modifier.fillMaxWidth().padding(top = 6.dp).testTag(TestTags.REPLAY),
         contentPadding = PaddingValues(12.dp),
@@ -473,12 +494,11 @@ private fun ReplayCard(snapshot: GameSnapshot, tracks: TracksResponse?, reduceMo
         val shownAt = replay.startMillis + ((at - replay.startMillis) * drawIn.value).toLong()
         ReplayMap(
             replay = replay,
-            zone = snapshot.settings.zone,
-            zoneStartedAtMillis = snapshot.zoneStartedAtMillis,
+            zone = zone,
             atMillis = shownAt,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(300.dp)
+                .height(mapHeight)
                 .clip(RoundedCornerShape(14.dp))
                 .border(2.dp, Palette.Ink, RoundedCornerShape(14.dp)),
         )
@@ -508,21 +528,19 @@ private fun ReplayCard(snapshot: GameSnapshot, tracks: TracksResponse?, reduceMo
                     .testTag(TestTags.REPLAY_SLIDER),
             )
         }
-        CapsText(replayTime(snapshot, shownAt), color = Palette.Ink2)
+        CapsText(replayTime(hidingStartMillis, zone.startedAtMillis, shownAt), color = Palette.Ink2)
     }
 }
 
-/** «Hiding 2:10» before the search, «Seeking 12:34» after it started. */
+/** «Hiding 2:10» before the search ([searchFromMillis]), «Seeking 12:34» after it started. */
 @Composable
-private fun replayTime(snapshot: GameSnapshot, atMillis: Long): String {
-    val searchFrom = snapshot.zoneStartedAtMillis
-    return if (searchFrom == null || atMillis < searchFrom) {
-        val hidingFrom = (searchFrom ?: atMillis) - snapshot.settings.hidingSeconds * 1000L
+private fun replayTime(hidingStartMillis: Long?, searchFromMillis: Long?, atMillis: Long): String =
+    if (searchFromMillis == null || atMillis < searchFromMillis) {
+        val hidingFrom = hidingStartMillis ?: atMillis
         "${stringResource(Res.string.phase_hiding)} ${formatElapsed(atMillis - hidingFrom)}"
     } else {
-        "${stringResource(Res.string.phase_seeking)} ${formatElapsed(atMillis - searchFrom)}"
+        "${stringResource(Res.string.phase_seeking)} ${formatElapsed(atMillis - searchFromMillis)}"
     }
-}
 
 private const val DRAW_IN_MILLIS = 1_500
 

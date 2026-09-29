@@ -2,6 +2,7 @@ package app.hovanki.server.db
 
 import app.hovanki.server.account.AccountProperties
 import app.hovanki.server.admin.AdminProperties
+import app.hovanki.server.bigGames.BigGameProperties
 import app.hovanki.server.history.HistoryProperties
 import app.hovanki.server.moderation.ModerationProperties
 import org.slf4j.LoggerFactory
@@ -14,10 +15,11 @@ import java.time.Duration
 /**
  * Deletes stored data once its retention period is over (GDPR, docs/adr/0004-accounts-friends-chat.md,
  * docs/adr/0007-game-history-and-routes.md, docs/adr/0008-admin.md): idle sessions, old reports, friend requests and
- * saved routes, expired email codes, ended admin sessions, bans and chat bans a year after their end, the audit log
- * after a year. Accounts, and the history and statistics of their games, stay until their owners delete them, whether
- * their email is confirmed or not (confirming is optional). Runs once a day (`hovanki.retention.cron`); logs only
- * counts.
+ * saved routes, game recordings (docs/adr/0011-spectators-and-recordings.md), expired email codes, ended admin sessions,
+ * bans and chat bans a year after their end, the audit log after a year, big games and their sign-ups 90 days after
+ * their end (docs/adr/0010-big-games.md). Accounts, and the history and statistics of their games, stay until their
+ * owners delete them, whether their email is confirmed or not (confirming is optional). Runs once a day
+ * (`hovanki.retention.cron`); logs only counts.
  */
 @Component
 class DataRetention(
@@ -26,6 +28,7 @@ class DataRetention(
     private val moderation: ModerationProperties,
     private val history: HistoryProperties,
     private val admin: AdminProperties,
+    private val bigGames: BigGameProperties,
     private val clock: Clock,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -39,6 +42,8 @@ class DataRetention(
         val adminSessions: Int = 0,
         val sanctions: Int = 0,
         val auditEntries: Int = 0,
+        val bigGames: Int = 0,
+        val recordings: Int = 0,
     )
 
     @Scheduled(cron = "\${hovanki.retention.cron:0 17 3 * * *}")
@@ -67,10 +72,18 @@ class DataRetention(
                 before(admin.auditRetention),
             ),
             auditEntries = delete("DELETE FROM admin_audit WHERE at < :t", before(admin.auditRetention)),
+            // With their sign-ups (ON DELETE CASCADE).
+            bigGames = delete("DELETE FROM big_games WHERE ended_at < :t", before(bigGames.retention)),
+            // With everybody's way in them (ON DELETE CASCADE).
+            recordings = delete(
+                "DELETE FROM game_recordings WHERE saved_at < :t",
+                before(history.recordingRetention),
+            ),
         )
         log.info(
             "Data retention: deleted {} idle sessions, {} reports, {} friend requests, {} expired email codes, " +
-                "{} saved routes, {} admin sessions, {} ended sanctions, {} audit entries",
+                "{} saved routes, {} admin sessions, {} ended sanctions, {} audit entries, {} big games, " +
+                "{} game recordings",
             deleted.sessions,
             deleted.reports,
             deleted.friendRequests,
@@ -79,6 +92,8 @@ class DataRetention(
             deleted.adminSessions,
             deleted.sanctions,
             deleted.auditEntries,
+            deleted.bigGames,
+            deleted.recordings,
         )
         return deleted
     }

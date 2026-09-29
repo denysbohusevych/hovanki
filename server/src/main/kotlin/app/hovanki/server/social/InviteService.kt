@@ -1,6 +1,7 @@
 package app.hovanki.server.social
 
 import app.hovanki.server.account.UserRepository
+import app.hovanki.server.bigGames.BigGameService
 import app.hovanki.server.game.GameException
 import app.hovanki.server.game.GameService
 import app.hovanki.server.game.IdGenerator
@@ -44,6 +45,7 @@ class InviteService(
     private val ids: IdGenerator,
     private val rateLimiter: RateLimiter,
     private val clock: Clock,
+    private val bigGames: BigGameService,
     transactionManager: PlatformTransactionManager,
 ) {
     private val transactions = TransactionTemplate(transactionManager).apply { isReadOnly = true }
@@ -61,6 +63,8 @@ class InviteService(
         val (inviterId, joinCode) = games.withGame(caller, gameId) { game, _ ->
             val inviterId = game.userIdOf(caller.playerId) ?: throw accountRequired("Log in to invite friends")
             requireLobby(game.phase)
+            // Into a big game come those who signed up for it (docs/adr/0010-big-games.md).
+            if (game.isServerHosted) throw GameException(ErrorCode.WRONG_STATE, "Friends sign up for a big game")
             inviterId to game.joinCode
         }
         rateLimiter.acquire(RateLimit.INVITES, inviterId.value)
@@ -104,7 +108,8 @@ class InviteService(
     }
 
     /**
-     * The caller's invitations that can still be accepted, newest first, and the friend requests to them. Invitations
+     * The caller's invitations that can still be accepted, newest first, the friend requests to them, and the open
+     * lobbies of the big games they signed up for (docs/adr/0010-big-games.md). Invitations
      * into games that are gone or out of the lobby, or that the caller joined, and those from users with a block
      * either way (blocks may come after the invitation) are dropped here.
      */
@@ -133,7 +138,7 @@ class InviteService(
                     }
                 Inbox(invites = views, friendRequests = friends.incoming(userId).sortedByNickname())
             },
-        )
+        ).copy(bigGames = bigGames.openLobbiesFor(userId))
     }
 
     /** Hides one of the caller's invitations; an unknown one (or someone else's) changes nothing. */

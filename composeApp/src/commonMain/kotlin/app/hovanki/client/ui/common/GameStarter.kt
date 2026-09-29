@@ -2,6 +2,7 @@ package app.hovanki.client.ui.common
 
 import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.session.GameSessionManager
+import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
 import kotlinx.coroutines.CoroutineScope
@@ -55,6 +56,12 @@ class GameStarter(
         launchWork(StartActivity.CONNECTING) {
             if (sessionManager.join(code, playerName)) onJoined()
         }
+    }
+
+    /** Into the open lobby of a big game the player signed up for (docs/adr/0010-big-games.md). */
+    fun joinBigGame(id: BigGameId) {
+        retryLeavingOtherGame = { sessionManager.joinBigGame(id, leaveOtherGame = true) }
+        launchWork(StartActivity.CONNECTING) { sessionManager.joinBigGame(id) }
     }
 
     /**

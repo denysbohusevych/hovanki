@@ -1,6 +1,7 @@
 package app.hovanki.client.network
 
 import app.hovanki.shared.protocol.ApiError
+import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CreateGameRequest
@@ -9,6 +10,7 @@ import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.InviteRequest
 import app.hovanki.shared.protocol.ItemId
+import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.PlayerId
@@ -38,6 +40,12 @@ interface GameApi {
     /** [accountToken] as in [createGame]; with it, joining a game the account is already in returns that player. */
     suspend fun joinGame(request: JoinGameRequest, accountToken: String? = null): SessionResponse
 
+    /**
+     * Into the open lobby of big game [id] the account of [accountToken] signed up for, or back to its player
+     * (docs/adr/0010-big-games.md).
+     */
+    suspend fun joinBigGame(id: BigGameId, request: JoinBigGameRequest, accountToken: String): SessionResponse
+
     suspend fun startGame(session: PlayerSession, request: StartGameRequest): GameSnapshot
 
     /** The host picks the roles in the lobby, or has the server draw them ([RolesRequest.randomSeekers]). */
@@ -45,6 +53,12 @@ interface GameApi {
 
     /** The host changes the setup in the lobby. */
     suspend fun updateSettings(session: PlayerSession, request: SettingsRequest): GameSnapshot
+
+    /**
+     * The host plays anyway in a zone that fits fewer players than there are, or has few places to hide
+     * (docs/adr/0010-big-games.md): the lobby warns no more in this game.
+     */
+    suspend fun acceptCrowding(session: PlayerSession): GameSnapshot
 
     /** Leaves the game for good: the server takes the player out, the session's token stops working. */
     suspend fun leave(session: PlayerSession)

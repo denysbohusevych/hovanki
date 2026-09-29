@@ -29,6 +29,7 @@ import app.hovanki.client.tracking.PocketPulse
 import app.hovanki.client.tracking.hiderAlerts
 import app.hovanki.shared.protocol.Activity
 import app.hovanki.shared.protocol.Audience
+import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.Carry
@@ -38,6 +39,7 @@ import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.CustomQuestRequest
 import app.hovanki.shared.protocol.DeviceReport
 import app.hovanki.shared.protocol.ErrorCode
+import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
@@ -45,6 +47,7 @@ import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.GroupId
 import app.hovanki.shared.protocol.InviteRequest
 import app.hovanki.shared.protocol.ItemId
+import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.NearbySighting
@@ -189,6 +192,9 @@ class GameSessionManager(
      */
     private var unansweredJoin: JoinGameRequest? = null
 
+    /** The same for a big game's lobby ([joinBigGame]). */
+    private var unansweredBigGameJoin: Pair<BigGameId, JoinBigGameRequest>? = null
+
     /** The chat message that got no answer; sent again, it keeps its [SendChatRequest.clientMessageId]. */
     private var unansweredChat: SendChatRequest? = null
 
@@ -217,6 +223,23 @@ class GameSessionManager(
         return joined
     }
 
+    /**
+     * Into the open lobby of big game [id] (docs/adr/0010-big-games.md), or back to the player's round in it: only with
+     * an account that signed up. [leaveOtherGame] as in [create]. Pressed again after a lost answer, the same request id
+     * goes out, as with [join].
+     */
+    suspend fun joinBigGame(id: BigGameId, leaveOtherGame: Boolean = false): Boolean {
+        val token = account.accountToken
+            ?: return fail(SessionError.Rejected(ErrorCode.FORBIDDEN, "Log in first", ErrorReason.ACCOUNT_REQUIRED))
+        val typed = JoinBigGameRequest(leaveOtherGame = leaveOtherGame)
+        val request = unansweredBigGameJoin?.takeIf { it.first == id && it.second.copy(requestId = null) == typed }
+            ?.second ?: typed.copy(requestId = newRequestId())
+        val joined = command(token) { begin(api.joinBigGame(id, request, token)) }
+        unansweredBigGameJoin =
+            (id to request).takeIf { !joined && mutableState.value.lastError is SessionError.Network }
+        return joined
+    }
+
     suspend fun start(seekers: List<PlayerId>): Boolean = sessionCommand {
         api.startGame(it, StartGameRequest(seekers))
     }
@@ -241,8 +264,17 @@ class GameSessionManager(
         return updated
     }
 
-    /** What the host's next game starts with: the setup chosen last time on this phone, or the defaults. */
-    fun lastGameSetup(): GameSetup = storage.loadGameSetup()?.coerced() ?: GameSetup()
+    /**
+     * The host plays anyway in a zone that fits fewer players than there are, or has few places to hide
+     * (docs/adr/0010-big-games.md): the lobby warns no more in this game.
+     */
+    suspend fun acceptCrowding(): Boolean = sessionCommand { api.acceptCrowding(it) }
+
+    /**
+     * What the host's next game starts with: the setup chosen last time on this phone, or the defaults. Never open to
+     * spectators: everybody's position is at stake, the host opens each game on purpose (the delay they chose stays).
+     */
+    fun lastGameSetup(): GameSetup = storage.loadGameSetup()?.coerced()?.copy(openGame = false) ?: GameSetup()
 
     suspend fun claimCatch(hiderId: PlayerId): Boolean = sessionCommand { api.claimCatch(it, hiderId) }
 

@@ -55,6 +55,31 @@ data class GameSnapshot(
     val items: List<BoardItem> = emptyList(),
     /** The viewer's quests, with their own progress; the seekers' team quests for every seeker. */
     val quests: List<QuestView> = emptyList(),
+    /**
+     * About how many players the zone fits, from the ground under it (docs/adr/0010-big-games.md): the lobby warns the
+     * host when there are more. Null from older servers.
+     */
+    val capacity: ZoneCapacity? = null,
+    /** The big game this is (docs/adr/0010-big-games.md): hosted by the server, nobody's player is [hostId]. */
+    val bigGame: BigGameInfo? = null,
+    /**
+     * Set when [players] is not everybody (a big game): the viewer, whom they see, who is in their catch claims and
+     * their friends. How many there are in all is here.
+     */
+    val counts: PlayerCounts? = null,
+    /** How many people watch this open game right now ([GameSettings.openGame]): the players see it. */
+    val spectators: Int = 0,
+)
+
+/** How many players a game has in all, by role and state (the snapshot of a big game lists only some of them). */
+@Serializable
+data class PlayerCounts(
+    val players: Int = 0,
+    val seekers: Int = 0,
+    /** Hiders still in the round. */
+    val hidersActive: Int = 0,
+    val hidersCaught: Int = 0,
+    val hidersEliminated: Int = 0,
 )
 
 @Serializable

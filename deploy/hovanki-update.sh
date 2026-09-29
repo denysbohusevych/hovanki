@@ -4,6 +4,9 @@
 # server container runs: recreates the server and removes the old images. A new server may run Flyway migrations on
 # startup; the "New server image" line below dates the update, and RDS point-in-time recovery can bring the database
 # back to any moment before it (docs/deploy.md). Only the server: Caddy is updated by hand.
+# A restart ends the games in memory: while a big game is on (its lobby, its round, its results), the server says until
+# when, and the update waits for a run after that (docs/adr/0010-big-games.md). An urgent fix that can't wait:
+# `HOVANKI_UPDATE_FORCE=1 /opt/hovanki/hovanki-update.sh` as the user of hovanki-update.service.
 set -euo pipefail
 
 # compose.yaml and .env are next to this script.
@@ -24,6 +27,23 @@ if [ -n "$container" ]; then
 fi
 if [ "$pulled" = "$current" ]; then
   exit 0
+fi
+
+# The running server's answer, straight from the container (the host reaches the compose network). No answer (the
+# server is down or starting): nothing to break.
+if [ -n "$container" ] && [ "${HOVANKI_UPDATE_FORCE:-0}" != 1 ]; then
+  address=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$container" |
+    awk '{print $1}')
+  until=""
+  if [ -n "$address" ]; then
+    until=$(curl --silent --fail --max-time 5 "http://$address:8080/actuator/restarthold" |
+      python3 -c 'import json, sys; hold = json.load(sys.stdin); print(hold.get("until", "") if hold.get("held") else "")' \
+      2>/dev/null || true)
+  fi
+  if [ -n "$until" ]; then
+    echo "New server image $image (${pulled:7:12}) waits for a big game until $until"
+    exit 0
+  fi
 fi
 
 echo "New server image $image (${pulled:7:12}) at $(date -u +%Y-%m-%dT%H:%M:%SZ), restarting the server"

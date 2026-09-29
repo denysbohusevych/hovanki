@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalContext
 import java.text.DateFormat
 import java.util.Date
+import java.util.TimeZone
 
 @Composable
 actual fun KeepScreenBright() {
@@ -43,3 +44,9 @@ actual fun formatDateTime(epochMillis: Long): String =
 
 actual fun formatDate(epochMillis: Long): String =
     DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(epochMillis))
+
+actual fun formatDateTimeIn(epochMillis: Long, timeZone: String): String {
+    val format = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+    TimeZone.getAvailableIDs().takeIf { timeZone in it }?.let { format.timeZone = TimeZone.getTimeZone(timeZone) }
+    return format.format(Date(epochMillis))
+}

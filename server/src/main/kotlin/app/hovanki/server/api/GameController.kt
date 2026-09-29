@@ -2,6 +2,7 @@ package app.hovanki.server.api
 
 import app.hovanki.server.game.GameService
 import app.hovanki.server.game.PlayerRef
+import app.hovanki.server.game.SpectatorRef
 import app.hovanki.server.social.InviteService
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.BuildingsResponse
@@ -23,12 +24,15 @@ import app.hovanki.shared.protocol.ScanCheckpointRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsRequest
+import app.hovanki.shared.protocol.SpectatorSnapshot
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UsePerkRequest
 import app.hovanki.shared.protocol.VoteRequest
+import app.hovanki.shared.protocol.WatchRequest
+import app.hovanki.shared.protocol.WatchResponse
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -66,6 +70,11 @@ class GameController(private val games: GameService, private val invites: Invite
     @PostMapping(ApiRoutes.SETTINGS)
     fun settings(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: SettingsRequest): GameSnapshot =
         games.updateSettings(player, GameId(gameId), request)
+
+    /** The host plays anyway in a crowded zone, or one with few places to hide. */
+    @PostMapping(ApiRoutes.CROWDING_ACCEPT)
+    fun acceptCrowding(player: PlayerRef, @PathVariable gameId: String): GameSnapshot =
+        games.acceptCrowding(player, GameId(gameId))
 
     /** The player leaves the game for good; the token stops working. */
     @PostMapping(ApiRoutes.LEAVE)
@@ -127,6 +136,25 @@ class GameController(private val games: GameService, private val invites: Invite
     @PostMapping(ApiRoutes.CHAT_REPORT)
     fun reportChat(player: PlayerRef, @PathVariable gameId: String, @PathVariable seq: Long): GameSnapshot =
         games.reportChat(player, GameId(gameId), seq)
+
+    /** Watch an open game by its code (docs/adr/0011-spectators-and-recordings.md): with an account only. */
+    @PostMapping(ApiRoutes.WATCH)
+    fun watch(user: AuthenticatedUser, @RequestBody request: WatchRequest): WatchResponse = games.watch(request, user)
+
+    /** Polled by spectators every few seconds: the game the game's delay ago. */
+    @GetMapping(ApiRoutes.SPECTATE)
+    fun spectate(spectator: SpectatorRef, @PathVariable gameId: String): SpectatorSnapshot =
+        games.spectate(spectator, GameId(gameId))
+
+    @GetMapping(ApiRoutes.SPECTATE_STREET_ZONE)
+    fun spectatorStreetZone(spectator: SpectatorRef, @PathVariable gameId: String): StreetZoneResponse =
+        games.streetZoneForSpectator(spectator, GameId(gameId))
+
+    /** The spectator stops watching; their token stops working. */
+    @PostMapping(ApiRoutes.SPECTATE_LEAVE)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun stopWatching(spectator: SpectatorRef, @PathVariable gameId: String) =
+        games.stopWatching(spectator, GameId(gameId))
 
     /** Invites friends or a group into the game: logged-in players, in the lobby. */
     @PostMapping(ApiRoutes.GAME_INVITES)

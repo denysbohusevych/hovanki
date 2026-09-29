@@ -41,3 +41,13 @@ value class ItemId(val value: String)
 @Serializable
 @JvmInline
 value class QuestId(val value: String)
+
+/** A big game (docs/adr/0010-big-games.md): scheduled by an admin, players sign up ahead. */
+@Serializable
+@JvmInline
+value class BigGameId(val value: String)
+
+/** Someone watching an open game without playing it (docs/adr/0011-spectators-and-recordings.md). */
+@Serializable
+@JvmInline
+value class SpectatorId(val value: String)
