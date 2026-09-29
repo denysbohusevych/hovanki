@@ -33,9 +33,9 @@ import app.hovanki.e2e.scenario.Timeline
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.Audience
 import app.hovanki.shared.protocol.BluetoothState
+import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
-import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.FriendsResponse
@@ -68,10 +68,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
