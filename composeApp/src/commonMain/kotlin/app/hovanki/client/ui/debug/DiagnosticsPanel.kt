@@ -126,23 +126,40 @@ private fun DiagnosticsPanel(onClose: () -> Unit, modifier: Modifier = Modifier)
             delay(TICK_MILLIS)
         }
     }
+    var labShown by remember { mutableStateOf(false) }
     Panel(title = "Diagnostics", onClose = onClose, modifier = modifier) {
         ScreenColumn {
-            viewModel.about.forEach { SecondaryText(it) }
-            GpsCard(measured, now, viewModel, benchGps, inGame = session.session != null)
-            RadioCard(
-                measured = measured,
-                now = now,
-                bluetooth = bluetooth,
-                radarEnabled = radarEnabled,
-                pulse = pulse,
-                benchRadio = benchRadio,
-                inGame = session.session != null,
-                viewModel = viewModel,
-            )
-            PulseCard(triedPulse, inRound = session.isInRound(), viewModel = viewModel)
-            GameCard(session, measured, now)
-            LogCard(measured, viewModel)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(false to "Diagnostics", true to "Lab").forEach { (lab, title) ->
+                    PopButton(
+                        text = title,
+                        onClick = { labShown = lab },
+                        height = 40.dp,
+                        style = if (labShown == lab) PopStyle.Dark else PopStyle.Outline,
+                        textStyle = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            if (labShown) {
+                LabContent()
+            } else {
+                viewModel.about.forEach { SecondaryText(it) }
+                GpsCard(measured, now, viewModel, benchGps, inGame = session.session != null)
+                RadioCard(
+                    measured = measured,
+                    now = now,
+                    bluetooth = bluetooth,
+                    radarEnabled = radarEnabled,
+                    pulse = pulse,
+                    benchRadio = benchRadio,
+                    inGame = session.session != null,
+                    viewModel = viewModel,
+                )
+                PulseCard(triedPulse, inRound = session.isInRound(), viewModel = viewModel)
+                GameCard(session, measured, now)
+                LogCard(measured, viewModel)
+            }
         }
     }
 }
@@ -335,7 +352,7 @@ private fun LogCard(measured: DiagnosticsState, viewModel: DiagnosticsViewModel)
 }
 
 @Composable
-private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
     PopCard(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(text = title, style = MaterialTheme.typography.titleMedium)
         content()
@@ -343,12 +360,12 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
 }
 
 @Composable
-private fun Line(text: String, color: Color = Palette.Ink) {
+internal fun Line(text: String, color: Color = Palette.Ink) {
     Text(text = text, color = color, fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp)
 }
 
 @Composable
-private fun BenchSwitch(text: String, checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+internal fun BenchSwitch(text: String, checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

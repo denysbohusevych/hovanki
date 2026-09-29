@@ -43,6 +43,7 @@ import app.hovanki.client.spectator.SpectatorManager
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.ui.chat.ChatViewModel
 import app.hovanki.client.ui.debug.DiagnosticsViewModel
+import app.hovanki.client.ui.debug.LabViewModel
 import app.hovanki.client.ui.friends.FriendsViewModel
 import app.hovanki.client.ui.game.GameViewModel
 import app.hovanki.client.ui.groups.GroupsViewModel
@@ -174,6 +175,7 @@ val commonModule: Module = module {
     viewModelOf(::InviteBannerViewModel)
     viewModelOf(::SpectatorViewModel)
     viewModelOf(::DiagnosticsViewModel)
+    viewModelOf(::LabViewModel)
 }
 
 /** Hands debug start parameters (UI automation) to the screens; see [LaunchOptions]. */
