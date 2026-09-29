@@ -667,6 +667,8 @@
   <string name="settings_buildings_off">No buildings: the rule is off</string>
   <string name="settings_buildings_save_first">Save the new zone first</string>
   <string name="settings_map_after_save">Blocks and buildings after saving</string>
+  <string name="settings_map_buildings_after_save">Buildings after saving</string>
+  <string name="settings_map_no_streets">No streets here: it stays a circle</string>
   <string name="settings_play_shrink">Shrink</string>
   <string name="settings_play_game">Play the game</string>
   <string name="settings_play_stop">Stop</string>

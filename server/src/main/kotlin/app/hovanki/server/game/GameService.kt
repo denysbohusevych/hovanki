@@ -42,12 +42,15 @@ import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.ScanCheckpointRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsPreviewRequest
+import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.SpectatorId
 import app.hovanki.shared.protocol.SpectatorSession
 import app.hovanki.shared.protocol.SpectatorSnapshot
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
+import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UsePerkRequest
@@ -56,6 +59,7 @@ import app.hovanki.shared.protocol.VoteRequest
 import app.hovanki.shared.protocol.WatchRequest
 import app.hovanki.shared.protocol.WatchResponse
 import app.hovanki.shared.protocol.ZonePolygon
+import app.hovanki.shared.protocol.ZoneSchedule
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.RequestIds
 import app.hovanki.shared.rules.SettingsLimits
@@ -63,6 +67,9 @@ import app.hovanki.shared.rules.boundingCircle
 import org.springframework.stereotype.Service
 import java.time.Clock
 import java.time.Instant
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /** Application layer: auth checks, id generation and per-game locking around the [Game] domain object. */
 @Service
@@ -273,6 +280,47 @@ class GameService(
         if (mapChanged) registry.get(gameId)?.let { game -> synchronized(game) { loadMap(game) } }
         return snapshot
     }
+
+    /**
+     * What the host's draft in the settings makes before it is saved
+     * (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 2.3): the zone by streets of a new draft is
+     * built off the request thread, and waited for a moment; still [StreetZoneState.LOADING] after that, the app asks
+     * again. Only a new draft counts against the host's limit.
+     */
+    fun previewSettings(caller: PlayerRef, gameId: GameId, request: SettingsPreviewRequest): SettingsPreviewResponse {
+        val draft = request.settings
+        validate(draft)
+        val game = gameOf(caller, gameId)
+        val known = locked(game) { now ->
+            game.settingsPreview(caller.playerId, draft, now) ?: run {
+                rateLimiter.acquire(RateLimit.SETTINGS_PREVIEW, "${gameId.value}/${caller.playerId.value}")
+                game.startDraftZone(draft.zone, now)
+                null
+            }
+        }
+        if (known != null) return known
+        val zone = draft.zone
+        val build = streetZoneLoader.preview(gameId.value, zone, isWanted = {
+            wantsDraftZone(gameId, zone)
+        }) { stages ->
+            // The game may be gone meanwhile, or the host on to the next draft: the game drops what it did not ask for.
+            registry.get(gameId)?.let { current -> synchronized(current) { current.onDraftZoneBuilt(zone, stages) } }
+        }
+        try {
+            build.get(DRAFT_ZONE_WAIT_MILLIS, TimeUnit.MILLISECONDS)
+        } catch (e: TimeoutException) {
+            // Still building: the app asks again.
+        } catch (e: ExecutionException) {
+            // The loader reports its own failures; the draft stays LOADING until the game gives up on it.
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        return locked(game) { now -> game.settingsPreview(caller.playerId, draft, now) }
+            ?: SettingsPreviewResponse(StreetZoneState.LOADING)
+    }
+
+    private fun wantsDraftZone(gameId: GameId, zone: ZoneSchedule): Boolean =
+        registry.get(gameId)?.let { game -> synchronized(game) { game.wantsDraftZone(zone) } } == true
 
     /**
      * The host plays anyway in a zone that fits fewer players than there are, or has few places to hide
@@ -539,7 +587,8 @@ class GameService(
                 }
             }
         }
-        if (settings.zoneShape == ZoneShape.STREETS) {
+        // A draft the host previewed before saving it has its zone by streets already.
+        if (settings.zoneShape == ZoneShape.STREETS && game.streetZoneState == StreetZoneState.LOADING) {
             streetZoneLoader.load(game.id.value, settings.zone) { stages ->
                 val current = registry.get(game.id) ?: return@load
                 synchronized(current) {
@@ -630,5 +679,8 @@ class GameService(
 
         /** Buildings just outside the zone matter too: a player at the border can step into one. */
         const val BUILDINGS_MARGIN_METERS = 50.0
+
+        /** How long a preview waits for its draft's zone by streets before it answers LOADING. */
+        const val DRAFT_ZONE_WAIT_MILLIS = 2_000L
     }
 }

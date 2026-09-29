@@ -90,6 +90,9 @@ hovanki:
     admin-totp: { count: 10, window: 15m }
     # Starting to watch an open game, per account (docs/adr/0011-spectators-and-recordings.md).
     watch: { count: 30, window: 1h }
+    # New drafts whose zone by streets the host previews before saving, per host
+    # (docs/adr/0014-settings-lobby-redesign-open-buildings.md).
+    settings-preview: { count: 120, window: 10m }
   # Staff admin, the /admin page (docs/adr/0008-admin.md). Off without a secret key: HOVANKI_ADMIN_SECRET_KEY in .env
   # (deploy/compose.yaml passes it on), base64 of 32 random bytes (openssl rand -base64 32); it encrypts the staff's
   # authenticator secrets.

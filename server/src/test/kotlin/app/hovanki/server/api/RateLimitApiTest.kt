@@ -16,6 +16,8 @@ import app.hovanki.shared.protocol.LoginRequest
 import app.hovanki.shared.protocol.RegisterRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsPreviewRequest
+import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.shrinkingZone
 import org.springframework.beans.factory.annotation.Autowired
@@ -39,6 +41,7 @@ import kotlin.test.assertTrue
         "hovanki.rate-limits.login-per-login.count=3",
         "hovanki.rate-limits.login-per-login.window=15m",
         "hovanki.rate-limits.reports.count=2",
+        "hovanki.rate-limits.settings-preview.count=2",
     ],
 )
 @AutoConfigureMockMvc
@@ -97,6 +100,25 @@ class RateLimitApiTest(@Autowired private val mvc: MockMvc) {
         // Two an hour in this context: the guest's third report is one too many.
         repeat(2) { assertEquals(200, report(messages[it].seq).status) }
         assertTrue(assertTooManyRequests(report(messages[2].seq)) in 1..60 * 60)
+    }
+
+    /** Only a new draft costs: the app asks about the same one again while the server builds it. */
+    @Test
+    fun newDraftsOfTheZoneByStreets() {
+        val center = GeoPoint(50.4501, 30.5234)
+        val settings = GameSettings(zone = shrinkingZone(center, steps = 0))
+        val host = post(ApiRoutes.GAMES, protocolJson.encodeToString(CreateGameRequest("Host", settings)))
+            .decode<SessionResponse>().session
+        fun preview(radius: Double): MockHttpServletResponse {
+            val draft = settings.copy(zone = shrinkingZone(center, radius, steps = 0), zoneShape = ZoneShape.STREETS)
+            val request = protocolJson.encodeToString(SettingsPreviewRequest(draft))
+            return post(ApiRoutes.settingsPreview(host.gameId), request, host.token)
+        }
+
+        repeat(5) { assertEquals(200, preview(300.0).status) }
+        assertEquals(200, preview(400.0).status)
+
+        assertTrue(assertTooManyRequests(preview(500.0)) in 1..10 * 60)
     }
 
     private inline fun <reified T> MockHttpServletResponse.decode(): T {

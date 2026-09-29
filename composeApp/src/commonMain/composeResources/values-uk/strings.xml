@@ -669,6 +669,8 @@
   <string name="settings_buildings_off">Будівель немає: правило вимкнене</string>
   <string name="settings_buildings_save_first">Спершу збережіть нову зону</string>
   <string name="settings_map_after_save">Квартали й будівлі — після збереження</string>
+  <string name="settings_map_buildings_after_save">Будівлі — після збереження</string>
+  <string name="settings_map_no_streets">Вулиць поруч немає — буде коло</string>
   <string name="settings_play_shrink">Звуження</string>
   <string name="settings_play_game">Програти гру</string>
   <string name="settings_play_stop">Стоп</string>

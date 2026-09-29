@@ -23,6 +23,8 @@ import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.ScanCheckpointRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsPreviewRequest
+import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.SpectatorSnapshot
 import app.hovanki.shared.protocol.StartGameRequest
@@ -70,6 +72,14 @@ class GameController(private val games: GameService, private val invites: Invite
     @PostMapping(ApiRoutes.SETTINGS)
     fun settings(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: SettingsRequest): GameSnapshot =
         games.updateSettings(player, GameId(gameId), request)
+
+    /** What the host's draft makes before it is saved: its zone by streets. */
+    @PostMapping(ApiRoutes.SETTINGS_PREVIEW)
+    fun settingsPreview(
+        player: PlayerRef,
+        @PathVariable gameId: String,
+        @RequestBody request: SettingsPreviewRequest,
+    ): SettingsPreviewResponse = games.previewSettings(player, GameId(gameId), request)
 
     /** The host plays anyway in a crowded zone, or one with few places to hide. */
     @PostMapping(ApiRoutes.CROWDING_ACCEPT)
