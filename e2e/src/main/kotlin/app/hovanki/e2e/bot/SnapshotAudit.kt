@@ -7,6 +7,7 @@ import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.SpectatorSnapshot
 import app.hovanki.shared.protocol.VisibilityReason
+import app.hovanki.shared.rules.BoardRules
 import app.hovanki.shared.rules.ChatRules
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -25,6 +26,9 @@ object SnapshotAudit {
         VisibilityReason.STALE_SIGNAL,
         VisibilityReason.INSIDE_BUILDING,
         VisibilityReason.GLOW,
+        VisibilityReason.RADAR_OFF,
+        VisibilityReason.SPOTLIGHT,
+        VisibilityReason.FRESH_TRAIL,
     )
 
     /** Values the first app versions know in `VisibleLocation.reason`, which has no default. */
@@ -74,6 +78,8 @@ object SnapshotAudit {
         if (me.role != Role.HIDER && me.catchCodeSecret != null) {
             problems += "seeker ${me.playerId.value} received a catch code secret"
         }
+        problems += radarProblems(snapshot)
+        problems += boardProblems(snapshot)
         for (player in snapshot.players) {
             val location = player.location ?: continue
             val viewer = "${me.role} ${me.playerId.value}"
@@ -113,6 +119,50 @@ object SnapshotAudit {
             }
         }
         return problems
+    }
+
+    /**
+     * The radar (docs/adr/0012-nearby-radar.md, section 2.6): a hider feels only the nearest seeker, nameless; a
+     * seeker gets hiders by name; the seekers' tokens go to hiders only; nothing outside the search.
+     */
+    private fun radarProblems(snapshot: GameSnapshot): List<String> = buildList {
+        val me = snapshot.me
+        val viewer = "${me.role} ${me.playerId.value}"
+        val contacts = me.radar?.contacts.orEmpty()
+        if (contacts.isNotEmpty() && snapshot.phase != GamePhase.SEEKING) add("$viewer has a radar outside the search")
+        if (me.role == Role.HIDER && contacts.size > 1) add("hider ${me.playerId.value} feels more than one seeker")
+        if (me.role != Role.HIDER && me.seekerTokens.isNotEmpty()) add("$viewer received the seekers' tokens")
+        for (contact in contacts) {
+            val target = contact.playerId?.let { id -> snapshot.players.firstOrNull { it.id == id } }
+            when {
+                me.role == Role.HIDER && contact.playerId != null ->
+                    add("hider ${me.playerId.value} feels a named player")
+
+                me.role == Role.SEEKER && target == null -> add("seeker ${me.playerId.value} got a nameless contact")
+
+                me.role == Role.SEEKER && target?.role != Role.HIDER -> add("$viewer feels a seeker on the radar")
+
+                target?.status != null && target.status != PlayerStatus.ACTIVE ->
+                    add("$viewer feels a player who is out")
+            }
+        }
+    }
+
+    /**
+     * The board (docs/adr/0013-quests-sparks-and-sensors.md): in the round only the items of the viewer's team, and a
+     * scan checkpoint's code to the host in the lobby only.
+     */
+    private fun boardProblems(snapshot: GameSnapshot): List<String> = buildList {
+        val me = snapshot.me
+        val inRound = snapshot.phase == GamePhase.HIDING || snapshot.phase == GamePhase.SEEKING
+        for (item in snapshot.items) {
+            if (inRound && !BoardRules.isFor(item.audience, me.role)) {
+                add("${me.role} ${me.playerId.value} sees item ${item.id.value} for ${item.audience}")
+            }
+            if (item.code != null && (me.playerId != snapshot.hostId || snapshot.phase != GamePhase.LOBBY)) {
+                add("${me.playerId.value} received the code of checkpoint ${item.id.value}")
+            }
+        }
     }
 
     /**

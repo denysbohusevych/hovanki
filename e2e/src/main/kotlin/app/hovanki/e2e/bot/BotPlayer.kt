@@ -16,6 +16,8 @@ import app.hovanki.client.network.HttpSpectatorApi
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.createHttpClient
+import app.hovanki.client.radio.NoopProximityRadio
+import app.hovanki.client.radio.ProximityRadio
 import app.hovanki.client.session.CatchCode
 import app.hovanki.client.session.ChatLine
 import app.hovanki.client.session.GameSessionManager
@@ -34,8 +36,11 @@ import app.hovanki.client.storage.ClientStorage
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.scenario.Timeline
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.Audience
 import app.hovanki.shared.protocol.BigGameCard
 import app.hovanki.shared.protocol.BigGameId
+import app.hovanki.shared.protocol.BluetoothState
+import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.ErrorCode
@@ -51,7 +56,13 @@ import app.hovanki.shared.protocol.GroupId
 import app.hovanki.shared.protocol.GroupView
 import app.hovanki.shared.protocol.Inbox
 import app.hovanki.shared.protocol.InviteId
+import app.hovanki.shared.protocol.ItemId
+import app.hovanki.shared.protocol.PerkKind
+import app.hovanki.shared.protocol.PlaceItemRequest
+import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.protocol.QuestId
+import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SpectatorSnapshot
 import app.hovanki.shared.protocol.TracksResponse
@@ -60,6 +71,7 @@ import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.WatchResponse
 import app.hovanki.shared.protocol.protocolJson
+import app.hovanki.shared.rules.QuestCatalog
 import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -69,6 +81,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
@@ -97,9 +110,22 @@ class BotPlayer(
     private val metrics: SyncMetrics? = null,
     /** Log observed state changes to the timeline; off for crowds (load tests). */
     private val logChanges: Boolean = true,
+    /** What kind of phone: matters for who hears whom over Bluetooth ([RadioWorld]). */
+    val platform: Platform = Platform.ANDROID,
+    /** The air the phone's Bluetooth is in; null: a phone without the radar. */
+    radioWorld: RadioWorld? = null,
 ) {
     val clock = DeviceClock()
     val gps = FakeGps(start, noise, clock)
+
+    /** Where the phone is: in the hand or in the pocket (docs/adr/0012-nearby-radar.md, «Карман»). */
+    val carry = MutableStateFlow(Carry.IN_HAND)
+    val radio: ProximityRadio =
+        radioWorld?.let { FakeRadio(it, platform, { gps.truePosition }, { carry.value }, clock::now) }
+            ?: NoopProximityRadio()
+
+    /** The pulse the phone beats with (docs/adr/0012-nearby-radar.md, «Пульс»). */
+    val pulse = FakePocketPulse()
     val network = FakeNetwork(::onExchange)
     val backgroundTracker = FakeBackgroundTracker { running ->
         if (logChanges) log(if (running) "background tracking started" else "background tracking stopped")
@@ -131,6 +157,21 @@ class BotPlayer(
 
     /** "Now" as the app believes the server clock is; null while the app is not running. */
     fun serverNow(): Long? = app?.serverClock?.now()
+
+    /** The band the phone beats with right now. */
+    val pulseBand: RadarBand get() = pulse.band
+
+    /** The Bluetooth switch of the phone; nothing on a phone without the radar. */
+    fun turnBluetooth(on: Boolean) {
+        (radio as? FakeRadio)?.state?.value = if (on) BluetoothState.ON else BluetoothState.OFF
+    }
+
+    /** The phone goes into a pocket (the screen off, the app in the background) or comes out into the hand. */
+    fun putInPocket(inPocket: Boolean) {
+        carry.value = if (inPocket) Carry.IN_POCKET else Carry.IN_HAND
+        val running = app ?: return
+        running.scope.launch { running.session.onScreenChanged(!inPocket) }
+    }
 
     // ---- Game ----
 
@@ -192,6 +233,35 @@ class BotPlayer(
     /** Disputes claim [claimId], whoever it is against (see [confirmCatch] with a claim id). */
     suspend fun dispute(claimId: CatchId): CommandResult =
         command("disputes claim ${claimId.value}") { it.dispute(claimId) }
+
+    // ---- The board, the quests and the perks (docs/adr/0013-quests-sparks-and-sensors.md) ----
+
+    suspend fun placeItem(request: PlaceItemRequest): CommandResult =
+        command("places a ${request.kind.name.lowercase().replace('_', ' ')} on the board") { it.placeItem(request) }
+
+    suspend fun removeItem(itemId: ItemId): CommandResult =
+        command("removes item ${itemId.value} from the board") { it.removeItem(itemId) }
+
+    /** The camera read [text] at a checkpoint. */
+    suspend fun scanCheckpoint(text: String): CommandResult =
+        command("scans a checkpoint's code") { it.scanCheckpoint(text) }
+
+    suspend fun usePerk(perk: PerkKind, targetId: PlayerId? = null, point: GeoPoint? = null): CommandResult =
+        command("uses the perk ${perk.name.lowercase().replace('_', ' ')}") { it.usePerk(perk, targetId, point) }
+
+    suspend fun addQuest(
+        text: String,
+        audience: Audience = Audience.ALL,
+        sparks: Int = QuestCatalog.CUSTOM_DEFAULT_SPARKS,
+    ): CommandResult = command("adds the quest «$text»") { it.addQuest(text, audience, sparks) }
+
+    suspend fun questDone(questId: QuestId): CommandResult =
+        command("says quest ${questId.value} is done") { it.questDone(questId) }
+
+    suspend fun reviewQuest(questId: QuestId, playerId: PlayerId, approved: Boolean): CommandResult =
+        command("${if (approved) "confirms" else "refuses"} quest ${questId.value} for ${playerName(playerId)}") {
+            it.reviewQuest(questId, playerId, approved)
+        }
 
     suspend fun vote(claimId: CatchId, confirm: Boolean): CommandResult =
         command(if (confirm) "votes to confirm" else "votes to reject") { it.vote(claimId, confirm) }
@@ -557,6 +627,9 @@ class BotPlayer(
     }
 
     /** Someone's name as this player's screen shows it: from the friends list or the current game. */
+    private fun playerName(playerId: PlayerId): String =
+        snapshot?.players?.firstOrNull { it.id == playerId }?.name ?: playerId.value
+
     private fun nameOf(userId: UserId): String {
         val friends = friends
         val known = friends?.let { it.friends + it.incoming + it.outgoing + it.blocked }.orEmpty()
@@ -697,6 +770,10 @@ class BotPlayer(
             clientStorage,
             scope,
             account = account,
+            radio = radio,
+            deviceInfo = BotDeviceInfo(platform),
+            pocketPulse = pulse,
+            carryMonitor = FakeCarryMonitor(carry),
         )
 
         @Volatile var showingCodeFor: CatchId? = null

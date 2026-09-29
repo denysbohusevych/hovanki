@@ -7,12 +7,15 @@ import app.hovanki.server.admin.AdminService
 import app.hovanki.server.admin.Staff
 import app.hovanki.server.admin.StaffAuthService
 import app.hovanki.server.bigGames.BigGameService
+import app.hovanki.server.game.GameException
 import app.hovanki.shared.protocol.AdminAudit
 import app.hovanki.shared.protocol.AdminBigGame
 import app.hovanki.shared.protocol.AdminBigGameRequest
 import app.hovanki.shared.protocol.AdminBigGames
 import app.hovanki.shared.protocol.AdminEnrollRequest
 import app.hovanki.shared.protocol.AdminEnrollment
+import app.hovanki.shared.protocol.AdminFeatureRequest
+import app.hovanki.shared.protocol.AdminFeatures
 import app.hovanki.shared.protocol.AdminFindByEmailRequest
 import app.hovanki.shared.protocol.AdminGames
 import app.hovanki.shared.protocol.AdminLiveGame
@@ -34,10 +37,12 @@ import app.hovanki.shared.protocol.AdminZoneEstimate
 import app.hovanki.shared.protocol.AdminZoneEstimateRequest
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.BigGameId
+import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.ResolveReportRequest
 import app.hovanki.shared.protocol.SanctionKind
 import app.hovanki.shared.protocol.SanctionRequest
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.UserId
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -181,6 +186,21 @@ class AdminController(
 
     @GetMapping(ApiRoutes.ADMIN_STATS)
     fun stats(@Suppress("UNUSED_PARAMETER") staff: Staff): AdminStats = admin.stats()
+
+    @GetMapping(ApiRoutes.ADMIN_FEATURES)
+    fun features(@Suppress("UNUSED_PARAMETER") staff: Staff): AdminFeatures = admin.features()
+
+    /** An unknown feature name is a 400. */
+    @PostMapping(ApiRoutes.ADMIN_FEATURE)
+    fun setFeature(
+        staff: Staff,
+        @PathVariable feature: String,
+        @RequestBody request: AdminFeatureRequest,
+    ): AdminFeatures {
+        val known = ServerFeature.entries.firstOrNull { it.name == feature }
+            ?: throw GameException(ErrorCode.BAD_REQUEST, "Unknown feature $feature")
+        return admin.setFeature(staff, known, request)
+    }
 
     @GetMapping(ApiRoutes.ADMIN_STAFF)
     fun staff(staff: Staff): AdminStaff = admin.staff(staff)

@@ -17,21 +17,36 @@ import app.hovanki.client.ui.common.CommandRunner
 import app.hovanki.client.ui.common.FormMessage
 import app.hovanki.client.ui.common.PlayerAccount
 import app.hovanki.client.ui.common.playerAccount
+import app.hovanki.client.ui.game.ZoneTimeline
+import app.hovanki.shared.protocol.Audience
 import app.hovanki.shared.protocol.BigGameInfo
+import app.hovanki.shared.protocol.BluetoothState
+import app.hovanki.shared.protocol.BoardItem
 import app.hovanki.shared.protocol.BuildingsState
+import app.hovanki.shared.protocol.Capabilities
 import app.hovanki.shared.protocol.CapacityState
 import app.hovanki.shared.protocol.FriendsResponse
+import app.hovanki.shared.protocol.GameFeatures
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.GroupId
 import app.hovanki.shared.protocol.GroupsResponse
+import app.hovanki.shared.protocol.ItemId
+import app.hovanki.shared.protocol.ItemKind
+import app.hovanki.shared.protocol.PerkKind
+import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.protocol.QuestKind
+import app.hovanki.shared.protocol.QuestView
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.Capacity
 import app.hovanki.shared.rules.GameSetup
 import app.hovanki.shared.rules.Glow
+import app.hovanki.shared.rules.stateAt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -88,15 +103,48 @@ class LobbyViewModel(
     var isSavingSettings by mutableStateOf(false)
         private set
 
+    /** The game whose board panel the host has open; null: closed. */
+    var boardPanelIn by mutableStateOf<GameId?>(null)
+        private set
+
+    /** What the host is about to place on the board: where they tapped, and what. */
+    var boardPick by mutableStateOf<GeoPoint?>(null)
+        private set
+    var boardKind by mutableStateOf(ItemKind.QUEST_POINT)
+        private set
+    var boardAudience by mutableStateOf(Audience.ALL)
+        private set
+    var boardName by mutableStateOf("")
+        private set
+    var boardSparks by mutableStateOf<Int?>(null)
+        private set
+    var boardPerk by mutableStateOf(PerkKind.SENSE)
+        private set
+    var isPlacing by mutableStateOf(false)
+        private set
+
+    /** The host's own quest being written. */
+    var questText by mutableStateOf("")
+        private set
+    var questAudience by mutableStateOf(Audience.ALL)
+        private set
+    var isAddingQuest by mutableStateOf(false)
+        private set
+
+    private val phone = combine(sessionManager.bluetooth, sessionManager.radarEnabled) { bluetooth, radarEnabled ->
+        bluetooth to radarEnabled
+    }
+
     val uiState: StateFlow<LobbyUiState?> =
         combine(
-            sessionManager.state,
-            pendingSeekers,
-            isStarting,
+            combine(sessionManager.state, pendingSeekers, isStarting) { state, pending, starting ->
+                Triple(state, pending, starting)
+            },
             social.friends,
             account.state,
-        ) { state, pending, starting, friends, accountState ->
-            buildUiState(state, pending, starting, friends, accountState)
+            phone,
+        ) { (state, pending, starting), friends, accountState, (bluetooth, radarEnabled) ->
+            buildUiState(state, pending, starting, friends, accountState, bluetooth, radarEnabled)
         }.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
@@ -106,6 +154,8 @@ class LobbyViewModel(
                 isStarting.value,
                 social.friends.value,
                 account.state.value,
+                sessionManager.bluetooth.value,
+                sessionManager.radarEnabled.value,
             ),
         )
 
@@ -177,8 +227,106 @@ class LobbyViewModel(
         pendingSeekers.value = null
         closeInvites()
         closeSettings()
+        closeBoard()
         invitesSentIn = null
         sessionManager.leave()
+    }
+
+    // The radar (docs/adr/0012-nearby-radar.md).
+
+    /** «The radar on my phone». */
+    fun setRadarEnabled(enabled: Boolean) = sessionManager.setRadarEnabled(enabled)
+
+    // The board (docs/adr/0013-quests-sparks-and-sensors.md): the host places items and makes up quests.
+
+    fun openBoard() {
+        val snapshot = sessionManager.state.value.snapshot ?: return
+        if (snapshot.hostId != snapshot.me.playerId) return
+        boardPanelIn = snapshot.gameId
+        boardPick = null
+        val allowed = allowedKinds(snapshot.settings.features)
+        if (boardKind !in allowed) boardKind = allowed.firstOrNull() ?: ItemKind.QUEST_POINT
+        sessionManager.clearError()
+    }
+
+    fun closeBoard() {
+        boardPanelIn = null
+        boardPick = null
+    }
+
+    fun pickBoardPoint(point: GeoPoint) {
+        boardPick = point
+    }
+
+    fun pickBoardKind(kind: ItemKind) {
+        boardKind = kind
+    }
+
+    fun pickBoardAudience(audience: Audience) {
+        boardAudience = audience
+    }
+
+    fun editBoardName(name: String) {
+        boardName = name.take(BOARD_NAME_MAX)
+    }
+
+    /** Null: the kind's default. */
+    fun editBoardSparks(sparks: Int?) {
+        boardSparks = sparks
+    }
+
+    fun pickBoardPerk(perk: PerkKind) {
+        boardPerk = perk
+    }
+
+    /** Places what is picked where the host tapped. */
+    fun placeItem() {
+        val point = boardPick ?: return
+        if (isPlacing) return
+        isPlacing = true
+        val request = PlaceItemRequest(
+            kind = boardKind,
+            point = point,
+            name = boardName.trim(),
+            audience = boardAudience,
+            sparks = boardSparks,
+            perk = boardPerk.takeIf { boardKind == ItemKind.PICKUP },
+        )
+        viewModelScope.launch {
+            try {
+                if (sessionManager.placeItem(request)) {
+                    boardPick = null
+                    boardName = ""
+                }
+            } finally {
+                isPlacing = false
+            }
+        }
+    }
+
+    fun removeItem(itemId: ItemId) {
+        viewModelScope.launch { sessionManager.removeItem(itemId) }
+    }
+
+    fun editQuestText(text: String) {
+        questText = text.take(QUEST_TEXT_MAX)
+    }
+
+    fun pickQuestAudience(audience: Audience) {
+        questAudience = audience
+    }
+
+    fun addQuest() {
+        val text = questText.trim()
+        if (text.isEmpty() || isAddingQuest) return
+        isAddingQuest = true
+        viewModelScope.launch {
+            try {
+                if (sessionManager.addQuest(text, questAudience)) questText = ""
+            } finally {
+                isAddingQuest = false
+            }
+        }
     }
 
     fun dismissError() = sessionManager.clearError()
@@ -289,6 +437,8 @@ class LobbyViewModel(
         starting: Boolean,
         friends: FriendsResponse?,
         accountState: AccountState,
+        bluetooth: BluetoothState,
+        radarEnabled: Boolean,
     ): LobbyUiState? {
         val snapshot = state.snapshot ?: return null
         val me = snapshot.me.playerId
@@ -304,6 +454,7 @@ class LobbyViewModel(
                 isSeeker = pending?.let { player.id in it } ?: (player.role == Role.SEEKER),
                 isOffline = silentFor != null && silentFor > OFFLINE_AFTER_MILLIS,
                 account = playerAccount(player, me, accountState, friends),
+                capabilities = player.capabilities,
             )
         }
         val seekerCount = players.count { it.isSeeker }
@@ -336,6 +487,17 @@ class LobbyViewModel(
             seekingMinutes = settings.seekingSeconds.minutesRoundedUp(),
             glowEveryMinutes = settings.glowEverySeconds.minutesRoundedUp().takeIf { Glow.isOn(settings) },
             rolesDrawnAtMillis = snapshot.rolesDrawnAtMillis,
+            enabledFeatures = snapshot.enabledFeatures.mapNotNull { name ->
+                ServerFeature.entries.firstOrNull { it.name == name }
+            }.toSet(),
+            features = settings.features,
+            questKinds = settings.quests,
+            items = snapshot.items,
+            quests = snapshot.quests,
+            zoneCenter = settings.zone.initial.center,
+            zone = ZoneTimeline(settings.zone, startedAtMillis = null, streets = null),
+            bluetooth = bluetooth,
+            radarEnabled = radarEnabled,
             capacity = capacity?.players,
             bigGame = snapshot.bigGame,
             friendsHere = players.filter { it.account.relation == UserRelation.FRIEND },
@@ -355,6 +517,16 @@ class LobbyViewModel(
         )
     }
 
+    /** The kinds of items the game's features allow on the board. */
+    fun allowedKinds(features: GameFeatures): List<ItemKind> = buildList {
+        if (features.quests) add(ItemKind.QUEST_POINT)
+        if (features.checkpoints) {
+            add(ItemKind.CHECKPOINT_GEO)
+            add(ItemKind.CHECKPOINT_SCAN)
+        }
+        if (features.pickups) add(ItemKind.PICKUP)
+    }
+
     private fun Int.minutesRoundedUp(): Int = (this + SECONDS_PER_MINUTE - 1) / SECONDS_PER_MINUTE
 
     private companion object {
@@ -362,6 +534,8 @@ class LobbyViewModel(
 
         /** A player whose phone has not asked the server for this long is shown as not connected. */
         const val OFFLINE_AFTER_MILLIS = 20_000L
+        const val BOARD_NAME_MAX = 30
+        const val QUEST_TEXT_MAX = 120
     }
 }
 
@@ -399,6 +573,23 @@ data class LobbyUiState(
     val glowEveryMinutes: Int?,
     /** When the host last drew the roles at random: every phone rolls the dice once for each new value. */
     val rolesDrawnAtMillis: Long?,
+    /** The server features the operator has on: what the host may turn on (docs/adr/0012-nearby-radar.md). */
+    val enabledFeatures: Set<ServerFeature>,
+    /** What the host turned on for this game. */
+    val features: GameFeatures,
+    /** The catalog quests the host picked. */
+    val questKinds: List<QuestKind>,
+    /** The board as this player sees it (the host with the codes). */
+    val items: List<BoardItem>,
+    /** The host's own quests so far. */
+    val quests: List<QuestView>,
+    val zoneCenter: GeoPoint,
+    /** The zone as the search starts (not started, the circles), for the board's map. */
+    val zone: ZoneTimeline,
+    /** This phone's Bluetooth, for the radar. */
+    val bluetooth: BluetoothState,
+    /** «The radar on my phone». */
+    val radarEnabled: Boolean,
     /** About how many players the zone fits (docs/adr/0010-big-games.md); null until the server knows. */
     val capacity: Int? = null,
     /** The host's warning: too many players for the zone, or few places to hide; null: none (or played anyway). */
@@ -430,4 +621,6 @@ data class LobbyPlayer(
     /** The player's phone has not been heard from for a while (closed app, no network). */
     val isOffline: Boolean,
     val account: PlayerAccount,
+    /** What the player's phone can do (the radar); null: it never said. */
+    val capabilities: Capabilities?,
 )

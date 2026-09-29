@@ -37,6 +37,14 @@ data class GameSettings(
      */
     val zoneShape: ZoneShape = ZoneShape.CIRCLE,
     /**
+     * The radar, the quests, the perks and the rest (docs/adr/0012-nearby-radar.md,
+     * docs/adr/0013-quests-sparks-and-sensors.md): all off unless the host turned them on, and only what the server
+     * has on. Older apps: none of it.
+     */
+    val features: GameFeatures = GameFeatures(),
+    /** The catalog quests the host picked, when [GameFeatures.quests] is on; the quest points are placed on the map. */
+    val quests: List<QuestKind> = emptyList(),
+    /**
      * An open game (docs/adr/0011-spectators-and-recordings.md): anyone with an account and the join code may watch it
      * without playing, [spectatorDelaySeconds] behind; admins watch open games live. False (older apps): nobody.
      */
@@ -101,6 +109,21 @@ data class GameRules(
      * still send it with their settings. The building rule uses [buildingDotMarginMeters].
      */
     val buildingWallMarginMeters: Double = 5.0,
+    /**
+     * The radar is required and a hider's phone has had Bluetooth off for this long: the seekers see them
+     * (docs/adr/0012-nearby-radar.md, section 2.6).
+     */
+    val radarOffRevealSeconds: Int = 60,
+    /** A claim only up close: the pair must have been «burning» on the radar within this long. */
+    val nearbyWindowSeconds: Int = 30,
+    /** ... and «burning» steadily for this long, not one spike off a wall. */
+    val nearbyDwellSeconds: Int = 3,
+    /** A quest point, a checkpoint or a pickup is reached when the fixes prove the player within this distance. */
+    val itemReachMeters: Double = 15.0,
+    /** Between two perks of one player. */
+    val perkCooldownSeconds: Int = 30,
+    /** How long a «Spotlight» shows a hider. */
+    val spotlightSeconds: Int = 3,
     /** A fix counts as inside a building when its dot on the map is at least this far from every wall. */
     val buildingDotMarginMeters: Double = 3.0,
     /** The building rule also takes fixes up to this accuracy: indoors, phones rarely do better than 20–35 m. */

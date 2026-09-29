@@ -50,6 +50,28 @@ object ApiRoutes {
     /** POST: reports the chat message with this seq to the moderators. */
     const val CHAT_REPORT = "$CHAT/{seq}/report"
 
+    // The board (docs/adr/0013-quests-sparks-and-sensors.md).
+
+    /** POST [PlaceItemRequest]: the host places an item on the map, in the lobby. */
+    const val ITEMS = "$GAMES/{gameId}/items"
+
+    /** POST, no body: the host removes an item, in the lobby. */
+    const val ITEM_REMOVE = "$ITEMS/{itemId}/remove"
+
+    /** POST [ScanCheckpointRequest]: the player scanned a checkpoint's code. */
+    const val CHECKPOINT_SCAN = "$GAMES/{gameId}/checkpoints/scan"
+
+    /** POST [UsePerkRequest]: the player uses a perk. */
+    const val PERKS = "$GAMES/{gameId}/perks"
+
+    /** POST [CustomQuestRequest]: the host makes up a quest in words, in the lobby. */
+    const val QUESTS = "$GAMES/{gameId}/quests"
+
+    /** POST, no body: the player says they did the host's quest. */
+    const val QUEST_DONE = "$QUESTS/{questId}/done"
+
+    /** POST [QuestReviewRequest]: the host confirms or rejects. */
+    const val QUEST_REVIEW = "$QUESTS/{questId}/review"
     // Watching an open game (docs/adr/0011-spectators-and-recordings.md).
 
     /** POST [WatchRequest] with the account token: [WatchResponse]; the spectator token is for the routes below. */
@@ -170,6 +192,11 @@ object ApiRoutes {
     const val ADMIN_STAFF = "$ADMIN/staff"
     const val ADMIN_AUDIT = "$ADMIN/audit"
 
+    /** GET: the server features and whether they are on ([AdminFeatures]). */
+    const val ADMIN_FEATURES = "$ADMIN/features"
+
+    /** POST [AdminFeatureRequest]: an admin turns a feature on or off for the whole server. */
+    const val ADMIN_FEATURE = "$ADMIN_FEATURES/{feature}"
     // Big games (docs/adr/0010-big-games.md): admins only, every change with a reason in the audit log.
 
     /** GET: [AdminBigGames]; POST [AdminBigGameRequest]: a new big game ([AdminBigGame]). */
@@ -286,6 +313,24 @@ object ApiRoutes {
 
     fun adminGameEnd(gameId: GameId): String = ADMIN_GAME_END.fill("gameId" to gameId.value)
 
+    fun adminFeature(feature: ServerFeature): String = ADMIN_FEATURE.fill("feature" to feature.name)
+
+    fun items(gameId: GameId): String = ITEMS.fill("gameId" to gameId.value)
+
+    fun itemRemove(gameId: GameId, itemId: ItemId): String =
+        ITEM_REMOVE.fill("gameId" to gameId.value, "itemId" to itemId.value)
+
+    fun checkpointScan(gameId: GameId): String = CHECKPOINT_SCAN.fill("gameId" to gameId.value)
+
+    fun perks(gameId: GameId): String = PERKS.fill("gameId" to gameId.value)
+
+    fun quests(gameId: GameId): String = QUESTS.fill("gameId" to gameId.value)
+
+    fun questDone(gameId: GameId, questId: QuestId): String =
+        QUEST_DONE.fill("gameId" to gameId.value, "questId" to questId.value)
+
+    fun questReview(gameId: GameId, questId: QuestId): String =
+        QUEST_REVIEW.fill("gameId" to gameId.value, "questId" to questId.value)
     fun adminGameWatch(gameId: GameId): String = ADMIN_GAME_WATCH.fill("gameId" to gameId.value)
 
     fun adminGameLive(gameId: GameId): String = ADMIN_GAME_LIVE.fill("gameId" to gameId.value)

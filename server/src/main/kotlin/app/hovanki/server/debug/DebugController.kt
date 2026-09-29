@@ -1,6 +1,7 @@
 package app.hovanki.server.debug
 
 import app.hovanki.server.account.UserRepository
+import app.hovanki.server.features.FeatureFlags
 import app.hovanki.server.game.GameException
 import app.hovanki.server.game.GameRegistry
 import app.hovanki.server.mail.EmailSender
@@ -14,10 +15,12 @@ import app.hovanki.shared.debug.DebugGameSummary
 import app.hovanki.shared.debug.DebugReport
 import app.hovanki.shared.debug.DebugReportList
 import app.hovanki.shared.debug.DebugRoutes
+import app.hovanki.shared.debug.DebugSetFeatures
 import app.hovanki.shared.debug.DebugSetRole
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.UserId
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Profile
@@ -43,6 +46,7 @@ class DebugController(
     private val emailSender: EmailSender,
     private val reports: ReportRepository,
     private val users: UserRepository,
+    private val features: FeatureFlags,
 ) {
     init {
         LoggerFactory.getLogger(javaClass)
@@ -74,7 +78,7 @@ class DebugController(
         return synchronized(game) {
             val now = clock.millis()
             game.advance(now)
-            game.debugState(now)
+            game.debugState(now).copy(enabledFeatures = features.enabledNames())
         }
     }
 
@@ -107,6 +111,20 @@ class DebugController(
             )
         },
     )
+
+    /** Turns exactly the named server features on, as an admin does in the admin (docs/adr/0012-nearby-radar.md). */
+    @PostMapping(DebugRoutes.FEATURES)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun setFeatures(@RequestBody request: DebugSetFeatures) {
+        val wanted = request.enabled.map { name ->
+            ServerFeature.entries.firstOrNull { it.name == name }
+                ?: throw GameException(ErrorCode.BAD_REQUEST, "Unknown feature $name")
+        }.toSet()
+        val now = clock.instant()
+        for (feature in ServerFeature.entries) {
+            if (features.isEnabled(feature) != (feature in wanted)) features.set(feature, feature in wanted, "e2e", now)
+        }
+    }
 
     /** Makes an account staff for the admin's e2e tests, as the operator does with SQL on a real server. */
     @PostMapping(DebugRoutes.USER_ROLE)

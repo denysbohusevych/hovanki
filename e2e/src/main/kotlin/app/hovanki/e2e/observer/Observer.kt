@@ -8,6 +8,7 @@ import app.hovanki.shared.debug.DebugGameState
 import app.hovanki.shared.debug.DebugReport
 import app.hovanki.shared.debug.DebugReportList
 import app.hovanki.shared.debug.DebugRoutes
+import app.hovanki.shared.debug.DebugSetFeatures
 import app.hovanki.shared.debug.DebugSetRole
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.UserId
@@ -69,6 +70,15 @@ class Observer(serverUrl: String) : AutoCloseable {
 
     /** Reported chat messages, newest first. */
     suspend fun reports(): List<DebugReport> = get<DebugReportList>(DebugRoutes.REPORTS).reports
+
+    /** Turns exactly [names] on for the whole server (every other feature off), as the admin would one by one. */
+    suspend fun setFeatures(names: List<String>) {
+        val response = client.post(baseUrl + DebugRoutes.FEATURES) {
+            contentType(ContentType.Application.Json)
+            setBody(DebugSetFeatures(names))
+        }
+        check(response.status.isSuccess()) { "Observer: setting the features: HTTP ${response.status}" }
+    }
 
     /** Makes [userId] staff (docs/adr/0008-admin.md), as the operator does with SQL on a real server. */
     suspend fun setRole(userId: UserId, role: UserRole) {

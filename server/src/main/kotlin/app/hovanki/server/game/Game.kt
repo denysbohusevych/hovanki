@@ -6,32 +6,56 @@ import app.hovanki.shared.debug.DebugFixCounts
 import app.hovanki.shared.debug.DebugGameState
 import app.hovanki.shared.debug.DebugPlayer
 import app.hovanki.shared.debug.DebugVote
+import app.hovanki.shared.geo.bearingTo
+import app.hovanki.shared.geo.distanceTo
+import app.hovanki.shared.protocol.Activity
 import app.hovanki.shared.protocol.AdminGame
 import app.hovanki.shared.protocol.AdminLiveGame
 import app.hovanki.shared.protocol.AreaNorms
 import app.hovanki.shared.protocol.BigGameInfo
+import app.hovanki.shared.protocol.BluetoothState
+import app.hovanki.shared.protocol.BoardItem
 import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
+import app.hovanki.shared.protocol.Capabilities
 import app.hovanki.shared.protocol.CapacityState
+import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.CatchView
 import app.hovanki.shared.protocol.ChatMessage
+import app.hovanki.shared.protocol.CustomQuestRequest
+import app.hovanki.shared.protocol.DeviceReport
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
+import app.hovanki.shared.protocol.FeatureMode
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
+import app.hovanki.shared.protocol.Hint
+import app.hovanki.shared.protocol.HintKind
+import app.hovanki.shared.protocol.ItemId
+import app.hovanki.shared.protocol.ItemKind
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.MyState
+import app.hovanki.shared.protocol.NearbySighting
 import app.hovanki.shared.protocol.Passage
+import app.hovanki.shared.protocol.PerkKind
+import app.hovanki.shared.protocol.PerkView
+import app.hovanki.shared.protocol.PlaceItemRequest
+import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.PlayerCounts
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerTrack
 import app.hovanki.shared.protocol.PlayerView
+import app.hovanki.shared.protocol.QuestId
+import app.hovanki.shared.protocol.QuestReviewRequest
+import app.hovanki.shared.protocol.RadarBand
+import app.hovanki.shared.protocol.RadarContact
+import app.hovanki.shared.protocol.RadarState
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.SpectatedPlayer
 import app.hovanki.shared.protocol.SpectatorId
@@ -40,11 +64,15 @@ import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.TerrainAreas
 import app.hovanki.shared.protocol.TracksResponse
+import app.hovanki.shared.protocol.UsePerkRequest
 import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.protocol.UwbPeer
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.VisibleLocation
 import app.hovanki.shared.protocol.ZoneCapacity
 import app.hovanki.shared.protocol.ZonePolygon
+import app.hovanki.shared.protocol.ZoneShape
+import app.hovanki.shared.rules.BoardRules
 import app.hovanki.shared.rules.BuildingMap
 import app.hovanki.shared.rules.BuildingRules
 import app.hovanki.shared.rules.Capacity
@@ -52,7 +80,12 @@ import app.hovanki.shared.rules.CatchRules
 import app.hovanki.shared.rules.ChatRules
 import app.hovanki.shared.rules.Glow
 import app.hovanki.shared.rules.LocationTrack
+import app.hovanki.shared.rules.PerkCatalog
+import app.hovanki.shared.rules.ProximityRules
+import app.hovanki.shared.rules.QuestCatalog
+import app.hovanki.shared.rules.RadarToken
 import app.hovanki.shared.rules.RouteRecorder
+import app.hovanki.shared.rules.Sectors
 import app.hovanki.shared.rules.StreetZone
 import app.hovanki.shared.rules.ZoneRules
 import app.hovanki.shared.rules.areaAt
@@ -62,6 +95,7 @@ import app.hovanki.shared.rules.isUsable
 import app.hovanki.shared.rules.stateAt
 import app.hovanki.shared.totp.catchCodeTotp
 import java.time.Duration
+import kotlin.math.abs
 
 /**
  * One game and all of its rules. Pure domain object: no Spring, no threads, time is passed in,
@@ -180,6 +214,20 @@ class Game(
 
     /** The last glow that left its marks on the hiders ([updateGlow]); 0: none yet. */
     private var glowMarksOf = 0
+
+    /** The radar (docs/adr/0012-nearby-radar.md): what the phones of the players hear of each other. */
+    private val radar = Radar()
+
+    /** The radar's readings by phone model, for the history (nobody's numbers). */
+    private val calibration = RadioCalibration()
+
+    /** The board (docs/adr/0013-quests-sparks-and-sensors.md): the host's items, the quests, the sparks. */
+    private val board = Board(rules)
+    private var questsStarted = false
+
+    /** Ids of items and quests are unique within the game only; nothing secret about them. */
+    private var nextItemNumber = 1
+    private var nextQuestNumber = 1
 
     init {
         if (settings.zoneShape.hasPolygons) streetZoneState = StreetZoneState.LOADING
@@ -306,7 +354,14 @@ class Game(
             throw GameException(ErrorCode.WRONG_STATE, "This account already plays in this game")
         }
         // Only players with an account have a history; a guest's route is never even kept in memory.
-        players[id] = Player(id, name, LocationTrack(rules), userId, userId?.let { RouteRecorder(rules) })
+        players[id] = Player(
+            id = id,
+            name = name,
+            track = LocationTrack(rules),
+            userId = userId,
+            route = userId?.let { RouteRecorder(rules) },
+            odometer = RouteRecorder(rules, keepPoints = false),
+        )
         if (joinRequestId != null) playersByJoinRequest[joinRequestId] = id
         // Watching it until now: a player never sees everybody.
         if (userId != null) spectators.values.removeIf { it.userId == userId }
@@ -361,6 +416,9 @@ class Game(
         val next = newSettings.copy(rules = rules)
         val mapChanged = next.zone != settings.zone || next.zoneShape != settings.zoneShape
         settings = next
+        // What the host placed for a feature that is off now goes with it.
+        board.items.values.removeAll { !isAllowed(it.kind) }
+        if (!next.features.quests) board.customQuests.clear()
         lastActivityMillis = nowMillis
         if (mapChanged) {
             mapRevision++
@@ -409,6 +467,7 @@ class Game(
                         player.outAtMillis = nowMillis
                         player.outOfZoneSinceMillis = null
                         player.insideBuildingSinceMillis = null
+                        board.onOut(player)
                         if (players.values.none { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
                             finish(nowMillis)
                         }
@@ -442,10 +501,24 @@ class Game(
             throw GameException(ErrorCode.BAD_REQUEST, "Pick at least one seeker among the players")
         }
         if (seekers.size == players.size) throw GameException(ErrorCode.BAD_REQUEST, "At least one hider is needed")
+        val features = settings.features
+        if (features.radar == FeatureMode.REQUIRED) {
+            // Every phone reports what it can do with every sync; one that never did has no radar either.
+            val without = players.values.filter { it.device?.bluetooth != BluetoothState.ON }
+            if (without.isNotEmpty()) {
+                throw GameException(
+                    ErrorCode.WRONG_STATE,
+                    "The radar is required, but it is off on: ${without.joinToString { it.name }}",
+                    ErrorReason.FEATURE_MISSING,
+                )
+            }
+        }
 
         for (player in players.values) {
             player.role = if (player.id in seekers) Role.SEEKER else Role.HIDER
             if (player.role == Role.HIDER) player.catchCodeSecret = newCatchCodeSecret()
+            // The radar token's secret: as long and as random as the catch code's.
+            if (features.hasRadar) player.radarSecret = newCatchCodeSecret()
         }
         enterPhase(GamePhase.HIDING, nowMillis)
         hidingStartedAtMillis = nowMillis
@@ -482,9 +555,99 @@ class Game(
             // end leave the replay as it was then: every phone gets the same one, and the game's recording is it too.
             if (!inRound) continue
             player.route?.add(fix)
+            player.odometer.add(fix)
+            if (phase == GamePhase.SEEKING && player.seekingStartFix == null && fix.isUsable(rules)) {
+                player.seekingStartFix = fix
+            }
             if (fix.isUsable(rules) && isInRound(player, fix.timestampMillis)) player.replay.add(fix)
         }
         lastActivityMillis = nowMillis
+    }
+
+    /**
+     * What [playerId]'s phone says about itself with every sync ([DeviceReport], docs/adr/0012-nearby-radar.md):
+     * what it can do and whether the radar is on. A hider whose phone has Bluetooth off while the radar is required
+     * is revealed after [GameRules.radarOffRevealSeconds] ([VisibilityReason.RADAR_OFF]).
+     */
+    fun recordDevice(playerId: PlayerId, report: DeviceReport, nowMillis: Long) {
+        val player = player(playerId)
+        val previousAt = player.deviceAtMillis
+        if (player.activity == Activity.RUNNING && previousAt != null && isPlaying(playerId)) {
+            player.runningMillis += (nowMillis - previousAt).coerceIn(0, DEVICE_REPORT_TTL_MILLIS)
+        }
+        player.device = report
+        player.deviceAtMillis = nowMillis
+        player.activity = if (settings.features.activity) report.activity else Activity.UNKNOWN
+        val required = settings.features.radar == FeatureMode.REQUIRED
+        val inRound = phase == GamePhase.HIDING || phase == GamePhase.SEEKING
+        val hiding = player.role == Role.HIDER && player.status == PlayerStatus.ACTIVE && !player.left
+        player.bluetoothOffSinceMillis = when {
+            !required || !inRound || !hiding || report.bluetooth == BluetoothState.ON -> null
+            else -> player.bluetoothOffSinceMillis ?: nowMillis
+        }
+    }
+
+    /**
+     * Whom [playerId]'s phone heard over Bluetooth since its last sync ([SyncRequest.nearby]): the tokens of this
+     * game's players count for the radar, anything else is dropped. Only in a game with the radar, during the round.
+     */
+    fun recordSightings(playerId: PlayerId, sightings: List<NearbySighting>, nowMillis: Long) {
+        val observer = player(playerId)
+        if (!settings.features.hasRadar || (phase != GamePhase.HIDING && phase != GamePhase.SEEKING)) return
+        val secrets = { players.values.mapNotNull { p -> p.radarSecret?.let { p.id to it } }.toMap() }
+        val dwellMillis = rules.nearbyDwellSeconds * 1000L
+        for (sighting in sightings.take(MAX_SIGHTINGS_PER_SYNC)) {
+            // Never trust a timestamp from the future.
+            val atMillis = minOf(sighting.atMillis, nowMillis)
+            val heardId = radar.record(
+                playerId,
+                sighting.token,
+                sighting.rssi,
+                atMillis,
+                secrets,
+                dwellMillis,
+                ::signalAdjustDb,
+            ) ?: continue
+            val heard = player(heardId)
+            calibration.add(
+                hearer = playerId,
+                heard = heardId,
+                rssi = sighting.rssi,
+                atMillis = atMillis,
+                hearerModel = observer.device?.model,
+                heardModel = heard.device?.model,
+                hearerCarry = observer.carry,
+                heardCarry = heard.carry,
+                far = farApart(observer, heard, atMillis),
+            )
+        }
+    }
+
+    /**
+     * What the radar adds to a reading between [a] and [b] (docs/adr/0012-nearby-radar.md, «Карман»): the body's
+     * damping evened out for every phone in a pocket, and with the pocket stealth on, a hider's pocket taken off again
+     * and then some, so the seekers feel them about a band colder.
+     */
+    private fun signalAdjustDb(a: PlayerId, b: PlayerId): Double {
+        val x = player(a)
+        val y = player(b)
+        var adjust = 0.0
+        if (x.carry == Carry.IN_POCKET) adjust += ProximityRules.POCKET_OFFSET_DB
+        if (y.carry == Carry.IN_POCKET) adjust += ProximityRules.POCKET_OFFSET_DB
+        if (settings.features.pocketStealth && x.role != y.role) {
+            val hider = if (x.role == Role.HIDER) x else y
+            if (hider.carry == Carry.IN_POCKET) adjust -= ProximityRules.STEALTH_DB
+        }
+        return adjust
+    }
+
+    /** GPS says [a] and [b] were at least [FAR_APART_METERS] apart around [atMillis], for sure. */
+    private fun farApart(a: Player, b: Player, atMillis: Long): Boolean {
+        val x = a.track.latestUsable()?.takeIf { abs(it.timestampMillis - atMillis) <= FAR_FIX_AGE_MILLIS }
+            ?: return false
+        val y = b.track.latestUsable()?.takeIf { abs(it.timestampMillis - atMillis) <= FAR_FIX_AGE_MILLIS }
+            ?: return false
+        return x.point.distanceTo(y.point) - x.accuracyMeters - y.accuracyMeters >= FAR_APART_METERS
     }
 
     /**
@@ -516,6 +679,17 @@ class Game(
         val closest = CatchRules.closestPossibleDistanceMeters(seekerFixes, hiderFixes)
         if (closest != null && closest > rules.catchMaxDistanceMeters) {
             throw GameException(ErrorCode.TOO_FAR, "GPS says you are too far away from this player")
+        }
+        // A claim only up close (docs/adr/0012-nearby-radar.md, section 2.5): when both phones have the radar, it
+        // must have heard them «burning» lately; a phone without it is judged by GPS alone, as before.
+        if (settings.features.proximityCatch && seeker.hasRadarOn() && hider.hasRadarOn() &&
+            !radar.wasBurningWithin(seekerId, hiderId, nowMillis, rules.nearbyWindowSeconds * 1000L)
+        ) {
+            throw GameException(
+                ErrorCode.TOO_FAR,
+                "The radar has not heard you next to this player",
+                ErrorReason.NOT_NEARBY,
+            )
         }
 
         catches[catchId] = CatchClaim(
@@ -689,6 +863,7 @@ class Game(
             checkZone(nowMillis)
             checkBuildings(nowMillis)
             updateGlow(nowMillis)
+            advanceBoard(nowMillis)
         }
         val seekingEnds = phaseStartedAtMillis + settings.seekingSeconds * 1000L
         if (phase == GamePhase.SEEKING && nowMillis >= seekingEnds) finish(seekingEnds)
@@ -732,10 +907,18 @@ class Game(
      * State as [viewerId] is allowed to see it. [chatAfter]: the viewer's chat cursor; the snapshot brings the newest
      * [ChatRules.MAX_PER_RESPONSE] messages after it that the viewer may see. Null (a client without chat): none.
      */
-    fun snapshotFor(viewerId: PlayerId, nowMillis: Long, chatAfter: Long? = null): GameSnapshot {
+    fun snapshotFor(
+        viewerId: PlayerId,
+        nowMillis: Long,
+        chatAfter: Long? = null,
+        /** The server features the operator has on, by name ([GameSnapshot.enabledFeatures]). */
+        enabledFeatures: List<String> = emptyList(),
+    ): GameSnapshot {
         val viewer = player(viewerId)
         // Every request ends in a snapshot for its player: the lobby shows who is connected.
         viewer.lastSeenMillis = nowMillis
+        val features = settings.features
+        val inRound = phase == GamePhase.HIDING || phase == GamePhase.SEEKING
         return GameSnapshot(
             gameId = id,
             joinCode = joinCode,
@@ -757,6 +940,8 @@ class Game(
                     player.caughtBy,
                     lastSeenMillis = player.lastSeenMillis,
                     left = player.left,
+                    capabilities = player.device?.toCapabilities(),
+                    sparks = player.sparks.takeIf { features.hasSparks },
                 )
             },
             me = MyState(
@@ -766,6 +951,14 @@ class Game(
                 catchCodeSecret = viewer.catchCodeSecret,
                 outOfZoneDeadlineMillis = viewer.outOfZoneDeadlineMillis(),
                 insideBuildingRevealAtMillis = viewer.insideBuildingRevealAtMillis(),
+                radarSecret = viewer.radarSecret.takeIf { features.hasRadar && inRound },
+                radar = radarStateFor(viewer, nowMillis),
+                seekerTokens = seekerTokensFor(viewer, nowMillis),
+                bluetoothDeadlineMillis = viewer.bluetoothDeadlineMillis(),
+                uwbPeers = uwbPeersFor(viewer, nowMillis),
+                sparks = if (features.hasSparks) viewer.sparks else 0,
+                hint = hintFor(viewer, nowMillis),
+                perks = perkViewsFor(viewer, nowMillis),
             ),
             catches = catches.values
                 .filter { it.seekerId == viewerId || it.hiderId == viewerId || viewerId in eligibleVoters(it) }
@@ -780,6 +973,9 @@ class Game(
             streetZone = streetZoneState,
             mapRevision = mapRevision,
             rolesDrawnAtMillis = rolesDrawnAtMillis,
+            enabledFeatures = enabledFeatures,
+            items = itemsFor(viewer),
+            quests = if (features.quests) board.questViewsFor(viewer, isHost = viewer.id == hostId) else emptyList(),
             capacity = capacity(),
             bigGame = bigGame,
             counts = if (isServerHosted) counts() else null,
@@ -1052,8 +1248,7 @@ class Game(
                     outOfZoneDeadlineMillis = player.outOfZoneDeadlineMillis(),
                     insideBuildingSinceMillis = player.insideBuildingSinceMillis,
                     buildingsLoadedAtMillis = player.buildingsLoadedAtMillis,
-                    revealedToSeekers = revealReason(player, nowMillis)
-                        ?: VisibilityReason.GLOW.takeIf { glowMarkShown(player) },
+                    revealedToSeekers = revealReason(player, nowMillis) ?: markCause(player),
                     catchCodeSecret = player.catchCodeSecret,
                     fixes = DebugFixCounts(
                         accepted = player.fixResults[LocationTrack.Result.ACCEPTED] ?: 0,
@@ -1068,6 +1263,12 @@ class Game(
                     left = player.left,
                     lastSeenMillis = player.lastSeenMillis,
                     glowMark = player.glowMark,
+                    capabilities = player.device?.toCapabilities(),
+                    activity = player.activity,
+                    radarSecret = player.radarSecret,
+                    sparks = player.sparks,
+                    bluetoothOffSinceMillis = player.bluetoothOffSinceMillis,
+                    carry = player.device?.carry,
                 )
             },
             catches = catches.values.map { claim ->
@@ -1085,19 +1286,353 @@ class Game(
             },
             buildings = buildingsState,
             chat = chat.toList(),
+            radar = radar.debugPairs(nowMillis),
+            items = board.items.values.map { it.toView(withCode = true) },
+            quests = board.debugQuests(players.values),
         )
+    }
+
+    // ---- The board and the perks (docs/adr/0013-quests-sparks-and-sensors.md) ----
+
+    /**
+     * The host places an item on the map in the lobby (section 2.4): in or near the zone (up to
+     * [ITEMS_BEYOND_ZONE_SHARE] of the radius plus [ITEMS_BEYOND_ZONE_METERS] beyond the first circle: the risky spots
+     * outside the shrinking zone are the point), of a kind the game's features allow. A scan checkpoint gets its code
+     * from [newCode]; the host sees it in the snapshot to print the QR code.
+     */
+    fun placeItem(by: PlayerId, request: PlaceItemRequest, newCode: () -> String, nowMillis: Long): BoardItem {
+        requirePhase(GamePhase.LOBBY)
+        requireHost(by, "place items")
+        if (!isAllowed(request.kind)) throw featureOff(request.kind.name)
+        val name = ChatRules.clean(request.name)
+        if (name.length > BoardRules.MAX_NAME_LENGTH) {
+            throw GameException(ErrorCode.BAD_REQUEST, "A name has at most ${BoardRules.MAX_NAME_LENGTH} characters")
+        }
+        val sparks = request.sparks ?: BoardRules.defaultSparks(request.kind)
+        if (sparks !in 0..QuestCatalog.MAX_SPARKS) {
+            throw GameException(ErrorCode.BAD_REQUEST, "Sparks: 0..${QuestCatalog.MAX_SPARKS}")
+        }
+        val perk = when (request.kind) {
+            ItemKind.PICKUP -> request.perk ?: throw GameException(ErrorCode.BAD_REQUEST, "A pickup needs a perk")
+            else -> null
+        }
+        val initial = settings.zone.initial
+        val reach = initial.radiusMeters * (1 + ITEMS_BEYOND_ZONE_SHARE) + ITEMS_BEYOND_ZONE_METERS
+        if (request.point.distanceTo(initial.center) > reach) {
+            throw GameException(ErrorCode.BAD_REQUEST, "Place items in or near the zone")
+        }
+        val item = Item(
+            id = ItemId("i${nextItemNumber++}"),
+            kind = request.kind,
+            point = request.point,
+            name = name,
+            audience = request.audience,
+            sparks = sparks,
+            perk = perk,
+            code = if (request.kind == ItemKind.CHECKPOINT_SCAN) newCode() else null,
+        )
+        board.place(item)
+        lastActivityMillis = nowMillis
+        return item.toView(withCode = true)
+    }
+
+    fun removeItem(by: PlayerId, itemId: ItemId, nowMillis: Long) {
+        requirePhase(GamePhase.LOBBY)
+        requireHost(by, "remove items")
+        board.remove(itemId)
+        lastActivityMillis = nowMillis
+    }
+
+    /**
+     * The host makes up a quest in words (section 2.3), in the lobby or during the round: the players of its audience
+     * see it, say when they did it ([markQuestDone]) and the host confirms ([reviewQuest]).
+     */
+    fun addCustomQuest(by: PlayerId, request: CustomQuestRequest, nowMillis: Long) {
+        if (phase == GamePhase.FINISHED) throw GameException(ErrorCode.WRONG_STATE, "The game is over")
+        requireHost(by, "add quests")
+        if (!settings.features.quests) throw featureOff("Quests")
+        val text = ChatRules.clean(request.text)
+        if (text.length !in 1..QuestCatalog.MAX_CUSTOM_TEXT) {
+            throw GameException(ErrorCode.BAD_REQUEST, "A quest has 1..${QuestCatalog.MAX_CUSTOM_TEXT} characters")
+        }
+        if (request.sparks !in 1..QuestCatalog.MAX_SPARKS) {
+            throw GameException(ErrorCode.BAD_REQUEST, "Sparks: 1..${QuestCatalog.MAX_SPARKS}")
+        }
+        board.addCustomQuest(CustomQuest(newQuestId(), text, request.audience, request.sparks))
+        lastActivityMillis = nowMillis
+    }
+
+    /** [playerId] says they did the host's quest [questId], during the round; the host answers ([reviewQuest]). */
+    fun markQuestDone(playerId: PlayerId, questId: QuestId, nowMillis: Long) {
+        val player = player(playerId)
+        if (!isPlaying(playerId)) {
+            throw GameException(ErrorCode.WRONG_STATE, "Not in a round", ErrorReason.QUEST_NOT_ACTIVE)
+        }
+        board.markDone(player, questId)
+        lastActivityMillis = nowMillis
+    }
+
+    /** The host confirms or refuses what [QuestReviewRequest.playerId] said about quest [questId]. */
+    fun reviewQuest(by: PlayerId, questId: QuestId, request: QuestReviewRequest, nowMillis: Long) {
+        requireHost(by, "review quests")
+        board.review(questId, player(request.playerId), request.approved)
+        lastActivityMillis = nowMillis
+    }
+
+    /**
+     * [playerId] scanned the code of a checkpoint (section 2.4), during the search: the code must be one of this
+     * game's, and the fixes must not prove the player far from it.
+     */
+    fun scanCheckpoint(playerId: PlayerId, code: String, nowMillis: Long) {
+        requirePhase(GamePhase.SEEKING)
+        val player = player(playerId)
+        if (!player.isPlayingNow) throw GameException(ErrorCode.FORBIDDEN, "You are out of the round")
+        if (!settings.features.checkpoints) throw featureOff("Checkpoints")
+        board.scan(player, code, nowMillis)
+        lastActivityMillis = nowMillis
+    }
+
+    /**
+     * [playerId] uses a perk (section 3): one they picked up on the map, else one bought for sparks. The effects
+     * work on what the seekers see between glows ([visibleLocation]) and on the hints ([hintFor]).
+     */
+    fun usePerk(playerId: PlayerId, request: UsePerkRequest, nowMillis: Long) {
+        requirePhase(GamePhase.SEEKING)
+        val features = settings.features
+        if (!features.perks && !features.pickups) throw featureOff("Perks")
+        val player = player(playerId)
+        if (!player.isPlayingNow) throw GameException(ErrorCode.FORBIDDEN, "You are out of the round")
+        val spec = PerkCatalog.spec(request.perk)
+        if (spec.role != player.role) throw perkUnavailable("Not for your role")
+        if (spec.needsGlow && !Glow.isOn(settings)) throw perkUnavailable("This perk needs the glow")
+        if ((player.perkUses[spec.perk] ?: 0) >= spec.maxUses) throw perkUnavailable("Used up for this round")
+        player.lastPerkAtMillis?.let { last ->
+            if (nowMillis - last < rules.perkCooldownSeconds * 1000L) {
+                throw perkUnavailable("Wait a little between perks")
+            }
+        }
+        val owned = player.perksOwned[spec.perk] ?: 0
+        if (owned == 0) {
+            if (!features.perks) throw perkUnavailable("Only perks found on the map in this game")
+            if (player.sparks < spec.price) {
+                throw GameException(ErrorCode.WRONG_STATE, "Not enough sparks", ErrorReason.NOT_ENOUGH_SPARKS)
+            }
+        }
+        applyPerk(player, spec.perk, request, nowMillis)
+        if (owned > 0) player.perksOwned[spec.perk] = owned - 1 else player.sparks -= spec.price
+        player.perkUses[spec.perk] = (player.perkUses[spec.perk] ?: 0) + 1
+        player.lastPerkAtMillis = nowMillis
+        lastActivityMillis = nowMillis
+    }
+
+    private fun applyPerk(player: Player, perk: PerkKind, request: UsePerkRequest, nowMillis: Long) {
+        val seekingStart = checkNotNull(zoneStartedAtMillis)
+        val lasts = PerkCatalog.spec(perk).effectSeconds * 1000L
+        when (perk) {
+            PerkKind.ERASE_TRAIL -> {
+                if (player.glowMark == null && player.decoyMark == null) throw perkUnavailable("No spot to erase yet")
+                player.glowMark = null
+                player.decoyMark = null
+                player.freshMark = null
+            }
+
+            PerkKind.DECOY -> {
+                val point = request.point ?: throw GameException(ErrorCode.BAD_REQUEST, "A decoy needs a point")
+                // It passes for the spot of the last glow: the same time stamp, inside the zone like a real one.
+                val last = Glow.lastStarted(settings, seekingStart, nowMillis)?.takeIf { !it.isOpenAt(nowMillis) }
+                    ?: throw perkUnavailable("A decoy works after a glow")
+                val zone = settings.zone.areaAt(nowMillis - seekingStart, streetZone)
+                if (zone.signedDistanceMeters(point) > 0) {
+                    throw GameException(ErrorCode.BAD_REQUEST, "Put the decoy inside the zone")
+                }
+                player.decoyMark = LocationSample(point, DECOY_ACCURACY_METERS, last.endMillis - 1)
+                player.freshMark = null
+            }
+
+            PerkKind.INVISIBLE -> {
+                val next = Glow.next(settings, seekingStart, nowMillis) ?: throw perkUnavailable("No glow left")
+                player.invisibleGlowIndex = next.index
+            }
+
+            PerkKind.SENSE -> player.hint = Hint(HintKind.SENSE, nowMillis + lasts)
+
+            PerkKind.DIRECTION -> player.hint = Hint(HintKind.DIRECTION, nowMillis + lasts)
+
+            PerkKind.RADIUS -> player.hint = Hint(HintKind.RADIUS, nowMillis + lasts)
+
+            PerkKind.SPOTLIGHT -> perkTarget(request).spotlightUntilMillis = nowMillis + rules.spotlightSeconds * 1000L
+
+            PerkKind.FRESH_TRAIL -> {
+                val target = perkTarget(request)
+                val fresh = target.track.latestAtOrBefore(nowMillis - PerkCatalog.FRESH_TRAIL_AGE_MILLIS)
+                    ?.takeIf { it.timestampMillis > (target.glowMark?.timestampMillis ?: Long.MIN_VALUE) }
+                    ?: throw perkUnavailable("No newer trail of this player")
+                target.freshMark = fresh
+            }
+        }
+    }
+
+    private fun perkTarget(request: UsePerkRequest): Player {
+        val id = request.targetId ?: throw GameException(ErrorCode.BAD_REQUEST, "This perk needs a hider")
+        val target = player(id)
+        if (target.role != Role.HIDER || target.status != PlayerStatus.ACTIVE || target.left) {
+            throw GameException(ErrorCode.WRONG_STATE, "This player can't be the target")
+        }
+        return target
+    }
+
+    /** The board during the search: the quests start with it, then every rule is judged on the fixes so far. */
+    private fun advanceBoard(nowMillis: Long) {
+        val seekingStart = zoneStartedAtMillis ?: return
+        if (phase != GamePhase.SEEKING || !settings.features.hasSparks) return
+        if (!questsStarted) {
+            questsStarted = true
+            board.startQuests(players.values, settings.quests, ::newQuestId, seekingStart)
+        }
+        val context = BoardContext(
+            nowMillis = nowMillis,
+            zoneCenter = settings.zone.initial.center,
+            lastGlow = Glow.lastStarted(settings, seekingStart, nowMillis),
+            radarBand = { a, b -> radar.bandBetween(a, b, nowMillis) },
+        )
+        board.advance(players.values, context)
+    }
+
+    /**
+     * The items as [viewer] sees them: every one in the lobby (the host with the codes of the scan checkpoints), the
+     * ones of their audience in the round.
+     */
+    private fun itemsFor(viewer: Player): List<BoardItem> {
+        if (!settings.features.hasBoard) return emptyList()
+        val lobby = phase == GamePhase.LOBBY
+        return board.items.values
+            .filter { lobby || BoardRules.isFor(it.audience, viewer.role) }
+            .map { it.toView(withCode = lobby && viewer.id == hostId) }
+    }
+
+    /** The perks [viewer] may use: every one of their role with the shop, only the ones found without it. */
+    private fun perkViewsFor(viewer: Player, nowMillis: Long): List<PerkView> {
+        val features = settings.features
+        if (!features.perks && !features.pickups) return emptyList()
+        val cooldownEnds = viewer.lastPerkAtMillis?.let { it + rules.perkCooldownSeconds * 1000L }
+            ?.takeIf { it > nowMillis }
+        return PerkCatalog.forRole(viewer.role).mapNotNull { spec ->
+            val owned = viewer.perksOwned[spec.perk] ?: 0
+            if (!features.perks && owned == 0) return@mapNotNull null
+            val usesLeft = (spec.maxUses - (viewer.perkUses[spec.perk] ?: 0)).coerceAtLeast(0)
+            val affordable = owned > 0 || (features.perks && viewer.sparks >= spec.price)
+            PerkView(
+                perk = spec.perk,
+                price = spec.price,
+                owned = owned,
+                usesLeft = usesLeft,
+                canUse = phase == GamePhase.SEEKING && viewer.isPlayingNow && usesLeft > 0 && cooldownEnds == null &&
+                    affordable && (!spec.needsGlow || Glow.isOn(settings)),
+                availableAtMillis = cooldownEnds,
+            )
+        }
+    }
+
+    /**
+     * The hint a perk bought [viewer], while it lasts: the compass sector towards the nearest player of the other team
+     * and how far they are, as a band, from where both are right now. No coordinates leave the server.
+     */
+    private fun hintFor(viewer: Player, nowMillis: Long): Hint? {
+        val hint = viewer.hint?.takeIf { phase == GamePhase.SEEKING && nowMillis < it.untilMillis } ?: return null
+        val here = viewer.track.latestUsable()?.point ?: return hint
+        val nearest = players.values
+            .filter { it.isPlayingNow && it.role != viewer.role }
+            .mapNotNull { it.track.latestUsable()?.point }
+            .minByOrNull { it.distanceTo(here) } ?: return hint
+        return hint.copy(
+            sector = Sectors.compassSector(here.bearingTo(nearest)).takeIf { hint.kind != HintKind.RADIUS },
+            band = Sectors.bandFor(here.distanceTo(nearest)).takeIf { hint.kind != HintKind.DIRECTION },
+        )
+    }
+
+    // ---- The radar (docs/adr/0012-nearby-radar.md) ----
+
+    /**
+     * The viewer's radar during the search (section 2.4): a seeker gets every active hider the radar hears, by name;
+     * a hider with the sense on gets the nearest seeker, nameless.
+     */
+    private fun radarStateFor(viewer: Player, nowMillis: Long): RadarState? {
+        if (!settings.features.hasRadar || phase != GamePhase.SEEKING || !viewer.isPlayingNow) return null
+        val contacts = when (viewer.role) {
+            Role.SEEKER ->
+                players.values
+                    .filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE && !it.left }
+                    .mapNotNull { hider ->
+                        val band = radar.bandBetween(viewer.id, hider.id, nowMillis)
+                        if (band == RadarBand.NONE) return@mapNotNull null
+                        RadarContact(band, hider.id, radar.lastHeardMillis(viewer.id, hider.id))
+                    }
+
+            Role.HIDER -> {
+                if (!settings.features.hiderSense) return null
+                players.values.filter { it.role == Role.SEEKER && !it.left }
+                    .map { radar.bandBetween(viewer.id, it.id, nowMillis) to radar.lastHeardMillis(viewer.id, it.id) }
+                    .filter { (band, _) -> band != RadarBand.NONE }
+                    .maxByOrNull { (band, _) -> band }
+                    ?.let { (band, at) -> listOf(RadarContact(band, atMillis = at)) }
+                    .orEmpty()
+            }
+        }
+        return RadarState(contacts)
+    }
+
+    /**
+     * The seekers' radar tokens for a hider with the sense on, during the search («Пульс»): the current slot's and
+     * its neighbours', so the phone knows a seeker's token the moment it hears it. Nothing for a seeker, nothing of
+     * the hiders.
+     */
+    private fun seekerTokensFor(viewer: Player, nowMillis: Long): List<String> {
+        if (!settings.features.hiderSense || phase != GamePhase.SEEKING) return emptyList()
+        if (viewer.role != Role.HIDER || !viewer.isPlayingNow) return emptyList()
+        return players.values
+            .filter { it.role == Role.SEEKER && !it.left }
+            .flatMap { seeker -> seeker.radarSecret?.let { RadarToken.candidates(it, nowMillis) }.orEmpty() }
+    }
+
+    /**
+     * Whom [viewer]'s phone may range with by UWB right now (section 3): the other team's players whose phones are of
+     * the same kind, have UWB and are on the screen too («peeking»), the nearest [MAX_UWB_PEERS]. In fair mode only
+     * when every player's phone has UWB and all are of one kind. A hider gets their peers too, since ranging takes
+     * both sides; whether their app shows the arrow is [GameFeatures.precisionForHiders].
+     */
+    private fun uwbPeersFor(viewer: Player, nowMillis: Long): List<UwbPeer> {
+        val features = settings.features
+        if (!features.precisionRadar || phase != GamePhase.SEEKING || !viewer.isPlayingNow) return emptyList()
+        val mine = viewer.device?.takeIf { viewer.isReporting(nowMillis) && it.uwb && it.onScreen }
+        val myPlatform = mine?.platform?.takeIf { it != Platform.OTHER } ?: return emptyList()
+        if (mine.uwbToken == null) return emptyList()
+        val playing = players.values.filter { it.isPlayingNow }
+        if (features.fairOnly) {
+            val platforms = playing.mapTo(HashSet()) { it.device?.platform ?: Platform.OTHER }
+            if (playing.any { it.device?.uwb != true } || platforms.size != 1) return emptyList()
+        }
+        val here = viewer.track.latestUsable()?.point
+        return playing
+            .filter { it.role != viewer.role }
+            .mapNotNull { other ->
+                val device = other.device?.takeIf { other.isReporting(nowMillis) } ?: return@mapNotNull null
+                val token = device.uwbToken ?: return@mapNotNull null
+                if (!device.uwb || !device.onScreen || device.platform != myPlatform) return@mapNotNull null
+                val meters = here?.let { h -> other.track.latestUsable()?.point?.distanceTo(h) } ?: Double.MAX_VALUE
+                meters to UwbPeer(other.id, token, device.platform)
+            }
+            .sortedBy { (meters, _) -> meters }
+            .take(MAX_UWB_PEERS)
+            .map { (_, peer) -> peer }
     }
 
     private fun visibleLocation(viewer: Player, target: Player, nowMillis: Long): VisibleLocation? {
         if (viewer.id == target.id || viewer.role != Role.SEEKER) return null
         val reason = revealReason(target, nowMillis)
-        // Between glows: where the last glow left the hider, not where they are now.
-        val fix = when {
-            reason != null -> target.track.latest
-            glowMarkShown(target) -> target.glowMark
-            else -> null
-        } ?: return null
-        val cause = reason ?: VisibilityReason.GLOW
+        // Between glows: where the last glow left the hider (or what a perk put there), not where they are now.
+        val fix = if (reason != null) target.track.latest else target.shownMark()
+        val cause = reason ?: markCause(target)
+        if (fix == null || cause == null) return null
         return VisibleLocation(fix.point, fix.accuracyMeters, fix.timestampMillis, cause.forFirstClients(), cause)
     }
 
@@ -1106,7 +1641,13 @@ class Game(
      * later goes to `cause` and, in `reason`, becomes the closest one they know.
      */
     private fun VisibilityReason.forFirstClients(): VisibilityReason = when (this) {
-        VisibilityReason.INSIDE_BUILDING, VisibilityReason.GLOW -> VisibilityReason.OUT_OF_ZONE
+        VisibilityReason.INSIDE_BUILDING,
+        VisibilityReason.GLOW,
+        VisibilityReason.RADAR_OFF,
+        VisibilityReason.SPOTLIGHT,
+        VisibilityReason.FRESH_TRAIL,
+        -> VisibilityReason.OUT_OF_ZONE
+
         else -> this
     }
 
@@ -1120,7 +1661,9 @@ class Game(
         target.recentlyMocked(nowMillis) -> VisibilityReason.MOCK_LOCATION
         target.isStale(nowMillis) -> VisibilityReason.STALE_SIGNAL
         target.isRevealedInsideBuilding(nowMillis) -> VisibilityReason.INSIDE_BUILDING
-        isGlowing(nowMillis) -> VisibilityReason.GLOW
+        target.isRevealedRadarOff(nowMillis) -> VisibilityReason.RADAR_OFF
+        target.isSpotlit(nowMillis) -> VisibilityReason.SPOTLIGHT
+        isGlowing(nowMillis) && !target.isInvisible(nowMillis) -> VisibilityReason.GLOW
         else -> null
     }
 
@@ -1130,9 +1673,59 @@ class Game(
         return phase == GamePhase.SEEKING && Glow.openAt(settings, seekingStart, nowMillis) != null
     }
 
-    /** Between glows the seekers see the spot where the last one left an active hider. */
-    private fun glowMarkShown(target: Player): Boolean = phase == GamePhase.SEEKING && !target.left &&
-        target.role == Role.HIDER && target.status == PlayerStatus.ACTIVE && target.glowMark != null
+    /**
+     * Between glows the seekers see the spot where the last one left an active hider, or what a perk put in its place:
+     * a seeker's «Fresh trail» first, else a hider's «Decoy», else the glow's own spot.
+     */
+    private fun Player.shownMark(): LocationSample? {
+        if (phase != GamePhase.SEEKING || left || role != Role.HIDER || status != PlayerStatus.ACTIVE) return null
+        return freshMark ?: decoyMark ?: glowMark
+    }
+
+    /** Why the seekers see [target]'s spot between glows; null when there is none. */
+    private fun markCause(target: Player): VisibilityReason? = when {
+        target.shownMark() == null -> null
+        target.freshMark != null -> VisibilityReason.FRESH_TRAIL
+        else -> VisibilityReason.GLOW
+    }
+
+    /** «Invisible» (docs/adr/0013): the hider bought their way out of the glow going on right now. */
+    private fun Player.isInvisible(nowMillis: Long): Boolean {
+        val seekingStart = zoneStartedAtMillis ?: return false
+        val open = Glow.openAt(settings, seekingStart, nowMillis) ?: return false
+        return invisibleGlowIndex == open.index
+    }
+
+    private fun Player.isSpotlit(nowMillis: Long): Boolean = spotlightUntilMillis?.let { nowMillis < it } == true
+
+    private fun Player.bluetoothDeadlineMillis(): Long? =
+        bluetoothOffSinceMillis?.let { it + rules.radarOffRevealSeconds * 1000L }
+
+    private fun Player.isRevealedRadarOff(nowMillis: Long): Boolean =
+        bluetoothDeadlineMillis()?.let { nowMillis >= it } == true
+
+    private fun Player.hasRadarOn(): Boolean = device?.bluetooth == BluetoothState.ON
+
+    /** Where the phone said it is; unknown until it said. */
+    private val Player.carry: Carry get() = device?.carry ?: Carry.UNKNOWN
+
+    private fun Player.isReporting(nowMillis: Long): Boolean =
+        deviceAtMillis?.let { nowMillis - it <= DEVICE_REPORT_TTL_MILLIS } == true
+
+    private fun DeviceReport.toCapabilities() = Capabilities(platform, bluetooth, uwb, onScreen, activitySensor)
+
+    private fun isAllowed(kind: ItemKind): Boolean = when (kind) {
+        ItemKind.QUEST_POINT -> settings.features.quests
+        ItemKind.CHECKPOINT_GEO, ItemKind.CHECKPOINT_SCAN -> settings.features.checkpoints
+        ItemKind.PICKUP -> settings.features.pickups
+    }
+
+    private fun newQuestId() = QuestId("q${nextQuestNumber++}")
+
+    private fun featureOff(what: String) =
+        GameException(ErrorCode.WRONG_STATE, "$what: off in this game", ErrorReason.FEATURE_DISABLED)
+
+    private fun perkUnavailable(why: String) = GameException(ErrorCode.WRONG_STATE, why, ErrorReason.PERK_UNAVAILABLE)
 
     /**
      * Once a glow is over, where it left each active hider: the last fix taken during it (or before), which the seekers
@@ -1144,7 +1737,15 @@ class Game(
         if (last.isOpenAt(nowMillis) || last.index <= glowMarksOf) return
         glowMarksOf = last.index
         for (hider in players.values.filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
-            hider.track.latestAtOrBefore(last.endMillis - 1)?.let { hider.glowMark = it }
+            // What a perk put on the map lasts until the next glow.
+            hider.decoyMark = null
+            hider.freshMark = null
+            // «Invisible»: this glow leaves no new spot, the old one stays.
+            if (hider.invisibleGlowIndex == last.index) continue
+            hider.track.latestAtOrBefore(last.endMillis - 1)?.let {
+                hider.glowMark = it
+                hider.glowMarkIndex = last.index
+            }
         }
     }
 
@@ -1180,6 +1781,7 @@ class Game(
                         val outAt = since + rules.outOfZoneGraceSeconds * 1000L
                         hider.outAtMillis = outAt
                         hider.outOfZoneSinceMillis = null
+                        board.onOut(hider)
                         lastOutMillis = maxOf(lastOutMillis ?: outAt, outAt)
                     }
                 }
@@ -1236,10 +1838,13 @@ class Game(
         claim.deadlineMillis = atMillis
         if (confirmed) {
             player(claim.seekerId).catches++
+            calibration.onCatch(claim.seekerId, claim.hiderId, atMillis)
             val hider = player(claim.hiderId)
             hider.status = PlayerStatus.CAUGHT
             hider.outAtMillis = atMillis
             hider.caughtBy = claim.seekerId
+            board.onCatch(claim.seekerId, players.values)
+            board.onOut(hider)
             if (players.values.none { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) finish(atMillis)
         }
     }
@@ -1297,6 +1902,7 @@ class Game(
             disputes = catches.values.count { it.wasDisputed },
             chatMessages = lastChatSeq.toInt(),
             buildings = buildingsState,
+            radioCalibration = calibration.summary(),
             streetZone = streetZone?.stages,
             // Not a big game's: a thousand ways, and each of its players is shown only their own and their friends'.
             recording = if (isServerHosted) {
@@ -1335,6 +1941,8 @@ class Game(
                     movingSeconds = (route.movingMillis / 1000).toInt(),
                     maxSpeedMetersPerSecond = route.maxSpeedMetersPerSecond,
                     route = route.points(),
+                    sparks = player.sparks,
+                    questsDone = player.questsDone,
                 )
             },
         )
@@ -1379,74 +1987,7 @@ class Game(
         if (phase != expected) throw GameException(ErrorCode.WRONG_STATE, "Not possible in phase $phase")
     }
 
-    private class Player(
-        val id: PlayerId,
-        val name: String,
-        val track: LocationTrack,
-        val userId: UserId?,
-        /** The whole round, for the history; players with an account only. */
-        val route: RouteRecorder?,
-    ) {
-        var role: Role = Role.HIDER
-        var status: PlayerStatus = PlayerStatus.ACTIVE
-
-        /** When a hider was caught or eliminated, and by whom they were caught. */
-        var outAtMillis: Long? = null
-        var caughtBy: PlayerId? = null
-        var catchClaims = 0
-        var catches = 0
-        var zoneWarnings = 0
-        var buildingWarnings = 0
-        var catchCodeSecret: String? = null
-        var lastFixReceivedMillis: Long? = null
-        var outOfZoneSinceMillis: Long? = null
-        var insideBuildingSinceMillis: Long? = null
-
-        /** Left the game for good (the leave button, or joining another game). */
-        var left = false
-
-        /** Server time of the player's last request. */
-        var lastSeenMillis: Long? = null
-
-        /** Where the last glow left this hider: what the seekers see between glows. */
-        var glowMark: LocationSample? = null
-
-        /** The accounts of the player's friends, loaded at the join of a big game: its snapshot shows them. */
-        var friends: Set<UserId> = emptySet()
-
-        /**
-         * The whole round, thinned, for the replay right after it: every player, only in memory (unlike [route], which
-         * may be saved to the history).
-         */
-        val replay = ReplayTrack()
-
-        /** When the player's app last fetched the READY buildings (for the e2e observer). */
-        var buildingsLoadedAtMillis: Long? = null
-        val fixResults = HashMap<LocationTrack.Result, Int>()
-
-        /** When the player's recent chat messages were sent, oldest first (the chat's rate limit). */
-        val chatSentAtMillis = ArrayDeque<Long>()
-
-        /** The player's last [CHAT_IDS_KEPT] messages by the app's id for them (`SendChatRequest.clientMessageId`). */
-        val chatByClientId = LinkedHashMap<String, ChatMessage>()
-    }
-
     private class Spectator(val id: SpectatorId, val userId: UserId, var lastSeenMillis: Long)
-
-    private class CatchClaim(
-        val id: CatchId,
-        val seekerId: PlayerId,
-        val hiderId: PlayerId,
-        val createdAtMillis: Long,
-        var deadlineMillis: Long,
-        val estimatedDistanceAtClaimMeters: Double?,
-    ) {
-        var status: CatchStatus = CatchStatus.AWAITING_CODE
-        var wasDisputed = false
-        var failedAttempts = 0
-        val votes = LinkedHashMap<PlayerId, Boolean>()
-        val isOpen get() = status == CatchStatus.AWAITING_CODE || status == CatchStatus.DISPUTED
-    }
 
     companion object {
         const val MAX_PLAYERS = 30
@@ -1469,6 +2010,21 @@ class Game(
         /** A message is sent again within seconds of the first try: a few ids per player are plenty. */
         private const val CHAT_IDS_KEPT = 20
 
+        /** A phone's report counts this long: the UWB pairing needs both on the screen right now. */
+        private const val DEVICE_REPORT_TTL_MILLIS = 20_000L
+
+        /** A reading counts as «far apart» for the calibration when GPS proves at least this, with fixes this fresh. */
+        private const val FAR_APART_METERS = 60.0
+        private const val FAR_FIX_AGE_MILLIS = 20_000L
+        private const val MAX_UWB_PEERS = 4
+        private const val MAX_SIGHTINGS_PER_SYNC = 200
+
+        /** How far beyond the first circle the host may place items: risky spots outside the shrinking zone. */
+        private const val ITEMS_BEYOND_ZONE_SHARE = 0.5
+        private const val ITEMS_BEYOND_ZONE_METERS = 100.0
+
+        /** A decoy's spot looks like a fix of the usual accuracy. */
+        private const val DECOY_ACCURACY_METERS = 12.0
         const val MAX_SPECTATORS = 50
 
         /** A spectator counts as watching while their app asked within this long (it asks every few seconds). */

@@ -2,6 +2,7 @@ package app.hovanki.server.history
 
 import app.hovanki.server.account.UserRepository
 import app.hovanki.server.game.GameRecord
+import app.hovanki.server.radio.RadioCalibrationRepository
 import app.hovanki.shared.protocol.UserId
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.DisposableBean
@@ -27,7 +28,8 @@ import kotlin.concurrent.thread
  * Every game played to its end goes to `played_games`; each player with an account (still there) gets a row in
  * `game_results`; and those of them who agreed to keep their routes when it is saved, their route in `game_routes`.
  * With at least one of them, the game's recording, everybody's way, goes to `game_recordings`
- * (docs/adr/0011-spectators-and-recordings.md).
+ * (docs/adr/0011-spectators-and-recordings.md); the radar's readings by phone model add up in `radio_calibration`
+ * (docs/adr/0012-nearby-radar.md).
  * The accounts are locked meanwhile, like [HistoryService.setPrivacy] locks them: a route is never saved after its
  * owner turned saving off.
  */
@@ -35,6 +37,7 @@ import kotlin.concurrent.thread
 class HistoryWriter(
     private val history: HistoryRepository,
     private val users: UserRepository,
+    private val calibration: RadioCalibrationRepository,
     private val clock: Clock,
     transactionManager: PlatformTransactionManager,
 ) : DisposableBean {
@@ -72,6 +75,8 @@ class HistoryWriter(
                 history.insertResult(record, result)
                 if (result.userId in saving) history.insertRoute(record, result, now)
             }
+            // The radar's readings by phone model: numbers of nobody's, next to the game's numbers.
+            calibration.add(record.radioCalibration, now)
             // The recording is for the players with an account: without one of them, nobody could ever watch it. A big
             // game has none (Game.buildRecord).
             if (existing.isNotEmpty() && record.recording.isNotEmpty()) {

@@ -16,12 +16,15 @@ class PollingGameConnection(private val api: GameApi) : GameConnection {
         session: PlayerSession,
         outbox: LocationOutbox,
         chatAfter: () -> Long?,
+        extras: () -> SyncExtras,
     ): Flow<ConnectionEvent> = flow {
         var backoffMillis = MIN_BACKOFF_MILLIS
         while (true) {
             val samples = outbox.drain()
             val snapshot = try {
-                api.sync(session, SyncRequest(samples, chatAfter()))
+                // Sightings are not sent again after a failure: by then they are stale.
+                val (nearby, device) = extras()
+                api.sync(session, SyncRequest(samples, chatAfter(), nearby, device))
             } catch (e: CancellationException) {
                 outbox.requeue(samples)
                 throw e

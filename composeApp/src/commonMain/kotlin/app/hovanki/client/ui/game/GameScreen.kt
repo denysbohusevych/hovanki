@@ -75,6 +75,9 @@ import app.hovanki.client.resources.catch_or_type
 import app.hovanki.client.resources.catch_pick_name
 import app.hovanki.client.resources.catch_seeker_hint
 import app.hovanki.client.resources.chat_open
+import app.hovanki.client.resources.checkpoint_scan_close
+import app.hovanki.client.resources.checkpoint_scan_hint
+import app.hovanki.client.resources.checkpoint_taken
 import app.hovanki.client.resources.claim_disputed_mine
 import app.hovanki.client.resources.claim_enter_code
 import app.hovanki.client.resources.claim_time_left
@@ -84,6 +87,8 @@ import app.hovanki.client.resources.hider_code_next
 import app.hovanki.client.resources.hider_disputed
 import app.hovanki.client.resources.hider_qr
 import app.hovanki.client.resources.hint_hider_hiding
+import app.hovanki.client.resources.hud_bluetooth_off
+import app.hovanki.client.resources.hud_bluetooth_off_now
 import app.hovanki.client.resources.hud_catch
 import app.hovanki.client.resources.hud_me
 import app.hovanki.client.resources.hud_more
@@ -106,6 +111,8 @@ import app.hovanki.client.resources.my_code_hint
 import app.hovanki.client.resources.my_code_title
 import app.hovanki.client.resources.no_hiders_to_claim
 import app.hovanki.client.resources.out_of_zone_warning
+import app.hovanki.client.resources.perk_pick_point
+import app.hovanki.client.resources.perk_put_here
 import app.hovanki.client.resources.scanner_close
 import app.hovanki.client.resources.scanner_hint
 import app.hovanki.client.resources.scanner_open
@@ -138,6 +145,7 @@ import app.hovanki.client.ui.common.SystemBackHandler
 import app.hovanki.client.ui.common.Toast
 import app.hovanki.client.ui.common.appSafeDrawing
 import app.hovanki.client.ui.common.appSafeDrawingPadding
+import app.hovanki.client.ui.common.bandTitle
 import app.hovanki.client.ui.common.formatCountdown
 import app.hovanki.client.ui.common.rememberHaptics
 import app.hovanki.client.ui.common.rememberReduceMotion
@@ -149,9 +157,12 @@ import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.GameInvite
 import app.hovanki.shared.protocol.GamePhase
+import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.PerkKind
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
+import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.Role
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.stringResource
@@ -216,8 +227,19 @@ private fun GameContent(
     val alert = when {
         state.outOfZoneMillisLeft != null -> GameAlert.OUT_OF_ZONE
         state.insideBuildingMillisLeft != null -> GameAlert.IN_BUILDING
+        state.bluetoothMillisLeft != null -> GameAlert.BLUETOOTH_OFF
         else -> null
     }
+    // The quests and the perks (docs/adr/0013) as panels over the round; the decoy is placed on the map itself.
+    var panel by remember { mutableStateOf<GamePanel?>(null) }
+    var placingDecoy by remember { mutableStateOf(false) }
+    var decoyPick by remember { mutableStateOf<GeoPoint?>(null) }
+    // The camera at a checkpoint's code, while there is one left to scan.
+    var scanningCheckpoint by remember { mutableStateOf(false) }
+    LaunchedEffect(state.canScanCheckpoint) { if (!state.canScanCheckpoint) scanningCheckpoint = false }
+    // A checkpoint reached (by GPS or by its code): a toast and a vibration.
+    var checkpointsSeen by remember { mutableIntStateOf(state.checkpointsTaken) }
+    var checkpointToasts by remember { mutableIntStateOf(0) }
     val claimAgainstMe = state.claimAgainstMe?.takeIf {
         it.status == CatchStatus.AWAITING_CODE && state.myStatus == PlayerStatus.ACTIVE
     }
@@ -255,6 +277,13 @@ private fun GameContent(
         }
         wasOut = isOut
     }
+    LaunchedEffect(state.checkpointsTaken) {
+        if (state.checkpointsTaken > checkpointsSeen) {
+            checkpointToasts++
+            haptics(Haptic.SUCCESS)
+        }
+        checkpointsSeen = state.checkpointsTaken
+    }
     // Edge to edge: the map runs under the system bars, the HUD and the controls stay clear of them. Without the sheet
     // the controls and the map credit keep above the navigation bar; the sheet keeps clear of it (and the keyboard)
     // itself.
@@ -279,6 +308,13 @@ private fun GameContent(
                     reduceMotion = reduceMotion,
                     attributionPadding = bottomInset,
                     onCameraBearing = { cameraBearing = it },
+                    items = state.items,
+                    pickedPoint = decoyPick.takeIf { placingDecoy },
+                    onMapClick = if (placingDecoy) {
+                        { point -> decoyPick = point }
+                    } else {
+                        null
+                    },
                     modifier = Modifier.fillMaxSize().onSizeChanged { mapHeight = it.height },
                 )
                 if (state.myRole == Role.SEEKER && state.phase == GamePhase.HIDING) {
@@ -304,6 +340,10 @@ private fun GameContent(
                     TopHud(
                         state,
                         viewModel,
+                        reduceMotion = reduceMotion,
+                        onOpenQuests = { panel = GamePanel.QUESTS },
+                        onOpenPerks = { panel = GamePanel.PERKS },
+                        onScanCheckpoint = { scanningCheckpoint = true },
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .onGloballyPositioned { hudBottom = it.boundsInParent().bottom.toInt() }
@@ -317,22 +357,47 @@ private fun GameContent(
                     text = stringResource(Res.string.back_in_zone),
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottomInset).padding(bottom = 132.dp),
                 )
-                BottomControls(
-                    chatUnread = chatUnread,
-                    onOpenChat = onOpenChat,
-                    main = main,
-                    onRecenter = { recenter++ },
-                    canRecenter = state.myLocation != null,
-                    onMore = { showLeaveDialog = true },
-                    moreBadge = if (invite != null) 1 else 0,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottomInset)
-                        .padding(bottom = 26.dp)
-                        .onGloballyPositioned { controlsTop = it.boundsInParent().top.toInt() },
+                Toast(
+                    visible = rememberToastVisible(checkpointToasts),
+                    text = stringResource(Res.string.checkpoint_taken),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottomInset).padding(bottom = 132.dp),
                 )
+                if (placingDecoy) {
+                    DecoyBar(
+                        canPut = decoyPick != null && !state.isBusy,
+                        onPut = {
+                            decoyPick?.let { viewModel.usePerk(PerkKind.DECOY, point = it) }
+                            placingDecoy = false
+                            decoyPick = null
+                        },
+                        onCancel = {
+                            placingDecoy = false
+                            decoyPick = null
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottomInset)
+                            .padding(start = 16.dp, end = 16.dp, bottom = 26.dp)
+                            .onGloballyPositioned { controlsTop = it.boundsInParent().top.toInt() },
+                    )
+                } else {
+                    BottomControls(
+                        chatUnread = chatUnread,
+                        onOpenChat = onOpenChat,
+                        main = main,
+                        onRecenter = { recenter++ },
+                        canRecenter = state.myLocation != null,
+                        onMore = { showLeaveDialog = true },
+                        moreBadge = if (invite != null) 1 else 0,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottomInset)
+                            .padding(bottom = 26.dp)
+                            .onGloballyPositioned { controlsTop = it.boundsInParent().top.toInt() },
+                    )
+                }
                 // With a main action in the middle, «where am I» moves up to the side, like in map apps.
-                if (main != null) {
+                if (main != null && !placingDecoy) {
                     PopIconButton(
                         icon = Res.drawable.ic_navigation,
                         contentDescription = stringResource(Res.string.hud_me),
@@ -406,6 +471,41 @@ private fun GameContent(
                 manualText = stringResource(Res.string.catch_pick_name),
             )
         }
+        AnimatedVisibility(
+            visible = scanningCheckpoint && state.canScanCheckpoint,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+        ) {
+            ScannerLayer(
+                onScanned = viewModel::onCheckpointScanned,
+                onClose = { scanningCheckpoint = false },
+                manualText = stringResource(Res.string.checkpoint_scan_close),
+                hint = stringResource(Res.string.checkpoint_scan_hint),
+            )
+        }
+        panel?.let { open ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .appSafeDrawingPadding(),
+            ) {
+                when (open) {
+                    GamePanel.QUESTS -> QuestsPanel(state, viewModel, onClose = { panel = null })
+
+                    GamePanel.PERKS -> PerksPanel(
+                        state,
+                        viewModel,
+                        onClose = { panel = null },
+                        onPickDecoy = {
+                            panel = null
+                            decoyPick = null
+                            placingDecoy = true
+                        },
+                    )
+                }
+            }
+        }
         PhaseFlash(phase = state.phase, role = state.myRole, reduceMotion = reduceMotion)
         if (state.myRole == Role.SEEKER) CatchCelebration(state.myConfirmedCatches, reduceMotion)
         if (state.myRole == Role.HIDER) CaughtLayer(state.myStatus)
@@ -456,16 +556,44 @@ private fun GameContent(
     }
 }
 
+/** A panel over the round: the quests or the perks (docs/adr/0013-quests-sparks-and-sensors.md). */
+private enum class GamePanel { QUESTS, PERKS }
+
 /** The capsule, the chips, the alerts and the notices, stacked at the top of the map. */
 @Composable
-private fun TopHud(state: GameUiState, viewModel: GameViewModel, modifier: Modifier = Modifier) {
+private fun TopHud(
+    state: GameUiState,
+    viewModel: GameViewModel,
+    reduceMotion: Boolean,
+    onOpenQuests: () -> Unit,
+    onOpenPerks: () -> Unit,
+    onScanCheckpoint: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         HudCapsule(state)
-        HudChips(state)
+        HudChips(
+            state,
+            reduceMotion = reduceMotion,
+            onOpenQuests = onOpenQuests,
+            onOpenPerks = onOpenPerks,
+            onScanCheckpoint = onScanCheckpoint,
+        )
+        state.bluetoothMillisLeft?.let { millisLeft ->
+            AlertPill(
+                alert = GameAlert.BLUETOOTH_OFF,
+                text = if (millisLeft > 0) {
+                    stringResource(Res.string.hud_bluetooth_off, formatCountdown(millisLeft))
+                } else {
+                    stringResource(Res.string.hud_bluetooth_off_now)
+                },
+                tag = TestTags.GAME_BLUETOOTH_OFF,
+            )
+        }
         state.outOfZoneMillisLeft?.let { millisLeft ->
             AlertPill(
                 alert = GameAlert.OUT_OF_ZONE,
@@ -683,13 +811,54 @@ private fun ColumnScope.SeekerCatch(state: GameUiState, viewModel: GameViewModel
 
         claim != null -> Banner(text = stringResource(Res.string.claim_disputed_mine, claim.hiderName))
 
-        else -> HiderChips(state.huntableHiders, isBusy = state.isBusy, onClaim = viewModel::claimCatch)
+        else -> HiderChips(state.huntableHiders, state.radar, isBusy = state.isBusy, onClaim = viewModel::claimCatch)
     }
 }
 
+/** The decoy (docs/adr/0013): tap the map, then «Put it here»; in place of the controls meanwhile. */
+@Composable
+private fun DecoyBar(canPut: Boolean, onPut: () -> Unit, onCancel: () -> Unit, modifier: Modifier = Modifier) {
+    PopSurface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = Palette.Violet,
+        shadow = 4.dp,
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = stringResource(Res.string.perk_pick_point),
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.White,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PopButton(
+                    text = stringResource(Res.string.perk_put_here),
+                    onClick = onPut,
+                    enabled = canPut,
+                    height = 48.dp,
+                    modifier = Modifier.weight(1f).testTag(TestTags.DECOY_PUT),
+                )
+                PopButton(
+                    text = stringResource(Res.string.action_cancel),
+                    onClick = onCancel,
+                    style = PopStyle.Outline,
+                    height = 48.dp,
+                    modifier = Modifier.testTag(TestTags.DECOY_CANCEL),
+                )
+            }
+        }
+    }
+}
+
+/** The hiders to claim; with the radar (docs/adr/0012), how warm each one is on it. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HiderChips(hiders: List<PlayerView>, isBusy: Boolean, onClaim: (PlayerId) -> Unit) {
+private fun HiderChips(
+    hiders: List<PlayerView>,
+    radar: Map<PlayerId, RadarBand>,
+    isBusy: Boolean,
+    onClaim: (PlayerId) -> Unit,
+) {
     Text(text = stringResource(Res.string.seeker_found_title), style = MaterialTheme.typography.headlineSmall)
     if (hiders.isEmpty()) {
         SecondaryText(stringResource(Res.string.no_hiders_to_claim))
@@ -703,11 +872,12 @@ private fun HiderChips(hiders: List<PlayerView>, isBusy: Boolean, onClaim: (Play
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         hiders.forEach { hider ->
+            val band = radar[hider.id] ?: RadarBand.NONE
             PopButton(
-                text = hider.name,
+                text = if (band == RadarBand.NONE) hider.name else "${hider.name} · ${bandTitle(band)}",
                 onClick = { onClaim(hider.id) },
                 enabled = !isBusy,
-                style = PopStyle.Seeker,
+                style = if (band >= RadarBand.HOT) PopStyle.Pink else PopStyle.Seeker,
                 height = 52.dp,
                 modifier = Modifier.testTag(TestTags.claimButton(hider.id)),
             )
@@ -1008,7 +1178,12 @@ private fun CodeLayer(
  * to typing the digits or picking the name.
  */
 @Composable
-private fun ScannerLayer(onScanned: (String) -> Boolean, onClose: () -> Unit, manualText: String) {
+private fun ScannerLayer(
+    onScanned: (String) -> Boolean,
+    onClose: () -> Unit,
+    manualText: String,
+    hint: String = stringResource(Res.string.scanner_hint),
+) {
     SystemBackHandler(enabled = true, onBack = onClose)
     Box(modifier = Modifier.fillMaxSize().background(Palette.Ink).testTag(TestTags.SCANNER)) {
         CatchCodeScanner(
@@ -1035,7 +1210,7 @@ private fun ScannerLayer(onScanned: (String) -> Boolean, onClose: () -> Unit, ma
                     size = 44.dp,
                 )
                 Text(
-                    text = stringResource(Res.string.scanner_hint),
+                    text = hint,
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
                     modifier = Modifier.weight(1f),

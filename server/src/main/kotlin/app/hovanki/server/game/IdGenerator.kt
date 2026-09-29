@@ -8,6 +8,7 @@ import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.SpectatorId
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.rules.AccountRules
+import app.hovanki.shared.rules.BoardRules
 import app.hovanki.shared.totp.toHex
 import org.springframework.stereotype.Component
 import java.security.SecureRandom
@@ -39,8 +40,11 @@ class IdGenerator {
     /** The code in an email: 6 random digits. */
     fun emailCode(): String = randomString(AccountRules.CODE_LENGTH, DIGITS)
 
-    /** 160-bit TOTP secret, as recommended by RFC 4226. */
+    /** 160-bit TOTP secret, as recommended by RFC 4226; the radar token's secret is one of these too. */
     fun catchCodeSecret(): String = randomBytes(20).toHex()
+
+    /** The code in a scan checkpoint's QR code: unguessable, but typeable when the camera won't (no 0/O/1/I). */
+    fun checkpointCode(): String = randomString(BoardRules.CHECKPOINT_CODE_LENGTH, JOIN_CODE_ALPHABET)
 
     /** For fair draws (the lobby's random roles): nobody can predict or steer them. */
     val drawRandom: java.util.Random get() = random

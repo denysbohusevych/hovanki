@@ -7,13 +7,19 @@ import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.ConfirmCatchRequest
 import app.hovanki.shared.protocol.CreateGameRequest
+import app.hovanki.shared.protocol.CustomQuestRequest
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.InviteRequest
+import app.hovanki.shared.protocol.ItemId
 import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
+import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.QuestId
+import app.hovanki.shared.protocol.QuestReviewRequest
 import app.hovanki.shared.protocol.RolesRequest
+import app.hovanki.shared.protocol.ScanCheckpointRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsRequest
@@ -21,6 +27,7 @@ import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
+import app.hovanki.shared.protocol.UsePerkRequest
 import app.hovanki.shared.protocol.VoteRequest
 import io.ktor.client.HttpClient
 
@@ -86,4 +93,28 @@ class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
 
     override suspend fun invite(session: PlayerSession, request: InviteRequest): GameSnapshot =
         http.post(ApiRoutes.gameInvites(session.gameId), session.token, request)
+
+    override suspend fun placeItem(session: PlayerSession, request: PlaceItemRequest): GameSnapshot =
+        http.post(ApiRoutes.items(session.gameId), session.token, request)
+
+    override suspend fun removeItem(session: PlayerSession, itemId: ItemId): GameSnapshot =
+        http.post(ApiRoutes.itemRemove(session.gameId, itemId), session.token)
+
+    override suspend fun scanCheckpoint(session: PlayerSession, code: String): GameSnapshot =
+        http.post(ApiRoutes.checkpointScan(session.gameId), session.token, ScanCheckpointRequest(code))
+
+    override suspend fun usePerk(session: PlayerSession, request: UsePerkRequest): GameSnapshot =
+        http.post(ApiRoutes.perks(session.gameId), session.token, request)
+
+    override suspend fun addQuest(session: PlayerSession, request: CustomQuestRequest): GameSnapshot =
+        http.post(ApiRoutes.quests(session.gameId), session.token, request)
+
+    override suspend fun questDone(session: PlayerSession, questId: QuestId): GameSnapshot =
+        http.post(ApiRoutes.questDone(session.gameId, questId), session.token)
+
+    override suspend fun reviewQuest(
+        session: PlayerSession,
+        questId: QuestId,
+        request: QuestReviewRequest,
+    ): GameSnapshot = http.post(ApiRoutes.questReview(session.gameId, questId), session.token, request)
 }

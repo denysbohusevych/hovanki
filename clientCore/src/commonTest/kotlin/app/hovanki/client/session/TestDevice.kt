@@ -1,13 +1,27 @@
 package app.hovanki.client.session
 
+import app.hovanki.client.device.DeviceInfo
 import app.hovanki.client.location.LocationProvider
+import app.hovanki.client.radio.ProximityRadio
+import app.hovanki.client.radio.RadioSighting
 import app.hovanki.client.tracking.AlertKind
 import app.hovanki.client.tracking.BackgroundTracker
+import app.hovanki.client.tracking.CarryMonitor
 import app.hovanki.client.tracking.HiderAlert
+import app.hovanki.client.tracking.PocketPulse
+import app.hovanki.shared.protocol.BluetoothState
+import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.LocationSample
+import app.hovanki.shared.protocol.Platform
+import app.hovanki.shared.protocol.RadarBand
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onStart
 
 // The phone around GameSessionManager in tests: GPS that never reports and a background tracker that remembers.
 
@@ -24,6 +38,61 @@ class FakeLocationProvider : LocationProvider {
             collectors--
         }
     }
+}
+
+/** Bluetooth LE that hears what the test says ([hears]); remembers the tokens it was told to advertise. */
+class FakeRadio(state: BluetoothState = BluetoothState.ON) : ProximityRadio {
+    override val state = MutableStateFlow(state)
+
+    /** The token flow of the running collection; null while nothing collects. */
+    var tokens: StateFlow<String?>? = null
+        private set
+
+    /** Whether the running collection advertises as a seeker (the iBeacon frame). */
+    var asSeeker: Boolean? = null
+        private set
+    var collectors = 0
+        private set
+    private val sightings = MutableSharedFlow<RadioSighting>(extraBufferCapacity = 64)
+
+    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean): Flow<RadioSighting> = sightings
+        .onStart {
+            this@FakeRadio.tokens = tokens
+            this@FakeRadio.asSeeker = asSeeker
+            collectors++
+        }
+        .onCompletion {
+            collectors--
+            if (collectors == 0) this@FakeRadio.tokens = null
+        }
+
+    /** Another phone's [token] heard at [rssi] dBm, at [atMillis] of the device's clock. */
+    fun hears(token: String, rssi: Int, atMillis: Long) {
+        check(sightings.tryEmit(RadioSighting(token, rssi, atMillis)))
+    }
+}
+
+class FakeDeviceInfo(
+    override val platform: Platform = Platform.ANDROID,
+    override val hasUwb: Boolean = false,
+    override val hasActivitySensor: Boolean = true,
+    override val model: String? = "Fake 1",
+) : DeviceInfo
+
+/** Remembers every band the pulse was set to, in order. */
+class FakePocketPulse : PocketPulse {
+    val bands = mutableListOf<RadarBand>()
+
+    override fun set(band: RadarBand) {
+        bands += band
+    }
+}
+
+/** Says where the phone is whenever the test sets [state]. */
+class FakeCarryMonitor(initial: Carry = Carry.UNKNOWN) : CarryMonitor {
+    val state = MutableStateFlow(initial)
+
+    override fun carry(): Flow<Carry> = state
 }
 
 class FakeBackgroundTracker : BackgroundTracker {

@@ -1,8 +1,11 @@
 package app.hovanki.e2e.scenario
 
+import app.hovanki.shared.protocol.FeatureMode
+import app.hovanki.shared.protocol.GameFeatures
 import app.hovanki.shared.protocol.GameRules
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.QuestKind
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.shrinkingZone
 
@@ -19,6 +22,7 @@ object GameSetups {
         staleLocationRevealSeconds = 15,
         syncIntervalSeconds = 1,
         insideBuildingRevealSeconds = 20,
+        radarOffRevealSeconds = 10,
     )
 
     /**
@@ -49,6 +53,33 @@ object GameSetups {
      */
     fun glowing(everySeconds: Int = 20, forSeconds: Int = 4, center: GeoPoint = PARK): GameSettings =
         fixedZone(500.0, center).copy(glowEverySeconds = everySeconds, glowForSeconds = forSeconds)
+
+    /**
+     * A fixed zone of 500 m with the radar (docs/adr/0012-nearby-radar.md): the hiders' sense on, a claim only up close
+     * with [proximityCatch], the pocket stealth with [pocketStealth]. Needs the server features on.
+     */
+    fun radar(
+        mode: FeatureMode = FeatureMode.OPTIONAL,
+        proximityCatch: Boolean = false,
+        pocketStealth: Boolean = false,
+        center: GeoPoint = PARK,
+    ): GameSettings = fixedZone(500.0, center).copy(
+        features = GameFeatures(
+            radar = mode,
+            hiderSense = true,
+            proximityCatch = proximityCatch,
+            pocketStealth = pocketStealth,
+        ),
+    )
+
+    /**
+     * The board (docs/adr/0013-quests-sparks-and-sensors.md): quests, perks, checkpoints and pickups on a fixed zone
+     * of 500 m with the glow (some perks need it). Needs the server features on.
+     */
+    fun board(center: GeoPoint = PARK): GameSettings = glowing(everySeconds = 20, forSeconds = 4, center).copy(
+        features = GameFeatures(quests = true, perks = true, checkpoints = true, pickups = true),
+        quests = listOf(QuestKind.SPRINT, QuestKind.FIRST_CATCH),
+    )
 
     /** A fixed zone by streets of [radiusMeters] on the test grid the fake street source lays around [center]. */
     fun streets(radiusMeters: Double = 300.0, center: GeoPoint = PARK): GameSettings =

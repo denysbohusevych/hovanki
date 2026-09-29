@@ -68,6 +68,21 @@ enum class VisibilityReason {
      * afterwards the spot where the last glow left them. Only in [VisibleLocation.cause], like [INSIDE_BUILDING].
      */
     GLOW,
+
+    /**
+     * The radar is required in this game and the hider's phone has had Bluetooth off for too long
+     * (docs/adr/0012-nearby-radar.md, section 2.6). Only in [VisibleLocation.cause], like [INSIDE_BUILDING].
+     */
+    RADAR_OFF,
+
+    /** A seeker's «Spotlight» perk shows the hider for a few seconds (docs/adr/0013). Only in [VisibleLocation.cause]. */
+    SPOTLIGHT,
+
+    /**
+     * A seeker's «Fresh trail» perk: the hider's spot is a fix of a minute ago, newer than the last glow (docs/adr/0013).
+     * Only in [VisibleLocation.cause].
+     */
+    FRESH_TRAIL,
 }
 
 @Serializable
@@ -163,6 +178,30 @@ enum class ErrorReason {
 
     /** The zone by streets is still being built: the game can start once it is ready (or given up on). */
     ZONE_NOT_READY,
+
+    /** A claim only up close: the radar has not heard the two phones «burning» lately (on [ErrorCode.TOO_FAR]). */
+    NOT_NEARBY,
+
+    /** A required feature (the radar) is missing on somebody's phone: the game can't start. */
+    FEATURE_MISSING,
+
+    /** The setup uses a feature the operator has not turned on for this server. */
+    FEATURE_DISABLED,
+
+    /** The perk costs more sparks than the player has. */
+    NOT_ENOUGH_SPARKS,
+
+    /** The perk can't be used now: used up, on cooldown, not for this role, or not in this phase. */
+    PERK_UNAVAILABLE,
+
+    /** The player already took this checkpoint (or the pickup is gone). */
+    CHECKPOINT_TAKEN,
+
+    /** No such quest for this player, or it is not active. */
+    QUEST_NOT_ACTIVE,
+
+    /** The host placed as many items as a game may have. */
+    ITEM_LIMIT,
 
     /** Only players who signed up for a big game come into its lobby (docs/adr/0010-big-games.md). */
     BIG_GAME_SIGNUP_REQUIRED,

@@ -4,6 +4,7 @@ import app.hovanki.server.account.AccountService
 import app.hovanki.server.account.AccountSessionRepository
 import app.hovanki.server.account.UserRecord
 import app.hovanki.server.account.UserRepository
+import app.hovanki.server.features.FeatureFlags
 import app.hovanki.server.game.GameException
 import app.hovanki.server.game.GameService
 import app.hovanki.server.moderation.ReportRecord
@@ -11,6 +12,9 @@ import app.hovanki.server.moderation.ReportRepository
 import app.hovanki.server.moderation.SanctionRepository
 import app.hovanki.shared.protocol.AdminAction
 import app.hovanki.shared.protocol.AdminAudit
+import app.hovanki.shared.protocol.AdminFeature
+import app.hovanki.shared.protocol.AdminFeatureRequest
+import app.hovanki.shared.protocol.AdminFeatures
 import app.hovanki.shared.protocol.AdminFindByEmailRequest
 import app.hovanki.shared.protocol.AdminGames
 import app.hovanki.shared.protocol.AdminLimits
@@ -32,6 +36,7 @@ import app.hovanki.shared.protocol.ReportAction
 import app.hovanki.shared.protocol.ResolveReportRequest
 import app.hovanki.shared.protocol.SanctionKind
 import app.hovanki.shared.protocol.SanctionRequest
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserRole
 import app.hovanki.shared.rules.AccountRules
@@ -65,6 +70,7 @@ class AdminService(
     private val queries: AdminQueries,
     private val audit: AuditLog,
     private val games: GameService,
+    private val features: FeatureFlags,
     private val clock: Clock,
     transactionManager: PlatformTransactionManager,
 ) {
@@ -236,6 +242,34 @@ class AdminService(
         val why = validReason(reason)
         if (!games.endByStaff(gameId)) throw GameException(ErrorCode.NOT_FOUND, "No such game")
         audit.record(staff, AdminAction.END_GAME, clock.instant(), target = gameId.value, reason = why)
+    }
+
+    // Server features (docs/adr/0012-nearby-radar.md, docs/adr/0013-quests-sparks-and-sensors.md)
+
+    /** Every feature and whether it is on; staff see, admins switch ([setFeature]). */
+    fun features(): AdminFeatures = AdminFeatures(
+        ServerFeature.entries.map { feature ->
+            val record = features.all().firstOrNull { it?.feature == feature }
+            AdminFeature(feature, record?.enabled == true, record?.updatedAt?.toEpochMilli(), record?.updatedBy)
+        },
+    )
+
+    /** Turns a feature on or off for everybody on the server. Admins; the audit log gets it. */
+    fun setFeature(staff: Staff, feature: ServerFeature, request: AdminFeatureRequest): AdminFeatures {
+        requireAdmin(staff)
+        val why = validReason(request.reason)
+        val now = clock.instant()
+        transactions.executeWithoutResult {
+            features.set(feature, request.enabled, staff.nickname, now)
+            audit.record(
+                staff,
+                AdminAction.SET_FEATURE,
+                now,
+                target = "${feature.name} ${if (request.enabled) "on" else "off"}",
+                reason = why,
+            )
+        }
+        return features()
     }
 
     /**

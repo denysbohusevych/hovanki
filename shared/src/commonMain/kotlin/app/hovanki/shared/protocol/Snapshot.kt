@@ -44,6 +44,18 @@ data class GameSnapshot(
     /** When the host last drew the roles at random: every phone rolls the dice once for it. Null: never. */
     val rolesDrawnAtMillis: Long? = null,
     /**
+     * The [ServerFeature]s the operator turned on, by name: what the host may turn on in the lobby
+     * (docs/adr/0012-nearby-radar.md). Empty from older servers.
+     */
+    val enabledFeatures: List<String> = emptyList(),
+    /**
+     * The board (docs/adr/0013-quests-sparks-and-sensors.md): what the host placed on the map, as far as the viewer
+     * may see it (their audience; the host sees everything in the lobby).
+     */
+    val items: List<BoardItem> = emptyList(),
+    /** The viewer's quests, with their own progress; the seekers' team quests for every seeker. */
+    val quests: List<QuestView> = emptyList(),
+    /**
      * About how many players the zone fits, from the ground under it (docs/adr/0010-big-games.md): the lobby warns the
      * host when there are more. Null from older servers.
      */
@@ -88,6 +100,10 @@ data class PlayerView(
     val lastSeenMillis: Long? = null,
     /** The player left the game (the round goes on without them): a hider is out, a seeker seeks no more. */
     val left: Boolean = false,
+    /** What the player's phone can do (the radar, UWB); null: the phone never said (an older app). */
+    val capabilities: Capabilities? = null,
+    /** The player's sparks (docs/adr/0013); null in a game without sparks. */
+    val sparks: Int? = null,
 )
 
 @Serializable
@@ -122,6 +138,32 @@ data class MyState(
      * (already in the past: they see them now). Cleared once the player is out again.
      */
     val insideBuildingRevealAtMillis: Long? = null,
+    /**
+     * Hex secret of the radar token (`RadarToken`, docs/adr/0012-nearby-radar.md): only to the player themselves,
+     * once the round started in a game with the radar.
+     */
+    val radarSecret: String? = null,
+    /** The viewer's radar: whom they feel near, as bands; null without the radar. */
+    val radar: RadarState? = null,
+    /**
+     * A hider with the sense on, during the search: the radar tokens the seekers advertise right now (this five-minute
+     * slot and its neighbours), so the phone feels a seeker coming the moment it hears them, without waiting for the
+     * server (`HeartbeatRules`). Never a hider's token, never to a seeker.
+     */
+    val seekerTokens: List<String> = emptyList(),
+    /**
+     * The radar is required and this hider's phone has Bluetooth off: turn it on before this time, or the seekers see
+     * them from then on. Null otherwise.
+     */
+    val bluetoothDeadlineMillis: Long? = null,
+    /** Players the viewer's phone may range with by UWB right now, with their discovery tokens. */
+    val uwbPeers: List<UwbPeer> = emptyList(),
+    /** The viewer's sparks (docs/adr/0013). */
+    val sparks: Int = 0,
+    /** A hint a perk bought, while it lasts. */
+    val hint: Hint? = null,
+    /** The perks the viewer may use, with what they cost and what they have. */
+    val perks: List<PerkView> = emptyList(),
 )
 
 @Serializable

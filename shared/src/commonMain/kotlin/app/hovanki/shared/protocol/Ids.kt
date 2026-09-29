@@ -32,6 +32,16 @@ value class GroupId(val value: String)
 @JvmInline
 value class InviteId(val value: String)
 
+/** An item of the board the host placed (docs/adr/0013-quests-sparks-and-sensors.md). */
+@Serializable
+@JvmInline
+value class ItemId(val value: String)
+
+/** A quest of a game. */
+@Serializable
+@JvmInline
+value class QuestId(val value: String)
+
 /** A big game (docs/adr/0010-big-games.md): scheduled by an admin, players sign up ahead. */
 @Serializable
 @JvmInline

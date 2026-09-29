@@ -16,6 +16,8 @@ import app.hovanki.shared.protocol.AdminBigGameRequest
 import app.hovanki.shared.protocol.AdminBigGames
 import app.hovanki.shared.protocol.AdminEnrollRequest
 import app.hovanki.shared.protocol.AdminEnrollment
+import app.hovanki.shared.protocol.AdminFeatureRequest
+import app.hovanki.shared.protocol.AdminFeatures
 import app.hovanki.shared.protocol.AdminFindByEmailRequest
 import app.hovanki.shared.protocol.AdminGames
 import app.hovanki.shared.protocol.AdminLiveGame
@@ -59,6 +61,7 @@ import app.hovanki.shared.protocol.ResolveReportRequest
 import app.hovanki.shared.protocol.SanctionKind
 import app.hovanki.shared.protocol.SanctionRequest
 import app.hovanki.shared.protocol.SendChatRequest
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.UserId
@@ -450,6 +453,46 @@ class AdminApiTest(
 
         val stats = get(ApiRoutes.ADMIN_STATS, moderator).ok<AdminStats>()
         assertTrue(stats.users >= 2 && stats.reportsOpen >= 0 && stats.heapMaxMb > 0, "$stats")
+    }
+
+    @Test
+    fun adminsSwitchTheFeatures() {
+        val moderator = staff(UserRole.MODERATOR)
+        val admin = staff(UserRole.ADMIN)
+
+        val before = get(ApiRoutes.ADMIN_FEATURES, moderator).ok<AdminFeatures>()
+        assertEquals(ServerFeature.entries, before.features.map { it.feature })
+        val radar = ApiRoutes.adminFeature(ServerFeature.RADAR)
+        post(radar, AdminFeatureRequest(true, "the spike"), moderator).error(403, ErrorCode.FORBIDDEN)
+        post(radar, AdminFeatureRequest(true, " "), admin).error(400, ErrorCode.BAD_REQUEST)
+        post(
+            "${ApiRoutes.ADMIN_FEATURES}/NOPE",
+            AdminFeatureRequest(true, "x"),
+            admin,
+        ).error(400, ErrorCode.BAD_REQUEST)
+
+        val on = post(radar, AdminFeatureRequest(true, "the spike on real phones"), admin).ok<AdminFeatures>()
+        val switched = on.features.single { it.feature == ServerFeature.RADAR }
+        assertTrue(switched.enabled)
+        assertEquals(admin.account.user.nickname, switched.updatedByName)
+        assertEquals(clock.millis(), switched.updatedAtMillis)
+        // The apps learn it from every snapshot: what the host may turn on.
+        val game = postAccount(
+            ApiRoutes.GAMES,
+            CreateGameRequest("", GameSettings(zone = shrinkingZone(PARK))),
+            account().token,
+        ).ok<SessionResponse>()
+        assertEquals(listOf(ServerFeature.RADAR.name), game.snapshot.enabledFeatures)
+        val entry = get(ApiRoutes.ADMIN_AUDIT, admin).ok<AdminAudit>().entries
+            .first { it.action == AdminAction.SET_FEATURE && it.target == "RADAR on" }
+        assertEquals("the spike on real phones", entry.reason)
+
+        val off = post(radar, AdminFeatureRequest(false, "spike over"), admin).ok<AdminFeatures>()
+        assertFalse(off.features.single { it.feature == ServerFeature.RADAR }.enabled)
+        assertFalse(
+            get(ApiRoutes.ADMIN_FEATURES, moderator).ok<AdminFeatures>()
+                .features.single { it.feature == ServerFeature.RADAR }.enabled,
+        )
     }
 
     @Test

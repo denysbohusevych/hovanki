@@ -33,6 +33,9 @@ data class GameHistoryEntry(
     val maxSpeedMetersPerSecond: Double? = null,
     /** The route of this game is saved: [ApiRoutes.meGameRoute]. */
     val hasRoute: Boolean = false,
+    /** Sparks left at the end and quests done (docs/adr/0013); zero in games without them. */
+    val sparks: Int = 0,
+    val questsDone: Int = 0,
     /** The recording of this game, everybody's way, is kept: [ApiRoutes.meGameRecording]. */
     val hasRecording: Boolean = false,
 )
@@ -72,6 +75,9 @@ data class PlayerStats(
     val longestGameMeters: Double? = null,
     val firstGameAtMillis: Long? = null,
     val lastGameAtMillis: Long? = null,
+    /** Sparks over all games and quests done (docs/adr/0013). */
+    val sparks: Int = 0,
+    val questsDone: Int = 0,
 )
 
 /** One point of a saved route: an accepted GPS fix. */

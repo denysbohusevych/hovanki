@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.account.AccountManager
 import app.hovanki.client.account.AccountState
@@ -50,6 +51,11 @@ fun App() {
         val account by accountManager.state.collectAsStateWithLifecycle()
         val watching by spectatorManager.state.collectAsStateWithLifecycle()
         val locationConsent = remember { LocationConsentState() }
+        // The precision radar works only while both players look at their phones: the server hears when we do.
+        LifecycleResumeEffect(sessionManager) {
+            sessionManager.onScreenChanged(true)
+            onPauseOrDispose { sessionManager.onScreenChanged(false) }
+        }
         // Playing a game ends watching one: a player never sees everybody.
         val playing = state.session != null
         LaunchedEffect(playing) { if (playing) spectatorManager.stop() }

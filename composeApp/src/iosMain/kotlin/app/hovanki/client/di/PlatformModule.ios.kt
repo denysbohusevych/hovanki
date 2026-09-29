@@ -2,17 +2,27 @@ package app.hovanki.client.di
 
 import app.hovanki.client.BuildInfo
 import app.hovanki.client.automation.LaunchOptionsHolder
+import app.hovanki.client.device.DeviceInfo
+import app.hovanki.client.device.IosDeviceInfo
 import app.hovanki.client.iosBuildInfo
 import app.hovanki.client.location.IosLocationProvider
 import app.hovanki.client.location.LocationProvider
-import app.hovanki.client.proximity.NoopProximityScanner
-import app.hovanki.client.proximity.ProximityScanner
+import app.hovanki.client.radio.IosProximityRadio
+import app.hovanki.client.radio.NoopPrecisionRadio
+import app.hovanki.client.radio.PrecisionRadio
+import app.hovanki.client.radio.ProximityRadio
 import app.hovanki.client.share.IosShareSheet
 import app.hovanki.client.share.ShareSheet
 import app.hovanki.client.storage.KeychainSecureStore
 import app.hovanki.client.storage.SecureStore
+import app.hovanki.client.tracking.ActivityMonitor
 import app.hovanki.client.tracking.BackgroundTracker
+import app.hovanki.client.tracking.CarryMonitor
+import app.hovanki.client.tracking.IosActivityMonitor
 import app.hovanki.client.tracking.IosBackgroundTracker
+import app.hovanki.client.tracking.IosCarryMonitor
+import app.hovanki.client.tracking.IosPocketPulse
+import app.hovanki.client.tracking.PocketPulse
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.darwin.Darwin
 import org.koin.core.module.Module
@@ -28,6 +38,11 @@ actual val platformModule: Module = module {
     }
     single<BackgroundTracker> { IosBackgroundTracker() }
     single<ShareSheet> { IosShareSheet() }
-    // TODO(BLE, after MVP): Kable-based scanner, see docs/adr/0001-stack.md.
-    single<ProximityScanner> { NoopProximityScanner() }
+    // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md); the precision radar by UWB is not implemented yet.
+    single<ProximityRadio> { IosProximityRadio() }
+    single<PrecisionRadio> { NoopPrecisionRadio() }
+    single<DeviceInfo> { IosDeviceInfo() }
+    single<ActivityMonitor> { IosActivityMonitor() }
+    single<PocketPulse> { IosPocketPulse() }
+    single<CarryMonitor> { IosCarryMonitor() }
 }

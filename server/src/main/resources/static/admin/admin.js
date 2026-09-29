@@ -14,6 +14,7 @@ const ACTION = {
   UNBAN: "снял бан", MUTE: "запрет чата", UNMUTE: "снял запрет чата", RENAME: "сменил ник",
   LOGOUT_DEVICES: "выход на всех устройствах", DELETE_ACCOUNT: "удалил аккаунт", SHOW_EMAIL: "показал email",
   FIND_BY_EMAIL: "искал по email", END_GAME: "завершил игру", SET_ROLE: "сменил роль", RESET_TOTP: "сбросил аутентификатор",
+  SET_FEATURE: "переключил возможность",
   BIG_GAME_CREATE: "создал большую игру", BIG_GAME_UPDATE: "изменил большую игру", BIG_GAME_START: "запустил большую игру",
   BIG_GAME_CANCEL: "отменил большую игру",
   WATCH_GAME: "смотрел игру вживую",
@@ -310,7 +311,7 @@ function qrSvg(rows) {
 // Frame
 
 const PAGES = [
-  ["reports", "Жалобы"], ["users", "Пользователи"], ["games", "Игры"], ["stats", "Цифры"],
+  ["reports", "Жалобы"], ["users", "Пользователи"], ["games", "Игры"], ["features", "Возможности"], ["stats", "Цифры"],
   ["big", "Большие игры", true], ["staff", "Сотрудники", true], ["audit", "Журнал", true],
 ];
 
@@ -355,6 +356,7 @@ async function route() {
     else if (page === "users") await usersView();
     else if (page === "games" && id && isAdmin()) await liveView(decodeURIComponent(id));
     else if (page === "games") await gamesView();
+    else if (page === "features") await featuresView();
     else if (page === "stats") await statsView();
     else if (page === "staff" && isAdmin()) await staffView();
     else if (page === "audit" && isAdmin()) await auditView();
@@ -817,6 +819,65 @@ function mapSummary(game) {
   return `${buildings} · ${zone}`;
 }
 
+// Server features (docs/adr/0012-nearby-radar.md, docs/adr/0013-quests-sparks-and-sensors.md)
+
+/** Every ServerFeature the page knows, in the enum's order: a name and one line of what it does. */
+const FEATURES = {
+  RADAR: { title: "Радар по Bluetooth", about: "ищущие чувствуют «тепло, горячо, горит», когда прячущийся рядом" },
+  HIDER_SENSE: { title: "Чутьё прячущегося", about: "пульс из кармана, когда ищущий рядом" },
+  PRECISION_RADAR: { title: "Точный радар (UWB)", about: "метры и стрелка между одинаковыми телефонами (пока заглушка в приложении)" },
+  PROXIMITY_CATCH: { title: "Находка только вплотную", about: "заявка проходит, только если радар слышал телефоны рядом" },
+  QUESTS: { title: "Задания", about: "искры за задания в раунде" },
+  PERKS: { title: "Бонусы за искры", about: "стереть след, обманка, невидимость, прожектор…" },
+  CHECKPOINTS: { title: "Контрольные точки", about: "по GPS или по QR-коду, который хост вешает на месте" },
+  PICKUPS: { title: "Бонусы на карте", about: "лежат там, где положил хост" },
+  ACTIVITY: { title: "Датчик бега", about: "телефон сообщает, бежит ли игрок" },
+  POCKET_STEALTH: { title: "Карман прячет", about: "телефон в кармане читается ищущим на ступень холоднее" },
+};
+
+/** A feature this page doesn't know (a newer server) goes by its enum name. */
+const featureTitle = (name) => FEATURES[name]?.title ?? name;
+
+async function featuresView() {
+  featuresPage(await run(() => get("/features")));
+}
+
+/** The list; a switch answers with the new list, so the page re-renders from the answer without another request. */
+function featuresPage({ features }) {
+  frame("features");
+  show(el("h1", {}, "Возможности"),
+    el("p", { class: "muted small" },
+      "Всё выключено по умолчанию. Включённое хост может выбрать в настройках новой игры; идущие игры не меняются."),
+    el("table", {},
+      el("tr", {}, ["Возможность", "Состояние", "Кто и когда переключил", ""].map((t) => el("th", {}, t))),
+      features.map((feature) => el("tr", {},
+        el("td", {}, featureTitle(feature.feature), " ", el("span", { class: "mono muted" }, feature.feature),
+          FEATURES[feature.feature] ? el("div", { class: "small muted" }, FEATURES[feature.feature].about) : null),
+        el("td", {}, feature.enabled ? el("span", { class: "tag ok" }, "вкл") : el("span", { class: "tag" }, "выкл")),
+        el("td", {}, feature.updatedAtMillis ? `${fmt.time(feature.updatedAtMillis)}, ${feature.updatedByName}` : "—"),
+        el("td", {}, isAdmin() ? featureSwitch(feature) : null)))));
+}
+
+/** Admins only: asks for the reason, switches the feature for everybody and shows the list the server answers with. */
+function featureSwitch(feature) {
+  const title = feature.enabled ? "Выключить" : "Включить";
+  return el("button", {
+    class: feature.enabled ? "secondary" : null,
+    async onclick() {
+      const values = await ask(`${title}: ${featureTitle(feature.feature)}`, {
+        text: feature.enabled
+          ? "Хосты новых игр больше не смогут её выбрать. Идущие игры не меняются."
+          : "Хосты новых игр смогут выбрать её в настройках. Идущие игры не меняются.",
+        confirm: title,
+      });
+      if (!values) return;
+      featuresPage(await run(
+        () => post(`/features/${encodeURIComponent(feature.feature)}`, { enabled: !feature.enabled, reason: values.reason }),
+        feature.enabled ? "Возможность выключена." : "Возможность включена."));
+    },
+  }, title);
+}
+
 // Numbers
 
 async function statsView() {
@@ -874,12 +935,14 @@ async function auditView() {
   let last = null;
   function add(entries) {
     for (const entry of entries) {
+      const feature = featureSwitched(entry);
       body.append(el("tr", {},
         el("td", {}, fmt.time(entry.atMillis)),
         el("td", {}, entry.actorName),
-        el("td", {}, ACTION[entry.action] ?? entry.action),
+        el("td", {}, feature ? (feature.enabled ? "включил возможность" : "выключил возможность") : ACTION[entry.action] ?? entry.action),
         el("td", {}, entry.targetUserId ? el("a", { href: `#/users/${encodeURIComponent(entry.targetUserId)}`, class: "mono" }, entry.targetUserId) : null,
-          entry.target ? el("div", { class: "small muted" }, entry.target) : null),
+          feature ? el("div", { class: "small" }, featureTitle(feature.name), " ", el("span", { class: "mono muted" }, feature.name))
+            : entry.target ? el("div", { class: "small muted" }, entry.target) : null),
         el("td", {}, entry.reason ?? "")));
     }
     last = entries.length ? entries[entries.length - 1].id : last;
@@ -892,6 +955,12 @@ async function auditView() {
     el("table", {}, el("thead", {}, el("tr", {}, ["Когда", "Кто", "Что", "Над кем", "Причина"].map((t) => el("th", {}, t)))), body),
     more);
   add(first.entries);
+}
+
+/** A SET_FEATURE entry's feature and the way it went, from the target the server writes ("RADAR on"); null otherwise. */
+function featureSwitched(entry) {
+  const match = entry.action === "SET_FEATURE" ? /^(\w+) (on|off)$/.exec(entry.target ?? "") : null;
+  return match ? { name: match[1], enabled: match[2] === "on" } : null;
 }
 
 // Big games (docs/adr/0010-big-games.md): admins only. The zone is drawn on the map with the pencil; next to it the

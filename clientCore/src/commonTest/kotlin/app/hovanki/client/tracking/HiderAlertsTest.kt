@@ -11,6 +11,9 @@ import app.hovanki.shared.protocol.MyState
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
+import app.hovanki.shared.protocol.RadarBand
+import app.hovanki.shared.protocol.RadarContact
+import app.hovanki.shared.protocol.RadarState
 import app.hovanki.shared.protocol.Role
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -62,6 +65,26 @@ class HiderAlertsTest {
         assertTrue(testSnapshot(phase = GamePhase.FINISHED).copy(me = trouble).hiderAlerts().isEmpty())
         val caught = me(status = PlayerStatus.CAUGHT, outOfZone = 40_000L)
         assertTrue(testSnapshot(phase = GamePhase.SEEKING).copy(me = caught).hiderAlerts().isEmpty())
+    }
+
+    @Test
+    fun theRadarAlerts() {
+        val warm = me().copy(radar = RadarState(listOf(RadarContact(RadarBand.WARM))))
+        assertTrue(testSnapshot(phase = GamePhase.SEEKING).copy(me = warm).hiderAlerts().isEmpty(), "warm is nothing")
+
+        val hot = me().copy(radar = RadarState(listOf(RadarContact(RadarBand.HOT))), bluetoothDeadlineMillis = 90_000L)
+        assertEquals(
+            listOf(HiderAlert(AlertKind.BLUETOOTH_OFF, 90_000L), HiderAlert(AlertKind.SEEKER_NEAR, null)),
+            testSnapshot(phase = GamePhase.SEEKING).copy(me = hot).hiderAlerts(),
+        )
+
+        // The heartbeat from the pocket: every five seconds while the seeker stays close.
+        val repeats = AlertRepeats()
+        val near = listOf(HiderAlert(AlertKind.SEEKER_NEAR, null))
+        assertEquals(near, repeats.update(near, 0L).buzz)
+        assertTrue(repeats.update(near, 4_000L).buzz.isEmpty())
+        assertEquals(near, repeats.update(near, 5_000L).buzz)
+        assertEquals(setOf(AlertKind.SEEKER_NEAR), repeats.update(emptyList(), 6_000L).ended)
     }
 
     @Test

@@ -9,6 +9,9 @@ import app.hovanki.shared.protocol.AdminBigGameRequest
 import app.hovanki.shared.protocol.AdminBigGames
 import app.hovanki.shared.protocol.AdminEnrollRequest
 import app.hovanki.shared.protocol.AdminEnrollment
+import app.hovanki.shared.protocol.AdminFeature
+import app.hovanki.shared.protocol.AdminFeatureRequest
+import app.hovanki.shared.protocol.AdminFeatures
 import app.hovanki.shared.protocol.AdminLoginRequest
 import app.hovanki.shared.protocol.AdminLoginResponse
 import app.hovanki.shared.protocol.AdminLoginStep
@@ -26,6 +29,7 @@ import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.ReportAction
 import app.hovanki.shared.protocol.ResolveReportRequest
 import app.hovanki.shared.protocol.SanctionRequest
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.totp.Totp
@@ -91,6 +95,13 @@ class StaffConsole(serverUrl: String, private val observer: Observer) : AutoClos
 
     suspend fun unmute(userId: UserId, reason: String): AdminUserCard =
         call(ApiRoutes.adminUser(userId, "unmute"), AdminReasonRequest(reason))
+
+    /** The server features and their state (docs/adr/0012-nearby-radar.md). */
+    suspend fun features(): List<AdminFeature> = get<AdminFeatures>(ApiRoutes.ADMIN_FEATURES).features
+
+    /** An admin turns [feature] on or off for everybody, with a [reason] for the audit log. */
+    suspend fun setFeature(feature: ServerFeature, enabled: Boolean, reason: String): List<AdminFeature> =
+        call<AdminFeatures>(ApiRoutes.adminFeature(feature), AdminFeatureRequest(enabled, reason)).features
 
     // Big games (docs/adr/0010-big-games.md), admins.
 

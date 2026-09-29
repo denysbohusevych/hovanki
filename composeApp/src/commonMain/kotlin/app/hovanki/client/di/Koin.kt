@@ -80,9 +80,26 @@ val commonModule: Module = module {
     single { AccountManager(get(), get(), get()) }
     single { SocialManager(get(), get()) }
     single { HistoryManager(get(), get()) }
+    single {
+        GameSessionManager(
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            account = get<AccountManager>(),
+            radio = get(),
+            precisionRadio = get(),
+            deviceInfo = get(),
+            activityMonitor = get(),
+            pocketPulse = get(),
+            carryMonitor = get(),
+        )
+    }
     single { BigGameManager(get(), get()) }
     single { SpectatorManager(get(), get()) }
-    single { GameSessionManager(get(), get(), get(), get(), get(), get(), get(), account = get<AccountManager>()) }
 
     viewModelOf(::WelcomeViewModel)
     viewModelOf(::VerifyEmailViewModel)
@@ -145,6 +162,8 @@ private fun logInAtStart(account: AccountManager, login: String, password: Strin
 
 /**
  * Platform services: [app.hovanki.client.BuildInfo], HTTP engine, [app.hovanki.client.storage.SecureStore],
- * [app.hovanki.client.location.LocationProvider], background tracking, BLE.
+ * [app.hovanki.client.location.LocationProvider], background tracking, the radar by Bluetooth
+ * ([app.hovanki.client.radio.ProximityRadio]), what the phone is ([app.hovanki.client.device.DeviceInfo]) and its
+ * motion sensors ([app.hovanki.client.tracking.ActivityMonitor]).
  */
 expect val platformModule: Module

@@ -335,6 +335,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             "played_games",
             "game_results",
             "game_routes",
+            "radio_calibration",
             "game_recordings",
             "game_recording_tracks",
         )

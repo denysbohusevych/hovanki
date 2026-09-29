@@ -4,6 +4,7 @@ import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.PlayerStatus
+import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.rules.Glow
 
@@ -28,6 +29,12 @@ enum class AlertKind {
 
     /** A glow is on until the deadline: the seekers see the hider now. */
     GLOWING,
+
+    /** The radar says a seeker is close (hot or burning): the hider's sense (docs/adr/0012-nearby-radar.md). */
+    SEEKER_NEAR,
+
+    /** The radar is required and this phone has Bluetooth off: turn it on before the deadline, or be seen. */
+    BLUETOOTH_OFF,
 }
 
 /** An alert, until when it lasts (server time) and, for a claim, who made it. */
@@ -45,6 +52,9 @@ fun GameSnapshot.hiderAlerts(): List<HiderAlert> {
             add(HiderAlert(AlertKind.CATCH_CLAIM, claim.deadlineMillis, seeker))
         }
         glowAlert(serverTimeMillis)?.let(::add)
+        me.bluetoothDeadlineMillis?.let { add(HiderAlert(AlertKind.BLUETOOTH_OFF, it)) }
+        val nearest = me.radar?.contacts?.maxOfOrNull { it.band }
+        if (nearest != null && nearest >= RadarBand.HOT) add(HiderAlert(AlertKind.SEEKER_NEAR, null))
     }
 }
 
@@ -114,6 +124,11 @@ class AlertRepeats {
 
         // Once each: the warning, then the glow itself.
         AlertKind.GLOW_SOON, AlertKind.GLOWING -> Long.MAX_VALUE
+
+        // The heartbeat from the pocket, as long as the seeker stays close.
+        AlertKind.SEEKER_NEAR -> SEEKER_NEAR_REPEAT_MILLIS
+
+        AlertKind.BLUETOOTH_OFF -> BLUETOOTH_OFF_REPEAT_MILLIS
     }
 
     private fun maxBuzzes(kind: AlertKind): Int = when (kind) {
@@ -127,5 +142,7 @@ class AlertRepeats {
         const val IN_BUILDING_REPEAT_MILLIS = 15_000L
         const val CLAIM_REPEAT_MILLIS = 10_000L
         const val CLAIM_BUZZES = 2
+        const val SEEKER_NEAR_REPEAT_MILLIS = 5_000L
+        const val BLUETOOTH_OFF_REPEAT_MILLIS = 15_000L
     }
 }
