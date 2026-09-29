@@ -59,6 +59,7 @@ import app.hovanki.client.ui.verify.VerifyEmailViewModel
 import app.hovanki.client.ui.welcome.WelcomeViewModel
 import app.hovanki.shared.rules.AccountRules
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
@@ -133,6 +134,7 @@ val commonModule: Module = module {
                 )
             },
             scope = MainScope(),
+            inAGame = get<GameSessionManager>().state.map { it.session != null },
         )
     }
     single { AccountManager(get(), get(), get()) }

@@ -14,6 +14,7 @@ import app.hovanki.shared.rules.OverflowProbe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.TestScope
@@ -75,6 +76,7 @@ class LabControllerTest {
         val haptics = FakeHaptics()
         val files = FakeFiles()
         var serverAsks = 0
+        val inAGame = MutableStateFlow(false)
         val bench = DiagnosticsBench(
             radio,
             location,
@@ -104,6 +106,7 @@ class LabControllerTest {
             ),
             about = { LabAbout("Fake 1", "Android 16", "1.0 (1)", "abc123") },
             scope = scope.backgroundScope as CoroutineScope,
+            inAGame = inAGame,
             monotonicMillis = { scope.currentTime },
             random = Random(2),
         )
@@ -141,6 +144,18 @@ class LabControllerTest {
         advanceTimeBy(5_000)
         assertEquals(count, lab.log.count.value, "stopped: nothing more")
         assertFalse(lab.controller.running.value)
+    }
+
+    @Test
+    fun aGameStopsTheLab() = runTest {
+        val lab = Lab(this)
+        lab.controller.start()
+        lab.controller.setInGame(true)
+        runCurrent()
+        lab.inAGame.value = true
+        runCurrent()
+        assertFalse(lab.controller.running.value)
+        assertFalse(lab.tracker.running)
     }
 
     @Test

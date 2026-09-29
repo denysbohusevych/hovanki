@@ -17,12 +17,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -77,6 +80,8 @@ class LabController(
     private val clockSync: LabClockSync,
     private val about: () -> LabAbout,
     private val scope: CoroutineScope,
+    /** True while the phone is in a game: the lab stops then, whether its screen is open or not. */
+    private val inAGame: Flow<Boolean> = flowOf(false),
     private val monotonicMillis: () -> Long = log::monoNow,
     private val random: Random = Random.Default,
 ) {
@@ -168,6 +173,11 @@ class LabController(
         jobs += scope.launch { radio.state.collect { log.bt(it.name.lowercase()) } }
         jobs += scope.launch { carryMonitor.carry().collect { log.carry(it.name.lowercase()) } }
         jobs += scope.launch { haptics.engineEvents().collect { (kind, event) -> log.haptic(kind.key, event) } }
+        jobs += scope.launch {
+            inAGame.first { it }
+            log.note("a game started: the lab stops")
+            stop()
+        }
     }
 
     /** Everything off, the log kept for the export. */
