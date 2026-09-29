@@ -44,6 +44,12 @@ enum class ServerFeature {
 
     /** The pocket hides: a hider whose phone is in the pocket reads colder ([GameFeatures.pocketStealth]). */
     POCKET_STEALTH,
+
+    /**
+     * The live channel (docs/adr/0015-websockets.md): the apps sync over a WebSocket ([ApiRoutes.SOCKET]) and the
+     * server pokes them when something happens. Not a game's choice: every game on the server, the host picks nothing.
+     */
+    LIVE_SOCKET,
 }
 
 /** How a feature applies to a game: off, for the players whose phones have it, or every phone must have it. */

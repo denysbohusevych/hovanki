@@ -148,12 +148,19 @@ val includeSlowScenarios = providers.gradleProperty("e2e.slow").map { it.toBoole
 // `-Pe2e.bigGamePlayers=600`: the size of the big game in BigGameLoadTest (default 300).
 val bigGamePlayers = providers.gradleProperty("e2e.bigGamePlayers").orElse("")
 
+// `-Pe2e.transport=socket`: every scenario's bots sync over the live channel (docs/adr/0015-websockets.md, E2eTransport);
+// by default (polling) only LiveSocketTest does.
+val transport = providers.gradleProperty("e2e.transport").orElse("polling")
+
 tasks.test {
     useJUnitPlatform {
         if (!includeSlowScenarios.get()) excludeTags("slow")
     }
     inputs.property("includeSlowScenarios", includeSlowScenarios)
     jvmArgumentProviders += BigGamePlayers(bigGamePlayers)
+    // Another transport is another test run.
+    inputs.property("transport", transport)
+    jvmArgumentProviders += SyncTransport(transport)
     // Scenarios run in real time and mostly wait on game timers: run them in parallel (junit-platform.properties).
     maxHeapSize = "2g"
     // A different target server is a different test run.
@@ -175,4 +182,9 @@ class ReportDir(@get:OutputDirectory val dir: Provider<Directory>) : CommandLine
 class BigGamePlayers(@get:Input val players: Provider<String>) : CommandLineArgumentProvider {
     override fun asArguments(): List<String> =
         players.get().takeIf { it.isNotEmpty() }?.let { listOf("-Dhovanki.e2e.bigGamePlayers=$it") }.orEmpty()
+}
+
+/** How the bots sync: `polling` (the default) or `socket`. */
+class SyncTransport(@get:Input val transport: Provider<String>) : CommandLineArgumentProvider {
+    override fun asArguments(): List<String> = listOf("-Dhovanki.e2e.transport=${transport.get()}")
 }

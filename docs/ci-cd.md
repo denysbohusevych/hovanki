@@ -127,7 +127,7 @@ hovanki.serverUrl=https://hovanki.duckdns.org
 4. Подключить iPhone кабелем, «Доверять этому компьютеру». Включить режим разработчика: Настройки → Конфиденциальность и безопасность → Режим разработчика (iOS 16+, с перезагрузкой). Если пункта нет, он появится после первой попытки запуска из Xcode.
 5. Схема `iosApp` → выбрать свой iPhone → Run. Первая сборка долгая: Gradle собирает Kotlin-фреймворк.
 6. При первом запуске iOS не откроет приложение от неизвестного разработчика: Настройки → Основные → VPN и управление устройством → «Apple Development: …» → Доверять.
-7. Адрес сервера — параметр запуска схемы (`-hovanki.server …`, [iosApp/README.md](../iosApp/README.md#сервер)): туннель (`https://…trycloudflare.com`) или в той же Wi-Fi `http://<имя-мака>.local:8080`. Run собирает Debug, а Debug пускает HTTP в локальную сеть. Без параметра сборка ходит на `localhost`, то есть на сам телефон.
+7. Сервер: без параметров Debug на iPhone ходит на общий сервер (`hovanki.serverUrl`, как TestFlight) и показывает [панель диагностики «DBG»](architecture.md#диагностика-debug-сборки). Свой сервер — параметр запуска схемы (`-hovanki.server …`, [iosApp/README.md](../iosApp/README.md#сервер)): туннель (`https://…trycloudflare.com`) или в той же Wi-Fi `http://<имя-мака>.local:8080`. Run собирает Debug, а Debug пускает HTTP в локальную сеть.
 
 Когда платный аккаунт подтвердят, уберите `BUNDLE_ID` из `Local.xcconfig` и поставьте `TEAM_ID` платной команды — или пользуйтесь TestFlight.
 
@@ -189,7 +189,8 @@ PR из той же репы проверяются push-запуском на �
 **Запуск вручную** — Actions → Nightly → Run workflow, выбрать ветку и:
 - `suite`: `all` (по умолчанию), `bots` (только боты) или `devices` (только эмуляторы и симулятор);
 - `scenario`: сценарий устройств — `all`, `full-round`, `restart` или `watch`;
-- `bots`: число ботов в партии на устройствах.
+- `bots`: число ботов в партии на устройствах;
+- `transport`: как синхронизируются боты — `polling` (по умолчанию, как ночью) или `socket` (живой канал включён во всех сценариях, [ADR 0015](adr/0015-websockets.md)).
 
 То же из командной строки: `gh workflow run nightly.yml --ref <ветка> -f suite=devices -f scenario=restart`. Workflow берётся из выбранной ветки, так что изменения в нём самом проверяются тем же запуском.
 
@@ -220,7 +221,7 @@ CI на push не играет партии, поэтому перед PR их �
 | Что меняется | Что запустить | Где |
 |---|---|---|
 | Любой код | `./gradlew spotlessApply` и `./gradlew check` (или быстрый цикл `./gradlew :shared:jvmTest :clientCore:jvmTest :server:test`) | локально |
-| Правила игры, протокол, поведение клиент–сервер, аккаунты, друзья, чат (`:shared`, `:server`, `:clientCore`, `:e2e`) | `./gradlew :e2e:test` (~6 мин, работает и в облачном контейнере без KVM; PostgreSQL поднимается сам) | локально |
+| Правила игры, протокол, поведение клиент–сервер, аккаунты, друзья, чат (`:shared`, `:server`, `:clientCore`, `:e2e`) | `./gradlew :e2e:test` (~6 мин, работает и в облачном контейнере без KVM; PostgreSQL поднимается сам); что трогает синхронизацию или события игры — ещё и `-Pe2e.transport=socket` (боты на живом канале) | локально |
 | UI, платформенный код (`:composeApp`, `androidApp`, `iosApp`), Maestro-флоу, `run-devices.sh` | `./gradlew :e2e:devices` на своих эмуляторах ([e2e-local.md](e2e-local.md)) или ночной workflow вручную на своей ветке: `suite=devices`, нужный сценарий | локально с Android Studio / GitHub Actions, 15–20 мин |
 
 В описании PR — что из этого запускалось (чеклист в шаблоне PR).

@@ -5,16 +5,21 @@ import app.hovanki.client.account.AccountState
 import app.hovanki.client.bigGames.BigGameManager
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.history.HistoryState
+import app.hovanki.client.network.AdaptiveGameConnection
 import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.ApiResult
+import app.hovanki.client.network.GameConnection
 import app.hovanki.client.network.HttpAccountApi
 import app.hovanki.client.network.HttpBigGameApi
 import app.hovanki.client.network.HttpGameApi
 import app.hovanki.client.network.HttpHistoryApi
 import app.hovanki.client.network.HttpSocialApi
 import app.hovanki.client.network.HttpSpectatorApi
+import app.hovanki.client.network.KtorGameSocketOpener
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
+import app.hovanki.client.network.Transport
+import app.hovanki.client.network.WebSocketGameConnection
 import app.hovanki.client.network.createHttpClient
 import app.hovanki.client.radio.NoopProximityRadio
 import app.hovanki.client.radio.ProximityRadio
@@ -66,6 +71,7 @@ import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.QuestId
 import app.hovanki.shared.protocol.RadarBand
+import app.hovanki.shared.protocol.ServerFrame
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SpectatorSnapshot
 import app.hovanki.shared.protocol.TracksResponse
@@ -97,8 +103,8 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * A headless player: the app's real client stack ([GameSessionManager], [AccountManager], [SocialManager], the HTTP
- * APIs over Ktor/OkHttp, [PollingGameConnection], [ServerClock]) on a simulated phone ([FakeGps], [FakeNetwork],
- * [DeviceClock], [PhoneStorage]), wired like the app does it.
+ * APIs over Ktor/OkHttp, [AdaptiveGameConnection] with the live channel and polling, [ServerClock]) on a simulated
+ * phone ([FakeGps], [FakeNetwork], [DeviceClock], [PhoneStorage]), wired like the app does it.
  *
  * Scenarios steer it like a person: walk, press buttons ([claimCatch], [dispute], [vote], [sendChat]), fill in forms
  * ([register], [logIn], [resetPassword]), read another phone's screen ([shownCode]), switch GPS or network off, kill
@@ -121,6 +127,13 @@ class BotPlayer(
     val platform: Platform = Platform.ANDROID,
     /** The air the phone's Bluetooth is in; null: a phone without the radar. */
     radioWorld: RadioWorld? = null,
+    /** How the app syncs: like the app ([BotTransport.APP]), or an older app that only polls. */
+    val transport: BotTransport = BotTransport.APP,
+    /**
+     * How long the app polls after its socket failed before it tries the socket again: the app's minute, shorter where
+     * a scenario waits for the socket's return.
+     */
+    private val pollAfterSocketFailureMillis: Long = AdaptiveGameConnection.POLL_AFTER_FAILURE_MILLIS,
 ) {
     val clock = DeviceClock()
     val gps = FakeGps(start, noise, clock)
@@ -161,6 +174,14 @@ class BotPlayer(
     val state: SessionState get() = app?.session?.state?.value ?: SessionState()
 
     val snapshot: GameSnapshot? get() = state.snapshot
+
+    /** How the app's last snapshot came: polling or the live channel. */
+    val syncTransport: Transport? get() = state.transport
+
+    private val transports = CopyOnWriteArrayList<Transport>()
+
+    /** Every switch of how the app syncs, the first transport first. */
+    val transportHistory: List<Transport> get() = transports.toList()
 
     /** "Now" as the app believes the server clock is; null while the app is not running. */
     fun serverNow(): Long? = app?.serverClock?.now()
@@ -743,6 +764,19 @@ class BotPlayer(
         metrics?.record(exchange)
         val body = exchange.body ?: return
         if (exchange.status != 200 || !exchange.path.startsWith(ApiRoutes.GAMES)) return
+        // A sync over the live channel: the frame carries the snapshot, checked like every other one.
+        if (exchange.method == FakeNetwork.SOCKET_METHOD) {
+            val frame = try {
+                protocolJson.decodeFromString(ServerFrame.serializer(), body)
+            } catch (e: SerializationException) {
+                violations += "$name: unreadable frame: ${e.message}"
+                return
+            }
+            val snapshot = (frame as? ServerFrame.Snapshot)?.snapshot ?: return
+            SnapshotAudit.check(snapshot, body).forEach { violations += "$name: $it" }
+            snapshot.players.forEach { player -> player.location?.let { reveals += player.id to it.exactReason } }
+            return
+        }
         // Building outlines and the zone by streets (the host's draft's too) are map data, not a snapshot; the tracks
         // come only after the round (the server refuses them before, see PrivacyTest).
         val notSnapshots = listOf("/buildings", "/street-zone", "/settings/preview", "/tracks")
@@ -792,9 +826,19 @@ class BotPlayer(
         val history = HistoryManager(HttpHistoryApi(httpClient, url), account, scope)
         val bigGames = BigGameManager(HttpBigGameApi(httpClient, url), account, scope)
         val spectator = SpectatorManager(HttpSpectatorApi(httpClient, url), account, scope)
+        private val connection: GameConnection = when (transport) {
+            BotTransport.POLLING -> PollingGameConnection(api)
+
+            // As the app's DI: the live channel while the server has it on, through the phone's network.
+            BotTransport.APP -> AdaptiveGameConnection(
+                WebSocketGameConnection(network.sockets(KtorGameSocketOpener(httpClient, url))),
+                PollingGameConnection(api),
+                pollAfterFailureMillis = pollAfterSocketFailureMillis,
+            )
+        }
         val session = GameSessionManager(
             api,
-            PollingGameConnection(api),
+            connection,
             serverClock,
             gps,
             backgroundTracker,
@@ -823,6 +867,7 @@ class BotPlayer(
         init {
             scope.launch {
                 session.state.collect { state ->
+                    state.transport?.let { if (transports.lastOrNull() != it) transports += it }
                     if (logChanges) logChanges(previous, state)
                     react(state)
                     previous = state
@@ -893,6 +938,10 @@ class BotPlayer(
             if (!before.isResuming && after.isResuming) log("resumes the saved game")
             if (before.isResuming && !after.isResuming && after.session != null) log("is back in the game")
             if (before.connectionStatus != after.connectionStatus) log("connection ${after.connectionStatus}")
+            val transport = after.transport
+            if (transport != null && before.transport != null && before.transport != transport) {
+                log("syncs by ${transport.name.lowercase()}")
+            }
             val error = after.lastError
             if (error != null && error != before.lastError) log("error: $error")
             val old = before.snapshot
@@ -954,4 +1003,13 @@ sealed interface CommandResult {
 
     /** Network or local failure. */
     data class Failed(val details: String?) : CommandResult
+}
+
+/** How a bot's app syncs (docs/adr/0015-websockets.md). */
+enum class BotTransport {
+    /** As the app: the live channel while the server has it on and it works, polling otherwise. */
+    APP,
+
+    /** An app from before the live channel: polling only. */
+    POLLING,
 }

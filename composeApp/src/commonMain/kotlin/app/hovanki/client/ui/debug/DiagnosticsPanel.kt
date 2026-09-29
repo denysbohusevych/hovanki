@@ -40,6 +40,7 @@ import app.hovanki.client.diagnostics.BenchRadio
 import app.hovanki.client.diagnostics.Diagnostics
 import app.hovanki.client.diagnostics.DiagnosticsState
 import app.hovanki.client.location.rememberLocationPermissionRequester
+import app.hovanki.client.network.Transport
 import app.hovanki.client.radio.rememberBluetoothPermissionRequester
 import app.hovanki.client.session.SessionState
 import app.hovanki.client.ui.common.Panel
@@ -299,7 +300,8 @@ private fun GameCard(session: SessionState, measured: DiagnosticsState, now: Lon
                 Line("server's radar: ${contacts.ifEmpty { "nobody" }}")
             }
         }
-        Line("${measured.syncs} syncs, ${measured.syncFailures} failed")
+        val via = measured.transport?.let { if (it == Transport.SOCKET) " by socket" else " by polling" }.orEmpty()
+        Line("${measured.syncs} syncs$via, ${measured.syncFailures} failed")
         measured.lastSync?.let { sync ->
             val took = sync.durationMillis?.let { "$it ms" } ?: "—"
             val result = sync.error?.let { "failed: $it" } ?: "ok"

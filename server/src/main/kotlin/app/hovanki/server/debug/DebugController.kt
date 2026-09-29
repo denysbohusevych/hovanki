@@ -112,7 +112,10 @@ class DebugController(
         },
     )
 
-    /** Turns exactly the named server features on, as an admin does in the admin (docs/adr/0012-nearby-radar.md). */
+    /**
+     * Turns exactly the named server features on, as an admin does in the admin (docs/adr/0012-nearby-radar.md); with
+     * [DebugSetFeatures.keepOthers], only turns them on.
+     */
     @PostMapping(DebugRoutes.FEATURES)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun setFeatures(@RequestBody request: DebugSetFeatures) {
@@ -122,7 +125,8 @@ class DebugController(
         }.toSet()
         val now = clock.instant()
         for (feature in ServerFeature.entries) {
-            if (features.isEnabled(feature) != (feature in wanted)) features.set(feature, feature in wanted, "e2e", now)
+            val on = feature in wanted || (request.keepOthers && features.isEnabled(feature))
+            if (features.isEnabled(feature) != on) features.set(feature, on, "e2e", now)
         }
     }
 

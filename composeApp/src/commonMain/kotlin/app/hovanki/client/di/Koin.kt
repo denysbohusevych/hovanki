@@ -10,6 +10,7 @@ import app.hovanki.client.diagnostics.Diagnostics
 import app.hovanki.client.diagnostics.DiagnosticsBench
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.network.AccountApi
+import app.hovanki.client.network.AdaptiveGameConnection
 import app.hovanki.client.network.BigGameApi
 import app.hovanki.client.network.GameApi
 import app.hovanki.client.network.GameConnection
@@ -20,10 +21,12 @@ import app.hovanki.client.network.HttpGameApi
 import app.hovanki.client.network.HttpHistoryApi
 import app.hovanki.client.network.HttpSocialApi
 import app.hovanki.client.network.HttpSpectatorApi
+import app.hovanki.client.network.KtorGameSocketOpener
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.SocialApi
 import app.hovanki.client.network.SpectatorApi
+import app.hovanki.client.network.WebSocketGameConnection
 import app.hovanki.client.network.createHttpClient
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
@@ -80,7 +83,13 @@ val commonModule: Module = module {
     single<HistoryApi> { HttpHistoryApi(get(), get()) }
     single<BigGameApi> { HttpBigGameApi(get(), get()) }
     single<SpectatorApi> { HttpSpectatorApi(get(), get()) }
-    single<GameConnection> { PollingGameConnection(get()) }
+    // The live channel while the server has it on and it works, polling otherwise (docs/adr/0015-websockets.md).
+    single<GameConnection> {
+        AdaptiveGameConnection(
+            WebSocketGameConnection(KtorGameSocketOpener(get(), get())),
+            PollingGameConnection(get()),
+        )
+    }
     single { ServerClock() }
     // Debug builds only: the phone's measurements for the developer (a no-op in other builds).
     single { Diagnostics(isEnabled = get<BuildInfo>().isDebug) }

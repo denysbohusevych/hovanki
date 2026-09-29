@@ -9,10 +9,10 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Real-time channel to the game server: uploads our location samples and delivers fresh snapshots.
  *
- * The transport is hidden on purpose. The MVP polls over HTTP ([PollingGameConnection]): positions go out every few
- * seconds anyway, and polling survives flaky mobile networks and iOS background limits better than a socket.
- * Chat comes with the polls too. When instant features need it (faster chat, live tracking) this can be swapped for
- * WebSocket or SSE without touching the rest of the app.
+ * The transport is hidden on purpose: polling over HTTP ([PollingGameConnection]), which survives flaky mobile networks
+ * and iOS background limits, or the live channel over a WebSocket ([WebSocketGameConnection],
+ * docs/adr/0015-websockets.md), whose pokes bring what happens at once. The app uses both ([AdaptiveGameConnection]):
+ * the socket while the server has it on and it works, polling otherwise. Chat comes with the syncs either way.
  */
 interface GameConnection {
     /**
@@ -41,7 +41,8 @@ fun defaultSyncIntervalMillis(snapshot: GameSnapshot): Long =
 data class SyncExtras(val nearby: List<NearbySighting> = emptyList(), val device: DeviceReport? = null)
 
 sealed interface ConnectionEvent {
-    data class Snapshot(val snapshot: GameSnapshot) : ConnectionEvent
+    /** A fresh snapshot, and by which [transport] it came. */
+    data class Snapshot(val snapshot: GameSnapshot, val transport: Transport = Transport.POLLING) : ConnectionEvent
 
     /** A transient failure; the connection retries by itself after [retryInMillis]. */
     data class Problem(val error: Throwable, val retryInMillis: Long) : ConnectionEvent
@@ -57,3 +58,6 @@ enum class EndReason {
     /** 404: the game is over and was cleaned up, or never existed on this server. */
     GAME_NOT_FOUND,
 }
+
+/** How the syncs go: `POST /sync` every few seconds, or frames over the live channel's socket. */
+enum class Transport { POLLING, SOCKET }

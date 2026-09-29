@@ -21,6 +21,11 @@ on:
       bots:
         description: Headless bots per device game
         default: "3"
+      transport:
+        description: How the e2e bots sync (socket = the live channel on, docs/adr/0015-websockets.md)
+        type: choice
+        options: [polling, socket]
+        default: polling
       device_location:
         description: Where the emulators and the simulator are (LAT,LON); the games are created there
         default: "52.2320,21.0100"
@@ -40,6 +45,7 @@ env:
   # A scheduled run has no inputs: everything, with the defaults.
   SCENARIO: ${{ inputs.scenario || 'all' }}
   BOTS: ${{ inputs.bots || '3' }}
+  TRANSPORT: ${{ inputs.transport || 'polling' }}
   # Fresh emulators sit in the Californian countryside, fresh simulators nowhere: put them in central Warsaw (Plac
   # Defilad, next to the Palace of Culture), so the device games have real buildings around them.
   DEVICE_LOCATION: ${{ inputs.device_location || '52.2320,21.0100' }}
@@ -64,7 +70,7 @@ jobs:
 
       - name: End-to-end scenarios
         # With the slow ones (the default rules, several minutes of real game time): nightly only.
-        run: ./gradlew :e2e:test -Pe2e.slow=true
+        run: ./gradlew :e2e:test -Pe2e.slow=true -Pe2e.transport="$TRANSPORT"
 
       - name: Upload e2e scenario reports
         if: always()

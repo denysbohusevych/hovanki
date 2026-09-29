@@ -2,6 +2,7 @@
 
 package app.hovanki.client.diagnostics
 
+import app.hovanki.client.network.Transport
 import app.hovanki.shared.protocol.DeviceReport
 import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.rules.RadarSmoother
@@ -118,8 +119,8 @@ class Diagnostics(
         pendingSync.value = PendingSync(deviceTimeMillis(), sightings, device)
     }
 
-    /** The sync's answer came: the server's clock said [serverTimeMillis]. */
-    fun onSynced(serverTimeMillis: Long) {
+    /** The sync's answer came by [transport]: the server's clock said [serverTimeMillis]. */
+    fun onSynced(serverTimeMillis: Long, transport: Transport = Transport.POLLING) {
         if (!isEnabled) return
         val now = deviceTimeMillis()
         val pending = pendingSync.value
@@ -131,11 +132,13 @@ class Diagnostics(
                 lastSync = SyncReading(now, duration, error = null, sightings = pending?.sightings ?: 0),
                 device = pending?.device ?: it.device,
                 serverOffsetMillis = serverTimeMillis - now,
+                transport = transport,
             )
         }
         val took = duration?.let { "$it ms" } ?: "answer"
         val heard = pending?.sightings?.takeIf { it > 0 }?.let { ", $it sightings" }.orEmpty()
-        log(DiagnosticsKind.SYNC, "sync $took$heard", now)
+        val via = if (transport == Transport.SOCKET) " by socket" else ""
+        log(DiagnosticsKind.SYNC, "sync $took$heard$via", now)
     }
 
     /** The sync failed with [error]; the connection tries again in [retryInMillis]. */
@@ -193,7 +196,8 @@ class Diagnostics(
             )
         }
         appendLine()
-        appendLine("Syncs: ${state.syncs} ok, ${state.syncFailures} failed")
+        val via = state.transport?.let { " (last ${it.name.lowercase()})" }.orEmpty()
+        appendLine("Syncs: ${state.syncs} ok, ${state.syncFailures} failed$via")
         state.device?.let { appendLine("  the phone said: $it") }
         appendLine()
         appendLine("Log (${state.log.size} lines):")
@@ -259,6 +263,8 @@ data class DiagnosticsState(
     val device: DeviceReport? = null,
     /** Server time minus the device's, by the last sync; null before one. */
     val serverOffsetMillis: Long? = null,
+    /** How the last sync that got through went (docs/adr/0015-websockets.md); null before one. */
+    val transport: Transport? = null,
     /** The latest [Diagnostics.MAX_LOG_LINES] lines, the oldest first. */
     val log: List<DiagnosticsLine> = emptyList(),
 ) {

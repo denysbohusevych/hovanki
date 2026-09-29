@@ -9,6 +9,7 @@ import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.plugins.logging.SIMPLE
+import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.serialization.kotlinx.json.json
 
 /**
@@ -21,6 +22,8 @@ fun createHttpClient(engine: HttpClientEngine, logRequests: Boolean = true): Htt
     install(ContentNegotiation) {
         json(protocolJson)
     }
+    // The game's live channel (docs/adr/0015-websockets.md). No pings of its own: a sync goes every few seconds.
+    install(WebSockets)
     install(HttpTimeout) {
         // Mobile networks stall; a hung request would block the poll loop, so give up and retry instead.
         connectTimeoutMillis = 10_000
