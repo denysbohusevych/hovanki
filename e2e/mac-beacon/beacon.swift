@@ -4,9 +4,13 @@
 // phones both scan for) and reports every radar token it hears: an Android hider's service data, an iPhone hider's
 // name (bare, or after the first apps' «hv»), a seeker's iBeacon frame when macOS shows it.
 //
-// Lines on stdin: `advertise <token>`, `stop`. Lines on stdout: `state on|off|denied|unsupported`,
-// `heard <token> <rssi> <how>` (how: `name` an iPhone hider, `ibeacon` a seeker, `service-data` an Android hider),
-// `log <text>`. Closing stdin ends it. Built by e2e/mac-beacon/run.sh.
+// Lines on stdin: `advertise <token>` (as an iPhone hider), `ibeacon <token>` (as a seeker: an iBeacon frame, if macOS
+// lets an app send one), `stop`, `sniff on|off`. Lines on stdout: `state on|off|denied|unsupported`,
+// `heard <token> <rssi> <how> <peer>` (how: `name` an iPhone hider, `ibeacon` a seeker, `service-data` an Android
+// hider; peer: macOS's id of the sender), `log <text>`; while sniffing (the radio lab, docs/radio-lab.md §6) also
+// `raw <hex> <rssi> <peer>`, every frame of Apple's manufacturer data after the company id, and
+// `overflow <uuid,uuid,...> <rssi> <peer>`, the overflow area's UUIDs when macOS lists them. Closing stdin ends it.
+// Built by e2e/mac-beacon/run.sh.
 
 import CoreBluetooth
 import Foundation
@@ -28,11 +32,17 @@ func hex(_ data: Data) -> String {
     data.map { String(format: "%02x", $0) }.joined()
 }
 
+enum Advertisement {
+    case hider(String)
+    case beacon(String)
+}
+
 final class Beacon: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDelegate {
     private var peripheral: CBPeripheralManager!
     private var central: CBCentralManager!
-    private var token: String?
+    private var advertisement: Advertisement?
     private var lastState = ""
+    var sniffing = false
 
     override init() {
         super.init()
@@ -40,8 +50,8 @@ final class Beacon: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDeleg
         central = CBCentralManager(delegate: self, queue: nil)
     }
 
-    func advertise(_ token: String?) {
-        self.token = token
+    func advertise(_ advertisement: Advertisement?) {
+        self.advertisement = advertisement
         restartAdvertising()
     }
 
@@ -49,11 +59,30 @@ final class Beacon: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDeleg
     private func restartAdvertising() {
         guard peripheral.state == .poweredOn else { return }
         peripheral.stopAdvertising()
-        guard let token = token else { return }
-        peripheral.startAdvertising([
-            CBAdvertisementDataServiceUUIDsKey: [serviceUUID],
-            CBAdvertisementDataLocalNameKey: token,
-        ])
+        switch advertisement {
+        case .hider(let token):
+            peripheral.startAdvertising([
+                CBAdvertisementDataServiceUUIDsKey: [serviceUUID],
+                CBAdvertisementDataLocalNameKey: token,
+            ])
+        case .beacon(let token):
+            // macOS has no CLBeaconRegion.peripheralData: the key the iBeacon tools use, the proximity UUID, major,
+            // minor and the measured power (-59 dBm at a meter, as the phones say).
+            var frame = withUnsafeBytes(of: UUID(uuidString: serviceUUID.uuidString)!.uuid) { Data($0) }
+            let value = UInt32(token, radix: 16)!
+            frame.append(contentsOf: [UInt8(value >> 24), UInt8(value >> 16 & 0xff), UInt8(value >> 8 & 0xff), UInt8(value & 0xff), 0xC5])
+            peripheral.startAdvertising(["kCBAdvDataAppleBeaconKey": frame])
+        case nil:
+            break
+        }
+    }
+
+    private var advertised: String {
+        switch advertisement {
+        case .hider(let token): return token
+        case .beacon(let token): return "\(token) as an iBeacon"
+        case nil: return ""
+        }
     }
 
     private func reportState() {
@@ -83,7 +112,7 @@ final class Beacon: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDeleg
         if let error = error {
             say("log advertising failed: \(error.localizedDescription)")
         } else {
-            say("log advertising \(token ?? "")")
+            say("log advertising \(advertised)")
         }
     }
 
@@ -103,8 +132,20 @@ final class Beacon: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDeleg
     ) {
         // 127: no reading.
         let rssi = RSSI.intValue
-        guard rssi < 0, rssi >= minRssi, let found = tokenIn(advertisementData) else { return }
-        say("heard \(found.0) \(rssi) \(found.1)")
+        guard rssi < 0, rssi >= minRssi else { return }
+        let peer = peripheral.identifier.uuidString
+        if sniffing {
+            if let frame = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data,
+               frame.count > 2, frame[frame.startIndex] == 0x4C, frame[frame.startIndex + 1] == 0x00 {
+                say("raw \(hex(frame.dropFirst(2))) \(rssi) \(peer)")
+            }
+            if let overflow = advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID],
+               !overflow.isEmpty {
+                say("overflow \(overflow.map { $0.uuidString }.joined(separator: ",")) \(rssi) \(peer)")
+            }
+        }
+        guard let found = tokenIn(advertisementData) else { return }
+        say("heard \(found.0) \(rssi) \(found.1) \(peer)")
     }
 
     private func tokenIn(_ advertisement: [String: Any]) -> (String, String)? {
@@ -139,8 +180,10 @@ DispatchQueue.global().async {
         let parts = line.split(separator: " ").map(String.init)
         DispatchQueue.main.async {
             switch parts.first {
-            case "advertise" where parts.count > 1 && isToken(parts[1]): beacon.advertise(parts[1])
+            case "advertise" where parts.count > 1 && isToken(parts[1]): beacon.advertise(.hider(parts[1]))
+            case "ibeacon" where parts.count > 1 && isToken(parts[1]): beacon.advertise(.beacon(parts[1]))
             case "stop": beacon.advertise(nil)
+            case "sniff" where parts.count > 1: beacon.sniffing = parts[1] == "on"
             default: say("log unknown command: \(line)")
             }
         }

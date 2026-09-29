@@ -50,7 +50,8 @@ import java.util.UUID
  * Runs while [run] is collected: every reading of a phone with a well-formed token goes out with the signal strength.
  * [state] follows the adapter and the permissions.
  */
-class AndroidProximityRadio(private val context: Context) : ProximityRadio {
+class AndroidProximityRadio(private val context: Context, private val trace: RadioTrace = RadioTrace.None) :
+    ProximityRadio {
     private val adapter: BluetoothAdapter? =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
     private val mutableState = MutableStateFlow(currentState())
@@ -84,20 +85,24 @@ class AndroidProximityRadio(private val context: Context) : ProximityRadio {
         val advertiser: BluetoothLeAdvertiser? = adapter.bluetoothLeAdvertiser
         val scanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val token = result.scanRecord?.let(::tokenOf) ?: return
+                val (token, via) = result.scanRecord?.let(::tokenOf) ?: return
                 if (!RadarToken.isWellFormed(token)) return
                 // The reading's time in device-clock terms, from the monotonic stamp.
                 val ageMillis = (SystemClock.elapsedRealtimeNanos() - result.timestampNanos) / 1_000_000
-                trySend(RadioSighting(token, result.rssi, System.currentTimeMillis() - ageMillis.coerceAtLeast(0)))
+                val atMillis = System.currentTimeMillis() - ageMillis.coerceAtLeast(0)
+                trySend(RadioSighting(token, result.rssi, atMillis, RadioApi.ANDROID_LE, via, result.device?.address))
             }
 
             override fun onScanFailed(errorCode: Int) {
                 Log.w(TAG, "Scan failed: $errorCode")
+                trace.scan("failed", RadioApi.ANDROID_LE, error = "code $errorCode")
             }
         }
+        val mode = if (asSeeker) "ibeacon" else "hider_service_data"
         val advertiseCallback = object : AdvertiseCallback() {
             override fun onStartFailure(errorCode: Int) {
                 Log.w(TAG, "Advertising failed: $errorCode")
+                trace.advertise("failed", mode, tokens.value, "code $errorCode")
             }
         }
         val filters = listOf(
@@ -109,12 +114,14 @@ class AndroidProximityRadio(private val context: Context) : ProximityRadio {
             .setReportDelay(0)
             .build()
         scanner?.startScan(filters, settings, scanCallback)
+        trace.scan("start", RadioApi.ANDROID_LE, "game service, iBeacon of the game")
 
         var advertising = false
         fun advertise(token: String?) {
             if (advertising) {
                 advertiser?.stopAdvertising(advertiseCallback)
                 advertising = false
+                trace.advertise("stop", mode, null)
             }
             if (token == null || advertiser == null) return
             val data = if (asSeeker) {
@@ -137,19 +144,24 @@ class AndroidProximityRadio(private val context: Context) : ProximityRadio {
                 .build()
             advertiser.startAdvertising(advertiseSettings, data, advertiseCallback)
             advertising = true
+            trace.advertise("start", mode, token)
         }
         // The token changes every few minutes: advertise the current one.
         val tokenJob = tokens.onEach { advertise(it) }.launchIn(this)
         awaitClose {
             tokenJob.cancel()
-            if (advertising) advertiser?.stopAdvertising(advertiseCallback)
+            if (advertising) {
+                advertiser?.stopAdvertising(advertiseCallback)
+                trace.advertise("stop", mode, null)
+            }
             scanner?.stopScan(scanCallback)
+            trace.scan("stop", RadioApi.ANDROID_LE)
         }
     }
 
     /** The token in a scan record: a hider's service data, a seeker's iBeacon frame, or an iPhone hider's name. */
-    private fun tokenOf(record: ScanRecord): String? {
-        record.getServiceData(SERVICE_PARCEL)?.let { return it.toHex() }
+    private fun tokenOf(record: ScanRecord): Pair<String, SightingVia>? {
+        record.getServiceData(SERVICE_PARCEL)?.let { return it.toHex() to SightingVia.SERVICE_DATA }
         record.getManufacturerSpecificData(APPLE_COMPANY_ID)?.let { frame ->
             if (frame.size >= BEACON_FRAME_LENGTH - 1 &&
                 frame.copyOf(BEACON_PREFIX.size).contentEquals(BEACON_PREFIX)
@@ -157,13 +169,13 @@ class AndroidProximityRadio(private val context: Context) : ProximityRadio {
                 val buffer = ByteBuffer.wrap(frame, BEACON_PREFIX.size, 4)
                 val major = buffer.short.toInt() and 0xFFFF
                 val minor = buffer.short.toInt() and 0xFFFF
-                return RadarToken.fromMajorMinor(major, minor)
+                return RadarToken.fromMajorMinor(major, minor) to SightingVia.IBEACON
             }
         }
         // An iPhone hider: the token as its name, bare (iOS keeps 8 characters next to the service) or after the first
         // apps' prefix. Only the game's service and iBeacon frames pass the scan filters.
         val name = record.deviceName ?: return null
-        return name.removePrefix(NAME_PREFIX)
+        return name.removePrefix(NAME_PREFIX) to SightingVia.NAME
     }
 
     private fun currentState(): BluetoothState {

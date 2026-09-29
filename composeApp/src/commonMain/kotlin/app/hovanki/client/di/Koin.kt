@@ -6,9 +6,16 @@ import app.hovanki.client.automation.LaunchOptions
 import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.bigGames.BigGameManager
 import app.hovanki.client.defaultServerUrl
+import app.hovanki.client.device.DeviceInfo
 import app.hovanki.client.diagnostics.Diagnostics
 import app.hovanki.client.diagnostics.DiagnosticsBench
 import app.hovanki.client.history.HistoryManager
+import app.hovanki.client.lab.LabAbout
+import app.hovanki.client.lab.LabClockSync
+import app.hovanki.client.lab.LabController
+import app.hovanki.client.lab.LabLog
+import app.hovanki.client.lab.LabProbes
+import app.hovanki.client.lab.LabRadioTrace
 import app.hovanki.client.network.AccountApi
 import app.hovanki.client.network.AdaptiveGameConnection
 import app.hovanki.client.network.BigGameApi
@@ -28,6 +35,7 @@ import app.hovanki.client.network.SocialApi
 import app.hovanki.client.network.SpectatorApi
 import app.hovanki.client.network.WebSocketGameConnection
 import app.hovanki.client.network.createHttpClient
+import app.hovanki.client.radio.RadioTrace
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
 import app.hovanki.client.social.SocialManager
@@ -35,6 +43,7 @@ import app.hovanki.client.spectator.SpectatorManager
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.ui.chat.ChatViewModel
 import app.hovanki.client.ui.debug.DiagnosticsViewModel
+import app.hovanki.client.ui.debug.LabViewModel
 import app.hovanki.client.ui.friends.FriendsViewModel
 import app.hovanki.client.ui.game.GameViewModel
 import app.hovanki.client.ui.groups.GroupsViewModel
@@ -50,6 +59,7 @@ import app.hovanki.client.ui.verify.VerifyEmailViewModel
 import app.hovanki.client.ui.welcome.WelcomeViewModel
 import app.hovanki.shared.rules.AccountRules
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
@@ -93,7 +103,40 @@ val commonModule: Module = module {
     single { ServerClock() }
     // Debug builds only: the phone's measurements for the developer (a no-op in other builds).
     single { Diagnostics(isEnabled = get<BuildInfo>().isDebug) }
-    single { DiagnosticsBench(get(), get(), get(), MainScope()) }
+    // The radio lab (docs/radio-lab.md), debug builds only too: its log records only while the lab runs.
+    single { LabLog(isEnabled = get<BuildInfo>().isDebug) }
+    single<RadioTrace> { LabRadioTrace(get()) }
+    single { DiagnosticsBench(get(), get(), get(), MainScope(), lab = get()) }
+    single {
+        val log = get<LabLog>()
+        val api = get<GameApi>()
+        val probes = get<LabProbes>()
+        val buildInfo = get<BuildInfo>()
+        val deviceInfo = get<DeviceInfo>()
+        LabController(
+            log = log,
+            bench = get(),
+            probes = probes,
+            air = get(),
+            screen = get(),
+            haptics = get(),
+            files = get(),
+            radio = get(),
+            carryMonitor = get(),
+            backgroundTracker = get(),
+            clockSync = LabClockSync({ api.serverTime() }, log::deviceNow, log::monoNow),
+            about = {
+                LabAbout(
+                    deviceInfo.model,
+                    probes.os,
+                    "${buildInfo.version} (${buildInfo.buildNumber})",
+                    buildInfo.commit,
+                )
+            },
+            scope = MainScope(),
+            inAGame = get<GameSessionManager>().state.map { it.session != null },
+        )
+    }
     single { AccountManager(get(), get(), get()) }
     single { SocialManager(get(), get()) }
     single { HistoryManager(get(), get()) }
@@ -134,6 +177,7 @@ val commonModule: Module = module {
     viewModelOf(::InviteBannerViewModel)
     viewModelOf(::SpectatorViewModel)
     viewModelOf(::DiagnosticsViewModel)
+    viewModelOf(::LabViewModel)
 }
 
 /** Hands debug start parameters (UI automation) to the screens; see [LaunchOptions]. */

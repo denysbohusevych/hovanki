@@ -16,7 +16,7 @@ import kotlin.time.Duration.Companion.seconds
 /**
  * The radar by Bluetooth (docs/adr/0012-nearby-radar.md): the seeker feels a hider «burning» a metre away and nothing
  * from afar; a hider with the sense feels the seeker coming, nameless, on the phone in the pocket («Пульс»); an
- * iPhone in a pocket is never heard by an Android, but hears the seeker's beacon itself and tells the server. The
+ * iPhone in a pocket is heard by nobody, but hears the seeker's beacon itself and tells the server. The
  * privacy audit checks every response: no names to hiders, no tokens to seekers.
  */
 class RadarTest {
@@ -52,7 +52,7 @@ class RadarTest {
         check(felt.playerId == null, "Anna feels a seeker, nameless")
         check(sam.radarBandOn(bob) == RadarBand.NONE, "Bob, far away, is not on the radar")
 
-        // Bob's iPhone in a pocket: Sam's Android can't hear it, but it hears Sam's beacon and tells the server.
+        // Bob's iPhone in a pocket: nobody can read its token, but it hears Sam's beacon and tells the server.
         sam.walksToAndArrives(bob.gps.truePosition.offset(eastMeters = 0.8), speed = Route.RUNNING)
         awaitBand(sam, bob, RadarBand.BURNING)
         val samRadio = sam.radio as FakeRadio

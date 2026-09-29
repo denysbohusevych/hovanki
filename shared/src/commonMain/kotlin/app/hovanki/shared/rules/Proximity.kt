@@ -69,7 +69,7 @@ object ProximityRules {
     /** One reading never moves the level more than this share of the way: a lone spike off a wall stays a spike. */
     const val MAX_STEP = 0.6
 
-    /** Readings closer in time count as this far apart; a late one (the other phone's, sent later) too. */
+    /** Readings closer in time count as this far apart; a late one (older than the last one taken) too. */
     const val MIN_READING_GAP_MILLIS = 100L
 
     /**
@@ -179,8 +179,8 @@ data class Heartbeat(
 }
 
 /**
- * The signal between two phones, smoothed: fed with every reading either of them reports, asked for the band at any
- * moment. [dwellMillis]: how long the pair has to stay «burning» before it counts for a claim up close: one spike off
+ * The signal one phone hears of another, smoothed: fed with its readings, asked for the band at any moment. The server
+ * keeps one per direction and takes the louder of a pair's two (two phones rarely hear each other alike). [dwellMillis]: how long the pair has to stay «burning» before it counts for a claim up close: one spike off
  * a wall is not a meeting. Not thread-safe: the owner synchronizes access.
  */
 class RadarSmoother(private val dwellMillis: Long = 0L) {
@@ -199,8 +199,8 @@ class RadarSmoother(private val dwellMillis: Long = 0L) {
         private set
 
     /**
-     * A reading at [atMillis]. A late one — the other phone of the pair reports the same seconds with its own sync —
-     * still counts, as if it came now; only one older than the signal's life says nothing.
+     * A reading at [atMillis]. A late one (older than the last one taken) still counts, as if it came now; only one
+     * older than the signal's life says nothing.
      */
     fun add(rssi: Int, atMillis: Long) {
         val last = lastAtMillis

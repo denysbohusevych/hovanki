@@ -679,7 +679,7 @@ class GameSessionManager(
             try {
                 radio.run(radarToken, asSeeker = snapshot.me.role == Role.SEEKER).collect { sighting ->
                     val isRival = sighting.token in rivalTokens
-                    diagnostics.onSighting(sighting.token, sighting.rssi, sighting.atMillis, isRival)
+                    diagnostics.onSighting(sighting.token, sighting.rssi, sighting.atMillis, isRival, sighting.via)
                     val atMillis = clock.toServerTime(sighting.atMillis)
                     val sample = NearbySighting(sighting.token, sighting.rssi, atMillis)
                     heard.update { kept -> keepRecent(kept + sample) }

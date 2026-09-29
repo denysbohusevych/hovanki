@@ -9,11 +9,13 @@ import kotlin.math.roundToInt
 
 /**
  * What the phones of a game hear of each other over Bluetooth (docs/adr/0012-nearby-radar.md, section 2.3): one
- * smoothed signal per pair, fed by whichever of the two phones heard the other. Pure: [Game] owns it and passes the
- * time in. Positions never come here.
+ * smoothed signal per direction (who heard whom), and a pair is as close as its louder direction says. Two phones
+ * rarely hear each other alike (a MacBook heard an iPhone 10 dB louder than the other way round, 20 dB at the closest
+ * moment): mixed into one signal, the quiet side's readings held the loud side's «burning» down to «hot». Pure:
+ * [Game] owns it and passes the time in. Positions never come here.
  */
 internal class Radar {
-    private val pairs = HashMap<PairKey, RadarSmoother>()
+    private val directions = HashMap<Direction, RadarSmoother>()
 
     /** Token → player for the current five-minute slot and its neighbours; rebuilt when the slot changes. */
     private var tokenIndex: Map<String, PlayerId> = emptyMap()
@@ -48,31 +50,39 @@ internal class Radar {
         val heard = tokenIndex[token] ?: return null
         if (heard == observer) return null
         val level = (rssi + adjustDb(observer, heard)).roundToInt()
-        val pair = pairs.getOrPut(PairKey.of(observer, heard)) { RadarSmoother(dwellMillis) }
-        val before = pair.bandAt(atMillis)
-        pair.add(level, atMillis)
-        if (pair.bandAt(atMillis) != before) onBandChange(heard)
+        val before = bandBetween(observer, heard, atMillis)
+        directions.getOrPut(Direction(observer, heard)) { RadarSmoother(dwellMillis) }.add(level, atMillis)
+        if (bandBetween(observer, heard, atMillis) != before) onBandChange(heard)
         return heard
     }
 
+    /** The louder of the two directions: either phone hearing the other close is enough. */
     fun bandBetween(a: PlayerId, b: PlayerId, nowMillis: Long): RadarBand =
-        pairs[PairKey.of(a, b)]?.bandAt(nowMillis) ?: RadarBand.NONE
+        both(a, b).maxOfOrNull { it.bandAt(nowMillis) } ?: RadarBand.NONE
 
-    /** When the pair was last heard at all; null: never. */
-    fun lastHeardMillis(a: PlayerId, b: PlayerId): Long? = pairs[PairKey.of(a, b)]?.lastAtMillis
+    /** When the pair was last heard at all, either way; null: never. */
+    fun lastHeardMillis(a: PlayerId, b: PlayerId): Long? = both(a, b).mapNotNull { it.lastAtMillis }.maxOrNull()
 
-    /** The pair was «burning» steadily (the dwell) within [windowMillis] before [nowMillis]. */
+    /** The pair was «burning» steadily (the dwell) within [windowMillis] before [nowMillis], either way. */
     fun wasBurningWithin(a: PlayerId, b: PlayerId, nowMillis: Long, windowMillis: Long): Boolean =
-        pairs[PairKey.of(a, b)]?.wasBurningWithin(nowMillis, windowMillis) == true
+        both(a, b).any { it.wasBurningWithin(nowMillis, windowMillis) }
 
-    /** The pairs ever heard, for the e2e observer. */
-    fun debugPairs(nowMillis: Long): List<DebugRadarPair> =
-        pairs.map { (key, smoother) -> DebugRadarPair(key.a, key.b, smoother.bandAt(nowMillis), smoother.levelDbm) }
-
-    /** Two players, in a fixed order. */
-    private data class PairKey(val a: PlayerId, val b: PlayerId) {
-        companion object {
-            fun of(x: PlayerId, y: PlayerId): PairKey = if (x.value <= y.value) PairKey(x, y) else PairKey(y, x)
+    /**
+     * The pairs ever heard, for the e2e observer: the band as [bandBetween] says, the level of the louder direction
+     * still heard (of any, when neither is).
+     */
+    fun debugPairs(nowMillis: Long): List<DebugRadarPair> = directions.keys
+        .map { if (it.observer.value <= it.heard.value) it.observer to it.heard else it.heard to it.observer }
+        .distinct()
+        .map { (a, b) ->
+            val signals = both(a, b)
+            val alive = signals.filter { it.bandAt(nowMillis) != RadarBand.NONE }.ifEmpty { signals }
+            DebugRadarPair(a, b, bandBetween(a, b, nowMillis), alive.mapNotNull { it.levelDbm }.maxOrNull())
         }
-    }
+
+    private fun both(a: PlayerId, b: PlayerId): List<RadarSmoother> =
+        listOfNotNull(directions[Direction(a, b)], directions[Direction(b, a)])
+
+    /** [observer]'s phone heard [heard]'s. */
+    private data class Direction(val observer: PlayerId, val heard: PlayerId)
 }

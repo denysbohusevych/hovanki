@@ -15,25 +15,31 @@ import platform.UIKit.popoverPresentationController
  * of the screen.
  */
 class IosShareSheet : ShareSheet {
-    @OptIn(ExperimentalForeignApi::class)
     override fun share(text: String) {
-        val presenter = topViewController() ?: return
-        val sheet = UIActivityViewController(activityItems = listOf(text), applicationActivities = null)
-        sheet.popoverPresentationController?.let { popover ->
-            val view = presenter.view
-            popover.sourceView = view
-            view.bounds.useContents { popover.sourceRect = CGRectMake(size.width / 2, size.height / 2, 0.0, 0.0) }
-            popover.permittedArrowDirections = 0u
-        }
-        presenter.presentViewController(sheet, animated = true, completion = null)
+        presentShareSheet(listOf(text))
     }
+}
 
-    private fun topViewController(): UIViewController? {
-        val windows = UIApplication.sharedApplication.connectedScenes
-            .filterIsInstance<UIWindowScene>()
-            .flatMap { scene -> scene.windows.filterIsInstance<UIWindow>() }
-        val window = windows.firstOrNull { it.keyWindow } ?: windows.firstOrNull()
-        var top = window?.rootViewController ?: return null
-        while (true) top = top.presentedViewController ?: return top
+/** The system «Share» with [items] (texts, file URLs); [onDone] when it closes, shared or not. */
+@OptIn(ExperimentalForeignApi::class)
+internal fun presentShareSheet(items: List<Any>, onDone: (() -> Unit)? = null) {
+    val presenter = topViewController() ?: return
+    val sheet = UIActivityViewController(activityItems = items, applicationActivities = null)
+    if (onDone != null) sheet.completionWithItemsHandler = { _, _, _, _ -> onDone() }
+    sheet.popoverPresentationController?.let { popover ->
+        val view = presenter.view
+        popover.sourceView = view
+        view.bounds.useContents { popover.sourceRect = CGRectMake(size.width / 2, size.height / 2, 0.0, 0.0) }
+        popover.permittedArrowDirections = 0u
     }
+    presenter.presentViewController(sheet, animated = true, completion = null)
+}
+
+private fun topViewController(): UIViewController? {
+    val windows = UIApplication.sharedApplication.connectedScenes
+        .filterIsInstance<UIWindowScene>()
+        .flatMap { scene -> scene.windows.filterIsInstance<UIWindow>() }
+    val window = windows.firstOrNull { it.keyWindow } ?: windows.firstOrNull()
+    var top = window?.rootViewController ?: return null
+    while (true) top = top.presentedViewController ?: return top
 }

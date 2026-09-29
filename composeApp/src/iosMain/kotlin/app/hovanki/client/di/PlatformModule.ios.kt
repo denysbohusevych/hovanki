@@ -5,6 +5,16 @@ import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.device.DeviceInfo
 import app.hovanki.client.device.IosDeviceInfo
 import app.hovanki.client.iosBuildInfo
+import app.hovanki.client.lab.IosLabAir
+import app.hovanki.client.lab.IosLabFiles
+import app.hovanki.client.lab.IosLabHaptics
+import app.hovanki.client.lab.IosLabProbes
+import app.hovanki.client.lab.IosLabScreen
+import app.hovanki.client.lab.LabAir
+import app.hovanki.client.lab.LabFiles
+import app.hovanki.client.lab.LabHaptics
+import app.hovanki.client.lab.LabProbes
+import app.hovanki.client.lab.LabScreen
 import app.hovanki.client.location.IosLocationProvider
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.radio.IosProximityRadio
@@ -39,10 +49,16 @@ actual val platformModule: Module = module {
     single<BackgroundTracker> { IosBackgroundTracker() }
     single<ShareSheet> { IosShareSheet() }
     // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md); the precision radar by UWB is not implemented yet.
-    single<ProximityRadio> { IosProximityRadio() }
+    single<ProximityRadio> { IosProximityRadio(get()) }
     single<PrecisionRadio> { NoopPrecisionRadio() }
     single<DeviceInfo> { IosDeviceInfo() }
     single<ActivityMonitor> { IosActivityMonitor() }
     single<PocketPulse> { IosPocketPulse() }
     single<CarryMonitor> { IosCarryMonitor() }
+    // The radio lab (docs/radio-lab.md), reached from the debug build's diagnostics only.
+    single<LabProbes> { IosLabProbes() }
+    single<LabAir> { IosLabAir() }
+    single<LabScreen> { IosLabScreen() }
+    single<LabHaptics> { IosLabHaptics() }
+    single<LabFiles> { IosLabFiles() }
 }

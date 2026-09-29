@@ -8,6 +8,12 @@ package app.hovanki.shared.protocol
  * `Authorization: Bearer <token>`; creating and joining a game take an optional account token.
  */
 object ApiRoutes {
+    /**
+     * GET, no token: the server's clock ([ServerTimeResponse]), for measuring a device's clock offset before any game
+     * (the debug build's radio lab, docs/radio-lab.md §4.3). Rate limited per client IP.
+     */
+    const val TIME = "/api/v1/time"
+
     const val GAMES = "/api/v1/games"
     const val JOIN = "$GAMES/join"
     const val START = "$GAMES/{gameId}/start"

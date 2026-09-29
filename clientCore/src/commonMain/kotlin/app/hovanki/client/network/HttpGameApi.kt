@@ -21,6 +21,7 @@ import app.hovanki.shared.protocol.QuestReviewRequest
 import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.ScanCheckpointRequest
 import app.hovanki.shared.protocol.SendChatRequest
+import app.hovanki.shared.protocol.ServerTimeResponse
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsPreviewRequest
 import app.hovanki.shared.protocol.SettingsPreviewResponse
@@ -36,6 +37,8 @@ import io.ktor.client.HttpClient
 /** [GameApi] over HTTP/JSON; paths and DTOs are shared with the server. */
 class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
     private val http = HttpSupport(client, serverUrl)
+
+    override suspend fun serverTime(): Long = http.get<ServerTimeResponse>(ApiRoutes.TIME, null).serverTimeMillis
 
     override suspend fun createGame(request: CreateGameRequest, accountToken: String?): SessionResponse =
         http.post(ApiRoutes.GAMES, accountToken, request)

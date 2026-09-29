@@ -49,6 +49,16 @@ tasks.register<JavaExec>("route") {
     mainClass.set("app.hovanki.e2e.cli.RouteCliKt")
 }
 
+// `./gradlew :e2e:lab --args="merge a.jsonl b.jsonl --out build/lab"`: the radio lab's logs of several devices on one
+// timeline (docs/radio-lab.md §4.5); paths from the repository's root.
+tasks.register<JavaExec>("lab") {
+    group = "e2e"
+    description = "Merges the radio lab's logs of several devices (see LabCli)."
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("app.hovanki.e2e.lab.LabCliKt")
+    workingDir = rootDirectory.asFile
+}
+
 // `./gradlew :e2e:devices`: the device scenarios on the emulators already running on this machine, e.g. from Android
 // Studio (run configurations in .run/). Builds the server jar and the debug APK, installs the app on every running
 // emulator, starts the server with the `e2e` profile next to an embedded PostgreSQL (LocalServer), runs Maestro and the

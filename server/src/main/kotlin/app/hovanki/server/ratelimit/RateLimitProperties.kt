@@ -46,6 +46,9 @@ enum class RateLimit {
      * (docs/adr/0014-settings-lobby-redesign-open-buildings.md); asking again about the same draft is free.
      */
     SETTINGS_PREVIEW,
+
+    /** Asking the server's clock ([app.hovanki.shared.protocol.ApiRoutes.TIME]) per client IP. */
+    TIME_PER_IP,
 }
 
 /** `hovanki.rate-limits.*`. Tests and the `e2e` profile turn them off ([enabled]); one test context turns them on. */
@@ -67,6 +70,7 @@ data class RateLimitProperties(
     val adminTotp: Limit = Limit(10, Duration.ofMinutes(15)),
     val watch: Limit = Limit(30, Duration.ofHours(1)),
     val settingsPreview: Limit = Limit(120, Duration.ofMinutes(10)),
+    val timePerIp: Limit = Limit(120, Duration.ofMinutes(1)),
 ) {
     /** At most [count] events per key within any [window]. */
     data class Limit(val count: Int, val window: Duration)
@@ -85,5 +89,6 @@ data class RateLimitProperties(
         RateLimit.ADMIN_TOTP -> adminTotp
         RateLimit.WATCH -> watch
         RateLimit.SETTINGS_PREVIEW -> settingsPreview
+        RateLimit.TIME_PER_IP -> timePerIp
     }
 }

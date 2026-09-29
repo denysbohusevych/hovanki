@@ -38,10 +38,16 @@ import platform.CoreLocation.CLLocationManager
 import platform.CoreLocation.CLLocationManagerDelegateProtocol
 import platform.Foundation.NSData
 import platform.Foundation.NSDate
+import platform.Foundation.NSError
+import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSNumber
+import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSUUID
 import platform.Foundation.allKeys
 import platform.Foundation.timeIntervalSince1970
+import platform.UIKit.UIApplication
+import platform.UIKit.UIApplicationDidBecomeActiveNotification
+import platform.UIKit.UIApplicationState
 import platform.darwin.NSObject
 import platform.posix.memcpy
 
@@ -59,7 +65,7 @@ import platform.posix.memcpy
  * Reading the token of an iPhone hider in the background (a connection and a characteristic) is not done yet: the
  * spike on real phones decides. Written without an iOS build at hand: the first run on a device is part of the spike.
  */
-class IosProximityRadio : ProximityRadio {
+class IosProximityRadio(private val trace: RadioTrace = RadioTrace.None) : ProximityRadio {
     private val mutableState = MutableStateFlow(BluetoothState.UNSUPPORTED)
     override val state: StateFlow<BluetoothState> = mutableState
 
@@ -80,13 +86,15 @@ class IosProximityRadio : ProximityRadio {
     override fun run(tokens: StateFlow<String?>, asSeeker: Boolean): Flow<RadioSighting> = callbackFlow {
         val listener = Listener(
             onState = { central -> mutableState.value = stateOf(central) },
-            onHeard = { token, rssi ->
+            onHeard = { token, rssi, api, via, peer ->
                 if (RadarToken.isWellFormed(token)) {
-                    trySend(RadioSighting(token, rssi, (NSDate().timeIntervalSince1970 * 1000).toLong()))
+                    val atMillis = (NSDate().timeIntervalSince1970 * 1000).toLong()
+                    trySend(RadioSighting(token, rssi, atMillis, api, via, peer))
                 }
             },
+            trace = trace,
         )
-        val advertiser = Advertiser { token ->
+        val advertiser = Advertiser(if (asSeeker) "ibeacon" else "hider_name", trace) { token ->
             if (asSeeker) {
                 val (major, minor) = RadarToken.toMajorMinor(token)
                 val beacon = CLBeaconRegion(
@@ -165,7 +173,8 @@ private fun NSData.toHex(): String {
  */
 private class Listener(
     private val onState: (CBCentralManager) -> Unit,
-    private val onHeard: (token: String, rssi: Int) -> Unit,
+    private val onHeard: (token: String, rssi: Int, api: RadioApi, via: SightingVia, peer: String?) -> Unit,
+    private val trace: RadioTrace,
 ) : NSObject(),
     CBCentralManagerDelegateProtocol,
     CLLocationManagerDelegateProtocol {
@@ -181,6 +190,7 @@ private class Listener(
         region.notifyEntryStateOnDisplay = false
         ranger.startMonitoringForRegion(region)
         ranger.startRangingBeaconsSatisfyingConstraint(constraint)
+        trace.scan("start", RadioApi.CORELOCATION_RANGING, "iBeacon of the game")
     }
 
     fun close() {
@@ -189,6 +199,8 @@ private class Listener(
         ranger.delegate = null
         if (central.state == CBManagerStatePoweredOn) central.stopScan()
         central.delegate = null
+        trace.scan("stop", RadioApi.COREBLUETOOTH)
+        trace.scan("stop", RadioApi.CORELOCATION_RANGING)
     }
 
     override fun centralManagerDidUpdateState(central: CBCentralManager) {
@@ -198,6 +210,7 @@ private class Listener(
                 listOf(serviceUuid),
                 mapOf(CBCentralManagerScanOptionAllowDuplicatesKey to true),
             )
+            trace.scan("start", RadioApi.COREBLUETOOTH, "game service")
         }
     }
 
@@ -214,13 +227,15 @@ private class Listener(
         val data = serviceData?.entries?.firstOrNull { (key, _) ->
             (key as? CBUUID)?.UUIDString.equals(IosProximityRadio.SERVICE_UUID, ignoreCase = true)
         }?.value as? NSData
+        val peer = didDiscoverPeripheral.identifier.UUIDString
         if (data != null) {
-            onHeard(data.toHex(), rssi)
+            onHeard(data.toHex(), rssi, RadioApi.COREBLUETOOTH, SightingVia.SERVICE_DATA, peer)
             return
         }
         // Only the game's service is scanned for: its name is a token, bare or after the first apps' prefix.
         val name = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?: return
-        onHeard(name.removePrefix(IosProximityRadio.NAME_PREFIX), rssi)
+        val token = name.removePrefix(IosProximityRadio.NAME_PREFIX)
+        onHeard(token, rssi, RadioApi.COREBLUETOOTH, SightingVia.NAME, peer)
     }
 
     override fun locationManager(
@@ -232,7 +247,8 @@ private class Listener(
             val found = beacon as? CLBeacon ?: continue
             val rssi = found.rssi.toInt()
             if (!isReading(rssi)) continue
-            onHeard(RadarToken.fromMajorMinor(found.major.intValue, found.minor.intValue), rssi)
+            val token = RadarToken.fromMajorMinor(found.major.intValue, found.minor.intValue)
+            onHeard(token, rssi, RadioApi.CORELOCATION_RANGING, SightingVia.IBEACON, null)
         }
     }
 }
@@ -242,12 +258,31 @@ private class Listener(
  * `startAdvertising` only once the peripheral manager says it is powered on, which comes a moment after it is made
  * (and again after Bluetooth was switched off and on): a call before that is dropped without a word, so the token
  * waits here and goes out from [peripheralManagerDidUpdateState].
+ *
+ * Since iOS 14 an app in the background can neither start an advertisement nor change it: a restart there (the token's
+ * five-minute slot changing while the phone is locked) would stop the one on the air and start nothing, and the phone
+ * would be gone from the radar until it is unlocked. So in the background the advertisement on the air stays; the new
+ * token waits for the app to come back ([UIApplicationDidBecomeActiveNotification]). In the background iOS sends neither
+ * the name nor the iBeacon frame anyway, at most the service's bit (docs/adr/0016-iphone-overflow-radar.md), so an old
+ * token there costs nothing.
  */
-private class Advertiser(private val data: (token: String) -> Map<Any?, *>) :
-    NSObject(),
+private class Advertiser(
+    private val mode: String,
+    private val trace: RadioTrace,
+    private val data: (token: String) -> Map<Any?, *>,
+) : NSObject(),
     CBPeripheralManagerDelegateProtocol {
     private val manager = CBPeripheralManager()
     private var token: String? = null
+
+    /** The token on the air; null: nothing is. */
+    private var advertised: String? = null
+
+    private val becameActive = NSNotificationCenter.defaultCenter.addObserverForName(
+        UIApplicationDidBecomeActiveNotification,
+        `object` = null,
+        queue = NSOperationQueue.mainQueue,
+    ) { _ -> restart() }
 
     init {
         manager.delegate = this
@@ -259,16 +294,40 @@ private class Advertiser(private val data: (token: String) -> Map<Any?, *>) :
     }
 
     fun close() {
+        NSNotificationCenter.defaultCenter.removeObserver(becameActive)
         token = null
         restart()
         manager.delegate = null
     }
 
-    override fun peripheralManagerDidUpdateState(peripheral: CBPeripheralManager) = restart()
+    override fun peripheralManagerDidUpdateState(peripheral: CBPeripheralManager) {
+        // Bluetooth off (or not yet on) ends any advertisement: nothing is on the air until it is started again.
+        if (peripheral.state != CBManagerStatePoweredOn) advertised = null
+        restart()
+    }
 
     private fun restart() {
         if (manager.state != CBManagerStatePoweredOn) return
+        val wanted = token
+        if (wanted == advertised) return
+        // Stopping works anywhere; a new token waits for the screen while one is on the air (see above).
+        val inBackground =
+            UIApplication.sharedApplication.applicationState == UIApplicationState.UIApplicationStateBackground
+        if (wanted != null && advertised != null && inBackground) {
+            trace.advertise("skipped_background", mode, wanted)
+            return
+        }
         manager.stopAdvertising()
-        token?.let { manager.startAdvertising(data(it)) }
+        if (advertised != null) trace.advertise("stop", mode, advertised)
+        advertised = null
+        if (wanted != null) {
+            manager.startAdvertising(data(wanted))
+            advertised = wanted
+            trace.advertise("start", mode, wanted)
+        }
+    }
+
+    override fun peripheralManagerDidStartAdvertising(peripheral: CBPeripheralManager, error: NSError?) {
+        if (error != null) trace.advertise("failed", mode, advertised, error.localizedDescription)
     }
 }
