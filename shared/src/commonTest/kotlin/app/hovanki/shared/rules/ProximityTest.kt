@@ -69,7 +69,7 @@ class ProximityTest {
         val smoother = RadarSmoother()
         val now = 1_700_000_000_000L
         smoother.add(-90, now)
-        // The other phone of the pair reports the same second with its own sync: it counts, the clock stays.
+        // A reading older than the last one taken: it counts, the clock stays.
         smoother.add(-50, now - 1_000)
         val step = ProximityRules.smoothingStep(ProximityRules.MIN_READING_GAP_MILLIS, rising = true)
         assertEquals(-90.0 + 40 * step, smoother.levelDbm)

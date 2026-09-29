@@ -38,10 +38,15 @@ import platform.CoreLocation.CLLocationManager
 import platform.CoreLocation.CLLocationManagerDelegateProtocol
 import platform.Foundation.NSData
 import platform.Foundation.NSDate
+import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSNumber
+import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSUUID
 import platform.Foundation.allKeys
 import platform.Foundation.timeIntervalSince1970
+import platform.UIKit.UIApplication
+import platform.UIKit.UIApplicationDidBecomeActiveNotification
+import platform.UIKit.UIApplicationState
 import platform.darwin.NSObject
 import platform.posix.memcpy
 
@@ -242,12 +247,28 @@ private class Listener(
  * `startAdvertising` only once the peripheral manager says it is powered on, which comes a moment after it is made
  * (and again after Bluetooth was switched off and on): a call before that is dropped without a word, so the token
  * waits here and goes out from [peripheralManagerDidUpdateState].
+ *
+ * Since iOS 14 an app in the background can neither start an advertisement nor change it: a restart there (the token's
+ * five-minute slot changing while the phone is locked) would stop the one on the air and start nothing, and the phone
+ * would be gone from the radar until it is unlocked. So in the background the advertisement on the air stays; the new
+ * token waits for the app to come back ([UIApplicationDidBecomeActiveNotification]). In the background iOS sends neither
+ * the name nor the iBeacon frame anyway, at most the service's bit (docs/adr/0016-iphone-overflow-radar.md), so an old
+ * token there costs nothing.
  */
 private class Advertiser(private val data: (token: String) -> Map<Any?, *>) :
     NSObject(),
     CBPeripheralManagerDelegateProtocol {
     private val manager = CBPeripheralManager()
     private var token: String? = null
+
+    /** The token on the air; null: nothing is. */
+    private var advertised: String? = null
+
+    private val becameActive = NSNotificationCenter.defaultCenter.addObserverForName(
+        UIApplicationDidBecomeActiveNotification,
+        `object` = null,
+        queue = NSOperationQueue.mainQueue,
+    ) { _ -> restart() }
 
     init {
         manager.delegate = this
@@ -259,16 +280,31 @@ private class Advertiser(private val data: (token: String) -> Map<Any?, *>) :
     }
 
     fun close() {
+        NSNotificationCenter.defaultCenter.removeObserver(becameActive)
         token = null
         restart()
         manager.delegate = null
     }
 
-    override fun peripheralManagerDidUpdateState(peripheral: CBPeripheralManager) = restart()
+    override fun peripheralManagerDidUpdateState(peripheral: CBPeripheralManager) {
+        // Bluetooth off (or not yet on) ends any advertisement: nothing is on the air until it is started again.
+        if (peripheral.state != CBManagerStatePoweredOn) advertised = null
+        restart()
+    }
 
     private fun restart() {
         if (manager.state != CBManagerStatePoweredOn) return
+        val wanted = token
+        if (wanted == advertised) return
+        // Stopping works anywhere; a new token waits for the screen while one is on the air (see above).
+        val inBackground =
+            UIApplication.sharedApplication.applicationState == UIApplicationState.UIApplicationStateBackground
+        if (wanted != null && advertised != null && inBackground) return
         manager.stopAdvertising()
-        token?.let { manager.startAdvertising(data(it)) }
+        advertised = null
+        if (wanted != null) {
+            manager.startAdvertising(data(wanted))
+            advertised = wanted
+        }
     }
 }

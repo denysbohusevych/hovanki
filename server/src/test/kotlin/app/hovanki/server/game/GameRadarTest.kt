@@ -420,6 +420,36 @@ class GameRadarTest {
     }
 
     @Test
+    fun aQuietPhoneDoesNotHoldBackALoudOne() {
+        // The first game on real phones: an iPhone seeker walks past a MacBook hider. The Mac hears the iPhone about
+        // 10 dB louder than the iPhone hears the Mac, and at the closest moment 20 dB: the Mac's readings alone say
+        // «burning», and so should the pair's band. Each phone syncs every second with its readings 400 ms apart.
+        val game = game()
+        game.begin()
+        val seekerToken = RadarToken.at(game.radarSecretOf(seeker), now)
+        val hiderToken = RadarToken.at(game.radarSecretOf(hider), now)
+        val start = now
+        // Second by second: what the seeker's iPhone hears of the hider, and what the hider's Mac hears of the seeker.
+        val seconds = List(10) { -85 to -75 } +
+            listOf(-75 to -65, -88 to -65, -71 to -52, -89 to -52, -89 to -63, -90 to -71)
+        val bands = mutableListOf<RadarBand>()
+        for ((second, levels) in seconds.withIndex()) {
+            val (seekerHears, hiderHears) = levels
+            val from = start + second * 1_000L
+            now = from + 300
+            game.recordSightings(seeker, (0..1).map { NearbySighting(hiderToken, seekerHears, from + it * 400L) }, now)
+            game.advance(now)
+            bands += game.debugState(now).radar.single().band
+            now = from + 800
+            game.recordSightings(hider, (0..1).map { NearbySighting(seekerToken, hiderHears, from + it * 400L) }, now)
+            game.advance(now)
+            bands += game.debugState(now).radar.single().band
+        }
+        assertEquals(RadarBand.WARM, bands[19], "far apart: warm")
+        assertTrue(RadarBand.BURNING in bands, "the Mac heard -52 for two seconds: $bands")
+    }
+
+    @Test
     fun thePocketIsEvenedOutAndMayHide() {
         val game = game()
         game.begin()
