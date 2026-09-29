@@ -1,6 +1,7 @@
 package app.hovanki.e2e.observer
 
 import app.hovanki.client.network.createHttpClient
+import app.hovanki.e2e.scenario.E2eTransport
 import app.hovanki.shared.debug.DebugEmail
 import app.hovanki.shared.debug.DebugEmails
 import app.hovanki.shared.debug.DebugGameList
@@ -11,6 +12,7 @@ import app.hovanki.shared.debug.DebugRoutes
 import app.hovanki.shared.debug.DebugSetFeatures
 import app.hovanki.shared.debug.DebugSetRole
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserRole
 import io.ktor.client.call.body
@@ -71,11 +73,23 @@ class Observer(serverUrl: String) : AutoCloseable {
     /** Reported chat messages, newest first. */
     suspend fun reports(): List<DebugReport> = get<DebugReportList>(DebugRoutes.REPORTS).reports
 
-    /** Turns exactly [names] on for the whole server (every other feature off), as the admin would one by one. */
-    suspend fun setFeatures(names: List<String>) {
+    /**
+     * Turns exactly [names] on for the whole server (every other feature off), as the admin would one by one. A run on
+     * the live channel (`-Pe2e.transport=socket`, [E2eTransport]) keeps [ServerFeature.LIVE_SOCKET] on whatever the
+     * names, unless [keepLiveSocket] is false: a scenario that switches the channel itself.
+     */
+    suspend fun setFeatures(names: List<String>, keepLiveSocket: Boolean = E2eTransport.isSocket) {
+        val wanted = if (keepLiveSocket) names + ServerFeature.LIVE_SOCKET.name else names
+        switchFeatures(DebugSetFeatures(wanted.distinct()))
+    }
+
+    /** Turns [names] on, every other feature as it is: the scenarios share the server. */
+    suspend fun enableFeatures(names: List<String>) = switchFeatures(DebugSetFeatures(names, keepOthers = true))
+
+    private suspend fun switchFeatures(request: DebugSetFeatures) {
         val response = client.post(baseUrl + DebugRoutes.FEATURES) {
             contentType(ContentType.Application.Json)
-            setBody(DebugSetFeatures(names))
+            setBody(request)
         }
         check(response.status.isSuccess()) { "Observer: setting the features: HTTP ${response.status}" }
     }

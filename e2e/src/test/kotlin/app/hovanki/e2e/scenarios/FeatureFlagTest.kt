@@ -41,7 +41,11 @@ class FeatureFlagTest {
         observer.setRole(checkNotNull(sam.userId), UserRole.ADMIN)
         StaffConsole(serverUrl, observer).use { console ->
             check(console.logIn(account).role == UserRole.ADMIN, "Sam logs in to the admin as an admin")
-            check(console.features().none { it.enabled }, "everything is off to begin with")
+            // The live channel is as the run has it (-Pe2e.transport).
+            check(
+                console.features().none { it.enabled && it.feature != ServerFeature.LIVE_SOCKET },
+                "everything is off to begin with",
+            )
             val features = console.setFeature(ServerFeature.RADAR, enabled = true, reason = "the radar spike")
             check(features.single { it.feature == ServerFeature.RADAR }.enabled, "the radar is on")
             console.setFeature(ServerFeature.HIDER_SENSE, enabled = true, reason = "with the sense")

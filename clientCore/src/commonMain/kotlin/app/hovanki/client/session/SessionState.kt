@@ -1,5 +1,6 @@
 package app.hovanki.client.session
 
+import app.hovanki.client.network.Transport
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.ErrorCode
@@ -19,6 +20,8 @@ data class SessionState(
     /** A session saved by an earlier run of the app is being checked with the server; see `resumeSavedGame`. */
     val isResuming: Boolean = false,
     val connectionStatus: ConnectionStatus = ConnectionStatus.ONLINE,
+    /** How the last snapshot came: polling or the live channel (docs/adr/0015-websockets.md); null before one. */
+    val transport: Transport? = null,
     /** Own location updates are running; false when the permission is missing or location failed. */
     val isSharingLocation: Boolean = false,
     /** Result of the last failed command or of a lost session, until the next command succeeds or it is dismissed. */

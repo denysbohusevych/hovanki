@@ -189,7 +189,8 @@ PR из той же репы проверяются push-запуском на �
 **Запуск вручную** — Actions → Nightly → Run workflow, выбрать ветку и:
 - `suite`: `all` (по умолчанию), `bots` (только боты) или `devices` (только эмуляторы и симулятор);
 - `scenario`: сценарий устройств — `all`, `full-round`, `restart` или `watch`;
-- `bots`: число ботов в партии на устройствах.
+- `bots`: число ботов в партии на устройствах;
+- `transport`: как синхронизируются боты — `polling` (по умолчанию, как ночью) или `socket` (живой канал включён во всех сценариях, [ADR 0015](adr/0015-websockets.md)).
 
 То же из командной строки: `gh workflow run nightly.yml --ref <ветка> -f suite=devices -f scenario=restart`. Workflow берётся из выбранной ветки, так что изменения в нём самом проверяются тем же запуском.
 
@@ -220,7 +221,7 @@ CI на push не играет партии, поэтому перед PR их �
 | Что меняется | Что запустить | Где |
 |---|---|---|
 | Любой код | `./gradlew spotlessApply` и `./gradlew check` (или быстрый цикл `./gradlew :shared:jvmTest :clientCore:jvmTest :server:test`) | локально |
-| Правила игры, протокол, поведение клиент–сервер, аккаунты, друзья, чат (`:shared`, `:server`, `:clientCore`, `:e2e`) | `./gradlew :e2e:test` (~6 мин, работает и в облачном контейнере без KVM; PostgreSQL поднимается сам) | локально |
+| Правила игры, протокол, поведение клиент–сервер, аккаунты, друзья, чат (`:shared`, `:server`, `:clientCore`, `:e2e`) | `./gradlew :e2e:test` (~6 мин, работает и в облачном контейнере без KVM; PostgreSQL поднимается сам); что трогает синхронизацию или события игры — ещё и `-Pe2e.transport=socket` (боты на живом канале) | локально |
 | UI, платформенный код (`:composeApp`, `androidApp`, `iosApp`), Maestro-флоу, `run-devices.sh` | `./gradlew :e2e:devices` на своих эмуляторах ([e2e-local.md](e2e-local.md)) или ночной workflow вручную на своей ветке: `suite=devices`, нужный сценарий | локально с Android Studio / GitHub Actions, 15–20 мин |
 
 В описании PR — что из этого запускалось (чеклист в шаблоне PR).

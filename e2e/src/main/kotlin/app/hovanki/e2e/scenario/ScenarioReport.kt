@@ -52,6 +52,8 @@ object ScenarioReport {
         }
         appendLine("## Sync")
         appendLine()
+        appendLine("Run: ${E2eTransport.name}")
+        appendLine()
         appendLine(scenario.metrics.summary())
         appendLine()
         appendLine("## Timeline")

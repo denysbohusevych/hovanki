@@ -1,8 +1,10 @@
 package app.hovanki.e2e.scenario
 
+import app.hovanki.client.network.AdaptiveGameConnection
 import app.hovanki.e2e.bot.BotAccount
 import app.hovanki.e2e.bot.BotBehavior
 import app.hovanki.e2e.bot.BotPlayer
+import app.hovanki.e2e.bot.BotTransport
 import app.hovanki.e2e.bot.CommandResult
 import app.hovanki.e2e.bot.RadioWorld
 import app.hovanki.e2e.bot.SyncMetrics
@@ -54,6 +56,8 @@ fun runScenario(name: String, serverUrl: String, timeout: Duration = 3.minutes, 
     try {
         runBlocking {
             withTimeout(timeout) {
+                // A run on the live channel: every scenario's bots sync over sockets.
+                if (E2eTransport.isSocket) scenario.observer.enableFeatures(listOf(ServerFeature.LIVE_SOCKET.name))
                 scenario.block()
                 scenario.checkPrivacy()
                 scenario.checkNoServerErrors()
@@ -106,8 +110,23 @@ class Scenario(val name: String, val serverUrl: String) {
         clockSkew: Duration = Duration.ZERO,
         logChanges: Boolean = true,
         platform: Platform = Platform.ANDROID,
+        transport: BotTransport = BotTransport.APP,
+        pollAfterSocketFailure: Duration = AdaptiveGameConnection.POLL_AFTER_FAILURE_MILLIS.milliseconds,
     ): BotPlayer {
-        val bot = BotPlayer(name, at, noise, behavior, serverUrl, timeline, metrics, logChanges, platform, radio)
+        val bot = BotPlayer(
+            name,
+            at,
+            noise,
+            behavior,
+            serverUrl,
+            timeline,
+            metrics,
+            logChanges,
+            platform,
+            radio,
+            transport,
+            pollAfterSocketFailure.inWholeMilliseconds,
+        )
         bot.clock.skewMillis = clockSkew.inWholeMilliseconds
         bots += bot
         return bot
@@ -301,9 +320,12 @@ class Scenario(val name: String, val serverUrl: String) {
 
     // ---- The radar (docs/adr/0012-nearby-radar.md) ----
 
-    /** Every server feature on, as the operator would switch them in the admin; the games still pick their own. */
+    /**
+     * Every game feature on, as the operator would switch them in the admin; the games still pick their own. The live
+     * channel stays as the run has it ([E2eTransport]): it changes how every scenario on the server syncs.
+     */
     suspend fun enableAllFeatures() {
-        observer.setFeatures(ServerFeature.entries.map { it.name })
+        observer.setFeatures(ServerFeature.entries.filter { it != ServerFeature.LIVE_SOCKET }.map { it.name })
         note("every server feature is on")
     }
 

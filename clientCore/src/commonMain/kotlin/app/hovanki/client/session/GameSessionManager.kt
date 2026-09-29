@@ -540,12 +540,14 @@ class GameSessionManager(
         val resuming = mutableState.value.isResuming
         when (event) {
             is ConnectionEvent.Snapshot -> {
-                diagnostics.onSynced(event.snapshot.serverTimeMillis)
+                diagnostics.onSynced(event.snapshot.serverTimeMillis, event.transport)
                 if (resuming && event.snapshot.phase == GamePhase.FINISHED) {
                     endSession(SessionError.SavedGameFinished)
                     return
                 }
-                mutableState.update { it.copy(connectionStatus = ConnectionStatus.ONLINE, isResuming = false) }
+                mutableState.update {
+                    it.copy(connectionStatus = ConnectionStatus.ONLINE, isResuming = false, transport = event.transport)
+                }
                 applySnapshot(event.snapshot)
                 // Location updates need the game's settings: a resumed session starts them with its first snapshot.
                 if (resuming) startLocationUpdates()

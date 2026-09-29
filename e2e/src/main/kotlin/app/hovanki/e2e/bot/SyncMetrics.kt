@@ -6,9 +6,9 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.ceil
 
 /**
- * Latency of `/sync` calls and failed requests, collected over many bots. Thread-safe. A failed request is an I/O
- * error, a response lost on the way back, or any 4xx and 5xx (expected refusals like `TOO_FAR` too); 5xx are also
- * kept apart ([serverErrors]): a scenario never expects one.
+ * Latency of `/sync` calls (over HTTP or the live channel's socket) and failed requests, collected over many bots.
+ * Thread-safe. A failed request is an I/O error, a response lost on the way back, or any 4xx and 5xx (expected refusals
+ * like `TOO_FAR` too); 5xx are also kept apart ([serverErrors]): a scenario never expects one.
  */
 class SyncMetrics {
     private val syncMillis = ConcurrentLinkedQueue<Long>()
@@ -26,7 +26,8 @@ class SyncMetrics {
             status >= 400 -> failures += "$request -> $status"
         }
         if (status != null && status >= 500) serverFailures += "$request -> $status"
-        if (exchange.path.endsWith("/sync") && status != null && !exchange.isResponseLost) {
+        val isSync = exchange.path.endsWith("/sync") || exchange.method == FakeNetwork.SOCKET_METHOD
+        if (isSync && status != null && !exchange.isResponseLost) {
             syncMillis += exchange.durationMillis
         }
     }

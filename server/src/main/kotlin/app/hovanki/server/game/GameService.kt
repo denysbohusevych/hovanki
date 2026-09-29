@@ -64,7 +64,11 @@ import org.springframework.stereotype.Service
 import java.time.Clock
 import java.time.Instant
 
-/** Application layer: auth checks, id generation and per-game locking around the [Game] domain object. */
+/**
+ * Application layer: auth checks, id generation and per-game locking around the [Game] domain object. After the lock is
+ * released, whom a change concerns is poked through [pokeSink], and the game's next moment due by the clock goes to
+ * [deadlines] (docs/adr/0015-websockets.md, sections 5 and 6).
+ */
 @Service
 class GameService(
     private val registry: GameRegistry,
@@ -82,6 +86,8 @@ class GameService(
     private val terrainLoader: TerrainLoader,
     private val capacity: CapacityProperties,
     private val friends: FriendRepository,
+    private val pokeSink: PokeSink,
+    private val deadlines: GameDeadlines,
 ) {
     /**
      * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
@@ -101,6 +107,8 @@ class GameService(
         return synchronized(game) {
             game.addPlayer(hostId, name, now, user?.userId)
             loadMap(game)
+            // Nobody else is there to poke yet.
+            game.takePokes()
             newSession(game, hostId, now)
         }
     }
@@ -352,7 +360,8 @@ class GameService(
         ) {
             throw GameException(ErrorCode.BAD_REQUEST, "Too many sightings")
         }
-        return update(caller, gameId, request.chatAfter) { game, now ->
+        // The game pokes whom what the phone reported concerns (the lobby's abilities, the radar's pairs).
+        return update(caller, gameId, request.chatAfter, pokeEveryone = false) { game, now ->
             request.device?.let { game.recordDevice(caller.playerId, it, now) }
             game.recordLocations(caller.playerId, request.samples, now)
             if (request.nearby.isNotEmpty()) game.recordSightings(caller.playerId, request.nearby, now)
@@ -392,7 +401,8 @@ class GameService(
         val clientMessageId = request.clientMessageId?.let(::validRequestId)
         val game = gameOf(caller, gameId)
         synchronized(game) { game.userIdOf(caller.playerId) }?.let(sanctions::checkCanChat)
-        return update(caller, gameId, request.chatAfter) { game, now ->
+        // Only those who can read it are poked: the game knows them.
+        return update(caller, gameId, request.chatAfter, pokeEveryone = false) { game, now ->
             game.sendChat(caller.playerId, request.text, request.team, now, clientMessageId)
         }
     }
@@ -445,7 +455,16 @@ class GameService(
      */
     fun <T> withGame(caller: PlayerRef, gameId: GameId, block: (Game, Long) -> T): T {
         val game = gameOf(caller, gameId)
-        return locked(game) { now -> block(game, now) }
+        return locked(game, except = caller.playerId) { now -> block(game, now) }
+    }
+
+    /**
+     * Game [gameId] brought up to date now, with nobody asking ([GameDeadlines], docs/adr/0015-websockets.md, section
+     * 6): what was due by now happens ([Game.advance]) and whom it concerns is poked ([Game.pokeDue]).
+     */
+    fun wake(gameId: GameId) {
+        val game = registry.get(gameId) ?: return
+        locked(game) { now -> game.pokeDue(now) }
     }
 
     /**
@@ -521,7 +540,7 @@ class GameService(
         val settings = game.settings
         terrainLoader.load(game.id.value, settings.zone.boundingCircle()) { grid ->
             val current = registry.get(game.id) ?: return@load
-            synchronized(current) {
+            loaded(current) {
                 when (grid) {
                     null -> current.onTerrainUnavailable(revision)
                     else -> current.onTerrainLoaded(grid, revision)
@@ -532,7 +551,7 @@ class GameService(
         buildingLoader.load(game.id.value, area) { loaded ->
             // The game may be gone meanwhile (the janitor, a failed create).
             val current = registry.get(game.id) ?: return@load
-            synchronized(current) {
+            loaded(current) {
                 when (loaded) {
                     null -> current.onBuildingsUnavailable(revision)
                     else -> current.onBuildingsLoaded(loaded.buildings, loaded.passages, revision)
@@ -542,7 +561,7 @@ class GameService(
         if (settings.zoneShape == ZoneShape.STREETS) {
             streetZoneLoader.load(game.id.value, settings.zone) { stages ->
                 val current = registry.get(game.id) ?: return@load
-                synchronized(current) {
+                loaded(current) {
                     when (stages) {
                         null -> current.onStreetZoneUnavailable(revision)
                         else -> current.onStreetZoneBuilt(stages, revision)
@@ -552,13 +571,24 @@ class GameService(
         }
     }
 
+    /** A loader's result for [game], applied under its lock (not [locked]: no time passes); the players are poked. */
+    private fun loaded(game: Game, apply: () -> Unit) {
+        synchronized(game) {
+            apply()
+            game.takePokes()
+        }?.let { pokeSink.poke(game.id, it, except = null) }
+    }
+
     /**
      * [block] under [game]'s lock, on its current state ([Game.advance] first). A game that finished meanwhile hands
      * over its history, which is saved after the lock is released, off the request thread ([HistoryWriter]): no request
-     * ever waits for the database.
+     * ever waits for the database. Whom the changes concern is poked after the lock too, but [except]: the caller, who
+     * gets the fresh snapshot in the answer.
      */
-    private fun <T> locked(game: Game, block: (now: Long) -> T): T {
+    private fun <T> locked(game: Game, except: PlayerId? = null, block: (now: Long) -> T): T {
         var finished: GameRecord? = null
+        var pokes: Pokes? = null
+        var due: Long? = null
         try {
             return synchronized(game) {
                 val now = clock.millis()
@@ -567,10 +597,14 @@ class GameService(
                     block(now)
                 } finally {
                     finished = game.takeFinishedRecord()
+                    pokes = game.takePokes()
+                    due = game.nextDueMillis(now)
                 }
             }
         } finally {
             finished?.let(history::save)
+            pokes?.let { pokeSink.poke(game.id, it, except) }
+            due?.let { deadlines.schedule(game.id, it) }
         }
     }
 
@@ -579,14 +613,20 @@ class GameService(
         return registry.get(gameId) ?: throw GameException(ErrorCode.NOT_FOUND, "The game is over or never existed")
     }
 
-    /** [action] under the game's lock, on the current state; the caller's snapshot with chat after [chatAfter]. */
+    /**
+     * [action] under the game's lock, on the current state; the caller's snapshot with chat after [chatAfter]. A command
+     * that went through pokes every other player ([pokeEveryone]): the others see what it changed soon. A sync, and a
+     * chat message, leave it to the game whom to poke.
+     */
     private fun update(
         caller: PlayerRef,
         gameId: GameId,
         chatAfter: Long? = null,
+        pokeEveryone: Boolean = true,
         action: (Game, Long) -> Unit,
     ): GameSnapshot = withGame(caller, gameId) { game, now ->
         action(game, now)
+        if (pokeEveryone) game.pokeEveryone()
         game.advance(now)
         snapshotOf(game, caller.playerId, now, chatAfter)
     }

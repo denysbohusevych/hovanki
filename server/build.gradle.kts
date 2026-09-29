@@ -20,6 +20,7 @@ dependencies {
     implementation(platform(libs.spring.boot.bom))
     implementation(projects.shared)
     implementation(libs.spring.boot.starter.webmvc)
+    implementation(libs.spring.boot.starter.websocket)
     implementation(libs.spring.boot.starter.kotlinx.serialization.json)
     implementation(libs.spring.boot.starter.actuator)
     implementation(libs.spring.boot.starter.jdbc)

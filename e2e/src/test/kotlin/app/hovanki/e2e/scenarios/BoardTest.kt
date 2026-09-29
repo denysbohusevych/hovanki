@@ -50,10 +50,10 @@ class BoardTest {
         eventually("Anna sees the whole board, without the code") {
             anna.snapshot?.items?.takeIf { items -> items.size == 3 && items.all { it.code == null } }
         }
-        check(
-            anna.snapshot?.quests?.any { it.kind == QuestKind.CUSTOM && it.text == "Sing a song" } == true,
-            "and the host's quest",
-        )
+        // A snapshot of the board may come before the quest was added: the live channel pokes after every item.
+        awaitThat("and the host's quest") {
+            anna.snapshot?.quests?.any { it.kind == QuestKind.CUSTOM && it.text == "Sing a song" } == true
+        }
 
         sam.startsGame(seekers = listOf(sam))
         awaitPhase(GamePhase.SEEKING, within = 20.seconds)

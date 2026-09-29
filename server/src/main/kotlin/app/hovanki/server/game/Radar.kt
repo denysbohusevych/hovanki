@@ -22,7 +22,8 @@ internal class Radar {
     /**
      * [observer] heard [token] at [rssi]: counts for the pair when the token is a player's of this game, corrected by
      * [adjustDb] (the pocket's damping evened out, the stealth taken off). [dwellMillis]: how long a pair has to stay
-     * «burning» to count for a claim. Returns whose token it was, or null for anybody else's.
+     * «burning» to count for a claim. Returns whose token it was, or null for anybody else's. [onBandChange] hears of
+     * the heard player when the pair's band moved with this reading.
      */
     fun record(
         observer: PlayerId,
@@ -32,6 +33,7 @@ internal class Radar {
         secrets: () -> Map<PlayerId, String>,
         dwellMillis: Long = 0L,
         adjustDb: (observer: PlayerId, heard: PlayerId) -> Double = { _, _ -> 0.0 },
+        onBandChange: (heard: PlayerId) -> Unit = {},
     ): PlayerId? {
         if (!RadarToken.isWellFormed(token)) return null
         val slot = atMillis.floorDiv(RadarToken.SLOT_MILLIS)
@@ -46,7 +48,10 @@ internal class Radar {
         val heard = tokenIndex[token] ?: return null
         if (heard == observer) return null
         val level = (rssi + adjustDb(observer, heard)).roundToInt()
-        pairs.getOrPut(PairKey.of(observer, heard)) { RadarSmoother(dwellMillis) }.add(level, atMillis)
+        val pair = pairs.getOrPut(PairKey.of(observer, heard)) { RadarSmoother(dwellMillis) }
+        val before = pair.bandAt(atMillis)
+        pair.add(level, atMillis)
+        if (pair.bandAt(atMillis) != before) onBandChange(heard)
         return heard
     }
 

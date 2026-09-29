@@ -60,9 +60,13 @@ object DebugRoutes {
 @Serializable
 data class DebugSetRole(val role: UserRole)
 
-/** The server features to have on (every other one goes off), by name. */
+/** The server features to have on (every other one goes off, unless [keepOthers]), by name. */
 @Serializable
-data class DebugSetFeatures(val enabled: List<String>)
+data class DebugSetFeatures(
+    val enabled: List<String>,
+    /** The features not named stay as they are, instead of going off: several scenarios share a server. */
+    val keepOthers: Boolean = false,
+)
 
 @Serializable
 data class DebugGameList(val serverTimeMillis: Long, val games: List<DebugGameSummary>)

@@ -1,17 +1,28 @@
 package app.hovanki.e2e.bot
 
 import app.hovanki.client.location.LocationProvider
+import app.hovanki.client.network.GameSocket
+import app.hovanki.client.network.GameSocketOpener
 import app.hovanki.client.storage.SecureStore
 import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.client.tracking.HiderAlert
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.route.Route
 import app.hovanki.shared.geo.moveBy
+import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.ClientFrame
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LocationSample
+import app.hovanki.shared.protocol.ServerFrame
+import app.hovanki.shared.protocol.protocolJson
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
+import kotlinx.serialization.SerializationException
 import okhttp3.Interceptor
 import okhttp3.Response
 import java.io.IOException
@@ -110,15 +121,23 @@ class Exchange(
 )
 
 /**
- * The phone's network, as an OkHttp interceptor under the app's real Ktor/OkHttp client. Reports every exchange and
- * breaks like a mobile network does:
- * - [isOnline] off: requests fail with an [IOException] before reaching the server, like in a tunnel;
+ * The phone's network, as an OkHttp interceptor under the app's real Ktor/OkHttp client, and around its sockets of the
+ * live channel ([sockets], docs/adr/0015-websockets.md), whose frames no interceptor sees. Reports every exchange (a
+ * socket's answered sync is one too, method `WS`) and breaks like a mobile network does:
+ * - [isOnline] off: requests fail with an [IOException] before reaching the server, like in a tunnel, and open sockets
+ *   break;
  * - [loseResponseTo]: the server gets the request and answers, the answer is lost on the way back;
- * - [latency]: every request waits this long before it goes out;
- * - [failRequests]: a share of requests fails before reaching the server.
+ * - [latency]: every request and every frame the phone sends waits this long before it goes out;
+ * - [failRequests]: a share of requests fails before reaching the server; a socket frame that fails breaks its socket.
  */
 class FakeNetwork(private val onExchange: (Exchange) -> Unit) : Interceptor {
-    @Volatile var isOnline: Boolean = true
+    private val online = MutableStateFlow(true)
+
+    var isOnline: Boolean
+        get() = online.value
+        set(value) {
+            online.value = value
+        }
 
     @Volatile var latency: Duration = Duration.ZERO
 
@@ -148,8 +167,7 @@ class FakeNetwork(private val onExchange: (Exchange) -> Unit) : Interceptor {
         val started = System.nanoTime()
         val wait = latency
         if (wait.isPositive()) Thread.sleep(wait.inWholeMilliseconds)
-        val flaky = flakiness
-        if (flaky != null && synchronized(flaky) { flaky.random.nextDouble() } < flaky.rate) {
+        if (isFlaky()) {
             onExchange(Exchange(request.method, request.url.encodedPath, null, elapsedMillis(started), null))
             throw IOException("Request failed (simulated bad network)")
         }
@@ -176,9 +194,88 @@ class FakeNetwork(private val onExchange: (Exchange) -> Unit) : Interceptor {
             )
             throw IOException("Response lost (simulated)")
         }
-        val body = response.peekBody(MAX_BODY_BYTES).string()
+        // A socket's upgrade has no body to read: what follows are the socket's frames.
+        val body = if (response.code == SWITCHING_PROTOCOLS) null else response.peekBody(MAX_BODY_BYTES).string()
         onExchange(Exchange(request.method, request.url.encodedPath, response.code, elapsedMillis(started), body))
         return response
+    }
+
+    private fun isFlaky(): Boolean {
+        val flaky = flakiness ?: return false
+        return synchronized(flaky) { flaky.random.nextDouble() } < flaky.rate
+    }
+
+    /** The app's sockets of the live channel over this network: [opener] opens them for real, through [intercept]. */
+    fun sockets(opener: GameSocketOpener): GameSocketOpener = GameSocketOpener { session ->
+        SimulatedSocket(opener.open(session), ApiRoutes.socket(session.gameId))
+    }
+
+    /**
+     * A socket on this network: it breaks when the network goes, its frames wait out the [latency] and may fail, and
+     * the answer to every sync is reported like an HTTP exchange (with its time since the sync went out).
+     */
+    private inner class SimulatedSocket(private val socket: GameSocket, private val path: String) : GameSocket {
+        private val sentAt = ConcurrentHashMap<Long, Long>()
+
+        @Volatile private var brokenByNetwork = false
+
+        override suspend fun receive(): String? {
+            val text = coroutineScope {
+                val outage = launch {
+                    online.first { !it }
+                    breakDown()
+                }
+                try {
+                    socket.receive()
+                } finally {
+                    outage.cancel()
+                }
+            } ?: return null
+            report(text)
+            return text
+        }
+
+        override suspend fun send(text: String) {
+            val wait = latency
+            if (wait.isPositive()) delay(wait)
+            if (!isOnline || isFlaky()) {
+                breakDown()
+                throw IOException("Frame failed (simulated bad network)")
+            }
+            seqOf(text)?.let { sentAt[it] = System.nanoTime() }
+            socket.send(text)
+        }
+
+        /** No close frame comes through a network that is gone. */
+        override suspend fun closeCode(): Int? = if (brokenByNetwork) null else socket.closeCode()
+
+        override suspend fun close() = socket.close()
+
+        private suspend fun breakDown() {
+            brokenByNetwork = true
+            socket.close()
+        }
+
+        private fun report(text: String) {
+            val frame = try {
+                protocolJson.decodeFromString(ServerFrame.serializer(), text)
+            } catch (e: SerializationException) {
+                return
+            }
+            val (seq, status) = when (frame) {
+                is ServerFrame.Snapshot -> frame.seq to 200
+                is ServerFrame.Error -> frame.seq to 400
+                ServerFrame.Poke -> return
+            }
+            val started = sentAt.remove(seq) ?: return
+            onExchange(Exchange(SOCKET_METHOD, path, status, elapsedMillis(started), text.takeIf { status == 200 }))
+        }
+
+        private fun seqOf(text: String): Long? = try {
+            (protocolJson.decodeFromString(ClientFrame.serializer(), text) as? ClientFrame.Sync)?.seq
+        } catch (e: SerializationException) {
+            null
+        }
     }
 
     private fun takeLostResponse(path: String): Boolean = synchronized(lostResponses) {
@@ -189,8 +286,12 @@ class FakeNetwork(private val onExchange: (Exchange) -> Unit) : Interceptor {
 
     private fun elapsedMillis(startedNanos: Long) = (System.nanoTime() - startedNanos) / 1_000_000
 
-    private companion object {
-        const val MAX_BODY_BYTES = 1L shl 20
+    companion object {
+        /** The method of an [Exchange] that was a sync over the live channel. */
+        const val SOCKET_METHOD = "WS"
+
+        private const val MAX_BODY_BYTES = 1L shl 20
+        private const val SWITCHING_PROTOCOLS = 101
     }
 }
 

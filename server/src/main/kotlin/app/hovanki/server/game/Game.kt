@@ -241,6 +241,12 @@ class Game(
     private var nextItemNumber = 1
     private var nextQuestNumber = 1
 
+    /** Whom the changes since the last [takePokes] concern (docs/adr/0015-websockets.md, section 5). */
+    private var pokes = Pokes()
+
+    /** Up to when the moments due by the clock have been poked ([pokeDue]). */
+    private var dueCheckedMillis = createdAtMillis
+
     init {
         if (settings.zoneShape.hasPolygons) streetZoneState = StreetZoneState.LOADING
     }
@@ -254,6 +260,7 @@ class Game(
         bigGame = info
         this.maxPlayers = maxPlayers
         if (norms != this.norms) this.norms = norms
+        pokes.addEveryone()
     }
 
     /** The zone's buildings of [revision] arrived (see `BuildingLoader`): the rule is on from now on. */
@@ -263,6 +270,7 @@ class Game(
         loadedBuildings = areas
         loadedPassages = passages
         splitBuildings()
+        pokes.addEveryone()
     }
 
     /**
@@ -284,6 +292,7 @@ class Game(
         buildingMap = null
         loadedBuildings = emptyList()
         loadedPassages = emptyList()
+        pokes.addEveryone()
     }
 
     /** The zone by streets of [revision] is built: one polygon for the start and one per stage of the schedule. */
@@ -296,6 +305,7 @@ class Game(
         streetZone = StreetZone(stages)
         streetZoneState = StreetZoneState.READY
         countCapacity()
+        pokes.addEveryone()
     }
 
     /**
@@ -306,6 +316,7 @@ class Game(
         streetZone = null
         streetZoneState = StreetZoneState.UNAVAILABLE
         countCapacity()
+        pokes.addEveryone()
     }
 
     /** The ground under the zone of [revision] was read: how many players it fits is known from now on. */
@@ -313,6 +324,8 @@ class Game(
         if (revision != mapRevision) return
         terrain = grid
         countCapacity()
+        // Only the lobby shows how many players the zone fits.
+        if (phase == GamePhase.LOBBY) pokes.addEveryone()
     }
 
     /** The ground under the zone can't be read: no estimate, no warning. */
@@ -321,6 +334,7 @@ class Game(
         terrain = null
         capacityAreas = null
         capacityState = CapacityState.UNAVAILABLE
+        if (phase == GamePhase.LOBBY) pokes.addEveryone()
     }
 
     /**
@@ -332,6 +346,7 @@ class Game(
         requireHost(by, "decide to play anyway")
         crowdingAccepted = true
         lastActivityMillis = nowMillis
+        pokes.addEveryone()
     }
 
     /** About how many players the zone at the start fits, as the lobby shows it. */
@@ -392,6 +407,7 @@ class Game(
         // Watching it until now: a player never sees everybody.
         if (userId != null) spectators.values.removeIf { it.userId == userId }
         lastActivityMillis = nowMillis
+        pokes.addEveryone()
     }
 
     /**
@@ -418,6 +434,7 @@ class Game(
         }
         for (player in players.values) player.role = if (player.id in seekers) Role.SEEKER else Role.HIDER
         lastActivityMillis = nowMillis
+        pokes.addEveryone()
     }
 
     /** [count] seekers drawn with [random] among the players; every phone rolls the dice for it. */
@@ -461,6 +478,7 @@ class Game(
         board.items.values.removeAll { !isAllowed(it.kind) }
         if (!next.features.quests) board.customQuests.clear()
         lastActivityMillis = nowMillis
+        pokes.addEveryone()
         if (mapChanged) {
             mapRevision++
             buildingsState = BuildingsState.LOADING
@@ -488,6 +506,7 @@ class Game(
     fun leave(playerId: PlayerId, nowMillis: Long): Boolean {
         val player = player(playerId)
         lastActivityMillis = nowMillis
+        pokes.addEveryone()
         when (phase) {
             GamePhase.LOBBY -> {
                 players.remove(playerId)
@@ -618,16 +637,21 @@ class Game(
         if (player.activity == Activity.RUNNING && previousAt != null && isPlaying(playerId)) {
             player.runningMillis += (nowMillis - previousAt).coerceIn(0, DEVICE_REPORT_TTL_MILLIS)
         }
+        // The lobby shows what every phone can do: the others see a change soon.
+        if (phase == GamePhase.LOBBY && player.device?.toCapabilities() != report.toCapabilities()) pokes.addEveryone()
         player.device = report
         player.deviceAtMillis = nowMillis
         player.activity = if (settings.features.activity) report.activity else Activity.UNKNOWN
         val required = settings.features.radar == FeatureMode.REQUIRED
         val inRound = phase == GamePhase.HIDING || phase == GamePhase.SEEKING
         val hiding = player.role == Role.HIDER && player.status == PlayerStatus.ACTIVE && !player.left
+        val bluetoothOffSince = player.bluetoothOffSinceMillis
         player.bluetoothOffSinceMillis = when {
             !required || !inRound || !hiding || report.bluetooth == BluetoothState.ON -> null
-            else -> player.bluetoothOffSinceMillis ?: nowMillis
+            else -> bluetoothOffSince ?: nowMillis
         }
+        // The hider's warning comes and goes.
+        if ((bluetoothOffSince == null) != (player.bluetoothOffSinceMillis == null)) pokes.add(playerId)
     }
 
     /**
@@ -650,6 +674,8 @@ class Game(
                 secrets,
                 dwellMillis,
                 ::signalAdjustDb,
+                // Both phones of a pair feel it: the seeker's radar, the hider's sense.
+                onBandChange = { heard -> pokes.addAll(listOf(playerId, heard)) },
             ) ?: continue
             val heard = player(heardId)
             calibration.add(
@@ -829,6 +855,10 @@ class Game(
         )
         chat.addLast(message)
         while (chat.size > ChatRules.HISTORY_SIZE) chat.removeFirst()
+        // Those who can read it, the sender aside: the answer brings it to them.
+        for (reader in players.values) {
+            if (reader.id != playerId && ChatRules.canSee(message.channel, reader.role)) pokes.add(reader.id)
+        }
         if (clientMessageId != null) {
             val byClientId = sender.chatByClientId
             byClientId[clientMessageId] = message
@@ -910,6 +940,65 @@ class Game(
         }
         val seekingEnds = phaseStartedAtMillis + settings.seekingSeconds * 1000L
         if (phase == GamePhase.SEEKING && nowMillis >= seekingEnds) finish(seekingEnds)
+    }
+
+    /** Every player's phone is to sync now: something they all see changed, like a command's outcome. */
+    fun pokeEveryone() = pokes.addEveryone()
+
+    /**
+     * Whom the changes since the last call concern (docs/adr/0015-websockets.md, section 5), once; null: nobody. The
+     * caller pokes their phones after releasing the game's lock.
+     */
+    fun takePokes(): Pokes? = pokes.takeUnless { it.isEmpty }?.also { pokes = Pokes() }
+
+    /**
+     * Pokes whom the moments due by the clock since the last call concern (docs/adr/0015-websockets.md, section 6): a
+     * reveal the time brought, a glow starting or ending. What [advance] changes (a phase's end, a claim's time out)
+     * pokes by itself. Call after [advance].
+     */
+    fun pokeDue(nowMillis: Long) {
+        for (moment in dueMoments(nowMillis)) {
+            if (moment.atMillis <= dueCheckedMillis || moment.atMillis > nowMillis) continue
+            val concerned = moment.concerns
+            if (concerned == null) {
+                pokes.addEveryone()
+            } else {
+                pokes.add(concerned)
+                pokes.addAll(players.values.filter { it.role == Role.SEEKER }.map { it.id })
+            }
+        }
+        dueCheckedMillis = maxOf(dueCheckedMillis, nowMillis)
+    }
+
+    /**
+     * When the game is due next by the clock: the next moment [advance] or [pokeDue] has something to do at, maybe
+     * already past (then at once); null: nothing ahead. Only a round has such moments.
+     */
+    fun nextDueMillis(nowMillis: Long): Long? =
+        dueMoments(nowMillis).filter { it.atMillis > dueCheckedMillis }.minOfOrNull { it.atMillis }
+
+    /** A moment of the round when something changes by itself; [concerns]: that hider and the seekers, null: all. */
+    private class DueMoment(val atMillis: Long, val concerns: PlayerId? = null)
+
+    private fun dueMoments(nowMillis: Long): List<DueMoment> {
+        if (phase != GamePhase.HIDING && phase != GamePhase.SEEKING) return emptyList()
+        return buildList {
+            phaseEndsAtMillis()?.let { add(DueMoment(it)) }
+            for (claim in catches.values) if (claim.isOpen) add(DueMoment(claim.deadlineMillis))
+            for (hider in players.values) {
+                if (hider.role != Role.HIDER || hider.status != PlayerStatus.ACTIVE) continue
+                // Out when it passes: advance() pokes everybody then; the moment itself, the hider and the seekers.
+                hider.outOfZoneDeadlineMillis()?.let { add(DueMoment(it, hider.id)) }
+                hider.insideBuildingRevealAtMillis()?.let { add(DueMoment(it, hider.id)) }
+                hider.bluetoothDeadlineMillis()?.let { add(DueMoment(it, hider.id)) }
+            }
+            val seekingStart = zoneStartedAtMillis ?: return@buildList
+            Glow.lastStarted(settings, seekingStart, nowMillis)?.let {
+                add(DueMoment(it.startMillis))
+                add(DueMoment(it.endMillis))
+            }
+            Glow.next(settings, seekingStart, nowMillis)?.let { add(DueMoment(it.startMillis)) }
+        }
     }
 
     /**
@@ -1796,6 +1885,8 @@ class Game(
         val last = Glow.lastStarted(settings, seekingStart, nowMillis) ?: return
         if (last.isOpenAt(nowMillis) || last.index <= glowMarksOf) return
         glowMarksOf = last.index
+        // The seekers' map gets the glow's marks.
+        pokes.addEveryone()
         for (hider in players.values.filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
             // What a perk put on the map lasts until the next glow.
             hider.decoyMark = null
@@ -1835,7 +1926,9 @@ class Game(
                     if (since == null) {
                         hider.outOfZoneSinceMillis = nowMillis
                         hider.zoneWarnings++
+                        pokes.add(hider.id)
                     } else if (nowMillis - since >= rules.outOfZoneGraceSeconds * 1000L) {
+                        pokes.addEveryone()
                         hider.status = PlayerStatus.ELIMINATED
                         // Out when the time to return ran out, however long it took anybody to ask.
                         val outAt = since + rules.outOfZoneGraceSeconds * 1000L
@@ -1849,6 +1942,7 @@ class Game(
                 // Back inside, judged on several fixes like leaving: one fix that jumps inside lifts nothing.
                 since != null && ZoneRules.isConfidentlyBack(recent, zone, rules) -> {
                     hider.outOfZoneSinceMillis = null
+                    pokes.add(hider.id)
                 }
             }
         }
@@ -1874,8 +1968,10 @@ class Game(
             if (since == null && BuildingRules.isConfidentlyInside(recent, map, rules)) {
                 hider.insideBuildingSinceMillis = nowMillis
                 hider.buildingWarnings++
+                pokes.add(hider.id)
             } else if (since != null && BuildingRules.hasLeft(recent, map, rules)) {
                 hider.insideBuildingSinceMillis = null
+                pokes.add(hider.id)
             }
         }
     }
@@ -1896,6 +1992,7 @@ class Game(
     private fun resolve(claim: CatchClaim, confirmed: Boolean, atMillis: Long) {
         claim.status = if (confirmed) CatchStatus.CONFIRMED else CatchStatus.REJECTED
         claim.deadlineMillis = atMillis
+        pokes.addEveryone()
         if (confirmed) {
             player(claim.seekerId).catches++
             calibration.onCatch(claim.seekerId, claim.hiderId, atMillis)
@@ -1921,6 +2018,7 @@ class Game(
     private fun enterPhase(next: GamePhase, atMillis: Long) {
         phase = next
         phaseStartedAtMillis = atMillis
+        pokes.addEveryone()
     }
 
     /**

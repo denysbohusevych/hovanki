@@ -12,6 +12,12 @@ object ApiRoutes {
     const val JOIN = "$GAMES/join"
     const val START = "$GAMES/{gameId}/start"
     const val SYNC = "$GAMES/{gameId}/sync"
+
+    /**
+     * GET with the WebSocket upgrade and the game token: the live channel ([ClientFrame], [ServerFrame],
+     * docs/adr/0015-websockets.md), `sync` as frames plus pokes; only while the server has [ServerFeature.LIVE_SOCKET].
+     */
+    const val SOCKET = "$GAMES/{gameId}/socket"
     const val CATCHES = "$GAMES/{gameId}/catches"
     const val CATCH_CONFIRM = "$CATCHES/{catchId}/confirm"
     const val CATCH_DISPUTE = "$CATCHES/{catchId}/dispute"
@@ -228,6 +234,8 @@ object ApiRoutes {
     fun start(gameId: GameId): String = START.fill("gameId" to gameId.value)
 
     fun sync(gameId: GameId): String = SYNC.fill("gameId" to gameId.value)
+
+    fun socket(gameId: GameId): String = SOCKET.fill("gameId" to gameId.value)
 
     fun catches(gameId: GameId): String = CATCHES.fill("gameId" to gameId.value)
 
