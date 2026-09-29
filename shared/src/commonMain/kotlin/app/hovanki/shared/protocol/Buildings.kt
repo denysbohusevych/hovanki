@@ -34,4 +34,9 @@ data class BuildingsResponse(
     val passages: List<Passage> = emptyList(),
     /** The zone these buildings belong to (`GameSnapshot.mapRevision`): the host may change it in the lobby. */
     val mapRevision: Int = 0,
+    /**
+     * The buildings the host opened for hiding (`GameSettings.openBuildings`), not in [buildings]: older apps don't
+     * draw them at all, which is right, they are not forbidden. Newer ones draw them as open.
+     */
+    val open: List<BuildingArea> = emptyList(),
 )

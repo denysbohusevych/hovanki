@@ -77,7 +77,7 @@ private class Lineup(
  * screen, and «Back» leads the host to the «Play» tab and the guests to the welcome screen.
  */
 private suspend fun DeviceRun.fullRound() = with(scenario) {
-    val lineup = setUpGame(seekerOnDevice = true)
+    val lineup = setUpGame(seekerOnDevice = true, tour = true)
     val seeker = checkNotNull(lineup.seekerDevice)
 
     hide(lineup)
@@ -277,7 +277,7 @@ private suspend fun DeviceRun.restartMidRound() = with(scenario) {
  * The host creates the game where it is: at its own location, like a player (or at `--location`). Everything else
  * is placed around the zone center from then on: the other devices, the bots, the hiding spots.
  */
-private suspend fun DeviceRun.setUpGame(seekerOnDevice: Boolean): Lineup = with(scenario) {
+private suspend fun DeviceRun.setUpGame(seekerOnDevice: Boolean, tour: Boolean = false): Lineup = with(scenario) {
     val host = devicePlayers.first()
     location?.let(::placeDevices)
     // Only a logged-in player creates games in the app. The account is made through the API (registration, the code
@@ -336,6 +336,7 @@ private suspend fun DeviceRun.setUpGame(seekerOnDevice: Boolean): Lineup = with(
     )
     awaitBuildings(listOfNotNull(seekerBot) + botHiders)
     screenshot("lobby")
+    if (tour) settingsTour(host)
 
     val lineup = Lineup(host, seekerDevice, seekerBot, devicePlayers.filter { it !== seekerDevice }, botHiders)
     host.flow("start-game", "SEEKER_ID" to lineup.seekerId.value)
@@ -343,6 +344,30 @@ private suspend fun DeviceRun.setUpGame(seekerOnDevice: Boolean): Lineup = with(
     for (player in devicePlayers) player.awaitVisible(TestTags.phase(GamePhase.HIDING))
     screenshot("hiding")
     lineup
+}
+
+/**
+ * The host looks through the settings (docs/adr/0014-settings-lobby-redesign-open-buildings.md) and closes them without
+ * saving: every tab over the draft's map, a «?» with its loop, the map of the zone's buildings. A screenshot of each.
+ */
+private suspend fun DeviceRun.settingsTour(host: DevicePlayer) = with(scenario) {
+    host.flow("tap", "ID" to TestTags.LOBBY_SETTINGS)
+    host.awaitVisible(TestTags.SETTINGS_PANEL)
+    screenshot("settings: the zone", listOf(host))
+    host.flow("tap", "ID" to TestTags.settingHelp("SHAPE"))
+    host.awaitVisible(TestTags.SETTINGS_HELP)
+    screenshot("settings: how the shapes differ", listOf(host))
+    host.flow("tap", "ID" to TestTags.SETTINGS_HELP_OK)
+    host.flow("tap", "ID" to TestTags.SETTINGS_BUILDINGS)
+    host.awaitVisible(TestTags.BUILDINGS_PANEL)
+    screenshot("settings: the zone's buildings", listOf(host))
+    host.flow("tap", "ID" to TestTags.PANEL_CLOSE)
+    host.flow("tap", "ID" to TestTags.settingsTab("TIME"))
+    screenshot("settings: time", listOf(host))
+    host.flow("tap", "ID" to TestTags.settingsTab("MORE"))
+    screenshot("settings: more", listOf(host))
+    host.flow("tap", "ID" to TestTags.PANEL_CLOSE)
+    host.awaitVisible(TestTags.LOBBY_SCREEN)
 }
 
 /**

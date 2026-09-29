@@ -73,6 +73,7 @@ import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UwbPeer
 import app.hovanki.shared.rules.CheckpointPayload
 import app.hovanki.shared.rules.GameSetup
+import app.hovanki.shared.rules.OpenBuildings
 import app.hovanki.shared.rules.ProximityRules
 import app.hovanki.shared.rules.QuestCatalog
 import app.hovanki.shared.rules.RadarSmoother
@@ -273,6 +274,22 @@ class GameSessionManager(
         val updated = sessionCommand { api.updateSettings(it, SettingsRequest(settings)) }
         if (updated && setup != null) storage.saveGameSetup(setup)
         return updated
+    }
+
+    /**
+     * The host taps [tap] on the map of the zone's buildings (docs/adr/0014-settings-lobby-redesign-open-buildings.md,
+     * section 4): a forbidden building opens for hiding, an open one closes again. Sent right away, like the board;
+     * every phone splits the buildings it has by the new points, nothing is loaded again. False when the tap hit no
+     * building, the limit is reached or the server said no.
+     */
+    suspend fun toggleOpenBuilding(tap: GeoPoint): Boolean {
+        val state = mutableState.value
+        val snapshot = state.snapshot ?: return false
+        val buildings = state.buildings?.takeIf { it.mapRevision == snapshot.mapRevision } ?: return false
+        val current = snapshot.settings.openBuildings.orEmpty()
+        val next = OpenBuildings.toggle(current, buildings.buildings + buildings.open, tap)
+        if (next == current) return false
+        return updateSettings(snapshot.settings.copy(openBuildings = next))
     }
 
     /**

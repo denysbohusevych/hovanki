@@ -51,6 +51,13 @@ data class GameSettings(
     val openGame: Boolean = false,
     /** How far behind the spectators of an open game see it; 0: live. */
     val spectatorDelaySeconds: Int = 60,
+    /**
+     * The buildings the host opened for hiding (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 4): a
+     * point the host tapped inside each; the building holding it (the whole outline of adjoining houses) is not
+     * forbidden. Points and not outlines: the outlines are loaded again for every map revision. In a settings request,
+     * null (older apps, a new setup that says nothing about them) keeps the game's; the game always has a list.
+     */
+    val openBuildings: List<GeoPoint>? = null,
 )
 
 /** The zone's shape (docs/adr/0009-game-setup-glow-streets.md). */

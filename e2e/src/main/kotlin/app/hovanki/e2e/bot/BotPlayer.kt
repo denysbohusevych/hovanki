@@ -200,6 +200,13 @@ class BotPlayer(
     suspend fun changesSettings(settings: GameSettings): CommandResult =
         command("changes the settings") { it.updateSettings(settings) }
 
+    /**
+     * The host taps the building at [point] on the map of the zone's buildings: it opens for hiding, or closes again
+     * (docs/adr/0014-settings-lobby-redesign-open-buildings.md).
+     */
+    suspend fun togglesBuildingAt(point: GeoPoint): CommandResult =
+        command("taps the building at ${point.lat}, ${point.lon}") { it.toggleOpenBuilding(point) }
+
     /** The host taps «Play anyway» on the warning of a crowded zone (docs/adr/0010-big-games.md). */
     suspend fun playsAnyway(): CommandResult = command("plays anyway in a crowded zone") { it.acceptCrowding() }
 

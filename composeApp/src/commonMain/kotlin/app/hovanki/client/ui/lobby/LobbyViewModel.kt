@@ -18,16 +18,28 @@ import app.hovanki.client.ui.common.FormMessage
 import app.hovanki.client.ui.common.PlayerAccount
 import app.hovanki.client.ui.common.playerAccount
 import app.hovanki.client.ui.game.ZoneTimeline
+import app.hovanki.client.ui.settings.ChangedPart
+import app.hovanki.client.ui.settings.Explainer
+import app.hovanki.client.ui.settings.SettingsChange
+import app.hovanki.client.ui.settings.SettingsPreview
+import app.hovanki.client.ui.settings.SettingsTab
+import app.hovanki.client.ui.settings.changedParts
+import app.hovanki.client.ui.settings.settingsChanges
+import app.hovanki.shared.geo.distanceTo
+import app.hovanki.shared.geo.moveBy
+import app.hovanki.shared.geo.offsetFrom
 import app.hovanki.shared.protocol.Audience
 import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.BoardItem
+import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.Capabilities
 import app.hovanki.shared.protocol.CapacityState
 import app.hovanki.shared.protocol.FriendsResponse
 import app.hovanki.shared.protocol.GameFeatures
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.GroupId
 import app.hovanki.shared.protocol.GroupsResponse
@@ -42,11 +54,15 @@ import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.Capacity
 import app.hovanki.shared.rules.GameSetup
 import app.hovanki.shared.rules.Glow
-import app.hovanki.shared.rules.stateAt
+import app.hovanki.shared.rules.SettingsLimits
+import app.hovanki.shared.rules.StreetZone
+import app.hovanki.shared.rules.contains
+import app.hovanki.shared.rules.withOpenBuildings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -101,6 +117,52 @@ class LobbyViewModel(
     var setupDraft by mutableStateOf(GameSetup())
         private set
     var isSavingSettings by mutableStateOf(false)
+        private set
+
+    /** Where the host moved the zone on the settings' map; null: where it is. */
+    var draftCenter by mutableStateOf<GeoPoint?>(null)
+        private set
+    var settingsTab by mutableStateOf(SettingsTab.ZONE)
+        private set
+
+    /** The «?» open over the settings; null: none. */
+    var helpFor by mutableStateOf<Explainer?>(null)
+        private set
+
+    /** The extra shown above the «More» tab. */
+    var focusedExtra by mutableStateOf(Explainer.OPEN_GAME)
+        private set
+
+    /** What plays on the settings' map; null: nothing, the draft stands still. */
+    var preview by mutableStateOf<SettingsPreview?>(null)
+        private set
+
+    /** The host moves the zone's center: the map pans under a pin. */
+    var isMovingCenter by mutableStateOf(false)
+        private set
+
+    /** «What changes», asked before a setup that touches the map is sent; null: not asked. */
+    var pendingChanges by mutableStateOf<List<SettingsChange>?>(null)
+        private set
+
+    /**
+     * Where each game was made, as far as this phone knows: the zone moves at most so far from it
+     * ([SettingsLimits.MAX_CENTER_MOVE_METERS]). The first center seen; the server checks the real one.
+     */
+    private val zoneOrigins = mutableMapOf<GameId, GeoPoint>()
+
+    /** The game whose map of buildings the host has open, to open some for hiding; null: closed. */
+    var buildingsPanelIn by mutableStateOf<GameId?>(null)
+        private set
+
+    /** Where the host tapped on the map of buildings: the building there is the one they look at. */
+    var buildingTap by mutableStateOf<GeoPoint?>(null)
+        private set
+    var isTogglingBuilding by mutableStateOf(false)
+        private set
+
+    /** The game whose zone map is open full screen in the lobby; null: closed. */
+    var mapPanelIn by mutableStateOf<GameId?>(null)
         private set
 
     /** The game whose board panel the host has open; null: closed. */
@@ -228,6 +290,8 @@ class LobbyViewModel(
         closeInvites()
         closeSettings()
         closeBoard()
+        closeBuildings()
+        closeMap()
         invitesSentIn = null
         sessionManager.leave()
     }
@@ -339,37 +403,132 @@ class LobbyViewModel(
     fun dismissMessage() = commands.dismiss()
 
     /** The host opens the game's setup, with the choices it was made of. */
-    fun openSettings() {
+    fun openSettings(tab: SettingsTab = SettingsTab.ZONE) {
         val snapshot = sessionManager.state.value.snapshot ?: return
         if (snapshot.hostId != snapshot.me.playerId) return
         setupDraft = GameSetup.of(snapshot.settings).coerced()
+        draftCenter = null
+        zoneOrigins.getOrPut(snapshot.gameId) { snapshot.settings.zone.initial.center }
+        settingsTab = tab
+        helpFor = null
+        preview = null
+        isMovingCenter = false
+        pendingChanges = null
         settingsPanelIn = snapshot.gameId
         sessionManager.clearError()
     }
 
     fun closeSettings() {
         settingsPanelIn = null
+        helpFor = null
+        preview = null
+        isMovingCenter = false
+        pendingChanges = null
     }
 
     fun editSetup(setup: GameSetup) {
         setupDraft = setup.coerced()
     }
 
+    fun pickSettingsTab(tab: SettingsTab) {
+        settingsTab = tab
+        preview = null
+        isMovingCenter = false
+    }
+
+    fun showHelp(explainer: Explainer) {
+        helpFor = explainer
+    }
+
+    fun closeHelp() {
+        helpFor = null
+    }
+
+    fun focusExtra(explainer: Explainer) {
+        focusedExtra = explainer
+    }
+
+    /** Plays [kind] on the settings' map, or stops it when it plays. */
+    fun togglePreview(kind: SettingsPreview) {
+        preview = if (preview == kind) null else kind
+        isMovingCenter = false
+    }
+
+    fun stopPreview() {
+        preview = null
+    }
+
+    fun toggleMovingCenter() {
+        isMovingCenter = !isMovingCenter
+        preview = null
+    }
+
+    /** The map stopped under the pin at [point]: the draft's zone goes there, as far from the origin as allowed. */
+    fun moveDraftCenter(point: GeoPoint) {
+        if (!isMovingCenter) return
+        val snapshot = sessionManager.state.value.snapshot ?: return
+        val origin = zoneOrigin(snapshot.gameId) ?: return
+        val reach = SettingsLimits.MAX_CENTER_MOVE_METERS - CENTER_MARGIN_METERS
+        val distance = point.distanceTo(origin)
+        draftCenter = if (distance <= reach) {
+            point
+        } else {
+            val offset = point.offsetFrom(origin)
+            origin.moveBy(offset.eastMeters * reach / distance, offset.northMeters * reach / distance)
+        }
+    }
+
+    /** Where this phone first saw [gameId]'s zone: the pin moves around it. */
+    fun zoneOrigin(gameId: GameId): GeoPoint? = zoneOrigins[gameId]
+
+    /** The draft as the game's settings: around [draftCenter] (or the zone's center), with the game's thresholds. */
+    fun draftSettings(): GameSettings? {
+        val current = sessionManager.state.value.snapshot?.settings ?: return null
+        return setupDraft.coerced().settings(draftCenter ?: current.zone.initial.center, current.rules)
+    }
+
+    /** What differs from the game's setup so far. */
+    fun changedParts(): List<ChangedPart> {
+        val current = sessionManager.state.value.snapshot?.settings ?: return emptyList()
+        val center = current.zone.initial.center
+        return changedParts(GameSetup.of(current).coerced(), center, setupDraft.coerced(), draftCenter ?: center)
+    }
+
     /**
-     * Sends the setup around the zone's center as it is (nothing changed, nothing sent); the phone remembers it for the
-     * host's next game.
+     * Sends the draft (nothing changed, nothing sent); the phone remembers the setup for the host's next game, never the
+     * place. A draft that touches the map first shows «What changes» ([pendingChanges]); [confirmSave] sends it then.
      */
     fun saveSettings() {
         val snapshot = sessionManager.state.value.snapshot ?: return
         if (isSavingSettings) return
-        val current = snapshot.settings
-        val setup = setupDraft.coerced()
-        val settings = setup.settings(current.zone.initial.center, current.rules)
-        if (settings == current || GameSetup.of(current).coerced() == setup) {
+        val settings = draftSettings() ?: return
+        if (changedParts().isEmpty()) {
             closeSettings()
             return
         }
+        val changes = settingsChanges(snapshot.settings, settings, snapshot.items, ::allowedKinds)
+        if (changes.isNotEmpty()) {
+            pendingChanges = changes
+            return
+        }
+        send(settings)
+    }
+
+    fun confirmSave() {
+        pendingChanges = null
+        draftSettings()?.let(::send)
+    }
+
+    fun cancelSave() {
+        pendingChanges = null
+    }
+
+    private fun send(settings: GameSettings) {
+        if (isSavingSettings) return
+        val setup = setupDraft.coerced()
         isSavingSettings = true
+        preview = null
+        isMovingCenter = false
         viewModelScope.launch {
             try {
                 if (sessionManager.updateSettings(settings, setup)) closeSettings()
@@ -377,6 +536,49 @@ class LobbyViewModel(
                 isSavingSettings = false
             }
         }
+    }
+
+    // Open buildings (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 4).
+
+    fun openBuildings() {
+        val snapshot = sessionManager.state.value.snapshot ?: return
+        if (snapshot.hostId != snapshot.me.playerId) return
+        buildingsPanelIn = snapshot.gameId
+        buildingTap = null
+        sessionManager.clearError()
+    }
+
+    fun closeBuildings() {
+        buildingsPanelIn = null
+        buildingTap = null
+    }
+
+    /** The host tapped [point] on the map of buildings: a building there is picked, elsewhere nothing is. */
+    fun pickBuilding(point: GeoPoint) {
+        val buildings = uiState.value?.buildings ?: return
+        buildingTap = point.takeIf { tap -> (buildings.buildings + buildings.open).any { it.contains(tap) } }
+    }
+
+    /** Opens the picked building for hiding, or closes it again; right away, like the board. */
+    fun toggleBuilding() {
+        val tap = buildingTap ?: return
+        if (isTogglingBuilding) return
+        isTogglingBuilding = true
+        viewModelScope.launch {
+            try {
+                sessionManager.toggleOpenBuilding(tap)
+            } finally {
+                isTogglingBuilding = false
+            }
+        }
+    }
+
+    fun openMap() {
+        mapPanelIn = sessionManager.state.value.snapshot?.gameId
+    }
+
+    fun closeMap() {
+        mapPanelIn = null
     }
 
     fun openInvites(gameId: GameId) {
@@ -431,6 +633,14 @@ class LobbyViewModel(
         invitesSentIn = null
     }
 
+    /** The last zone by streets made from the server's polygons: the same object while they stay the same. */
+    private var streetZoneCache: Pair<List<ZonePolygon>, StreetZone>? = null
+
+    private fun streetZoneOf(stages: List<ZonePolygon>): StreetZone {
+        streetZoneCache?.let { (cached, zone) -> if (cached == stages) return zone }
+        return StreetZone(stages).also { streetZoneCache = stages to it }
+    }
+
     private fun buildUiState(
         state: SessionState,
         pending: Set<PlayerId>?,
@@ -460,7 +670,13 @@ class LobbyViewModel(
         val seekerCount = players.count { it.isSeeker }
         val capacity = snapshot.capacity?.takeIf { it.state == CapacityState.READY }
         val streetZone = snapshot.streetZone
-        val buildings = state.buildings?.takeIf { it.mapRevision == snapshot.mapRevision }
+        val buildings = state.buildings
+            ?.takeIf { it.mapRevision == snapshot.mapRevision }
+            ?.withOpenBuildings(settings.openBuildings)
+        val streets = state.streetZone
+            ?.takeIf { it.mapRevision == snapshot.mapRevision && it.stages.size == settings.zone.stages.size + 1 }
+            ?.takeIf { zone -> zone.stages.all { it.outline.size >= MIN_OUTLINE_POINTS } }
+            ?.let { streetZoneOf(it.stages) }
         return LobbyUiState(
             gameId = snapshot.gameId,
             joinCode = snapshot.joinCode,
@@ -495,7 +711,9 @@ class LobbyViewModel(
             items = snapshot.items,
             quests = snapshot.quests,
             zoneCenter = settings.zone.initial.center,
-            zone = ZoneTimeline(settings.zone, startedAtMillis = null, streets = null),
+            zone = ZoneTimeline(settings.zone, startedAtMillis = null, streets = streets),
+            streets = streets,
+            buildings = buildings?.takeIf { snapshot.buildings == BuildingsState.READY },
             bluetooth = bluetooth,
             radarEnabled = radarEnabled,
             capacity = capacity?.players,
@@ -531,6 +749,12 @@ class LobbyViewModel(
 
     private companion object {
         const val SECONDS_PER_MINUTE = 60
+
+        /** A zone polygon needs a closed ring. */
+        const val MIN_OUTLINE_POINTS = 4
+
+        /** The pin stays this far inside the reach the server allows. */
+        const val CENTER_MARGIN_METERS = 100.0
 
         /** A player whose phone has not asked the server for this long is shown as not connected. */
         const val OFFLINE_AFTER_MILLIS = 20_000L
@@ -584,8 +808,15 @@ data class LobbyUiState(
     /** The host's own quests so far. */
     val quests: List<QuestView>,
     val zoneCenter: GeoPoint,
-    /** The zone as the search starts (not started, the circles), for the board's map. */
+    /** The zone as the search starts (not started), for the maps of the lobby, the settings and the board. */
     val zone: ZoneTimeline,
+    /** The zone by streets once this phone has it; null: circles, or not yet. */
+    val streets: StreetZone? = null,
+    /**
+     * The zone's buildings once this phone has them, split into forbidden and open by the host's points of now
+     * (docs/adr/0014-settings-lobby-redesign-open-buildings.md).
+     */
+    val buildings: BuildingsResponse? = null,
     /** This phone's Bluetooth, for the radar. */
     val bluetooth: BluetoothState,
     /** «The radar on my phone». */
