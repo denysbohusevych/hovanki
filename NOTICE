@@ -1,0 +1,8 @@
+Hovanki
+Copyright 2026 Denys Bohusevych
+
+This product includes a table derived from OverflowAreaBeaconRef by David G. Young
+(https://github.com/davidgyoung/OverflowAreaBeaconRef), licensed under the Apache License, Version 2.0:
+the service UUID for every bit of the iOS Bluetooth overflow area and the bit order of its mask
+(shared/src/commonMain/kotlin/app/hovanki/shared/rules/OverflowArea.kt, from OverflowAreaUtils.swift,
+Copyright 2020 David G. Young).
