@@ -2,6 +2,8 @@ package app.hovanki.shared.rules
 
 import app.hovanki.shared.geo.moveBy
 import app.hovanki.shared.protocol.BuildingArea
+import app.hovanki.shared.protocol.BuildingsResponse
+import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.GameRules
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LocationSample
@@ -177,5 +179,66 @@ class BuildingsTest {
         assertTrue(BuildingRules.hasLeft(out, buildings, rules), "three fixes outside")
         assertFalse(BuildingRules.hasLeft(byTheWindow, buildings, rules), "a dot at the wall is not out yet")
         assertFalse(BuildingRules.hasLeft(out.take(2), buildings, rules), "too few fixes")
+    }
+
+    @Test
+    fun aPointOpensTheBuildingItIsInNotItsCourtyard() {
+        val block = BuildingArea(rect(0.0, 0.0, 60.0, 60.0), holes = listOf(rect(20.0, 20.0, 40.0, 40.0)))
+
+        assertTrue(house.contains(at(20.0, 20.0)))
+        assertFalse(house.contains(at(45.0, 20.0)))
+        assertTrue(block.contains(at(10.0, 30.0)))
+        assertFalse(block.contains(at(30.0, 30.0)), "the courtyard")
+    }
+
+    @Test
+    fun theHostsPointsSplitTheBuildingsIntoOpenAndForbidden() {
+        // Two houses stand wall to wall: the tiles give them as one outline, a point opens both.
+        val row = BuildingArea(rect(100.0, 0.0, 160.0, 20.0))
+        val shed = BuildingArea(rect(0.0, 100.0, 10.0, 110.0))
+
+        val split = OpenBuildings.split(listOf(house, row, shed), listOf(at(150.0, 10.0), at(500.0, 500.0)))
+
+        assertEquals(listOf(row), split.open)
+        assertEquals(listOf(house, shed), split.forbidden)
+        assertEquals(listOf(house), OpenBuildings.split(listOf(house), emptyList()).forbidden)
+        assertEquals(1, OpenBuildings.openCount(listOf(at(150.0, 10.0), at(120.0, 5.0)), listOf(house, row)))
+    }
+
+    @Test
+    fun aTapOpensAForbiddenBuildingAndClosesAnOpenOne() {
+        val buildings = listOf(house, BuildingArea(rect(100.0, 0.0, 160.0, 20.0)))
+
+        val opened = OpenBuildings.toggle(emptyList(), buildings, at(20.0, 20.0))
+        assertEquals(listOf(at(20.0, 20.0)), opened)
+        // Another tap anywhere in the same building closes it, with every point in it.
+        assertEquals(emptyList(), OpenBuildings.toggle(opened + at(30.0, 30.0), buildings, at(5.0, 5.0)))
+        assertEquals(opened, OpenBuildings.toggle(opened, buildings, at(70.0, 70.0)), "no building there")
+    }
+
+    @Test
+    fun noMoreThanTheLimitOpen() {
+        val houses = (0 until SettingsLimits.MAX_OPEN_BUILDINGS + 1).map { n ->
+            BuildingArea(rect(n * 20.0, 0.0, n * 20.0 + 10.0, 10.0))
+        }
+        val points = (0 until SettingsLimits.MAX_OPEN_BUILDINGS).map { n -> at(n * 20.0 + 5.0, 5.0) }
+
+        val tap = at(SettingsLimits.MAX_OPEN_BUILDINGS * 20.0 + 5.0, 5.0)
+        assertEquals(points, OpenBuildings.toggle(points, houses, tap), "the limit is reached")
+        assertEquals(points.drop(1), OpenBuildings.toggle(points, houses, at(5.0, 5.0)), "closing still works")
+    }
+
+    @Test
+    fun thePhoneSplitsTheBuildingsItHasByTheSettingsOfNow() {
+        val row = BuildingArea(rect(100.0, 0.0, 160.0, 20.0))
+        val served = BuildingsResponse(BuildingsState.READY, buildings = listOf(house), open = listOf(row))
+
+        assertEquals(served, served.withOpenBuildings(null), "an older server says nothing")
+        val closed = served.withOpenBuildings(emptyList())
+        assertEquals(listOf(house, row), closed.buildings)
+        assertEquals(emptyList(), closed.open)
+        val swapped = served.withOpenBuildings(listOf(at(20.0, 20.0)))
+        assertEquals(listOf(row), swapped.buildings)
+        assertEquals(listOf(house), swapped.open)
     }
 }

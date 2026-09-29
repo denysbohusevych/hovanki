@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.building_open_tag
 import app.hovanki.client.resources.item_taken
 import app.hovanki.client.resources.reason_fresh_trail
 import app.hovanki.client.resources.reason_glow
@@ -76,6 +77,8 @@ import app.hovanki.shared.rules.ZoneState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -139,6 +142,12 @@ import kotlin.time.Duration.Companion.milliseconds
  * The board ([items], docs/adr/0013-quests-sparks-and-sensors.md) is drawn by kind, what is taken in grey; with
  * [onMapClick] a tap on the map gives its point (the host placing an item, a hider placing a decoy) and [pickedPoint]
  * marks the last one.
+ *
+ * The buildings the host opened for hiding ([BuildingsResponse.open], docs/adr/0014-settings-lobby-redesign-open-
+ * buildings.md) are lime with an ink dash; [highlightedBuilding] is outlined in ink. For the lobby and the settings:
+ * without [interactive] the map takes no gestures (a card to tap); [fitTo] moves the camera onto a zone whenever it
+ * changes (the settings' draft); [cameraArea] lets the camera go further than the zone, and [onCameraIdle] gives where
+ * it stopped (moving the zone's center under a pin); [animateZone] redraws the zone every frame for a sped-up preview.
  */
 @Composable
 fun GameMap(
@@ -157,6 +166,12 @@ fun GameMap(
     items: List<MapItem> = emptyList(),
     pickedPoint: GeoPoint? = null,
     onMapClick: ((GeoPoint) -> Unit)? = null,
+    highlightedBuilding: BuildingArea? = null,
+    interactive: Boolean = true,
+    fitTo: ZoneCircle? = null,
+    cameraArea: ZoneCircle? = null,
+    onCameraIdle: ((GeoPoint) -> Unit)? = null,
+    animateZone: Boolean = false,
 ) {
     val reasonLabels = mapOf(
         VisibilityReason.TEAMMATE to stringResource(Res.string.reason_teammate),
@@ -186,11 +201,25 @@ fun GameMap(
     }
     val me = myLocation?.let { it.copy(point = smoothPoint(it.point)) }
     val myColor = myRole.color
-    val zoneShape = rememberZoneShape(zone, serverNow)
+    val zoneShape = rememberZoneShape(zone, serverNow, animateZone)
     // Where the camera starts: computed once, not read from the shape, so a moving zone redraws its layers only.
     val startZone = remember(zone) { zone.shapeAt(serverNow()).extent }
     val forbidden = remember(buildings) {
         buildings?.let { FeatureCollection(it.buildings.map { building -> Feature(building.toPolygon(), null) }) }
+    }
+    val openBuildings = remember(buildings) {
+        buildings?.let { FeatureCollection(it.open.map { building -> Feature(building.toPolygon(), null) }) }
+    }
+    val openLabel = stringResource(Res.string.building_open_tag)
+    val openLabels = remember(buildings, openLabel) {
+        FeatureCollection(
+            buildings?.open.orEmpty().map { building ->
+                Feature(Point(building.center().toPosition()), buildJsonObject { put("label", openLabel) })
+            },
+        )
+    }
+    val highlight = remember(highlightedBuilding) {
+        FeatureCollection(listOfNotNull(highlightedBuilding?.let { Feature(it.toPolygon(), null) }))
     }
     val passageAreas = remember(buildings) {
         buildings?.let {
@@ -224,6 +253,43 @@ fun GameMap(
             val passages = rememberGeoJsonSource(GeoJsonData.Features(passageAreas))
             FillLayer(id = "buildings-passages", source = passages, color = const(Color.White), opacity = const(0.9f))
         }
+        // The buildings the host opened for hiding (docs/adr/0014-settings-lobby-redesign-open-buildings.md): lime
+        // with an ink dash, and «open» on them up close.
+        if (openBuildings != null) {
+            val openSource = rememberGeoJsonSource(GeoJsonData.Features(openBuildings))
+            FillLayer(
+                id = "buildings-open-fill",
+                source = openSource,
+                color = const(Palette.Lime),
+                opacity = const(0.85f),
+            )
+            LineLayer(
+                id = "buildings-open-border",
+                source = openSource,
+                color = const(Palette.Ink),
+                width = const(1.5.dp),
+                dasharray = const(listOf<Number>(2, 1.5)),
+            )
+            SymbolLayer(
+                id = "buildings-open-labels",
+                source = rememberGeoJsonSource(GeoJsonData.Features(openLabels)),
+                minZoom = OPEN_LABEL_MIN_ZOOM,
+                textField = feature["label"].asString(),
+                textFont = const(MapStyle.FONTS),
+                textSize = const(11.sp),
+                textColor = const(Palette.Ink),
+                textHaloColor = const(Palette.Lime),
+                textHaloWidth = const(2.dp),
+            )
+        }
+        // The building the host is looking at in the settings, drawn over the rest.
+        LineLayer(
+            id = "buildings-highlight",
+            source = rememberGeoJsonSource(GeoJsonData.Features(highlight)),
+            color = const(Palette.Ink),
+            width = const(3.dp),
+            join = const(LineJoin.Round),
+        )
 
         ZoneBorder(
             zoneShape,
@@ -410,11 +476,22 @@ fun GameMap(
         val point = myLocation?.point
         if (recenterRequests > 0 && point != null) mapState.animateCamera(CameraUpdate(target = point.toPosition()))
     }
+    val idleListener by rememberUpdatedState(onCameraIdle)
+    LaunchedEffect(mapState, onCameraIdle != null) {
+        if (onCameraIdle == null) return@LaunchedEffect
+        snapshotFlow { mapState.isCameraMoving to mapState.cameraPosition.target }
+            .filter { (moving, _) -> !moving }
+            .map { (_, target) -> GeoPoint(target.latitude, target.longitude) }
+            .distinctUntilChanged()
+            .collect { idleListener?.invoke(it) }
+    }
 
     // A tap gives its point when somebody is placing something; otherwise the map only pans and zooms.
     val clickListener by rememberUpdatedState(onMapClick)
-    val interactions = remember(onMapClick != null) {
-        if (onMapClick == null) {
+    val interactions = remember(onMapClick != null, interactive) {
+        if (!interactive) {
+            MapInteractions.None
+        } else if (onMapClick == null) {
             MapInteractions.Standard
         } else {
             MapInteractions(MapInteractions.Standard) {
@@ -437,13 +514,25 @@ fun GameMap(
     var shortSideDp by remember { mutableStateOf(0f) }
     val density = LocalDensity.current
     val myPoint = myLocation?.point
-    val constraints by remember(myPoint) {
+    val constraints by remember(myPoint, cameraArea) {
         derivedStateOf {
-            val extent = zoneShape.value.extent
+            val extent = cameraArea ?: zoneShape.value.extent
             // Out of the zone the camera may go as far as the player, to show the way back.
             val outside = myPoint?.takeIf { it.distanceTo(extent.center) > extent.radiusMeters }
             zoneCameraConstraints(extent, shortSideDp, listOfNotNull(outside))
         }
+    }
+
+    // The settings' draft: the camera follows the zone the host is choosing.
+    LaunchedEffect(fitTo) {
+        val area = fitTo ?: return@LaunchedEffect
+        val side = if (shortSideDp > 0f) shortSideDp else FIT_DEFAULT_SIDE_DP
+        mapState.animateCamera(
+            CameraUpdate(
+                target = area.center.toPosition(),
+                zoom = fitZoom(area.center, area.radiusMeters * 1.15, side),
+            ),
+        )
     }
 
     Box(
@@ -468,13 +557,14 @@ fun GameMap(
  * otherwise. The path operations of a zone by streets run off the main thread.
  */
 @Composable
-private fun rememberZoneShape(zone: ZoneTimeline, serverNow: () -> Long): State<ZoneShape> {
+private fun rememberZoneShape(zone: ZoneTimeline, serverNow: () -> Long, animate: Boolean): State<ZoneShape> {
     val clock by rememberUpdatedState(serverNow)
-    return produceState(initialValue = remember(zone) { zone.shapeAt(serverNow()) }, zone) {
+    return produceState(initialValue = remember(zone) { zone.shapeAt(serverNow()) }, zone, animate) {
         while (true) {
             val now = clock()
             value = withContext(Dispatchers.Default) { zone.shapeAt(now) }
-            delay(if (zone.isShrinkingAt(now)) SHRINK_FRAME_MILLIS else CALM_FRAME_MILLIS)
+            // A preview plays the schedule sped up: every frame counts.
+            delay(if (animate || zone.isShrinkingAt(now)) SHRINK_FRAME_MILLIS else CALM_FRAME_MILLIS)
         }
     }
 }
@@ -601,6 +691,12 @@ internal val RING_CORE_WIDTH = 4.dp
 private val MARKER_RADIUS = 9.dp
 private val ITEM_RADIUS = 8.dp
 
+/** The map's short side before it is measured, for fitting the camera. */
+private const val FIT_DEFAULT_SIDE_DP = 360f
+
+/** From this zoom on an open building says so: houses are big enough there. */
+private const val OPEN_LABEL_MIN_ZOOM = 15.5f
+
 /** Tiles and their credits: one place to switch providers (docs/adr/0003-map-and-buildings.md). */
 internal object MapStyle {
     /** OpenFreeMap: free, no key, OpenStreetMap data in the OpenMapTiles schema. Light and neutral: the game's
@@ -643,6 +739,12 @@ private val MapMarker.isRevealed: Boolean get() = !isTeammate && !isStale
 
 private fun List<GeoPoint>.toRing(): List<Position> = map { it.toPosition() }.let { ring ->
     if (ring.first() == ring.last()) ring else ring + listOf(ring.first())
+}
+
+/** The middle of a building's outline, where its label goes. */
+private fun BuildingArea.center(): GeoPoint {
+    val ring = if (outline.size > 1 && outline.first() == outline.last()) outline.dropLast(1) else outline
+    return GeoPoint(ring.sumOf { it.lat } / ring.size, ring.sumOf { it.lon } / ring.size)
 }
 
 private fun BuildingArea.toPolygon() = Polygon(

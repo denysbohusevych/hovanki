@@ -1,5 +1,6 @@
 package app.hovanki.server.game
 
+import app.hovanki.shared.geo.moveBy
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.ErrorCode
@@ -138,6 +139,18 @@ class GameLobbyTest {
         assertEquals(app.hovanki.shared.protocol.BuildingsState.LOADING, game.buildingsState)
         game.onBuildingsLoaded(emptyList(), emptyList(), revision = 1)
         assertEquals(app.hovanki.shared.protocol.BuildingsState.READY, game.buildingsState)
+    }
+
+    /** docs/adr/0014-settings-lobby-redesign-open-buildings.md: the zone's center on the map. */
+    @Test
+    fun theHostMovesTheZoneToTheNextParkNotToAnotherTown() {
+        val nextPark = settings.copy(zone = shrinkingZone(center.moveBy(1_500.0, 800.0), steps = 0))
+
+        assertTrue(game.updateSettings(host, nextPark, now), "a new place loads its map")
+        assertEquals(center.moveBy(1_500.0, 800.0), game.settings.zone.initial.center)
+
+        val anotherTown = settings.copy(zone = shrinkingZone(center.moveBy(0.0, 3_500.0), steps = 0))
+        assertFailsWith<GameException> { game.updateSettings(host, anotherTown, now) }
     }
 
     @Test

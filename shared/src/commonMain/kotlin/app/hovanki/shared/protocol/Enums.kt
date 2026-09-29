@@ -211,4 +211,10 @@ enum class ErrorReason {
 
     /** The caller plays in this game: players never watch their own game as spectators. */
     PLAYING_THIS_GAME,
+
+    /**
+     * The host moved the zone farther from where the game was made than it may go
+     * (docs/adr/0014-settings-lobby-redesign-open-buildings.md).
+     */
+    ZONE_TOO_FAR,
 }

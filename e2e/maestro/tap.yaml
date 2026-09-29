@@ -1,0 +1,10 @@
+# Scrolls to the element ID and taps it.
+appId: ${APP_ID}
+---
+- scrollUntilVisible:
+    element:
+      id: ${ID}
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    id: ${ID}

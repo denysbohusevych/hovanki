@@ -2,6 +2,7 @@ package app.hovanki.shared.rules
 
 import app.hovanki.shared.geo.offsetFrom
 import app.hovanki.shared.protocol.BuildingArea
+import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.GameRules
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LocationSample
@@ -10,6 +11,72 @@ import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
+
+/** Whether [point] lies in this building: inside its outline and not in one of its courtyards. */
+fun BuildingArea.contains(point: GeoPoint): Boolean =
+    outline.size >= 3 && ringContains(outline, point) && holes.none { it.size >= 3 && ringContains(it, point) }
+
+/** Even-odd rule on latitude and longitude: exact enough for a building, and scale does not change inside and out. */
+private fun ringContains(ring: List<GeoPoint>, point: GeoPoint): Boolean {
+    var inside = false
+    var j = ring.size - 1
+    for (i in ring.indices) {
+        val a = ring[i]
+        val b = ring[j]
+        if ((a.lat > point.lat) != (b.lat > point.lat) &&
+            point.lon < (b.lon - a.lon) * (point.lat - a.lat) / (b.lat - a.lat) + a.lon
+        ) {
+            inside = !inside
+        }
+        j = i
+    }
+    return inside
+}
+
+/**
+ * The buildings the host opened for hiding (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 4). The
+ * server and the phones split the zone's buildings the same way: a building one of the host's points lies in is open,
+ * the rest are forbidden. Adjoining houses come from the tiles as one outline, so a point opens that whole outline.
+ */
+object OpenBuildings {
+    /** [forbidden] go into the rule and are drawn pink; [open] are drawn as open and the rule leaves them alone. */
+    data class Split(val forbidden: List<BuildingArea>, val open: List<BuildingArea>)
+
+    fun split(buildings: List<BuildingArea>, points: List<GeoPoint>): Split {
+        if (points.isEmpty()) return Split(buildings, emptyList())
+        val (open, forbidden) = buildings.partition { building -> points.any { building.contains(it) } }
+        return Split(forbidden, open)
+    }
+
+    /**
+     * The host tapped [tap]: in an open building it closes again (every point in it goes), in a forbidden one it
+     * opens (while fewer than [SettingsLimits.MAX_OPEN_BUILDINGS] are open), elsewhere nothing changes.
+     */
+    fun toggle(points: List<GeoPoint>, buildings: List<BuildingArea>, tap: GeoPoint): List<GeoPoint> {
+        val building = buildings.firstOrNull { it.contains(tap) } ?: return points
+        val inside = points.filter { building.contains(it) }
+        return when {
+            inside.isNotEmpty() -> points - inside.toSet()
+            openCount(points, buildings) >= SettingsLimits.MAX_OPEN_BUILDINGS -> points
+            else -> points + tap
+        }
+    }
+
+    /** How many buildings [points] open among [buildings]. */
+    fun openCount(points: List<GeoPoint>, buildings: List<BuildingArea>): Int =
+        buildings.count { building -> points.any { building.contains(it) } }
+}
+
+/**
+ * [buildings] and [open] as the host's [points] split them now: the server sends the split of the moment it answered,
+ * and the host may open or close a building afterwards without a new map revision. Null [points] (an older server):
+ * as sent.
+ */
+fun BuildingsResponse.withOpenBuildings(points: List<GeoPoint>?): BuildingsResponse {
+    if (points == null) return this
+    val split = OpenBuildings.split(buildings + open, points)
+    return copy(buildings = split.forbidden, open = split.open)
+}
 
 /**
  * The buildings of one game, ready for point checks (docs/adr/0003-map-and-buildings.md): rings are projected to

@@ -166,15 +166,30 @@ abstract class CheckStringResources : DefaultTask() {
         val problems = strings.files.sortedBy { it.path }.flatMap { file ->
             file.readLines().mapIndexedNotNull { index, line ->
                 val escaped = "\\'" in line || "\\\"" in line
-                if (escaped) "${file.parentFile.name}/${file.name}:${index + 1}: ${line.trim()}" else null
+                val where = "${file.parentFile.name}/${file.name}:${index + 1}"
+                when {
+                    escaped -> "$where: a backslash shows up in the app (write ’ “ ” instead): ${line.trim()}"
+                    tooLongCaption(line) -> "$where: a caption is at most $MAX_CAPTION chars: ${line.trim()}"
+                    else -> null
+                }
             }
         }
         val text = problems.joinToString("\n")
         report.get().asFile.writeText(text)
-        if (problems.isNotEmpty()) {
-            throw GradleException(
-                "Escaped quotes show up with their backslash in the app (write ’ “ ” instead):\n$text",
-            )
-        }
+        if (problems.isNotEmpty()) throw GradleException("String resources to fix:\n$text")
+    }
+
+    /**
+     * The settings' text budget (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 1): a `*_caption`
+     * under a setting's name fits one line.
+     */
+    private fun tooLongCaption(line: String): Boolean {
+        val caption = CAPTION.find(line) ?: return false
+        return caption.groupValues[1].length > MAX_CAPTION
+    }
+
+    private companion object {
+        val CAPTION = Regex("""<string name="[a-z0-9_]+_caption">(.*)</string>""")
+        const val MAX_CAPTION = 40
     }
 }

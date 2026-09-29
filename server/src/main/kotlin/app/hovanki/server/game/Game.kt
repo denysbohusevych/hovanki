@@ -80,12 +80,14 @@ import app.hovanki.shared.rules.CatchRules
 import app.hovanki.shared.rules.ChatRules
 import app.hovanki.shared.rules.Glow
 import app.hovanki.shared.rules.LocationTrack
+import app.hovanki.shared.rules.OpenBuildings
 import app.hovanki.shared.rules.PerkCatalog
 import app.hovanki.shared.rules.ProximityRules
 import app.hovanki.shared.rules.QuestCatalog
 import app.hovanki.shared.rules.RadarToken
 import app.hovanki.shared.rules.RouteRecorder
 import app.hovanki.shared.rules.Sectors
+import app.hovanki.shared.rules.SettingsLimits
 import app.hovanki.shared.rules.StreetZone
 import app.hovanki.shared.rules.ZoneRules
 import app.hovanki.shared.rules.areaAt
@@ -140,10 +142,16 @@ class Game(
     var hostId: PlayerId = hostId
         private set
 
-    /** The setup; the host may change it in the lobby ([updateSettings]), the thresholds ([rules]) excepted. */
-    var settings: GameSettings = settings
+    /**
+     * The setup; the host may change it in the lobby ([updateSettings]), the thresholds ([rules]) excepted. Always
+     * with a list of open buildings, empty when the host opened none.
+     */
+    var settings: GameSettings = settings.copy(openBuildings = settings.openBuildings.orEmpty())
         private set
     private val rules = settings.rules
+
+    /** Where the game was made: the host may move the zone that far ([SettingsLimits.MAX_CENTER_MOVE_METERS]). */
+    private val origin = settings.zone.initial.center
     private val players = LinkedHashMap<PlayerId, Player>()
 
     /** Who watches this open game without playing it (docs/adr/0011-spectators-and-recordings.md); memory only. */
@@ -176,6 +184,10 @@ class Game(
         private set
     private var buildings = BuildingsResponse()
     private var buildingMap: BuildingMap? = null
+
+    /** Every building of the zone as loaded, open ones too: [splitBuildings] divides them by the host's points. */
+    private var loadedBuildings: List<BuildingArea> = emptyList()
+    private var loadedPassages: List<Passage> = emptyList()
 
     /**
      * Goes up whenever the host changes the zone in the lobby: the buildings and the zone by streets are loaded again,
@@ -248,8 +260,20 @@ class Game(
     fun onBuildingsLoaded(areas: List<BuildingArea>, passages: List<Passage>, revision: Int = mapRevision) {
         if (revision != mapRevision) return
         buildingsState = BuildingsState.READY
-        buildings = BuildingsResponse(BuildingsState.READY, areas, passages)
-        buildingMap = BuildingMap(areas, passages, settings.zone.initial.center)
+        loadedBuildings = areas
+        loadedPassages = passages
+        splitBuildings()
+    }
+
+    /**
+     * The loaded buildings split by the host's open ones (docs/adr/0014-settings-lobby-redesign-open-buildings.md):
+     * the rule judges by the forbidden ones only, the players get both.
+     */
+    private fun splitBuildings() {
+        if (buildingsState != BuildingsState.READY) return
+        val split = OpenBuildings.split(loadedBuildings, settings.openBuildings.orEmpty())
+        buildings = BuildingsResponse(BuildingsState.READY, split.forbidden, loadedPassages, open = split.open)
+        buildingMap = BuildingMap(split.forbidden, loadedPassages, settings.zone.initial.center)
     }
 
     /** The zone's buildings can't be loaded: the game runs without the rule, and the players are told. */
@@ -258,6 +282,8 @@ class Game(
         buildingsState = BuildingsState.UNAVAILABLE
         buildings = BuildingsResponse(BuildingsState.UNAVAILABLE)
         buildingMap = null
+        loadedBuildings = emptyList()
+        loadedPassages = emptyList()
     }
 
     /** The zone by streets of [revision] is built: one polygon for the start and one per stage of the schedule. */
@@ -408,14 +434,29 @@ class Game(
 
     /**
      * The host changes the setup in the lobby; the thresholds stay those the game was created with. True when the
-     * zone changed: its map data has to be loaded again, for the new [mapRevision].
+     * zone changed: its map data has to be loaded again, for the new [mapRevision]. Open buildings the request says
+     * nothing about (null: older apps) stay open while they are still by the zone; opening or closing one splits the
+     * buildings the game has again, nothing is loaded.
      */
     fun updateSettings(by: PlayerId, newSettings: GameSettings, nowMillis: Long): Boolean {
         requirePhase(GamePhase.LOBBY)
         requireHost(by, "change the settings")
-        val next = newSettings.copy(rules = rules)
+        if (!isServerHosted &&
+            newSettings.zone.initial.center.distanceTo(origin) > SettingsLimits.MAX_CENTER_MOVE_METERS
+        ) {
+            throw GameException(
+                ErrorCode.BAD_REQUEST,
+                "The zone moves too far from where the game was made",
+                ErrorReason.ZONE_TOO_FAR,
+            )
+        }
+        val open = (newSettings.openBuildings ?: settings.openBuildings.orEmpty())
+            .filter { SettingsLimits.isNearZone(it, newSettings.zone) }
+        val next = newSettings.copy(rules = rules, openBuildings = open)
         val mapChanged = next.zone != settings.zone || next.zoneShape != settings.zoneShape
+        val openChanged = open != settings.openBuildings
         settings = next
+        if (openChanged && !mapChanged) splitBuildings()
         // What the host placed for a feature that is off now goes with it.
         board.items.values.removeAll { !isAllowed(it.kind) }
         if (!next.features.quests) board.customQuests.clear()
@@ -425,6 +466,8 @@ class Game(
             buildingsState = BuildingsState.LOADING
             buildings = BuildingsResponse()
             buildingMap = null
+            loadedBuildings = emptyList()
+            loadedPassages = emptyList()
             streetZone = null
             streetZoneState = if (next.zoneShape.hasPolygons) StreetZoneState.LOADING else null
             streetZoneSinceMillis = nowMillis

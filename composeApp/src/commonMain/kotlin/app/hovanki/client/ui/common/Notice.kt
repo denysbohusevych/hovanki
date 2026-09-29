@@ -42,6 +42,7 @@ import app.hovanki.client.resources.error_user_not_found
 import app.hovanki.client.resources.error_wrong_code
 import app.hovanki.client.resources.error_wrong_login
 import app.hovanki.client.resources.error_zone_not_ready
+import app.hovanki.client.resources.error_zone_too_far
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import org.jetbrains.compose.resources.StringResource
@@ -151,6 +152,8 @@ fun reasonNotice(
         ErrorReason.GAME_NOT_OPEN -> Res.string.error_game_not_open
 
         ErrorReason.PLAYING_THIS_GAME -> Res.string.error_playing_this_game
+
+        ErrorReason.ZONE_TOO_FAR -> Res.string.error_zone_too_far
 
         ErrorReason.ACCOUNT_BANNED -> return untilMillis?.let {
             Notice.Text(Res.string.error_account_banned, listOf(formatDateTime(it)))
