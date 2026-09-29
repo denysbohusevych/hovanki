@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,7 +27,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -420,11 +420,20 @@ private fun PlayersSection(
     }
 }
 
-/** «Leave» on the left, the title, the chat on the right. */
+/**
+ * «Leave» on the edge the cards start at, the title in the middle of the screen (not of the room between the buttons),
+ * the chat on the right (docs/adr/0014-settings-lobby-redesign-open-buildings.md, «Лобби»).
+ */
 @Composable
 private fun Header(chatUnread: Int, onOpenChat: () -> Unit, onLeave: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        TextButton(onClick = onLeave) {
+    Box(modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
+        PopButton(
+            onClick = onLeave,
+            style = PopStyle.Outline,
+            height = 40.dp,
+            contentPadding = PaddingValues(start = 8.dp, end = 14.dp),
+            modifier = Modifier.align(Alignment.CenterStart).testTag(TestTags.LOBBY_LEAVE),
+        ) {
             Icon(painterResource(Res.drawable.ic_back), contentDescription = null, modifier = Modifier.size(20.dp))
             Text(stringResource(Res.string.action_leave), style = MaterialTheme.typography.labelLarge)
         }
@@ -432,9 +441,14 @@ private fun Header(chatUnread: Int, onOpenChat: () -> Unit, onLeave: () -> Unit)
             text = stringResource(Res.string.lobby_title),
             style = MaterialTheme.typography.titleLarge,
             textAlign = TextAlign.Center,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.align(Alignment.Center),
         )
-        ChatIconButton(unread = chatUnread, onClick = onOpenChat, size = 44.dp)
+        ChatIconButton(
+            unread = chatUnread,
+            onClick = onOpenChat,
+            size = 44.dp,
+            modifier = Modifier.align(Alignment.CenterEnd),
+        )
     }
 }
 

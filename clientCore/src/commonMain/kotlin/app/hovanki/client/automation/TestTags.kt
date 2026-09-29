@@ -225,6 +225,9 @@ object TestTags {
     const val CHAT_BLOCK = "chat_block"
 
     const val LOBBY_SCREEN = "lobby_screen"
+
+    /** «Leave» in the lobby's header. */
+    const val LOBBY_LEAVE = "lobby_leave"
     const val LOBBY_JOIN_CODE = "lobby_join_code"
     const val LOBBY_START = "lobby_start"
     const val LOBBY_WAITING = "lobby_waiting"
