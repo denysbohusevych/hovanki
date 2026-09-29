@@ -52,6 +52,7 @@ import app.hovanki.client.ui.common.appSafeDrawingPadding
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.RadarBand
+import app.hovanki.shared.rules.HeartbeatRules
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -115,6 +116,7 @@ private fun DiagnosticsPanel(onClose: () -> Unit, modifier: Modifier = Modifier)
     val pulse by viewModel.pulse.collectAsStateWithLifecycle()
     val benchRadio by viewModel.benchRadio.collectAsStateWithLifecycle()
     val benchGps by viewModel.benchGps.collectAsStateWithLifecycle()
+    val triedPulse by viewModel.triedPulse.collectAsStateWithLifecycle()
     // «How long ago» needs a clock that moves while nothing else does.
     var now by remember { mutableLongStateOf(deviceNow()) }
     LaunchedEffect(Unit) {
@@ -137,6 +139,7 @@ private fun DiagnosticsPanel(onClose: () -> Unit, modifier: Modifier = Modifier)
                 inGame = session.session != null,
                 viewModel = viewModel,
             )
+            PulseCard(triedPulse, inRound = session.isInRound(), viewModel = viewModel)
             GameCard(session, measured, now)
             LogCard(measured, viewModel)
         }
@@ -205,12 +208,12 @@ private fun RadioCard(
         if (measured.contacts.isEmpty()) {
             Line("heard nobody yet")
         } else {
-            SecondaryText("token · last dBm (min…max) · smoothed · band · readings · ago")
+            SecondaryText("token (R: the other team's) · last dBm (min…max) · smoothed · band · readings · ago")
             measured.contacts.forEach { contact ->
                 val level = contact.levelDbm?.let(Diagnostics::formatDbm) ?: "—"
-                val seeker = if (contact.isSeeker) " S" else ""
+                val rival = if (contact.isRival) " R" else ""
                 Line(
-                    "${contact.token}$seeker ${contact.lastRssi} (${contact.minRssi}…${contact.maxRssi}) $level " +
+                    "${contact.token}$rival ${contact.lastRssi} (${contact.minRssi}…${contact.maxRssi}) $level " +
                         "${contact.band.name} ×${contact.readings} ${ago(now, contact.lastAtMillis)}",
                     color = bandColor(contact.band),
                 )
@@ -243,6 +246,39 @@ private fun RadioCard(
                 height = 44.dp,
             )
         }
+    }
+}
+
+/** The heartbeat of each band on this phone, to feel it without a game. */
+@Composable
+private fun PulseCard(triedPulse: RadarBand, inRound: Boolean, viewModel: DiagnosticsViewModel) {
+    Section("Pulse") {
+        listOf(RadarBand.WARM, RadarBand.HOT, RadarBand.BURNING).forEach { band ->
+            val beat = HeartbeatRules.beat(band) ?: return@forEach
+            val strength = "${(beat.softAmplitude * 100).roundToInt()}% → ${(beat.strongAmplitude * 100).roundToInt()}%"
+            Line("${band.name}: every ${Diagnostics.seconds(beat.periodMillis)} s, $strength")
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(RadarBand.WARM, RadarBand.HOT, RadarBand.BURNING).forEach { band ->
+                PopButton(
+                    text = band.name.lowercase(),
+                    onClick = { viewModel.tryPulse(band) },
+                    enabled = !inRound,
+                    height = 40.dp,
+                    style = if (triedPulse == band) PopStyle.Dark else PopStyle.Outline,
+                    textStyle = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        PopButton(
+            text = "Stop",
+            onClick = { viewModel.tryPulse(RadarBand.NONE) },
+            enabled = triedPulse != RadarBand.NONE,
+            height = 40.dp,
+            style = PopStyle.Quiet,
+        )
+        if (inRound) SecondaryText("The round beats its own pulse.")
     }
 }
 

@@ -14,9 +14,13 @@ import app.hovanki.client.radio.ProximityRadio
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.SessionState
 import app.hovanki.client.share.ShareSheet
+import app.hovanki.client.tracking.PocketPulse
 import app.hovanki.shared.protocol.BluetoothState
+import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.RadarBand
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -37,6 +41,7 @@ class DiagnosticsViewModel(
     private val buildInfo: BuildInfo,
     private val serverUrl: ServerUrl,
     private val shareSheet: ShareSheet,
+    private val pocketPulse: PocketPulse,
 ) : ViewModel() {
     val measured: StateFlow<DiagnosticsState> = diagnostics.state
     val session: StateFlow<SessionState> = sessionManager.state
@@ -46,6 +51,11 @@ class DiagnosticsViewModel(
     val benchRadio: StateFlow<BenchRadio?> = bench.radioMode
     val benchGps: StateFlow<Boolean> = bench.gpsOn
     val benchToken: String = bench.token
+
+    private val mutableTriedPulse = MutableStateFlow(RadarBand.NONE)
+
+    /** The pulse the developer is feeling outside a round ([tryPulse]); [RadarBand.NONE]: quiet. */
+    val triedPulse: StateFlow<RadarBand> = mutableTriedPulse.asStateFlow()
 
     /** The build, the phone and the server, for the panel's top and the report's header. */
     val about: List<String>
@@ -64,6 +74,26 @@ class DiagnosticsViewModel(
                 .filter { it }
                 .collect { bench.stop() }
         }
+        // A round beats its own pulse: the one being tried stops when it starts.
+        viewModelScope.launch {
+            sessionManager.state
+                .map { it.isInRound() }
+                .distinctUntilChanged()
+                .filter { it }
+                .collect { tryPulse(RadarBand.NONE) }
+        }
+    }
+
+    /** Beats the pulse of [band] on this phone, as a round would, until told [RadarBand.NONE]; not in a round. */
+    fun tryPulse(band: RadarBand) {
+        if (band != RadarBand.NONE && session.value.isInRound()) return
+        if (band == RadarBand.NONE && mutableTriedPulse.value == RadarBand.NONE) return
+        mutableTriedPulse.value = band
+        pocketPulse.set(band)
+    }
+
+    override fun onCleared() {
+        tryPulse(RadarBand.NONE)
     }
 
     fun hasLocationPermission(): Boolean = locationProvider.hasPermission()
@@ -94,3 +124,7 @@ class DiagnosticsViewModel(
         diagnostics.clear()
     }
 }
+
+/** Hiding or seeking: the round's radio and pulse run. */
+internal fun SessionState.isInRound(): Boolean =
+    session != null && (snapshot?.phase == GamePhase.HIDING || snapshot?.phase == GamePhase.SEEKING)

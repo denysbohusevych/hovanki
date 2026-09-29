@@ -9,10 +9,12 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.rules.HeartbeatRules
+import kotlin.math.roundToInt
 
 /**
- * The pulse (docs/adr/0012-nearby-radar.md, «Пульс») on Android: a heartbeat on the vibration motor at the band's
- * pace, repeated until the band is [RadarBand.NONE]. Works with the screen off, since the round's foreground service
+ * The pulse (docs/adr/0012-nearby-radar.md, «Пульс») on Android: a heartbeat on the vibration motor, a soft beat and a
+ * strong one ([HeartbeatRules]), at the band's pace and strength, repeated until the band is [RadarBand.NONE]. A motor
+ * of one strength plays the soft beat shorter instead. Works with the screen off, since the round's foreground service
  * keeps the process alive. As an alarm, so a silent ringer doesn't mute it: the hider chose to play.
  */
 class AndroidPocketPulse(context: Context) : PocketPulse {
@@ -25,18 +27,20 @@ class AndroidPocketPulse(context: Context) : PocketPulse {
 
     override fun set(band: RadarBand) {
         val vibrator = vibrator?.takeIf { it.hasVibrator() } ?: return
-        val period = HeartbeatRules.periodMillis(band)
-        if (period == null) {
+        val beat = HeartbeatRules.beat(band)
+        if (beat == null) {
             vibrator.cancel()
             return
         }
-        // Lub-dub, then rest until the period is over.
-        val rest = (period - BEAT_MILLIS - GAP_MILLIS - SECOND_BEAT_MILLIS).coerceAtLeast(MIN_REST_MILLIS)
-        val timings = longArrayOf(0, BEAT_MILLIS, GAP_MILLIS, SECOND_BEAT_MILLIS, rest)
+        // Soft «lub», strong «dub», then quiet until the period is over; the waveform repeats from its start.
         val effect = if (vibrator.hasAmplitudeControl()) {
-            VibrationEffect.createWaveform(timings, intArrayOf(0, STRONG, 0, SOFT, 0), 0)
+            val timings = longArrayOf(0, beat.softMillis, beat.gapMillis, beat.strongMillis, beat.restMillis)
+            val amplitudes = intArrayOf(0, amplitude(beat.softAmplitude), 0, amplitude(beat.strongAmplitude), 0)
+            VibrationEffect.createWaveform(timings, amplitudes, 0)
         } else {
-            VibrationEffect.createWaveform(timings, 0)
+            val soft = HeartbeatRules.SOFT_MILLIS_WITHOUT_AMPLITUDE
+            val gap = beat.gapMillis + beat.softMillis - soft
+            VibrationEffect.createWaveform(longArrayOf(0, soft, gap, beat.strongMillis, beat.restMillis), 0)
         }
         vibrator.cancel()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -50,12 +54,10 @@ class AndroidPocketPulse(context: Context) : PocketPulse {
         }
     }
 
+    /** 0..1 as the motor's 1..255. */
+    private fun amplitude(share: Double): Int = (share * MAX_AMPLITUDE).roundToInt().coerceIn(1, MAX_AMPLITUDE)
+
     private companion object {
-        const val BEAT_MILLIS = 60L
-        const val GAP_MILLIS = 90L
-        const val SECOND_BEAT_MILLIS = 50L
-        const val MIN_REST_MILLIS = 120L
-        const val STRONG = 255
-        const val SOFT = 160
+        const val MAX_AMPLITUDE = 255
     }
 }
