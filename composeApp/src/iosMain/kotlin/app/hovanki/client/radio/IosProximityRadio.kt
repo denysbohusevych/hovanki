@@ -102,7 +102,7 @@ class IosProximityRadio : ProximityRadio {
                 RSSI: NSNumber,
             ) {
                 val rssi = RSSI.intValue
-                if (rssi == 0 || rssi < MIN_RSSI) return
+                if (!isReading(rssi)) return
                 @Suppress("UNCHECKED_CAST")
                 val serviceData = advertisementData[CBAdvertisementDataServiceDataKey] as? Map<Any?, *>
                 val data = serviceData?.entries?.firstOrNull { (key, _) ->
@@ -130,7 +130,7 @@ class IosProximityRadio : ProximityRadio {
                 for (beacon in didRangeBeacons) {
                     val found = beacon as? CLBeacon ?: continue
                     val rssi = found.rssi.toInt()
-                    if (rssi == 0 || rssi < MIN_RSSI) continue
+                    if (!isReading(rssi)) continue
                     heard(RadarToken.fromMajorMinor(found.major.intValue, found.minor.intValue), rssi)
                 }
             }
@@ -141,18 +141,8 @@ class IosProximityRadio : ProximityRadio {
         ranger.startMonitoringForRegion(region)
         ranger.startRangingBeaconsSatisfyingConstraint(constraint)
 
-        val peripheralDelegate = object : NSObject(), CBPeripheralManagerDelegateProtocol {
-            override fun peripheralManagerDidUpdateState(peripheral: CBPeripheralManager) = Unit
-        }
-        val peripheral = CBPeripheralManager(peripheralDelegate, null)
-        var advertising = false
-        fun advertise(token: String?) {
-            if (advertising) {
-                peripheral.stopAdvertising()
-                advertising = false
-            }
-            if (token == null) return
-            val data: Map<Any?, *> = if (asSeeker) {
+        val advertiser = Advertiser { token ->
+            if (asSeeker) {
                 val (major, minor) = RadarToken.toMajorMinor(token)
                 val beacon = CLBeaconRegion(
                     uUID = NSUUID(SERVICE_UUID),
@@ -168,19 +158,16 @@ class IosProximityRadio : ProximityRadio {
                     CBAdvertisementDataLocalNameKey to NAME_PREFIX + token,
                 )
             }
-            peripheral.startAdvertising(data)
-            advertising = true
         }
-        val tokenJob = tokens.onEach { advertise(it) }.launchIn(this)
+        val tokenJob = tokens.onEach { advertiser.advertise(it) }.launchIn(this)
         awaitClose {
             tokenJob.cancel()
-            if (advertising) peripheral.stopAdvertising()
+            advertiser.close()
             ranger.stopRangingBeaconsSatisfyingConstraint(constraint)
             ranger.stopMonitoringForRegion(region)
             ranger.delegate = null
             central.stopScan()
             central.delegate = null
-            peripheral.delegate = null
         }
     }
 
@@ -199,6 +186,9 @@ class IosProximityRadio : ProximityRadio {
         else -> BluetoothState.OFF
     }
 
+    /** A real reading: CoreLocation reports 0 for a beacon it lost, CoreBluetooth 127 for none; weaker is noise. */
+    private fun isReading(rssi: Int): Boolean = rssi in MIN_RSSI..-1
+
     private fun NSData.toHex(): String {
         val bytes = ByteArray(length.toInt())
         if (bytes.isNotEmpty()) {
@@ -215,7 +205,43 @@ class IosProximityRadio : ProximityRadio {
         const val NAME_PREFIX = "hv"
         private const val BEACON_REGION_ID = "app.hovanki.radar"
 
-        /** CoreLocation reports 0 for a beacon it lost; anything weaker than this is noise. */
+        /** Anything weaker than this is noise. */
         private const val MIN_RSSI = -110
+    }
+}
+
+/**
+ * Advertises the latest token for as long as it is set, whatever the adapter does meanwhile. iOS takes
+ * `startAdvertising` only once the peripheral manager says it is powered on, which comes a moment after it is made
+ * (and again after Bluetooth was switched off and on): a call before that is dropped without a word, so the token
+ * waits here and goes out from [peripheralManagerDidUpdateState].
+ */
+private class Advertiser(private val data: (token: String) -> Map<Any?, *>) :
+    NSObject(),
+    CBPeripheralManagerDelegateProtocol {
+    private val manager = CBPeripheralManager()
+    private var token: String? = null
+
+    init {
+        manager.delegate = this
+    }
+
+    fun advertise(token: String?) {
+        this.token = token
+        restart()
+    }
+
+    fun close() {
+        token = null
+        restart()
+        manager.delegate = null
+    }
+
+    override fun peripheralManagerDidUpdateState(peripheral: CBPeripheralManager) = restart()
+
+    private fun restart() {
+        if (manager.state != CBManagerStatePoweredOn) return
+        manager.stopAdvertising()
+        token?.let { manager.startAdvertising(data(it)) }
     }
 }
