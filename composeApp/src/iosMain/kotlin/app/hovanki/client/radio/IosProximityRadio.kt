@@ -40,6 +40,7 @@ import platform.Foundation.NSData
 import platform.Foundation.NSDate
 import platform.Foundation.NSNumber
 import platform.Foundation.NSUUID
+import platform.Foundation.allKeys
 import platform.Foundation.timeIntervalSince1970
 import platform.darwin.NSObject
 import platform.posix.memcpy
@@ -153,10 +154,14 @@ class IosProximityRadio : ProximityRadio {
             if (token == null) return
             val data: Map<Any?, *> = if (asSeeker) {
                 val (major, minor) = RadarToken.toMajorMinor(token)
-                val beacon = CLBeaconRegion(NSUUID(SERVICE_UUID), major.toUShort(), minor.toUShort(), BEACON_REGION_ID)
+                val beacon = CLBeaconRegion(
+                    uUID = NSUUID(SERVICE_UUID),
+                    major = major.toUShort(),
+                    minor = minor.toUShort(),
+                    identifier = BEACON_REGION_ID,
+                )
                 val dictionary = beacon.peripheralDataWithMeasuredPower(null)
-                @Suppress("UNCHECKED_CAST")
-                (dictionary.allKeys as List<Any?>).associateWith { dictionary.objectForKey(it) }
+                dictionary.allKeys.associateWith<Any?, Any?> { dictionary.objectForKey(it) }
             } else {
                 mapOf(
                     CBAdvertisementDataServiceUUIDsKey to listOf(serviceUuid),
