@@ -93,6 +93,8 @@ hovanki:
     # New drafts whose zone by streets the host previews before saving, per host
     # (docs/adr/0014-settings-lobby-redesign-open-buildings.md).
     settings-preview: { count: 120, window: 10m }
+    # The server's clock without a token (GET /api/v1/time), per client IP: a phone asks 5 times every 5 minutes.
+    time-per-ip: { count: 120, window: 1m }
   # Staff admin, the /admin page (docs/adr/0008-admin.md). Off without a secret key: HOVANKI_ADMIN_SECRET_KEY in .env
   # (deploy/compose.yaml passes it on), base64 of 32 random bytes (openssl rand -base64 32); it encrypts the staff's
   # authenticator secrets.

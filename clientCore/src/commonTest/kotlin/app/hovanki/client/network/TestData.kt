@@ -102,6 +102,7 @@ class FakeGameApi(
     private val onBoard: suspend () -> GameSnapshot = { unused() },
     private val onAcceptCrowding: suspend () -> GameSnapshot = { unused() },
     private val onJoinBigGame: suspend (BigGameId, JoinBigGameRequest) -> SessionResponse = { _, _ -> unused() },
+    private val onServerTime: suspend () -> Long = { unused() },
     private val onSync: suspend (SyncRequest) -> GameSnapshot,
 ) : GameApi {
     val placedItems = mutableListOf<PlaceItemRequest>()
@@ -111,6 +112,8 @@ class FakeGameApi(
     val questsAdded = mutableListOf<CustomQuestRequest>()
     val questsDone = mutableListOf<QuestId>()
     val questReviews = mutableListOf<Pair<QuestId, QuestReviewRequest>>()
+
+    override suspend fun serverTime(): Long = onServerTime()
 
     override suspend fun placeItem(session: PlayerSession, request: PlaceItemRequest): GameSnapshot {
         placedItems += request

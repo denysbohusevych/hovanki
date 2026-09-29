@@ -36,6 +36,9 @@ import app.hovanki.shared.protocol.UsePerkRequest
  * Throws [ApiException] when the server rejects a call, and I/O or serialization exceptions on network problems.
  */
 interface GameApi {
+    /** The server's clock, epoch millis; no token (the debug build's radio lab measures the offset by it). */
+    suspend fun serverTime(): Long
+
     /** [accountToken]: the logged-in player's account (the game then knows them by their nickname); null: a guest. */
     suspend fun createGame(request: CreateGameRequest, accountToken: String? = null): SessionResponse
 

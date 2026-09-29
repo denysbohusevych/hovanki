@@ -338,6 +338,7 @@ sequenceDiagram
 
 | Метод | Путь | Токен | Кто вызывает | Тело запроса | Ответ |
 |---|---|---|---|---|---|
+| GET | `/api/v1/time` | нет | кто угодно: часы сервера, чтобы измерить сдвиг часов устройства (лаборатория радио в debug-сборке, `docs/radio-lab.md` §4.3); лимит по IP (`time-per-ip`) | — | `ServerTimeResponse` |
 | POST | `/api/v1/games` | аккаунт, необязательно | любой, становится хостом; с аккаунтом имя — ник, аккаунт выходит из лобби других игр, из идущего раунда — только с `leaveOtherGame` (иначе `IN_ANOTHER_GAME`); настройки в пределах `SettingsLimits`, фишка, которую оператор не включил, — `FEATURE_DISABLED` | `CreateGameRequest` | `SessionResponse` |
 | POST | `/api/v1/games/join` | аккаунт, необязательно | любой, по join-коду; с аккаунтом — ник, а в своей игре — свой же игрок в любой фазе; повтор с тем же `requestId` — тот же игрок; другие игры аккаунта — как при создании; в большую игру по коду не войти (`NOT_FOUND`) | `JoinGameRequest` | `SessionResponse` |
 | POST | `/api/v1/games/{gameId}/start` | игровой | хост, в LOBBY; пока строится зона по улицам — `ZONE_NOT_READY`; радар обязателен, а у кого-то Bluetooth выключен — `FEATURE_MISSING` | `StartGameRequest` | `GameSnapshot` |

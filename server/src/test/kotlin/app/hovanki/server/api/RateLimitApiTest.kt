@@ -27,6 +27,7 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.mock.web.MockHttpServletResponse
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -42,6 +43,7 @@ import kotlin.test.assertTrue
         "hovanki.rate-limits.login-per-login.window=15m",
         "hovanki.rate-limits.reports.count=2",
         "hovanki.rate-limits.settings-preview.count=2",
+        "hovanki.rate-limits.time-per-ip.count=3",
     ],
 )
 @AutoConfigureMockMvc
@@ -72,6 +74,12 @@ class RateLimitApiTest(@Autowired private val mvc: MockMvc) {
 
         // Locked, even with the right password: a stolen session can't try passwords one after another.
         assertTrue(assertTooManyRequests(changeEmail(PASSWORD)) in 1..15 * 60)
+    }
+
+    @Test
+    fun theServerClockIsLimitedPerIp() {
+        repeat(3) { assertEquals(200, mvc.get(ApiRoutes.TIME).andReturn().response.status) }
+        assertTrue(assertTooManyRequests(mvc.get(ApiRoutes.TIME).andReturn().response) in 1..60)
     }
 
     @Test
