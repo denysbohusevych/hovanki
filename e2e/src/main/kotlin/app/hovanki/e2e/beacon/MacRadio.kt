@@ -18,9 +18,18 @@ import kotlin.concurrent.thread
  * The Mac's own Bluetooth as the bot's radio: the helper `e2e/mac-beacon/beacon.swift` (built by run.sh) advertises
  * the token and reports what it hears, line by line. It advertises the iPhone hider's way in either role: macOS has no
  * iBeacon advertising, and the phones hear a seeker by that too (the server takes any player's token).
+ *
+ * One direction at a time, to see which side of a phone works: without [advertise] the phones can't hear the laptop,
+ * so whatever the radar shows is what the laptop heard; without [report] what it hears never reaches the game, so the
+ * radar shows only what the phones heard of it. [onHeard] sees every reading either way.
  */
-class MacRadio(helper: File, private val onLine: (String) -> Unit) :
-    ProximityRadio,
+class MacRadio(
+    helper: File,
+    private val onLine: (String) -> Unit,
+    private val onHeard: (token: String, rssi: Int, how: String) -> Unit = { _, _, _ -> },
+    private val advertise: Boolean = true,
+    private val report: Boolean = true,
+) : ProximityRadio,
     AutoCloseable {
     private val process = ProcessBuilder(helper.path).redirectError(ProcessBuilder.Redirect.INHERIT).start()
     private val input = process.outputStream.bufferedWriter()
@@ -51,7 +60,8 @@ class MacRadio(helper: File, private val onLine: (String) -> Unit) :
 
             "heard" -> {
                 val rssi = parts.getOrNull(2)?.toIntOrNull() ?: return
-                sightings.tryEmit(RadioSighting(parts[1], rssi, System.currentTimeMillis()))
+                onHeard(parts[1], rssi, parts.getOrNull(3) ?: "?")
+                if (report) sightings.tryEmit(RadioSighting(parts[1], rssi, System.currentTimeMillis()))
             }
 
             "log" -> onLine(line.removePrefix("log "))
@@ -61,7 +71,7 @@ class MacRadio(helper: File, private val onLine: (String) -> Unit) :
     }
 
     override fun run(tokens: StateFlow<String?>, asSeeker: Boolean): Flow<RadioSighting> = channelFlow {
-        launch { tokens.collect { command(if (it == null) "stop" else "advertise $it") } }
+        launch { tokens.collect { command(if (it == null || !advertise) "stop" else "advertise $it") } }
         sightings.collect { send(it) }
     }.onCompletion { command("stop") }
 

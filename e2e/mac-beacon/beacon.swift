@@ -5,7 +5,8 @@
 // name (bare, or after the first apps' «hv»), a seeker's iBeacon frame when macOS shows it.
 //
 // Lines on stdin: `advertise <token>`, `stop`. Lines on stdout: `state on|off|denied|unsupported`,
-// `heard <token> <rssi>`, `log <text>`. Closing stdin ends it. Built by e2e/mac-beacon/run.sh.
+// `heard <token> <rssi> <how>` (how: `name` an iPhone hider, `ibeacon` a seeker, `service-data` an Android hider),
+// `log <text>`. Closing stdin ends it. Built by e2e/mac-beacon/run.sh.
 
 import CoreBluetooth
 import Foundation
@@ -102,16 +103,16 @@ final class Beacon: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDeleg
     ) {
         // 127: no reading.
         let rssi = RSSI.intValue
-        guard rssi < 0, rssi >= minRssi, let token = tokenIn(advertisementData) else { return }
-        say("heard \(token) \(rssi)")
+        guard rssi < 0, rssi >= minRssi, let found = tokenIn(advertisementData) else { return }
+        say("heard \(found.0) \(rssi) \(found.1)")
     }
 
-    private func tokenIn(_ advertisement: [String: Any]) -> String? {
+    private func tokenIn(_ advertisement: [String: Any]) -> (String, String)? {
         // An Android hider: the token as the service's data.
         if let serviceData = advertisement[CBAdvertisementDataServiceDataKey] as? [CBUUID: Data],
            let data = serviceData[serviceUUID] {
             let token = hex(data)
-            if isToken(token) { return token }
+            if isToken(token) { return (token, "service-data") }
         }
         // A seeker's iBeacon: Apple's company id, type 0x02, length 0x15, the game's UUID, major, minor, power.
         if let frame = advertisement[CBAdvertisementDataManufacturerDataKey] as? Data {
@@ -119,14 +120,14 @@ final class Beacon: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDeleg
             let uuid = withUnsafeBytes(of: UUID(uuidString: serviceUUID.uuidString)!.uuid) { [UInt8]($0) }
             if bytes.count >= 25, bytes[0] == 0x4C, bytes[1] == 0x00, bytes[2] == 0x02, bytes[3] == 0x15,
                Array(bytes[4..<20]) == uuid {
-                return hex(Data(bytes[20..<24]))
+                return (hex(Data(bytes[20..<24])), "ibeacon")
             }
         }
         // An iPhone hider on the screen: the token as the name, only with the game's service next to it.
         let services = advertisement[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
         if services.contains(serviceUUID), let name = advertisement[CBAdvertisementDataLocalNameKey] as? String {
             let token = name.hasPrefix(namePrefix) ? String(name.dropFirst(namePrefix.count)) : name
-            if isToken(token) { return token }
+            if isToken(token) { return (token, "name") }
         }
         return nil
     }
