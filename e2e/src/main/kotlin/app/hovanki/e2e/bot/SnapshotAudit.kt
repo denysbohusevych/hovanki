@@ -9,6 +9,7 @@ import app.hovanki.shared.protocol.SpectatorSnapshot
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.rules.BoardRules
 import app.hovanki.shared.rules.ChatRules
+import app.hovanki.shared.rules.RadarToken
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -123,7 +124,8 @@ object SnapshotAudit {
 
     /**
      * The radar (docs/adr/0012-nearby-radar.md, section 2.6): a hider feels only the nearest seeker, nameless; a
-     * seeker gets hiders by name; the seekers' tokens go to hiders only; nothing outside the search.
+     * seeker gets hiders by name; the seekers' tokens go to hiders only, the hiders' to seekers only, without names;
+     * nothing outside the search.
      */
     private fun radarProblems(snapshot: GameSnapshot): List<String> = buildList {
         val me = snapshot.me
@@ -132,6 +134,14 @@ object SnapshotAudit {
         if (contacts.isNotEmpty() && snapshot.phase != GamePhase.SEEKING) add("$viewer has a radar outside the search")
         if (me.role == Role.HIDER && contacts.size > 1) add("hider ${me.playerId.value} feels more than one seeker")
         if (me.role != Role.HIDER && me.seekerTokens.isNotEmpty()) add("$viewer received the seekers' tokens")
+        if (me.role != Role.SEEKER && me.hiderTokens.isNotEmpty()) add("$viewer received the hiders' tokens")
+        if ((me.seekerTokens.isNotEmpty() || me.hiderTokens.isNotEmpty()) && snapshot.phase != GamePhase.SEEKING) {
+            add("$viewer received radar tokens outside the search")
+        }
+        me.radarSecret?.let { secret ->
+            val own = RadarToken.candidates(secret, snapshot.serverTimeMillis)
+            if (own.any { it in me.hiderTokens || it in me.seekerTokens }) add("$viewer received their own token")
+        }
         for (contact in contacts) {
             val target = contact.playerId?.let { id -> snapshot.players.firstOrNull { it.id == id } }
             when {

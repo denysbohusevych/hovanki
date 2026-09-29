@@ -152,6 +152,12 @@ data class MyState(
      */
     val seekerTokens: List<String> = emptyList(),
     /**
+     * A seeker with the radar, during the search: the radar tokens the active hiders advertise right now (this slot
+     * and its neighbours), without names, so the seeker's phone warms up the moment it hears one, before the server's
+     * band per hider comes (docs/adr/0012-nearby-radar.md, «Изменение 2026-09-29»). Never to a hider.
+     */
+    val hiderTokens: List<String> = emptyList(),
+    /**
      * The radar is required and this hider's phone has Bluetooth off: turn it on before this time, or the seekers see
      * them from then on. Null otherwise.
      */

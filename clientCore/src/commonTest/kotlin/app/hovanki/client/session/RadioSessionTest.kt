@@ -1,9 +1,13 @@
 package app.hovanki.client.session
 
 import app.hovanki.client.diagnostics.Diagnostics
+import app.hovanki.client.network.ConnectionEvent
 import app.hovanki.client.network.FakeGameApi
+import app.hovanki.client.network.GameConnection
+import app.hovanki.client.network.LocationOutbox
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
+import app.hovanki.client.network.SyncExtras
 import app.hovanki.client.network.testSession
 import app.hovanki.client.network.testSnapshot
 import app.hovanki.client.storage.ClientStorage
@@ -20,6 +24,7 @@ import app.hovanki.shared.protocol.MyState
 import app.hovanki.shared.protocol.NearbySighting
 import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.RadarContact
@@ -28,6 +33,7 @@ import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.rules.CheckpointPayload
 import app.hovanki.shared.rules.RadarToken
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -56,6 +62,11 @@ class RadioSessionTest {
     /** What the seeker's phone advertises right now. */
     private val seekerToken get() = RadarToken.at(seekerSecret, serverNow)
 
+    private val hiderSecret = "0102030405060708090a0b0c0d0e0f1011121314"
+
+    /** What a hider's phone advertises right now. */
+    private val hiderToken get() = RadarToken.at(hiderSecret, serverNow)
+
     /** The phone's clock: 10 s behind the server's, and it advances with it ([snapshots]). */
     private var deviceNow = serverNow - 10_000L
     private var syncs = 0
@@ -67,21 +78,23 @@ class RadioSessionTest {
         role: Role = Role.HIDER,
         sense: Boolean = false,
         radar: () -> RadarState? = { null },
+        syncIntervalSeconds: Int = 1,
     ): FakeGameApi = FakeGameApi(
         onBoard = { round(GamePhase.SEEKING, withRadar) },
     ) {
         val serverTime = serverNow + syncs++ * 1_000L
         deviceNow = serverTime - 10_000L
-        round(phase(), withRadar, serverTime, role, sense, radar())
+        round(phase(), withRadar, serverTime, role, sense, radar(), syncIntervalSeconds)
     }
 
     private fun TestScope.manager(
         api: FakeGameApi,
         radio: FakeRadio = this@RadioSessionTest.radio,
         diagnostics: Diagnostics = Diagnostics.Off,
+        connection: GameConnection = PollingGameConnection(api),
     ) = GameSessionManager(
         api,
-        PollingGameConnection(api),
+        connection,
         ServerClock { deviceNow },
         FakeLocationProvider(),
         FakeBackgroundTracker(),
@@ -102,8 +115,13 @@ class RadioSessionTest {
         role: Role = Role.HIDER,
         sense: Boolean = false,
         radar: RadarState? = null,
+        syncIntervalSeconds: Int = 1,
     ): GameSnapshot {
-        val snapshot = testSnapshot(serverTimeMillis = serverTimeMillis, syncIntervalSeconds = 1, phase = phase)
+        val snapshot = testSnapshot(
+            serverTimeMillis = serverTimeMillis,
+            syncIntervalSeconds = syncIntervalSeconds,
+            phase = phase,
+        )
         val inSearch = withRadar && phase == GamePhase.SEEKING
         val me = MyState(
             testSession.playerId,
@@ -115,6 +133,11 @@ class RadioSessionTest {
                 role == Role.HIDER
             ) {
                 RadarToken.candidates(seekerSecret, serverTimeMillis)
+            } else {
+                emptyList()
+            },
+            hiderTokens = if (inSearch && role == Role.SEEKER) {
+                RadarToken.candidates(hiderSecret, serverTimeMillis)
             } else {
                 emptyList()
             },
@@ -259,6 +282,72 @@ class RadioSessionTest {
         runCurrent()
         assertEquals(RadarBand.NONE, manager.pulse.value)
         assertEquals(RadarBand.NONE, pulse.bands.last())
+    }
+
+    @Test
+    fun aSeekerFeelsAHiderBeforeTheServerSaysSo() = runTest {
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        val api = snapshots({ GamePhase.SEEKING }, role = Role.SEEKER, radar = { RadarState() })
+        val manager = manager(api)
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        runCurrent()
+        assertEquals(RadarBand.NONE, manager.pulse.value)
+
+        // A teammate's token (unknown to this phone): nothing, however loud.
+        radio.hears("0123abcd", -40, atMillis = deviceNow)
+        runCurrent()
+        assertEquals(RadarBand.NONE, manager.pulse.value)
+
+        // A hider's token: warm at once, nameless; the server's band per hider is still none.
+        radio.hears(hiderToken, -80, atMillis = deviceNow)
+        runCurrent()
+        assertEquals(RadarBand.WARM, manager.pulse.value)
+        assertEquals(RadarBand.NONE, manager.state.value.snapshot?.radarBand())
+        assertEquals(listOf(RadarBand.WARM), pulse.bands)
+    }
+
+    @Test
+    fun somebodyNearMakesThePhoneSyncEverySecond() = runTest {
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        val api =
+            snapshots({ GamePhase.SEEKING }, role = Role.SEEKER, radar = { RadarState() }, syncIntervalSeconds = 3)
+        val connection = SpyConnection(PollingGameConnection(api))
+        val manager = manager(api, connection = connection)
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        runCurrent()
+        val snapshot = checkNotNull(manager.state.value.snapshot)
+        val pause = checkNotNull(connection.intervalMillis)
+        assertEquals(3_000L, pause(snapshot), "the game's pace while nobody is near")
+
+        // The server's band says a hider is near: every second.
+        val warm = snapshot.copy(me = snapshot.me.copy(radar = RadarState(listOf(RadarContact(RadarBand.WARM)))))
+        assertEquals(GameSessionManager.NEAR_SYNC_MILLIS, pause(warm))
+
+        // So does a close reading of any phone of the game (a teammate's too), for a while.
+        radio.hears("0123abcd", -60, atMillis = deviceNow)
+        runCurrent()
+        assertEquals(GameSessionManager.NEAR_SYNC_MILLIS, pause(snapshot))
+        // Outside the search, the game's pace whatever happens.
+        assertEquals(3_000L, pause(snapshot.copy(phase = GamePhase.LOBBY)))
+    }
+
+    /** The connection the manager opened, and the pause it asks for between syncs. */
+    private class SpyConnection(private val inner: GameConnection) : GameConnection {
+        var intervalMillis: ((GameSnapshot) -> Long)? = null
+            private set
+
+        override fun connect(
+            session: PlayerSession,
+            outbox: LocationOutbox,
+            chatAfter: () -> Long?,
+            extras: () -> SyncExtras,
+            intervalMillis: (GameSnapshot) -> Long,
+        ): Flow<ConnectionEvent> {
+            this.intervalMillis = intervalMillis
+            return inner.connect(session, outbox, chatAfter, extras, intervalMillis)
+        }
     }
 
     @Test

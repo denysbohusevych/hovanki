@@ -372,6 +372,54 @@ class GameRadarTest {
     }
 
     @Test
+    fun theSeekerGetsTheActiveHidersTokensWithoutNames() {
+        val game = game()
+        game.start(seeker, setOf(seeker), ::newSecret, now)
+        assertEquals(emptyList(), game.snapshotFor(seeker, now).me.hiderTokens, "only during the search")
+        game.tick(60)
+        check(game.phase == GamePhase.SEEKING)
+
+        val tokens = game.snapshotFor(seeker, now).me.hiderTokens
+        val expected = listOf(hider, other).flatMap { RadarToken.candidates(game.radarSecretOf(it), now) }
+        assertEquals(expected.sorted(), tokens, "every active hider, this slot and its neighbours, in no one's order")
+        assertEquals(emptyList(), game.snapshotFor(hider, now).me.hiderTokens, "never to a hider")
+        assertTrue(RadarToken.at(game.radarSecretOf(seeker), now) !in tokens, "never a seeker's")
+
+        // A found hider is out of it.
+        game.device(seeker, BluetoothState.ON)
+        game.device(hider, BluetoothState.ON)
+        game.report(seeker, center)
+        game.report(hider, center.moveBy(3.0, 0.0))
+        game.meet(seeker, hider)
+        game.claimCatch(seeker, hider, CatchId("c1"), now)
+        game.confirmCatch(CatchId("c1"), seeker, game.catchCode(hider), now)
+        val left = game.snapshotFor(seeker, now).me.hiderTokens
+        assertEquals(RadarToken.candidates(game.radarSecretOf(other), now).sorted(), left)
+
+        val quiet = game(settings.copy(features = GameFeatures()))
+        quiet.start(seeker, setOf(seeker), ::newSecret, now)
+        quiet.tick(60)
+        assertEquals(emptyList(), quiet.snapshotFor(seeker, now).me.hiderTokens, "no radar, no tokens")
+    }
+
+    @Test
+    fun bothPhonesOfAPairCountEvenWhenOneReportsLater() {
+        val game = game()
+        game.begin()
+        // The seeker's sync brings its readings first; the hider's phone reports the same seconds a moment later.
+        val seekerToken = RadarToken.at(game.radarSecretOf(seeker), now)
+        val hiderToken = RadarToken.at(game.radarSecretOf(hider), now)
+        game.recordSightings(seeker, listOf(NearbySighting(hiderToken, -88, now)), now)
+        now += 2_000
+        game.recordSightings(seeker, listOf(NearbySighting(hiderToken, -64, now)), now)
+        val seekerOnly = game.debugState(now).radar.single().levelDbm!!
+        game.recordSightings(hider, (0..3).map { NearbySighting(seekerToken, -58, now - 1_800 + it * 400L) }, now)
+        game.advance(now)
+        val both = game.debugState(now).radar.single().levelDbm!!
+        assertTrue(both > seekerOnly, "the hider's readings count: $seekerOnly → $both")
+    }
+
+    @Test
     fun thePocketIsEvenedOutAndMayHide() {
         val game = game()
         game.begin()

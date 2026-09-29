@@ -21,14 +21,21 @@ interface GameConnection {
      * [chatAfter] is asked before every request for the chat cursor (`SyncRequest.chatAfter`: the newest seq the
      * client has, 0 for none): the snapshots bring the newer messages. Null: no chat. [extras] is asked before every
      * request too: whom the phone heard over Bluetooth since the last one and what it says about itself.
+     * [intervalMillis] is asked after every snapshot for the pause before the next request: the game's
+     * `syncIntervalSeconds`, or less while the radar says somebody is near.
      */
     fun connect(
         session: PlayerSession,
         outbox: LocationOutbox,
         chatAfter: () -> Long? = { null },
         extras: () -> SyncExtras = { SyncExtras() },
+        intervalMillis: (GameSnapshot) -> Long = ::defaultSyncIntervalMillis,
     ): Flow<ConnectionEvent>
 }
+
+/** The game's own pace: [app.hovanki.shared.protocol.GameRules.syncIntervalSeconds], a second at least. */
+fun defaultSyncIntervalMillis(snapshot: GameSnapshot): Long =
+    snapshot.settings.rules.syncIntervalSeconds.coerceAtLeast(1) * 1000L
 
 /** What goes with a sync besides the samples (docs/adr/0012-nearby-radar.md): the radar's sightings, the phone. */
 data class SyncExtras(val nearby: List<NearbySighting> = emptyList(), val device: DeviceReport? = null)

@@ -63,21 +63,21 @@ class DiagnosticsTest {
         val readings = listOf(-80, -72, -65, -62, -61, -90)
         readings.forEachIndexed { i, rssi ->
             val at = now + i * 400L
-            diagnostics.onSighting("0123abcd", rssi, at, isSeeker = true)
+            diagnostics.onSighting("0123abcd", rssi, at, isRival = true)
             server.add(rssi, at)
         }
         diagnostics.onSighting("89abcdef", -88, now)
 
         val contacts = diagnostics.state.value.contacts
         assertEquals(listOf("89abcdef", "0123abcd"), contacts.map { it.token }, "the latest first")
-        val seeker = contacts.last()
-        assertEquals(-90, seeker.lastRssi)
-        assertEquals(-90, seeker.minRssi)
-        assertEquals(-61, seeker.maxRssi)
-        assertEquals(readings.size, seeker.readings)
-        assertEquals(server.levelDbm, seeker.levelDbm)
-        assertEquals(server.bandAt(now + 2_000L), seeker.band)
-        assertTrue(seeker.isSeeker)
+        val rival = contacts.last()
+        assertEquals(-90, rival.lastRssi)
+        assertEquals(-90, rival.minRssi)
+        assertEquals(-61, rival.maxRssi)
+        assertEquals(readings.size, rival.readings)
+        assertEquals(server.levelDbm, rival.levelDbm)
+        assertEquals(server.bandAt(now + 2_000L), rival.band)
+        assertTrue(rival.isRival)
         // At most a line a second per phone, whatever the scan's pace: readings at 0, 0.4 … 2.0 s give lines at 0 and
         // 1.2 s (the next one is due at 2.2 s).
         val lines = diagnostics.state.value.log.filter { it.text.startsWith("0123abcd") }

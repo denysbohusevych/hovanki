@@ -53,7 +53,7 @@ class ProximityTest {
         assertTrue(smoother.wasBurningWithin(now + 5_000, windowMillis = 30_000))
         now += 3_000
         smoother.add(-70, now)
-        // Smoothed (-62.8 dBm): still above the exit of «burning».
+        // Smoothed (-65.2 dBm: one reading moves it at most 60% of the way): still above the exit of «burning».
         assertEquals(RadarBand.BURNING, smoother.bandAt(now))
         repeat(6) {
             now += 2_000
@@ -65,11 +65,66 @@ class ProximityTest {
     }
 
     @Test
-    fun aReadingOutOfOrderIsIgnored() {
+    fun aLateReadingCountsAsIfItCameNow() {
         val smoother = RadarSmoother()
-        smoother.add(-90, 2_000)
-        smoother.add(-50, 1_000)
-        assertEquals(-90.0, smoother.levelDbm)
+        val now = 1_700_000_000_000L
+        smoother.add(-90, now)
+        // The other phone of the pair reports the same second with its own sync: it counts, the clock stays.
+        smoother.add(-50, now - 1_000)
+        val step = ProximityRules.smoothingStep(ProximityRules.MIN_READING_GAP_MILLIS, rising = true)
+        assertEquals(-90.0 + 40 * step, smoother.levelDbm)
+        assertEquals(now, smoother.lastAtMillis)
+        // Older than the signal's life: nothing.
+        val level = smoother.levelDbm
+        smoother.add(-40, now - ProximityRules.SIGNAL_TTL_MILLIS - 1)
+        assertEquals(level, smoother.levelDbm)
+    }
+
+    @Test
+    fun aSeekerComingCloseIsFeltWithinSecondsOnAnyPhone() {
+        // Android scanning: ten readings a second. Far, then within a metre.
+        val android = RadarSmoother()
+        var now = 1_700_000_000_000L
+        repeat(10) {
+            android.add(-88, now)
+            now += 100
+        }
+        val closeAt = now
+        while (android.bandAt(now) < RadarBand.HOT) {
+            android.add(-56, now)
+            now += 100
+        }
+        assertTrue(now - closeAt <= 700, "hot after ${now - closeAt} ms")
+        while (android.bandAt(now) < RadarBand.BURNING) {
+            android.add(-56, now)
+            now += 100
+        }
+        assertTrue(now - closeAt <= 1_600, "burning after ${now - closeAt} ms")
+
+        // An iPhone ranging a beacon: a reading a second.
+        val iphone = RadarSmoother()
+        now = 1_700_000_000_000L
+        iphone.add(-88, now)
+        var readings = 0
+        while (iphone.bandAt(now) < RadarBand.BURNING) {
+            now += 1_000
+            iphone.add(-56, now)
+            readings++
+        }
+        assertTrue(readings <= 3, "burning after $readings readings")
+    }
+
+    @Test
+    fun theSignalFallsSlowerThanItRises() {
+        val up = ProximityRules.smoothingStep(1_000, rising = true)
+        val down = ProximityRules.smoothingStep(1_000, rising = false)
+        assertTrue(down < up)
+        assertEquals(ProximityRules.MAX_STEP, up, "one reading never moves it all the way")
+        // A lone spike from far away is no «burning».
+        val smoother = RadarSmoother()
+        smoother.add(-88, 0)
+        smoother.add(-45, 5_000)
+        assertTrue(smoother.bandAt(5_000) < RadarBand.BURNING)
     }
 
     @Test
@@ -102,9 +157,24 @@ class ProximityTest {
     @Test
     fun theHeartbeatFollowsTheBand() {
         assertEquals(null, HeartbeatRules.periodMillis(RadarBand.NONE))
+        assertEquals(null, HeartbeatRules.beat(RadarBand.NONE))
         assertEquals(HeartbeatRules.WARM_PERIOD_MILLIS, HeartbeatRules.periodMillis(RadarBand.WARM))
         assertTrue(HeartbeatRules.HOT_PERIOD_MILLIS < HeartbeatRules.WARM_PERIOD_MILLIS)
         assertTrue(HeartbeatRules.BURNING_PERIOD_MILLIS < HeartbeatRules.HOT_PERIOD_MILLIS)
+        val beats = listOf(RadarBand.WARM, RadarBand.HOT, RadarBand.BURNING).map {
+            checkNotNull(HeartbeatRules.beat(it))
+        }
+        for (beat in beats) {
+            // «Lub-DUB»: soft first, strong second; quiet most of the time, even up close.
+            assertTrue(beat.softAmplitude < beat.strongAmplitude, "$beat")
+            assertTrue(beat.softMillis < beat.strongMillis, "$beat")
+            assertTrue(beat.dutyCycle <= 0.15, "$beat")
+            assertTrue(beat.periodMillis >= 800, "$beat")
+            assertTrue(beat.restMillis > beat.gapMillis, "$beat")
+        }
+        // Closer: faster and stronger.
+        assertEquals(beats.sortedByDescending { it.periodMillis }, beats)
+        assertEquals(beats.sortedBy { it.strongAmplitude }, beats)
     }
 
     @Test

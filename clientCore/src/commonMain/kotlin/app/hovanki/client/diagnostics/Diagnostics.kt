@@ -77,10 +77,10 @@ class Diagnostics(
     }
 
     /**
-     * Another phone heard: its [token] at [rssi] dBm at [atMillis] of the device's clock; [isSeeker]: a seeker's token,
-     * which the hider's pulse listens for.
+     * Another phone heard: its [token] at [rssi] dBm at [atMillis] of the device's clock; [isRival]: the other team's
+     * token (a seeker's for a hider, a hider's for a seeker), which the pulse listens for.
      */
-    fun onSighting(token: String, rssi: Int, atMillis: Long, isSeeker: Boolean = false) {
+    fun onSighting(token: String, rssi: Int, atMillis: Long, isRival: Boolean = false) {
         if (!isEnabled) return
         val smoother = smoothers.getOrPut(token) { RadarSmoother() }
         smoother.add(rssi, atMillis)
@@ -96,7 +96,7 @@ class Diagnostics(
                 lastAtMillis = atMillis,
                 levelDbm = smoother.levelDbm,
                 band = band,
-                isSeeker = isSeeker || old?.isSeeker == true,
+                isRival = isRival || old?.isRival == true,
             )
             state.copy(
                 contacts = (listOf(contact) + state.contacts.filter { it.token != token }).take(MAX_CONTACTS),
@@ -107,8 +107,8 @@ class Diagnostics(
         if (lastLine == null || atMillis - lastLine >= RADIO_LINE_GAP_MILLIS) {
             lastRadioLine[token] = atMillis
             val level = smoother.levelDbm?.let { " → ${formatDbm(it)}" }.orEmpty()
-            val seeker = if (isSeeker) " seeker" else ""
-            log(DiagnosticsKind.RADIO, "$token$seeker $rssi dBm$level ${band.name}", atMillis)
+            val rival = if (isRival) " rival" else ""
+            log(DiagnosticsKind.RADIO, "$token$rival $rssi dBm$level ${band.name}", atMillis)
         }
     }
 
@@ -184,10 +184,10 @@ class Diagnostics(
         appendLine()
         appendLine("Radio: own token ${state.ownToken ?: "—"}${if (state.radioAsSeeker) " (seeker)" else ""}")
         state.contacts.forEach { contact ->
-            val seeker = if (contact.isSeeker) " seeker" else ""
+            val rival = if (contact.isRival) " rival" else ""
             val level = contact.levelDbm?.let(::formatDbm) ?: "—"
             appendLine(
-                "  ${contact.token}$seeker: last ${contact.lastRssi} dBm, min ${contact.minRssi}, " +
+                "  ${contact.token}$rival: last ${contact.lastRssi} dBm, min ${contact.minRssi}, " +
                     "max ${contact.maxRssi}, level $level, ${contact.band.name}, ${contact.readings} readings, " +
                     "last at ${formatClock(contact.lastAtMillis)}",
             )
@@ -287,7 +287,8 @@ data class RadioContact(
     val lastAtMillis: Long,
     val levelDbm: Double?,
     val band: RadarBand,
-    val isSeeker: Boolean,
+    /** The other team's token: the pulse listens for it. */
+    val isRival: Boolean,
 )
 
 /** A sync's outcome: when (device clock), how long it took, the error if it failed, the sightings it carried. */

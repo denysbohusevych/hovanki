@@ -1,5 +1,6 @@
 package app.hovanki.client.network
 
+import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.SyncRequest
 import kotlinx.coroutines.CancellationException
@@ -8,8 +9,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
 /**
- * MVP transport: one `sync` call every [app.hovanki.shared.protocol.GameRules.syncIntervalSeconds]
- * that uploads the queued samples and returns the fresh snapshot. Failures are retried with exponential backoff.
+ * MVP transport: one `sync` call every [app.hovanki.shared.protocol.GameRules.syncIntervalSeconds] (or the pause the
+ * caller asks for, see [GameConnection.connect]) that uploads the queued samples and returns the fresh snapshot.
+ * Failures are retried with exponential backoff.
  */
 class PollingGameConnection(private val api: GameApi) : GameConnection {
     override fun connect(
@@ -17,6 +19,7 @@ class PollingGameConnection(private val api: GameApi) : GameConnection {
         outbox: LocationOutbox,
         chatAfter: () -> Long?,
         extras: () -> SyncExtras,
+        intervalMillis: (GameSnapshot) -> Long,
     ): Flow<ConnectionEvent> = flow {
         var backoffMillis = MIN_BACKOFF_MILLIS
         while (true) {
@@ -44,7 +47,7 @@ class PollingGameConnection(private val api: GameApi) : GameConnection {
             }
             backoffMillis = MIN_BACKOFF_MILLIS
             emit(ConnectionEvent.Snapshot(snapshot))
-            delay(snapshot.settings.rules.syncIntervalSeconds.coerceAtLeast(1) * 1000L)
+            delay(intervalMillis(snapshot).coerceAtLeast(MIN_INTERVAL_MILLIS))
         }
     }
 
@@ -55,6 +58,9 @@ class PollingGameConnection(private val api: GameApi) : GameConnection {
     }
 
     companion object {
+        /** Never faster than this, whatever the caller asks. */
+        const val MIN_INTERVAL_MILLIS = 500L
+
         const val MIN_BACKOFF_MILLIS = 1_000L
 
         /**
