@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Linked into the beacon helper (run.sh): macOS asks for Bluetooth only with a reason given. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>app.hovanki.mac-beacon</string>
+	<key>CFBundleName</key>
+	<string>hovanki-beacon</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>The laptop plays as a second phone in a Hovanki test game: it sends out its radar code and listens for the phones' codes.</string>
+</dict>
+</plist>
