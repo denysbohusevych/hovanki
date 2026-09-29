@@ -108,10 +108,12 @@ object SnapshotAudit {
         for (contact in contacts) {
             val target = contact.playerId?.let { id -> snapshot.players.firstOrNull { it.id == id } }
             when {
-                me.role == Role.HIDER && contact.playerId != null -> add("hider ${me.playerId.value} feels a named player")
+                me.role == Role.HIDER && contact.playerId != null ->
+                    add("hider ${me.playerId.value} feels a named player")
                 me.role == Role.SEEKER && target == null -> add("seeker ${me.playerId.value} got a nameless contact")
                 me.role == Role.SEEKER && target?.role != Role.HIDER -> add("$viewer feels a seeker on the radar")
-                target?.status != null && target.status != PlayerStatus.ACTIVE -> add("$viewer feels a player who is out")
+                target?.status != null && target.status != PlayerStatus.ACTIVE ->
+                    add("$viewer feels a player who is out")
             }
         }
     }

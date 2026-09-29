@@ -24,7 +24,8 @@ class RadioCalibrationRepository(private val jdbc: JdbcClient) {
                                                readings, updated_at)
                 VALUES (:hearer, :heard, :hearerCarry, :heardCarry, :anchor, :rssi, :readings, :at)
                 ON CONFLICT (hearer_model, heard_model, hearer_carry, heard_carry, anchor, rssi_dbm)
-                DO UPDATE SET readings = radio_calibration.readings + EXCLUDED.readings, updated_at = EXCLUDED.updated_at
+                DO UPDATE SET readings = radio_calibration.readings + EXCLUDED.readings,
+                              updated_at = EXCLUDED.updated_at
                 """.trimIndent(),
             )
                 .param("hearer", bucket.hearerModel)

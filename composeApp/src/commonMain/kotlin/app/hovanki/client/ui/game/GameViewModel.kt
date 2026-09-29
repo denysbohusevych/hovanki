@@ -386,8 +386,8 @@ data class GameUiState(
     val metersToZoneBorder: Double?,
     /**
      * A hider outside the zone (by the own GPS, or the server's alert): the compass bearing of the way back, to the
-     * nearest point of the border (to the zone's middle while the own GPS says inside), for the arrow at the edge of the
-     * screen. Null inside, or without a position.
+     * nearest point of the border (to the zone's middle while the own GPS says inside), for the arrow at the edge of
+     * the screen. Null inside, or without a position.
      */
     val bearingToZone: Double?,
     /** The zone by streets now and next, when the game has one: the map draws these instead of the circles. */
