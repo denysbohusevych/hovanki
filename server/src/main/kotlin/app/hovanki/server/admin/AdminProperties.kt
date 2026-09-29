@@ -12,9 +12,13 @@ data class AdminProperties(
      */
     val secretKey: String = "",
     /** An admin session ends after this long without a request... */
-    val sessionIdle: Duration = Duration.ofMinutes(30),
+    val sessionIdle: Duration = Duration.ofHours(24),
     /** ... and this long after the login in any case. */
-    val sessionMax: Duration = Duration.ofHours(8),
+    val sessionMax: Duration = Duration.ofDays(7),
+    /** The session's token (the cookie) is replaced by the first request this long after it last changed... */
+    val sessionRotate: Duration = Duration.ofMinutes(15),
+    /** ... and the replaced one still works this long, for the requests already on their way. */
+    val sessionRotateGrace: Duration = Duration.ofMinutes(1),
     /** Between the password and the code of the authenticator app. */
     val challengeTtl: Duration = Duration.ofMinutes(5),
     /** Wrong codes per login attempt; then the password again. */

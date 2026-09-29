@@ -88,6 +88,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -209,23 +210,71 @@ class AdminApiTest(
     @Test
     fun theSessionEndsWhenIdleOrTooOldOrTheRoleIsGone() {
         val admin = staff(UserRole.ADMIN)
-        clock.advance(Duration.ofMinutes(29))
+        clock.advance(Duration.ofHours(23))
         get(ApiRoutes.ADMIN_ME, admin).ok<AdminMe>()
-        clock.advance(Duration.ofMinutes(31))
+        clock.advance(Duration.ofHours(25))
         get(ApiRoutes.ADMIN_ME, admin).error(401, ErrorCode.UNAUTHORIZED, ErrorReason.SESSION_EXPIRED)
 
         val busy = staff(UserRole.ADMIN)
-        repeat(16) {
-            clock.advance(Duration.ofMinutes(29))
+        repeat(7) {
+            clock.advance(Duration.ofHours(23))
             get(ApiRoutes.ADMIN_ME, busy).ok<AdminMe>()
         }
-        // 8 hours after the login, however busy.
-        clock.advance(Duration.ofMinutes(29))
+        // A week after the login, however busy.
+        clock.advance(Duration.ofHours(23))
         get(ApiRoutes.ADMIN_ME, busy).error(401, ErrorCode.UNAUTHORIZED, ErrorReason.SESSION_EXPIRED)
 
         val moderator = staff(UserRole.MODERATOR)
         setRole(moderator.account.user.id, UserRole.PLAYER)
         get(ApiRoutes.ADMIN_ME, moderator).error(401, ErrorCode.UNAUTHORIZED, ErrorReason.SESSION_EXPIRED)
+    }
+
+    @Test
+    fun theSessionTokenChangesAsItIsUsed() {
+        val admin = staff(UserRole.ADMIN)
+        val first = admin.token
+        // Within a quarter of an hour of the login: the same token.
+        clock.advance(Duration.ofMinutes(10))
+        val same = get(ApiRoutes.ADMIN_ME, first)
+        same.ok<AdminMe>()
+        assertNull(same.setCookie)
+        clock.advance(Duration.ofMinutes(5))
+        val rotated = get(ApiRoutes.ADMIN_ME, first)
+        rotated.ok<AdminMe>()
+        val second = assertNotNull(rotated.session)
+        assertNotEquals(first, second)
+        val cookie = checkNotNull(rotated.setCookie)
+        for (attribute in listOf("Path=/", "Secure", "HttpOnly", "SameSite=Strict")) assertContains(cookie, attribute)
+        // The cookie lives as long as the session may: a week from the login.
+        assertContains(cookie, "Max-Age=${Duration.ofDays(7).minusMinutes(15).seconds}")
+
+        // A request already on its way with the old token still goes through, and changes nothing.
+        clock.advance(Duration.ofSeconds(30))
+        val late = get(ApiRoutes.ADMIN_ME, first)
+        late.ok<AdminMe>()
+        assertNull(late.setCookie)
+        get(ApiRoutes.ADMIN_ME, second).ok<AdminMe>()
+        // After that, the old token means somebody else has it: the session ends, for the new token too.
+        clock.advance(Duration.ofMinutes(1))
+        get(ApiRoutes.ADMIN_ME, first).error(401, ErrorCode.UNAUTHORIZED, ErrorReason.SESSION_EXPIRED)
+        get(ApiRoutes.ADMIN_ME, second).error(401, ErrorCode.UNAUTHORIZED, ErrorReason.SESSION_EXPIRED)
+
+        // A refused request changes the token all the same, and its answer carries the new one.
+        val moderator = staff(UserRole.MODERATOR)
+        clock.advance(Duration.ofMinutes(15))
+        val refused = get(ApiRoutes.ADMIN_AUDIT, moderator.token)
+        refused.error(403, ErrorCode.FORBIDDEN)
+        val fresh = assertNotNull(refused.session)
+        clock.advance(Duration.ofMinutes(2))
+        get(ApiRoutes.ADMIN_ME, fresh).ok<AdminMe>()
+
+        // Logging out with a token due for a change: the answer only clears the cookie.
+        val other = staff(UserRole.MODERATOR)
+        clock.advance(Duration.ofMinutes(16))
+        val out = post(ApiRoutes.ADMIN_LOGOUT, json = null, session = other.token)
+        out.expect(204)
+        assertEquals("", out.session)
+        get(ApiRoutes.ADMIN_ME, other).error(401, ErrorCode.UNAUTHORIZED, ErrorReason.SESSION_EXPIRED)
     }
 
     @Test
@@ -620,7 +669,12 @@ class AdminApiTest(
         return Account(session, email)
     }
 
-    private class StaffLogin(val account: AccountSession, val token: String)
+    /** A logged-in staff member's browser: keeps the session cookie the answers set. */
+    private class StaffLogin(val account: AccountSession, var token: String) {
+        fun follow(response: Response) {
+            response.session?.takeIf { it.isNotEmpty() }?.let { token = it }
+        }
+    }
 
     private fun enrolledStaff(role: UserRole): Pair<Account, Totp> {
         val member = account(role = role)
@@ -705,7 +759,7 @@ class AdminApiTest(
     private inline fun <reified T> T.json(): String = protocolJson.encodeToString(this)
 
     private inline fun <reified T> post(path: String, body: T, staff: StaffLogin? = null, header: Boolean = true) =
-        postRaw(path, body?.json(), staff?.token, header)
+        postRaw(path, body?.json(), staff?.token, header).also { staff?.follow(it) }
 
     private fun post(path: String, json: String?, session: String?) = postRaw(path, json, session, header = true)
 
@@ -723,14 +777,19 @@ class AdminApiTest(
         )
     }
 
-    private fun get(path: String, staff: StaffLogin, header: Boolean = true) = get(path, staff.token, header)
+    private fun get(path: String, staff: StaffLogin, header: Boolean = true) =
+        get(path, staff.token, header).also(staff::follow)
 
     private fun get(path: String, session: String?, header: Boolean = true): Response {
         val response = mvc.get(path) {
             if (header) header(ApiRoutes.ADMIN_HEADER, "1")
             if (session != null) cookie(Cookie(ApiRoutes.ADMIN_COOKIE, session))
         }.andReturn().response
-        return Response(response.status, response.getContentAsString(Charsets.UTF_8), null)
+        return Response(
+            response.status,
+            response.getContentAsString(Charsets.UTF_8),
+            response.getHeader(HttpHeaders.SET_COOKIE),
+        )
     }
 
     private inline fun <reified T> postAccount(path: String, body: T, token: String): Response {

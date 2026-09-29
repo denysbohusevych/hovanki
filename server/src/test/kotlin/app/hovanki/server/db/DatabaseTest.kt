@@ -144,16 +144,24 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         insertTrack(oldGame, "p1", oldVerified)
         insertRecording(recentGame, savedAt = now.minus(Duration.ofDays(89)))
         insertTrack(recentGame, "p1", oldVerified)
-        // The admin (docs/adr/0008-admin.md): sessions end after 8 hours, sanctions go a year after their end, the
-        // audit log after a year; a ban forever stays.
-        insertAt(
-            "INSERT INTO admin_sessions VALUES (:a, :b, :t, :t)",
-            unique("old-admin"),
-            oldVerified,
-            at = now.minus(Duration.ofHours(9)),
-        )
-        val adminSession = unique("admin")
-        insertAt("INSERT INTO admin_sessions VALUES (:a, :b, :t, :t)", adminSession, oldVerified, at = now)
+        // The admin (docs/adr/0008-admin.md): sessions end a week after the login or a day after their last request,
+        // sanctions go a year after their end, the audit log after a year; a ban forever stays.
+        fun adminSession(createdAgo: Duration, usedAgo: Duration): String {
+            val hash = unique("admin")
+            jdbc.sql(
+                "INSERT INTO admin_sessions (token_hash, user_id, created_at, last_used_at, rotated_at) " +
+                    "VALUES (:h, :u, :c, :l, :l)",
+            )
+                .param("h", hash)
+                .param("u", oldVerified)
+                .param("c", now.minus(createdAgo).toTimestamptz())
+                .param("l", now.minus(usedAgo).toTimestamptz())
+                .update()
+            return hash
+        }
+        adminSession(createdAgo = Duration.ofDays(8), usedAgo = Duration.ofHours(1))
+        adminSession(createdAgo = Duration.ofDays(2), usedAgo = Duration.ofHours(25))
+        val adminSession = adminSession(createdAgo = Duration.ofDays(6), usedAgo = Duration.ofHours(23))
         val sanction = "INSERT INTO sanctions (user_id, kind, reason, created_by, created_at, until) " +
             "VALUES (:a, :b, 'spam', 'mod', :t, :t)"
         insertAt(sanction, oldVerified, "MUTE", at = now.minus(Duration.ofDays(366)))

@@ -95,8 +95,12 @@ hovanki:
   # authenticator secrets.
   admin:
     secret-key: ""
-    session-idle: 30m
-    session-max: 8h
+    # A session ends after a day without a request, a week after the login in any case; its token (the cookie) is
+    # replaced every 15 minutes of use, and the replaced one works a minute more (docs/adr/0008-admin.md).
+    session-idle: 24h
+    session-max: 7d
+    session-rotate: 15m
+    session-rotate-grace: 1m
     challenge-ttl: 5m
     challenge-max-attempts: 5
     # The audit log, and bans and chat bans after they ended.
