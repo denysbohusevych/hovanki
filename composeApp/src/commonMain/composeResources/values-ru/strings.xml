@@ -430,7 +430,7 @@
   <string name="action_leave_other_game">Выйти из неё и продолжить</string>
   <string name="invite_in_round">%1$s зовёт вас в другую игру.</string>
   <string name="action_leave_and_go">Выйти и перейти</string>
-  <!-- Радар по Bluetooth и UWB (docs/adr/0010-nearby-radar.md) -->
+  <!-- Радар по Bluetooth и UWB (docs/adr/0012-nearby-radar.md) -->
   <string name="settings_features">Фишки</string>
   <string name="settings_features_hint">Все выключены, пока вы их не включите. Сервер предлагает только то, что включил его оператор.</string>
   <string name="settings_features_none">На сервере пока не включена ни одна фишка.</string>
@@ -451,7 +451,7 @@
   <string name="settings_activity_hint">Телефон сообщает, когда его игрок бежит: для задания «Спринт» и статистики. С телефона уходит только «бежит» или нет.</string>
   <string name="settings_pocket_stealth">Карман прячет</string>
   <string name="settings_pocket_stealth_hint">Тело глушит сигнал, и радар выравнивает это для всех. С этой настройкой прячущийся с телефоном в кармане при погашенном экране читается ищущим на ступень холоднее: хочешь, чтобы тебя хуже чувствовали, иди вслепую.</string>
-  <!-- Задания, искры, перки и доска (docs/adr/0011-quests-sparks-and-sensors.md) -->
+  <!-- Задания, искры, перки и доска (docs/adr/0013-quests-sparks-and-sensors.md) -->
   <string name="settings_quests">Задания</string>
   <string name="settings_quests_hint">Искры за то, что сделано во время поиска. Хост выбирает задания здесь, ставит точки заданий на доске и придумывает задания словами.</string>
   <string name="settings_quests_pick">Задания на поиск</string>

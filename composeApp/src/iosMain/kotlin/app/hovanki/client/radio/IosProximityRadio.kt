@@ -46,7 +46,7 @@ import platform.darwin.NSObject
 import platform.posix.memcpy
 
 /**
- * The radar over Bluetooth LE on iOS (docs/adr/0010-nearby-radar.md, section 2.2). A hider's phone advertises the
+ * The radar over Bluetooth LE on iOS (docs/adr/0012-nearby-radar.md, section 2.2). A hider's phone advertises the
  * game's service UUID with the token in its name (iOS lets a third-party app advertise nothing else; in the
  * background only the UUID goes out, in the overflow area other iPhones see). A seeker's phone advertises an
  * iBeacon frame with the token as major and minor, which works on the screen only, where a seeker is anyway. Every

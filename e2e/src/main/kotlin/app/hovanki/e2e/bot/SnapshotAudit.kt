@@ -95,7 +95,7 @@ object SnapshotAudit {
     }
 
     /**
-     * The radar (docs/adr/0010-nearby-radar.md, section 2.6): a hider feels only the nearest seeker, nameless; a
+     * The radar (docs/adr/0012-nearby-radar.md, section 2.6): a hider feels only the nearest seeker, nameless; a
      * seeker gets hiders by name; the seekers' tokens go to hiders only; nothing outside the search.
      */
     private fun radarProblems(snapshot: GameSnapshot): List<String> = buildList {
@@ -122,7 +122,7 @@ object SnapshotAudit {
     }
 
     /**
-     * The board (docs/adr/0011-quests-sparks-and-sensors.md): in the round only the items of the viewer's team, and a
+     * The board (docs/adr/0013-quests-sparks-and-sensors.md): in the round only the items of the viewer's team, and a
      * scan checkpoint's code to the host in the lobby only.
      */
     private fun boardProblems(snapshot: GameSnapshot): List<String> = buildList {

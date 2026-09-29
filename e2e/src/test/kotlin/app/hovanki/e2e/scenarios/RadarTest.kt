@@ -14,7 +14,7 @@ import kotlin.test.Test
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * The radar by Bluetooth (docs/adr/0010-nearby-radar.md): the seeker feels a hider «burning» a metre away and nothing
+ * The radar by Bluetooth (docs/adr/0012-nearby-radar.md): the seeker feels a hider «burning» a metre away and nothing
  * from afar; a hider with the sense feels the seeker coming, nameless, on the phone in the pocket («Пульс»); an
  * iPhone in a pocket is never heard by an Android, but hears the seeker's beacon itself and tells the server. The
  * privacy audit checks every response: no names to hiders, no tokens to seekers.

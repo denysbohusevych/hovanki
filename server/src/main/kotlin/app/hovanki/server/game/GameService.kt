@@ -187,7 +187,7 @@ class GameService(
         }
     }
 
-    // The board and the perks (docs/adr/0011-quests-sparks-and-sensors.md); the rules are in the game.
+    // The board and the perks (docs/adr/0013-quests-sparks-and-sensors.md); the rules are in the game.
 
     /** The host places an item on the map in the lobby; a scan checkpoint gets a fresh code. */
     fun placeItem(caller: PlayerRef, gameId: GameId, request: PlaceItemRequest): GameSnapshot =

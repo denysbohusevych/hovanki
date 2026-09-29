@@ -37,7 +37,7 @@ import java.nio.ByteBuffer
 import java.util.UUID
 
 /**
- * The radar over Bluetooth LE on Android (docs/adr/0010-nearby-radar.md, section 2.2). A hider's phone advertises
+ * The radar over Bluetooth LE on Android (docs/adr/0012-nearby-radar.md, section 2.2). A hider's phone advertises
  * the radar token as the service data of the game's service UUID; a seeker's advertises an iBeacon frame (Apple's
  * manufacturer data) with the token as major and minor, which an iPhone in a pocket hears through CoreLocation
  * («Пульс»). Every phone scans for both, and for an iPhone hider on the screen, whose token is in its name.

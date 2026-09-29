@@ -4,7 +4,7 @@ import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.RadarBand
 
-// What the screen makes of the radar (docs/adr/0010-nearby-radar.md): bands, never metres.
+// What the screen makes of the radar (docs/adr/0012-nearby-radar.md): bands, never metres.
 
 /** The strongest band on the viewer's radar right now; null when the game (or the viewer) has no radar. */
 fun GameSnapshot.radarBand(): RadarBand? = me.radar?.let { radar ->

@@ -15,7 +15,7 @@ import kotlin.test.Test
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * A claim only up close (docs/adr/0010-nearby-radar.md, section 2.5): with the radar on, GPS alone doesn't let a
+ * A claim only up close (docs/adr/0012-nearby-radar.md, section 2.5): with the radar on, GPS alone doesn't let a
  * seeker claim a hider from 30 m; the radar has to have heard the two phones «burning» for a few seconds.
  */
 class ProximityCatchTest {

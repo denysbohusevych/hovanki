@@ -75,7 +75,7 @@ class ClientStorage(private val store: SecureStore) {
         save(GAME_SETUP, GameSetup.serializer(), setup)
     }
 
-    /** «The radar on my phone» (docs/adr/0010-nearby-radar.md): on unless the player switched it off. */
+    /** «The radar on my phone» (docs/adr/0012-nearby-radar.md): on unless the player switched it off. */
     val radarEnabled: Boolean get() = read(RADAR_ENABLED) != "false"
 
     fun saveRadarEnabled(enabled: Boolean) {

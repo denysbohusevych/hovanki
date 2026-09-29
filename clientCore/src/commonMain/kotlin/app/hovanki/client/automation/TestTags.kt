@@ -235,7 +235,7 @@ object TestTags {
     const val SETTINGS_SHRINKS = "settings_shrinks"
     const val SETTINGS_GLOW = "settings_glow"
 
-    // The radar, the quests, the perks and the board (docs/adr/0010-nearby-radar.md, docs/adr/0011-...).
+    // The radar, the quests, the perks and the board (docs/adr/0012-nearby-radar.md, docs/adr/0013-...).
     const val SETTINGS_RADAR = "settings_radar"
     const val SETTINGS_RADAR_REQUIRED = "settings_radar_required"
     const val SETTINGS_HIDER_SENSE = "settings_hider_sense"

@@ -127,7 +127,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * polygons instead of the circles: it does not shrink smoothly, it switches to the next one when the stage is over.
  * [recenterRequests]: each increase moves the camera to our own position. [onCameraBearing]:
  * the map's rotation (degrees clockwise from north) whenever the player turns it, for what points somewhere on screen.
- * The board ([items], docs/adr/0011-quests-sparks-and-sensors.md) is drawn by kind, what is taken in grey; with
+ * The board ([items], docs/adr/0013-quests-sparks-and-sensors.md) is drawn by kind, what is taken in grey; with
  * [onMapClick] a tap on the map gives its point (the host placing an item, a hider placing a decoy) and [pickedPoint]
  * marks the last one.
  */

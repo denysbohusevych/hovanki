@@ -74,7 +74,7 @@ import app.hovanki.shared.protocol.RadarBand
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
-// The catalogs of docs/adr/0011-quests-sparks-and-sensors.md and the radar's words in the player's language.
+// The catalogs of docs/adr/0013-quests-sparks-and-sensors.md and the radar's words in the player's language.
 
 @Composable
 fun questTitle(kind: QuestKind): String = stringResource(

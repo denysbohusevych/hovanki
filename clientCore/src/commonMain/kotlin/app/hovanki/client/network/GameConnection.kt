@@ -30,7 +30,7 @@ interface GameConnection {
     ): Flow<ConnectionEvent>
 }
 
-/** What goes with a sync besides the samples (docs/adr/0010-nearby-radar.md): the radar's sightings, the phone. */
+/** What goes with a sync besides the samples (docs/adr/0012-nearby-radar.md): the radar's sightings, the phone. */
 data class SyncExtras(val nearby: List<NearbySighting> = emptyList(), val device: DeviceReport? = null)
 
 sealed interface ConnectionEvent {

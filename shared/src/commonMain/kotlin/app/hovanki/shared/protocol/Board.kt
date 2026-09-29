@@ -2,7 +2,7 @@ package app.hovanki.shared.protocol
 
 import kotlinx.serialization.Serializable
 
-// The board of a game (docs/adr/0011-quests-sparks-and-sensors.md): what the host places on the map in the lobby
+// The board of a game (docs/adr/0013-quests-sparks-and-sensors.md): what the host places on the map in the lobby
 // (quest points, checkpoints, perks lying around), the quests, the perks and the sparks.
 
 /** What the host places on the map. */
@@ -25,7 +25,7 @@ enum class ItemKind {
 @Serializable
 enum class Audience { ALL, HIDERS, SEEKERS }
 
-/** The perks (docs/adr/0011-quests-sparks-and-sensors.md, section 3): what sparks buy, or what lies on the map. */
+/** The perks (docs/adr/0013-quests-sparks-and-sensors.md, section 3): what sparks buy, or what lies on the map. */
 @Serializable
 enum class PerkKind {
     /** Hider: the grey «was here» spot of the last glow disappears from the seekers' maps. */
@@ -105,7 +105,7 @@ data class CustomQuestRequest(val text: String, val audience: Audience = Audienc
 @Serializable
 data class QuestReviewRequest(val playerId: PlayerId, val approved: Boolean)
 
-/** The quests of the catalog (docs/adr/0011-quests-sparks-and-sensors.md, section 2); the host picks which are on. */
+/** The quests of the catalog (docs/adr/0013-quests-sparks-and-sensors.md, section 2); the host picks which are on. */
 @Serializable
 enum class QuestKind {
     /** Hider: within the first minutes of the search, be 200 m away from where the search found you. */

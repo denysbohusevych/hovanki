@@ -38,7 +38,7 @@ actual val platformModule: Module = module {
     }
     single<BackgroundTracker> { IosBackgroundTracker() }
     single<ShareSheet> { IosShareSheet() }
-    // The radar by Bluetooth LE (docs/adr/0010-nearby-radar.md); the precision radar by UWB is not implemented yet.
+    // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md); the precision radar by UWB is not implemented yet.
     single<ProximityRadio> { IosProximityRadio() }
     single<PrecisionRadio> { NoopPrecisionRadio() }
     single<DeviceInfo> { IosDeviceInfo() }

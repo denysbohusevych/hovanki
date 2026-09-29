@@ -157,13 +157,13 @@ class Game(
     /** The last glow that left its marks on the hiders ([updateGlow]); 0: none yet. */
     private var glowMarksOf = 0
 
-    /** The radar (docs/adr/0010-nearby-radar.md): what the phones of the players hear of each other. */
+    /** The radar (docs/adr/0012-nearby-radar.md): what the phones of the players hear of each other. */
     private val radar = Radar()
 
     /** The radar's readings by phone model, for the history (nobody's numbers). */
     private val calibration = RadioCalibration()
 
-    /** The board (docs/adr/0011-quests-sparks-and-sensors.md): the host's items, the quests, the sparks. */
+    /** The board (docs/adr/0013-quests-sparks-and-sensors.md): the host's items, the quests, the sparks. */
     private val board = Board(rules)
     private var questsStarted = false
 
@@ -423,7 +423,7 @@ class Game(
     }
 
     /**
-     * What [playerId]'s phone says about itself with every sync ([DeviceReport], docs/adr/0010-nearby-radar.md):
+     * What [playerId]'s phone says about itself with every sync ([DeviceReport], docs/adr/0012-nearby-radar.md):
      * what it can do and whether the radar is on. A hider whose phone has Bluetooth off while the radar is required
      * is revealed after [GameRules.radarOffRevealSeconds] ([VisibilityReason.RADAR_OFF]).
      */
@@ -482,7 +482,7 @@ class Game(
     }
 
     /**
-     * What the radar adds to a reading between [a] and [b] (docs/adr/0010-nearby-radar.md, «Карман»): the body's
+     * What the radar adds to a reading between [a] and [b] (docs/adr/0012-nearby-radar.md, «Карман»): the body's
      * damping evened out for every phone in a pocket, and with the pocket stealth on, a hider's pocket taken off again
      * and then some, so the seekers feel them about a band colder.
      */
@@ -538,7 +538,7 @@ class Game(
         if (closest != null && closest > rules.catchMaxDistanceMeters) {
             throw GameException(ErrorCode.TOO_FAR, "GPS says you are too far away from this player")
         }
-        // A claim only up close (docs/adr/0010-nearby-radar.md, section 2.5): when both phones have the radar, it
+        // A claim only up close (docs/adr/0012-nearby-radar.md, section 2.5): when both phones have the radar, it
         // must have heard them «burning» lately; a phone without it is judged by GPS alone, as before.
         if (settings.features.proximityCatch && seeker.hasRadarOn() && hider.hasRadarOn() &&
             !radar.wasBurningWithin(seekerId, hiderId, nowMillis, rules.nearbyWindowSeconds * 1000L)
@@ -931,7 +931,7 @@ class Game(
         )
     }
 
-    // ---- The board and the perks (docs/adr/0011-quests-sparks-and-sensors.md) ----
+    // ---- The board and the perks (docs/adr/0013-quests-sparks-and-sensors.md) ----
 
     /**
      * The host places an item on the map in the lobby (section 2.4): in or near the zone (up to
@@ -1189,7 +1189,7 @@ class Game(
         )
     }
 
-    // ---- The radar (docs/adr/0010-nearby-radar.md) ----
+    // ---- The radar (docs/adr/0012-nearby-radar.md) ----
 
     /**
      * The viewer's radar during the search (section 2.4): a seeker gets every active hider the radar hears, by name;
@@ -1328,7 +1328,7 @@ class Game(
         else -> VisibilityReason.GLOW
     }
 
-    /** «Invisible» (docs/adr/0011): the hider bought their way out of the glow going on right now. */
+    /** «Invisible» (docs/adr/0013): the hider bought their way out of the glow going on right now. */
     private fun Player.isInvisible(nowMillis: Long): Boolean {
         val seekingStart = zoneStartedAtMillis ?: return false
         val open = Glow.openAt(settings, seekingStart, nowMillis) ?: return false

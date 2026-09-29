@@ -35,7 +35,7 @@ actual val platformModule: Module = module {
     single<LocationProvider> { AndroidLocationProvider(androidContext()) }
     single<BackgroundTracker> { AndroidBackgroundTracker(androidContext()) }
     single<ShareSheet> { AndroidShareSheet(androidContext()) }
-    // The radar by Bluetooth LE (docs/adr/0010-nearby-radar.md); the precision radar by UWB is not implemented yet.
+    // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md); the precision radar by UWB is not implemented yet.
     single<ProximityRadio> { AndroidProximityRadio(androidContext()) }
     single<PrecisionRadio> { NoopPrecisionRadio() }
     single<DeviceInfo> { AndroidDeviceInfo(androidContext()) }

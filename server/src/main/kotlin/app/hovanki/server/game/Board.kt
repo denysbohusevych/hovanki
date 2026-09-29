@@ -34,7 +34,7 @@ internal class BoardContext(
 )
 
 /**
- * The board of a game (docs/adr/0011-quests-sparks-and-sensors.md): the items the host placed, the quests and the
+ * The board of a game (docs/adr/0013-quests-sparks-and-sensors.md): the items the host placed, the quests and the
  * sparks. Pure like [Game], which owns it: the time comes in, the players' state is read from [Player], and the sparks
  * are written there. Every rule judges only by several fixes with a good accuracy, like the zone and the catches.
  */

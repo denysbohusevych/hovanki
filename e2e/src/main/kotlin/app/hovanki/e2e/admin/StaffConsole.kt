@@ -89,7 +89,7 @@ class StaffConsole(serverUrl: String, private val observer: Observer) : AutoClos
     suspend fun unmute(userId: UserId, reason: String): AdminUserCard =
         call(ApiRoutes.adminUser(userId, "unmute"), AdminReasonRequest(reason))
 
-    /** The server features and their state (docs/adr/0010-nearby-radar.md). */
+    /** The server features and their state (docs/adr/0012-nearby-radar.md). */
     suspend fun features(): List<AdminFeature> = get<AdminFeatures>(ApiRoutes.ADMIN_FEATURES).features
 
     /** An admin turns [feature] on or off for everybody, with a [reason] for the audit log. */

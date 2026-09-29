@@ -10,7 +10,7 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** `radio_calibration` adds up across games (docs/adr/0010-nearby-radar.md, «Калибровка»). */
+/** `radio_calibration` adds up across games (docs/adr/0012-nearby-radar.md, «Калибровка»). */
 @SpringBootTest
 class RadioCalibrationRepositoryTest(@Autowired private val repository: RadioCalibrationRepository) {
     @Test

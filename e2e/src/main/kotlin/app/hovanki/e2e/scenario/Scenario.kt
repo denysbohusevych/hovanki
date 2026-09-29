@@ -83,7 +83,7 @@ class Scenario(val name: String, val serverUrl: String) {
     val observer = Observer(serverUrl)
     val metrics = SyncMetrics()
 
-    /** The air between the phones' Bluetooth (docs/adr/0010-nearby-radar.md). */
+    /** The air between the phones' Bluetooth (docs/adr/0012-nearby-radar.md). */
     val radio = RadioWorld()
     private val bots = CopyOnWriteArrayList<BotPlayer>()
 
@@ -299,7 +299,7 @@ class Scenario(val name: String, val serverUrl: String) {
         log("phone clock moved by $by (now off by ${clock.skewMillis.milliseconds})")
     }
 
-    // ---- The radar (docs/adr/0010-nearby-radar.md) ----
+    // ---- The radar (docs/adr/0012-nearby-radar.md) ----
 
     /** Every server feature on, as the operator would switch them in the admin; the games still pick their own. */
     suspend fun enableAllFeatures() {
@@ -336,7 +336,7 @@ class Scenario(val name: String, val serverUrl: String) {
             seeker.radarBandOn(hider).takeIf { it == band }
         }
 
-    // ---- The board (docs/adr/0011-quests-sparks-and-sensors.md) ----
+    // ---- The board (docs/adr/0013-quests-sparks-and-sensors.md) ----
 
     suspend fun BotPlayer.placesItem(request: PlaceItemRequest) =
         requireOk(placeItem(request), "$name places ${request.kind}")

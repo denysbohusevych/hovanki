@@ -611,7 +611,7 @@ function mapSummary(game) {
   return `${buildings} · ${zone}`;
 }
 
-// Server features (docs/adr/0010-nearby-radar.md, docs/adr/0011-quests-sparks-and-sensors.md)
+// Server features (docs/adr/0012-nearby-radar.md, docs/adr/0013-quests-sparks-and-sensors.md)
 
 /** Every ServerFeature the page knows, in the enum's order: a name and one line of what it does. */
 const FEATURES = {

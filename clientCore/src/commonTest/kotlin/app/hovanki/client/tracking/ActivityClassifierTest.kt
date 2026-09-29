@@ -6,7 +6,7 @@ import kotlin.math.sin
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** Running, walking and standing by the accelerometer alone (docs/adr/0011-quests-sparks-and-sensors.md). */
+/** Running, walking and standing by the accelerometer alone (docs/adr/0013-quests-sparks-and-sensors.md). */
 class ActivityClassifierTest {
     private val gravity = 9.81
 

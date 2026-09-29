@@ -127,7 +127,7 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
 
     fun dispute(catchId: CatchId) = runCommand { sessionManager.dispute(catchId) }
 
-    // The board, the quests and the perks (docs/adr/0011-quests-sparks-and-sensors.md).
+    // The board, the quests and the perks (docs/adr/0013-quests-sparks-and-sensors.md).
 
     /** A perk: with [targetId] for the ones aimed at a hider, with [point] for the decoy. */
     fun usePerk(perk: PerkKind, targetId: PlayerId? = null, point: GeoPoint? = null) =
@@ -361,7 +361,7 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
     }
 }
 
-/** What the phone itself knows of the radar (docs/adr/0010-nearby-radar.md). */
+/** What the phone itself knows of the radar (docs/adr/0012-nearby-radar.md). */
 private data class Phone(val pulse: RadarBand, val ranges: List<PeerRange>)
 
 data class GameUiState(
@@ -440,7 +440,7 @@ data class GameUiState(
     val hasAccount: Boolean,
     /** Hiders still in the game: the targets of a seeker's perks. */
     val activeHiders: List<PlayerView> = emptyList(),
-    /** The game has the radar (docs/adr/0010-nearby-radar.md), whether or not this phone takes part. */
+    /** The game has the radar (docs/adr/0012-nearby-radar.md), whether or not this phone takes part. */
     val hasRadar: Boolean = false,
     /** A seeker's radar: the band per hider the phones hear; empty without the radar or a signal. */
     val radar: Map<PlayerId, RadarBand> = emptyMap(),
@@ -450,7 +450,7 @@ data class GameUiState(
     val ranges: List<PeerRange> = emptyList(),
     /** The radar is required and this phone has Bluetooth off: the seekers see the hider in so long (≤ 0: now). */
     val bluetoothMillisLeft: Long? = null,
-    /** The viewer's sparks; null in a game without them (docs/adr/0011-quests-sparks-and-sensors.md). */
+    /** The viewer's sparks; null in a game without them (docs/adr/0013-quests-sparks-and-sensors.md). */
     val sparks: Int? = null,
     /** A hint a perk bought, while it lasts. */
     val hint: HintUi? = null,
@@ -469,7 +469,7 @@ data class GameUiState(
 /** A hint a perk bought ([HintKind]): a compass sector, a distance band, or both, for [millisLeft] more. */
 data class HintUi(val kind: HintKind, val sector: Int?, val band: DistanceBand?, val millisLeft: Long)
 
-/** An item of the board on the map (docs/adr/0011-quests-sparks-and-sensors.md). */
+/** An item of the board on the map (docs/adr/0013-quests-sparks-and-sensors.md). */
 data class MapItem(
     val id: ItemId,
     val kind: ItemKind,

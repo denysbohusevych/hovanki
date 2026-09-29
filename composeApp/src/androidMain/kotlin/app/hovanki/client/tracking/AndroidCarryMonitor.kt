@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.sqrt
 
 /**
- * Where the phone is (docs/adr/0010-nearby-radar.md, «Карман») by the screen, the proximity sensor, the light and
+ * Where the phone is (docs/adr/0012-nearby-radar.md, «Карман») by the screen, the proximity sensor, the light and
  * the accelerometer: in the pocket only with the screen off, something right in front of the proximity sensor or no
  * light, and the phone being carried (a phone lying in the dark is unknown); in the hand with the screen on. A new
  * state has to hold for [SETTLE_MILLIS] before it is told. Nothing but the state leaves the phone.

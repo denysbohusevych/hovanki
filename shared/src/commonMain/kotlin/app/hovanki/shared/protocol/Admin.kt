@@ -282,12 +282,12 @@ enum class AdminAction {
     SET_ROLE,
     RESET_TOTP,
 
-    /** Turned a server feature on or off (docs/adr/0010-nearby-radar.md). */
+    /** Turned a server feature on or off (docs/adr/0012-nearby-radar.md). */
     SET_FEATURE,
 }
 
 /**
- * A server feature (docs/adr/0010-nearby-radar.md, docs/adr/0011-quests-sparks-and-sensors.md) and whether the
+ * A server feature (docs/adr/0012-nearby-radar.md, docs/adr/0013-quests-sparks-and-sensors.md) and whether the
  * operator turned it on; who did last, and when.
  */
 @Serializable

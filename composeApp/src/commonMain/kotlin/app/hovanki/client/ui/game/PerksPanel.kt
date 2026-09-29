@@ -43,7 +43,7 @@ import app.hovanki.shared.rules.PerkCatalog
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * The perks (docs/adr/0011-quests-sparks-and-sensors.md, section 3): what the viewer may use, for sparks or from what
+ * The perks (docs/adr/0013-quests-sparks-and-sensors.md, section 3): what the viewer may use, for sparks or from what
  * they found on the map. A perk aimed at a hider asks which one; the decoy goes to the map ([onPickDecoy]).
  */
 @OptIn(ExperimentalLayoutApi::class)

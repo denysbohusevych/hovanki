@@ -3,7 +3,7 @@ package app.hovanki.shared.rules
 import app.hovanki.shared.protocol.GameId
 
 /**
- * What the QR code of a scan checkpoint says (docs/adr/0011-quests-sparks-and-sensors.md, section 2.4):
+ * What the QR code of a scan checkpoint says (docs/adr/0013-quests-sparks-and-sensors.md, section 2.4):
  * `hovanki:cp:<gameId>:<code>`. The host prints it from the lobby and hangs it up; the player's scanner sends the code
  * to the server, which checks it and that the player stands there.
  */

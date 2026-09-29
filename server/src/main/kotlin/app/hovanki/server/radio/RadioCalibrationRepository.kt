@@ -9,7 +9,7 @@ import org.springframework.stereotype.Repository
 import java.time.Instant
 
 /**
- * `radio_calibration` (docs/adr/0010-nearby-radar.md, «Калибровка»): how loud each kind of phone hears each other
+ * `radio_calibration` (docs/adr/0012-nearby-radar.md, «Калибровка»): how loud each kind of phone hears each other
  * kind, counted across the finished games with the radar. Aggregates by model only: no game, no player, no position,
  * nothing to delete with an account.
  */

@@ -133,7 +133,7 @@ class GameController(private val games: GameService, private val invites: Invite
     fun invite(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: InviteRequest): GameSnapshot =
         invites.invite(player, GameId(gameId), request)
 
-    // The board and the perks (docs/adr/0011-quests-sparks-and-sensors.md).
+    // The board and the perks (docs/adr/0013-quests-sparks-and-sensors.md).
 
     /** The host places an item on the map, in the lobby; the snapshot has it (with the code of a scan checkpoint). */
     @PostMapping(ApiRoutes.ITEMS)

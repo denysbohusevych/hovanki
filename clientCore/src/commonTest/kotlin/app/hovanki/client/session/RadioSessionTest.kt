@@ -38,7 +38,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
- * The radar on the phone (docs/adr/0010-nearby-radar.md): the app advertises its token while a round with the radar
+ * The radar on the phone (docs/adr/0012-nearby-radar.md): the app advertises its token while a round with the radar
  * runs, and sends whom it heard, with what the phone says about itself, with the next sync.
  */
 @OptIn(ExperimentalCoroutinesApi::class)

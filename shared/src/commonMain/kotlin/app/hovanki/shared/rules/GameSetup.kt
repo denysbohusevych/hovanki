@@ -15,7 +15,7 @@ import kotlin.math.roundToInt
  * makes: a zone of [radiusMeters] around the host that, when it [shrinks], narrows in [SHRINK_STEPS] stages over the
  * first [SHRINK_SHARE] of the search down to [FINAL_RADIUS_SHARE] of its size; the glow every [glowEveryMinutes]
  * (0: off) for [glowForSeconds]; the [features] the host turned on and the catalog [quests] picked
- * (docs/adr/0010-nearby-radar.md, docs/adr/0011-quests-sparks-and-sensors.md). The defaults are what the app starts a
+ * (docs/adr/0012-nearby-radar.md, docs/adr/0013-quests-sparks-and-sensors.md). The defaults are what the app starts a
  * game with. Serializable: the phone remembers the host's last choices for the next game (no place in them: the zone
  * goes around wherever that game is, and the items of the board are placed there).
  */

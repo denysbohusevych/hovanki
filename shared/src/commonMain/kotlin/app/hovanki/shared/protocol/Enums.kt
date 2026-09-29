@@ -71,15 +71,15 @@ enum class VisibilityReason {
 
     /**
      * The radar is required in this game and the hider's phone has had Bluetooth off for too long
-     * (docs/adr/0010-nearby-radar.md, section 2.6). Only in [VisibleLocation.cause], like [INSIDE_BUILDING].
+     * (docs/adr/0012-nearby-radar.md, section 2.6). Only in [VisibleLocation.cause], like [INSIDE_BUILDING].
      */
     RADAR_OFF,
 
-    /** A seeker's «Spotlight» perk shows the hider for a few seconds (docs/adr/0011). Only in [VisibleLocation.cause]. */
+    /** A seeker's «Spotlight» perk shows the hider for a few seconds (docs/adr/0013). Only in [VisibleLocation.cause]. */
     SPOTLIGHT,
 
     /**
-     * A seeker's «Fresh trail» perk: the hider's spot is a fix of a minute ago, newer than the last glow (docs/adr/0011).
+     * A seeker's «Fresh trail» perk: the hider's spot is a fix of a minute ago, newer than the last glow (docs/adr/0013).
      * Only in [VisibleLocation.cause].
      */
     FRESH_TRAIL,

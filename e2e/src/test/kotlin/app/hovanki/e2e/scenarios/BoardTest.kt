@@ -21,7 +21,7 @@ import kotlin.test.Test
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * The board (docs/adr/0011-quests-sparks-and-sensors.md): the host places a quest point, a checkpoint by code and a
+ * The board (docs/adr/0013-quests-sparks-and-sensors.md): the host places a quest point, a checkpoint by code and a
  * perk on the map in the lobby and makes up a quest in words; in the round a hider scans the checkpoint's code at
  * the place, reaches the quest point by GPS, picks the perk up and uses it, and gets the host's quest confirmed. The
  * privacy audit checks that the round shows each team only its items and the code to nobody.

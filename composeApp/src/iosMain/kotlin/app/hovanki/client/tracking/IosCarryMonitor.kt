@@ -20,7 +20,7 @@ import platform.UIKit.UIApplicationState
 import kotlin.math.sqrt
 
 /**
- * Where the phone is (docs/adr/0010-nearby-radar.md, «Карман») on iOS: in the hand while the app is active; in the
+ * Where the phone is (docs/adr/0012-nearby-radar.md, «Карман») on iOS: in the hand while the app is active; in the
  * pocket while the phone is locked (its protected data unavailable) and carried, by the accelerometer; unknown
  * otherwise. iOS gives an app neither the proximity sensor nor the light in the background, so the lock is the
  * screen-off gate here. Told every [POLL_MILLIS]; nothing but the state leaves the phone.

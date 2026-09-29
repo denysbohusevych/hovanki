@@ -222,12 +222,12 @@ class LobbyViewModel(
         sessionManager.leave()
     }
 
-    // The radar (docs/adr/0010-nearby-radar.md).
+    // The radar (docs/adr/0012-nearby-radar.md).
 
     /** «The radar on my phone». */
     fun setRadarEnabled(enabled: Boolean) = sessionManager.setRadarEnabled(enabled)
 
-    // The board (docs/adr/0011-quests-sparks-and-sensors.md): the host places items and makes up quests.
+    // The board (docs/adr/0013-quests-sparks-and-sensors.md): the host places items and makes up quests.
 
     fun openBoard() {
         val snapshot = sessionManager.state.value.snapshot ?: return
@@ -546,7 +546,7 @@ data class LobbyUiState(
     val glowEveryMinutes: Int?,
     /** When the host last drew the roles at random: every phone rolls the dice once for each new value. */
     val rolesDrawnAtMillis: Long?,
-    /** The server features the operator has on: what the host may turn on (docs/adr/0010-nearby-radar.md). */
+    /** The server features the operator has on: what the host may turn on (docs/adr/0012-nearby-radar.md). */
     val enabledFeatures: Set<ServerFeature>,
     /** What the host turned on for this game. */
     val features: GameFeatures,

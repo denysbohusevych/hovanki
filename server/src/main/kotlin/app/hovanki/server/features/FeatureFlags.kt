@@ -12,7 +12,7 @@ import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * The server features the operator turned on (docs/adr/0010-nearby-radar.md, docs/adr/0011-quests-sparks-and-
+ * The server features the operator turned on (docs/adr/0012-nearby-radar.md, docs/adr/0013-quests-sparks-and-
  * sensors.md), read on every game request from memory: loaded at start, again after every change in the admin, and
  * once a minute in case another instance changed them. The `sync` hot path never touches the database.
  */

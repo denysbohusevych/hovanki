@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 
 /**
- * The phone's Bluetooth LE for the radar (docs/adr/0010-nearby-radar.md, section 2): while [run] is collected, the
+ * The phone's Bluetooth LE for the radar (docs/adr/0012-nearby-radar.md, section 2): while [run] is collected, the
  * phone advertises the token in [tokens] (`RadarToken`, which changes every few minutes: the collector keeps it
  * current) and scans for the tokens of the other phones, reporting every one it hears with the signal strength.
  * A hider's phone advertises the game's service with the token as its data; a seeker's ([asSeeker]) advertises an

@@ -1,4 +1,4 @@
--- How loud each kind of phone hears each other kind over Bluetooth (docs/adr/0010-nearby-radar.md, «Калибровка»):
+-- How loud each kind of phone hears each other kind over Bluetooth (docs/adr/0012-nearby-radar.md, «Калибровка»):
 -- the radar's readings of finished games, counted by the two phones' models, where they were (in the hand, in the
 -- pocket), the anchor (every reading; the phones far apart by GPS; the seconds before a confirmed catch, when they
 -- stood next to each other) and the signal in dBm. Aggregates only: no game, no player, no position. Not personal

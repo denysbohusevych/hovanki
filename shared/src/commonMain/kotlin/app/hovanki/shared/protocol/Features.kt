@@ -2,8 +2,8 @@ package app.hovanki.shared.protocol
 
 import kotlinx.serialization.Serializable
 
-// The radar, the quests and the phone's abilities (docs/adr/0010-nearby-radar.md,
-// docs/adr/0011-quests-sparks-and-sensors.md). Everything here is behind two switches: the operator turns a feature on
+// The radar, the quests and the phone's abilities (docs/adr/0012-nearby-radar.md,
+// docs/adr/0013-quests-sparks-and-sensors.md). Everything here is behind two switches: the operator turns a feature on
 // for the whole server in the admin ([ServerFeature]), and the host turns it on for one game in the lobby
 // ([GameFeatures]). Old apps know none of it: every field has a default.
 
@@ -59,7 +59,7 @@ enum class FeatureMode {
 }
 
 /**
- * What the host turned on for one game (docs/adr/0010-nearby-radar.md, section 4). All off by default: a game of an
+ * What the host turned on for one game (docs/adr/0012-nearby-radar.md, section 4). All off by default: a game of an
  * older app is the game as before.
  */
 @Serializable
@@ -197,7 +197,7 @@ data class DeviceReport(
     /**
      * The phone's model («Pixel 8», «iPhone15,2»), only in a game with the radar: the server keeps the radio's
      * readings by model, without players or games, to learn how loud each kind of phone is
-     * (docs/adr/0010-nearby-radar.md, «Калибровка»). Never shown to the other players.
+     * (docs/adr/0012-nearby-radar.md, «Калибровка»). Never shown to the other players.
      */
     val model: String? = null,
 )

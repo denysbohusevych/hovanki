@@ -16,7 +16,7 @@ class IosDeviceInfo : DeviceInfo {
 
     /**
      * Nearby Interaction (`NISession.isSupported`) is not wired yet: the precision radar is a no-op on every platform,
-     * and saying «no UWB» keeps the server from pairing this phone (docs/adr/0010-nearby-radar.md, section 3).
+     * and saying «no UWB» keeps the server from pairing this phone (docs/adr/0012-nearby-radar.md, section 3).
      */
     override val hasUwb: Boolean = false
 

@@ -489,7 +489,7 @@ private fun PlayerRow(
                     modifier = Modifier.testTag(TestTags.lobbyOffline(player.id)),
                 )
             }
-            // What the phone can do for the radar (docs/adr/0010): «no radar» when it can't take part, UWB when it can
+            // What the phone can do for the radar (docs/adr/0012): «no radar» when it can't take part, UWB when it can
             // do more; nothing said, nothing shown.
             if (showRadar) {
                 val capabilities = player.capabilities
@@ -619,7 +619,7 @@ private fun SettingsChips(state: LobbyUiState, onOpenSettings: () -> Unit, onOpe
     }
 }
 
-/** The extras the host turned on (docs/adr/0010-nearby-radar.md, docs/adr/0011), one chip each. */
+/** The extras the host turned on (docs/adr/0012-nearby-radar.md, docs/adr/0013), one chip each. */
 @Composable
 private fun FeatureChips(state: LobbyUiState) {
     val features = state.features
@@ -649,7 +649,7 @@ private fun FeatureChips(state: LobbyUiState) {
 }
 
 /**
- * The radar on this phone (docs/adr/0010-nearby-radar.md, section 4.4): what the game does with Bluetooth, whether
+ * The radar on this phone (docs/adr/0012-nearby-radar.md, section 4.4): what the game does with Bluetooth, whether
  * this phone can take part (allow it, turn it on), and «the radar on my phone» when the game leaves the choice.
  */
 @Composable

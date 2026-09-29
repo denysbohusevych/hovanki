@@ -4,7 +4,7 @@ import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.PlayerId
 
 /**
- * How loud one kind of phone hears another (docs/adr/0010-nearby-radar.md, «Калибровка»): the radar's raw readings
+ * How loud one kind of phone hears another (docs/adr/0012-nearby-radar.md, «Калибровка»): the radar's raw readings
  * of a game counted by the two phones' models, where they were (in the hand, in the pocket), an [anchor] and the
  * signal. The history keeps the counts across games (`radio_calibration`), so the offsets by model can be learned
  * from real games instead of guessed. Never a player, a game or a position: numbers by model only. Pure: [Game]

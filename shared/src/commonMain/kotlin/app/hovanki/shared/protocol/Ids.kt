@@ -32,7 +32,7 @@ value class GroupId(val value: String)
 @JvmInline
 value class InviteId(val value: String)
 
-/** An item of the board the host placed (docs/adr/0011-quests-sparks-and-sensors.md). */
+/** An item of the board the host placed (docs/adr/0013-quests-sparks-and-sensors.md). */
 @Serializable
 @JvmInline
 value class ItemId(val value: String)

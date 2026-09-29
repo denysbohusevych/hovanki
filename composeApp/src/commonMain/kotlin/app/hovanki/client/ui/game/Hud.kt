@@ -145,7 +145,7 @@ enum class GameAlert(val color: Color, val periodMillis: Int) {
     OUT_OF_ZONE(Palette.Orange, periodMillis = 1_000),
     IN_BUILDING(Palette.Pink, periodMillis = 2_000),
 
-    /** The radar is required and Bluetooth is off (docs/adr/0010-nearby-radar.md): seen at the deadline. */
+    /** The radar is required and Bluetooth is off (docs/adr/0012-nearby-radar.md): seen at the deadline. */
     BLUETOOTH_OFF(Palette.Pink, periodMillis = 1_500),
 }
 
@@ -215,7 +215,7 @@ fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
 
 /**
  * The role and how far the border is; under them, what the zone is doing when it is not calm, and when the next glow
- * comes; then the radar (docs/adr/0010-nearby-radar.md), the sparks and a hint (docs/adr/0011), and the buttons for
+ * comes; then the radar (docs/adr/0012-nearby-radar.md), the sparks and a hint (docs/adr/0013), and the buttons for
  * the quests, the perks and a checkpoint's code, when the game has them.
  */
 @Composable
@@ -331,7 +331,7 @@ fun HudChips(
 }
 
 /**
- * The radar's band (docs/adr/0010-nearby-radar.md): a seeker's nearest hider by name of the band, a hider's «a seeker
+ * The radar's band (docs/adr/0012-nearby-radar.md): a seeker's nearest hider by name of the band, a hider's «a seeker
  * is near» in its color. The chip beats at the band's pace, like the phone in the pocket («Пульс»).
  */
 @Composable
@@ -374,7 +374,7 @@ private fun RadarChip(band: RadarBand, isHider: Boolean, reduceMotion: Boolean) 
 
 private const val PULSE_SCALE = 1.1f
 
-/** What a perk's hint says (docs/adr/0011): where the nearest of the other team is, in words, while it lasts. */
+/** What a perk's hint says (docs/adr/0013): where the nearest of the other team is, in words, while it lasts. */
 @Composable
 private fun HintChip(hint: HintUi) {
     val sector = hint.sector?.let { sectorTitle(it) }.orEmpty()

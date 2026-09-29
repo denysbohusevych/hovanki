@@ -19,7 +19,7 @@ import app.hovanki.client.R
 
 /**
  * Foreground service of type "location" (and "connectedDevice" once the Bluetooth permissions are granted, for the
- * radar's scanning and the pulse with the screen off, docs/adr/0010-nearby-radar.md) that keeps the process in the
+ * radar's scanning and the pulse with the screen off, docs/adr/0012-nearby-radar.md) that keeps the process in the
  * foreground while a round runs, so Android keeps delivering location updates with the screen off. It does no work
  * itself: GameSessionManager collects and sends the locations.
  */

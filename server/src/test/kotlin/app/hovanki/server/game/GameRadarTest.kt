@@ -38,7 +38,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * The radar by Bluetooth (docs/adr/0010-nearby-radar.md): what the server makes of the sightings the phones report,
+ * The radar by Bluetooth (docs/adr/0012-nearby-radar.md): what the server makes of the sightings the phones report,
  * and the rules built on it: the claim up close, the required radar, the UWB pairing.
  */
 class GameRadarTest {

@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlin.math.sqrt
 
 /**
- * What the player is doing by the phone's motion sensors (docs/adr/0011-quests-sparks-and-sensors.md, section 4),
+ * What the player is doing by the phone's motion sensors (docs/adr/0013-quests-sparks-and-sensors.md, section 4),
  * while collected. The platforms feed the accelerometer into an [ActivityClassifier]; no permission is needed for
  * that, unlike the activity recognition services.
  */

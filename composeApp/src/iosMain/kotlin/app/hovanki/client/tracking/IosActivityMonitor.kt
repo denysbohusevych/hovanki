@@ -14,7 +14,7 @@ import platform.Foundation.NSOperationQueue
 import kotlin.math.sqrt
 
 /**
- * The accelerometer into an [ActivityClassifier] (docs/adr/0011-quests-sparks-and-sensors.md, section 4) through
+ * The accelerometer into an [ActivityClassifier] (docs/adr/0013-quests-sparks-and-sensors.md, section 4) through
  * CoreMotion, 50 readings a second while collected. In g: converted to m/s² for the classifier's thresholds.
  */
 class IosActivityMonitor : ActivityMonitor {

@@ -82,7 +82,7 @@ interface GameApi {
     /** Invites friends or a group into the game (lobby, logged-in players only). */
     suspend fun invite(session: PlayerSession, request: InviteRequest): GameSnapshot
 
-    // The board and the perks (docs/adr/0011-quests-sparks-and-sensors.md).
+    // The board and the perks (docs/adr/0013-quests-sparks-and-sensors.md).
 
     /** The host places an item on the map, in the lobby. */
     suspend fun placeItem(session: PlayerSession, request: PlaceItemRequest): GameSnapshot

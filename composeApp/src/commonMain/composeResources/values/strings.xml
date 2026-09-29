@@ -430,7 +430,7 @@
   <string name="action_leave_other_game">Leave it and go on</string>
   <string name="invite_in_round">%1$s invites you to another game.</string>
   <string name="action_leave_and_go">Leave and go</string>
-  <!-- The radar by Bluetooth and UWB (docs/adr/0010-nearby-radar.md) -->
+  <!-- The radar by Bluetooth and UWB (docs/adr/0012-nearby-radar.md) -->
   <string name="settings_features">Extras</string>
   <string name="settings_features_hint">All of them are off unless you turn them on. The server offers only what its operator has switched on.</string>
   <string name="settings_features_none">The server has no extras switched on yet.</string>
@@ -451,7 +451,7 @@
   <string name="settings_activity_hint">The phone tells when its player runs: for the «Sprint» quest and the statistics. Nothing leaves the phone but «running» or not.</string>
   <string name="settings_pocket_stealth">The pocket hides</string>
   <string name="settings_pocket_stealth_hint">The body damps the signal and the radar evens that out for everybody. With this on, a hider whose phone is in the pocket, screen off, reads a step colder to the seekers: want to be harder to feel, walk blind.</string>
-  <!-- Quests, sparks, perks and the board (docs/adr/0011-quests-sparks-and-sensors.md) -->
+  <!-- Quests, sparks, perks and the board (docs/adr/0013-quests-sparks-and-sensors.md) -->
   <string name="settings_quests">Quests</string>
   <string name="settings_quests_hint">Sparks for what is done during the search. The host picks the quests here, places quest points on the board and makes up quests in words.</string>
   <string name="settings_quests_pick">Quests of the search</string>

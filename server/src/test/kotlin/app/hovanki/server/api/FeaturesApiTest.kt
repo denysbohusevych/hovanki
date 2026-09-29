@@ -47,7 +47,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
- * The server features over HTTP (docs/adr/0010-nearby-radar.md, docs/adr/0011-quests-sparks-and-sensors.md): a
+ * The server features over HTTP (docs/adr/0012-nearby-radar.md, docs/adr/0013-quests-sparks-and-sensors.md): a
  * setup uses only what the operator turned on, and the board's routes.
  */
 @SpringBootTest

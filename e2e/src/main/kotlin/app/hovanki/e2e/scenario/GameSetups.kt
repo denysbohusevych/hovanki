@@ -55,7 +55,7 @@ object GameSetups {
         fixedZone(500.0, center).copy(glowEverySeconds = everySeconds, glowForSeconds = forSeconds)
 
     /**
-     * A fixed zone of 500 m with the radar (docs/adr/0010-nearby-radar.md): the hiders' sense on, a claim only up close
+     * A fixed zone of 500 m with the radar (docs/adr/0012-nearby-radar.md): the hiders' sense on, a claim only up close
      * with [proximityCatch], the pocket stealth with [pocketStealth]. Needs the server features on.
      */
     fun radar(
@@ -73,7 +73,7 @@ object GameSetups {
     )
 
     /**
-     * The board (docs/adr/0011-quests-sparks-and-sensors.md): quests, perks, checkpoints and pickups on a fixed zone
+     * The board (docs/adr/0013-quests-sparks-and-sensors.md): quests, perks, checkpoints and pickups on a fixed zone
      * of 500 m with the glow (some perks need it). Needs the server features on.
      */
     fun board(center: GeoPoint = PARK): GameSettings = glowing(everySeconds = 20, forSeconds = 4, center).copy(

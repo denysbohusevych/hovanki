@@ -34,7 +34,7 @@ enum class AwardKind {
     /** The longest way through the round, from the tracks; [Award.value]: meters. */
     MARATHON,
 
-    /** The most sparks (docs/adr/0011-quests-sparks-and-sensors.md), at least one; [Award.value]: how many. */
+    /** The most sparks (docs/adr/0013-quests-sparks-and-sensors.md), at least one; [Award.value]: how many. */
     SPARKS,
 }
 

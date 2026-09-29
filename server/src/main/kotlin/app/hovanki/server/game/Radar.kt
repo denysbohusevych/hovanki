@@ -8,7 +8,7 @@ import app.hovanki.shared.rules.RadarToken
 import kotlin.math.roundToInt
 
 /**
- * What the phones of a game hear of each other over Bluetooth (docs/adr/0010-nearby-radar.md, section 2.3): one
+ * What the phones of a game hear of each other over Bluetooth (docs/adr/0012-nearby-radar.md, section 2.3): one
  * smoothed signal per pair, fed by whichever of the two phones heard the other. Pure: [Game] owns it and passes the
  * time in. Positions never come here.
  */

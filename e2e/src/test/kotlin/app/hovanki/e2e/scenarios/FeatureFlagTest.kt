@@ -19,7 +19,7 @@ import kotlin.test.Test
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * The server features (docs/adr/0010-nearby-radar.md, section 4): everything is off until an admin switches it on
+ * The server features (docs/adr/0012-nearby-radar.md, section 4): everything is off until an admin switches it on
  * with a reason; a game asking for a feature that is off is refused. The required radar: the game doesn't start
  * while a phone has Bluetooth off, and a hider who turns it off during the search is warned, then seen.
  */

@@ -30,7 +30,7 @@ enum class AlertKind {
     /** A glow is on until the deadline: the seekers see the hider now. */
     GLOWING,
 
-    /** The radar says a seeker is close (hot or burning): the hider's sense (docs/adr/0010-nearby-radar.md). */
+    /** The radar says a seeker is close (hot or burning): the hider's sense (docs/adr/0012-nearby-radar.md). */
     SEEKER_NEAR,
 
     /** The radar is required and this phone has Bluetooth off: turn it on before the deadline, or be seen. */

@@ -76,7 +76,7 @@ import app.hovanki.shared.rules.QuestCatalog
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * The host's board (docs/adr/0011-quests-sparks-and-sensors.md, section 2.4): a map to tap where a quest point, a
+ * The host's board (docs/adr/0013-quests-sparks-and-sensors.md, section 2.4): a map to tap where a quest point, a
  * checkpoint or a perk goes, what it is for whom and what it gives, what is placed so far (a checkpoint by code with
  * its QR code to print), and the host's own quests in words.
  */

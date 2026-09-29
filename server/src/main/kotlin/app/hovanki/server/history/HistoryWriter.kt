@@ -27,7 +27,7 @@ import kotlin.concurrent.thread
  *
  * Every game played to its end goes to `played_games`; each player with an account (still there) gets a row in
  * `game_results`; and those of them who agreed to keep their routes when it is saved, their route in `game_routes`;
- * the radar's readings by phone model add up in `radio_calibration` (docs/adr/0010-nearby-radar.md).
+ * the radar's readings by phone model add up in `radio_calibration` (docs/adr/0012-nearby-radar.md).
  * The accounts are locked meanwhile, like [HistoryService.setPrivacy] locks them: a route is never saved after its
  * owner turned saving off.
  */

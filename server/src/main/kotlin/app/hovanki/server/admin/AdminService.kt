@@ -237,7 +237,7 @@ class AdminService(
         audit.record(staff, AdminAction.END_GAME, clock.instant(), target = gameId.value, reason = why)
     }
 
-    // Server features (docs/adr/0010-nearby-radar.md, docs/adr/0011-quests-sparks-and-sensors.md)
+    // Server features (docs/adr/0012-nearby-radar.md, docs/adr/0013-quests-sparks-and-sensors.md)
 
     /** Every feature and whether it is on; staff see, admins switch ([setFeature]). */
     fun features(): AdminFeatures = AdminFeatures(

@@ -20,7 +20,7 @@ import platform.UserNotifications.UNNotificationRequest
 import platform.UserNotifications.UNUserNotificationCenter
 
 /**
- * The pulse (docs/adr/0010-nearby-radar.md, «Пульс») on iOS. On the screen the system vibration beats at the band's
+ * The pulse (docs/adr/0012-nearby-radar.md, «Пульс») on iOS. On the screen the system vibration beats at the band's
  * pace. In the background a third-party app can't vibrate on its own; the phone gets a notification without a sound
  * (a sound would give the hiding place away) every [NOTIFICATION_MIN_PERIOD_MILLIS] at least, replaced in place, so
  * the lock screen shows «a seeker is near» and vibrates for each one where the player allows. The spike on real

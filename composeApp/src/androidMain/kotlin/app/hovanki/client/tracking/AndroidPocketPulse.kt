@@ -11,7 +11,7 @@ import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.rules.HeartbeatRules
 
 /**
- * The pulse (docs/adr/0010-nearby-radar.md, «Пульс») on Android: a heartbeat on the vibration motor at the band's
+ * The pulse (docs/adr/0012-nearby-radar.md, «Пульс») on Android: a heartbeat on the vibration motor at the band's
  * pace, repeated until the band is [RadarBand.NONE]. Works with the screen off, since the round's foreground service
  * keeps the process alive. As an alarm, so a silent ringer doesn't mute it: the hider chose to play.
  */

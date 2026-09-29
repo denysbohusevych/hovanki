@@ -15,7 +15,7 @@ data class FeatureFlagRecord(
     val updatedBy: String,
 )
 
-/** `feature_flags` (docs/adr/0010-nearby-radar.md): what the operator turned on, by name. */
+/** `feature_flags` (docs/adr/0012-nearby-radar.md): what the operator turned on, by name. */
 @Repository
 class FeatureFlagRepository(private val jdbc: JdbcClient) {
     fun all(): List<FeatureFlagRecord> = jdbc.sql("SELECT * FROM feature_flags")

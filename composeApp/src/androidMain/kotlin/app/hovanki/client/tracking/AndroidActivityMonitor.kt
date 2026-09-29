@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.sqrt
 
 /**
- * The accelerometer into an [ActivityClassifier] (docs/adr/0011-quests-sparks-and-sensors.md, section 4): no
+ * The accelerometer into an [ActivityClassifier] (docs/adr/0013-quests-sparks-and-sensors.md, section 4): no
  * permission, nothing but the activity leaves the phone. About 50 readings a second while collected.
  */
 class AndroidActivityMonitor(context: Context) : ActivityMonitor {

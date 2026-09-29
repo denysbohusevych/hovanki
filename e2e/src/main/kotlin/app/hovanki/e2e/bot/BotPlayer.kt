@@ -108,13 +108,13 @@ class BotPlayer(
     val clock = DeviceClock()
     val gps = FakeGps(start, noise, clock)
 
-    /** Where the phone is: in the hand or in the pocket (docs/adr/0010-nearby-radar.md, «Карман»). */
+    /** Where the phone is: in the hand or in the pocket (docs/adr/0012-nearby-radar.md, «Карман»). */
     val carry = MutableStateFlow(Carry.IN_HAND)
     val radio: ProximityRadio =
         radioWorld?.let { FakeRadio(it, platform, { gps.truePosition }, { carry.value }, clock::now) }
             ?: NoopProximityRadio()
 
-    /** The pulse the phone beats with (docs/adr/0010-nearby-radar.md, «Пульс»). */
+    /** The pulse the phone beats with (docs/adr/0012-nearby-radar.md, «Пульс»). */
     val pulse = FakePocketPulse()
     val network = FakeNetwork(::onExchange)
     val backgroundTracker = FakeBackgroundTracker { running ->
@@ -221,7 +221,7 @@ class BotPlayer(
     suspend fun dispute(claimId: CatchId): CommandResult =
         command("disputes claim ${claimId.value}") { it.dispute(claimId) }
 
-    // ---- The board, the quests and the perks (docs/adr/0011-quests-sparks-and-sensors.md) ----
+    // ---- The board, the quests and the perks (docs/adr/0013-quests-sparks-and-sensors.md) ----
 
     suspend fun placeItem(request: PlaceItemRequest): CommandResult =
         command("places a ${request.kind.name.lowercase().replace('_', ' ')} on the board") { it.placeItem(request) }

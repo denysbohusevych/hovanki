@@ -6,7 +6,7 @@ import app.hovanki.shared.totp.hmacSha1
 import app.hovanki.shared.totp.toHex
 
 /**
- * The token a phone advertises over Bluetooth (docs/adr/0010-nearby-radar.md, section 2.2): the first 4 bytes of
+ * The token a phone advertises over Bluetooth (docs/adr/0012-nearby-radar.md, section 2.2): the first 4 bytes of
  * HMAC-SHA1 of the player's radar secret and the current five-minute slot, as 8 hex characters. It changes every slot,
  * so a passer-by with a scanner can't follow a player between games; the server knows every secret and tells whose it
  * is. Computed on the phone by the server's clock, like the catch codes. A seeker's token also goes on the air as an
@@ -40,7 +40,7 @@ object RadarToken {
 }
 
 /**
- * The radar's bands (docs/adr/0010-nearby-radar.md, section 2.3): thresholds in dBm on the signal smoothed over the
+ * The radar's bands (docs/adr/0012-nearby-radar.md, section 2.3): thresholds in dBm on the signal smoothed over the
  * last readings, with hysteresis so a band doesn't flicker at its edge. The numbers are the plan's guesses until the
  * spike on real phones; both the server and the app use these.
  */
@@ -94,7 +94,7 @@ object ProximityRules {
 }
 
 /**
- * The pulse from the pocket (docs/adr/0010-nearby-radar.md, «Пульс»): how often the phone beats for a band, the
+ * The pulse from the pocket (docs/adr/0012-nearby-radar.md, «Пульс»): how often the phone beats for a band, the
  * hider's when a seeker comes near, the seeker's sonar when a hider is. The closer, the faster; nothing for no signal.
  * Guesses until the spike.
  */

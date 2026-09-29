@@ -112,7 +112,7 @@ class DebugController(
         },
     )
 
-    /** Turns exactly the named server features on, as an admin does in the admin (docs/adr/0010-nearby-radar.md). */
+    /** Turns exactly the named server features on, as an admin does in the admin (docs/adr/0012-nearby-radar.md). */
     @PostMapping(DebugRoutes.FEATURES)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun setFeatures(@RequestBody request: DebugSetFeatures) {

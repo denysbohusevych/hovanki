@@ -44,7 +44,7 @@ object ApiRoutes {
     /** POST: reports the chat message with this seq to the moderators. */
     const val CHAT_REPORT = "$CHAT/{seq}/report"
 
-    // The board (docs/adr/0011-quests-sparks-and-sensors.md).
+    // The board (docs/adr/0013-quests-sparks-and-sensors.md).
 
     /** POST [PlaceItemRequest]: the host places an item on the map, in the lobby. */
     const val ITEMS = "$GAMES/{gameId}/items"

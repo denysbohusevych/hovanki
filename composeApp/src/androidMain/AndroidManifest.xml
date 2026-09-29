@@ -9,14 +9,14 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
   <!-- The radar keeps scanning and the pulse keeps beating with the screen off (Android 14+ names the type). -->
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-  <!-- The pulse from the pocket (docs/adr/0010-nearby-radar.md, «Пульс»). -->
+  <!-- The pulse from the pocket (docs/adr/0012-nearby-radar.md, «Пульс»). -->
   <uses-permission android:name="android.permission.VIBRATE" />
   <!-- The ongoing "round in progress" notification of the foreground service and the hider's alerts (Android 13+). -->
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <!-- The seeker scans the hider's QR code; typing the digits works without a camera. -->
   <uses-permission android:name="android.permission.CAMERA" />
   <uses-feature android:name="android.hardware.camera" android:required="false" />
-  <!-- The radar by Bluetooth LE (docs/adr/0010-nearby-radar.md): the phone advertises a rotating token and scans for
+  <!-- The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md): the phone advertises a rotating token and scans for
        the others'. Never used to derive a location: the server only knows who heard whom. The game works without it. -->
   <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
   <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />

@@ -45,11 +45,11 @@ data class GameSnapshot(
     val rolesDrawnAtMillis: Long? = null,
     /**
      * The [ServerFeature]s the operator turned on, by name: what the host may turn on in the lobby
-     * (docs/adr/0010-nearby-radar.md). Empty from older servers.
+     * (docs/adr/0012-nearby-radar.md). Empty from older servers.
      */
     val enabledFeatures: List<String> = emptyList(),
     /**
-     * The board (docs/adr/0011-quests-sparks-and-sensors.md): what the host placed on the map, as far as the viewer
+     * The board (docs/adr/0013-quests-sparks-and-sensors.md): what the host placed on the map, as far as the viewer
      * may see it (their audience; the host sees everything in the lobby).
      */
     val items: List<BoardItem> = emptyList(),
@@ -77,7 +77,7 @@ data class PlayerView(
     val left: Boolean = false,
     /** What the player's phone can do (the radar, UWB); null: the phone never said (an older app). */
     val capabilities: Capabilities? = null,
-    /** The player's sparks (docs/adr/0011); null in a game without sparks. */
+    /** The player's sparks (docs/adr/0013); null in a game without sparks. */
     val sparks: Int? = null,
 )
 
@@ -114,7 +114,7 @@ data class MyState(
      */
     val insideBuildingRevealAtMillis: Long? = null,
     /**
-     * Hex secret of the radar token (`RadarToken`, docs/adr/0010-nearby-radar.md): only to the player themselves,
+     * Hex secret of the radar token (`RadarToken`, docs/adr/0012-nearby-radar.md): only to the player themselves,
      * once the round started in a game with the radar.
      */
     val radarSecret: String? = null,
@@ -133,7 +133,7 @@ data class MyState(
     val bluetoothDeadlineMillis: Long? = null,
     /** Players the viewer's phone may range with by UWB right now, with their discovery tokens. */
     val uwbPeers: List<UwbPeer> = emptyList(),
-    /** The viewer's sparks (docs/adr/0011). */
+    /** The viewer's sparks (docs/adr/0013). */
     val sparks: Int = 0,
     /** A hint a perk bought, while it lasts. */
     val hint: Hint? = null,

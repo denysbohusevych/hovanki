@@ -344,7 +344,7 @@ private fun PlayerOutcome(player: PlayerView, snapshot: GameSnapshot) {
         if (seeker != null) {
             PopChip(text = seeker.name, color = Palette.Orange, contentColor = Palette.Ink, border = Palette.Ink)
         }
-        // The sparks left at the end (docs/adr/0011-quests-sparks-and-sensors.md), in a game that had them.
+        // The sparks left at the end (docs/adr/0013-quests-sparks-and-sensors.md), in a game that had them.
         val sparks = player.sparks
         if (sparks != null && sparks > 0) {
             PopChip(

@@ -43,7 +43,7 @@ import app.hovanki.shared.protocol.QuestView
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * The quests of the round (docs/adr/0011-quests-sparks-and-sensors.md): the viewer's, with their progress and what
+ * The quests of the round (docs/adr/0013-quests-sparks-and-sensors.md): the viewer's, with their progress and what
  * they give; «Done!» on the host's own quests, and for the host the players waiting for an answer.
  */
 @Composable

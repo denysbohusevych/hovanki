@@ -35,7 +35,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import kotlin.random.Random
 
-// The radar on the simulated phones (docs/adr/0010-nearby-radar.md, section 7): the emulators have no Bluetooth,
+// The radar on the simulated phones (docs/adr/0012-nearby-radar.md, section 7): the emulators have no Bluetooth,
 // so the scenario's world knows where every bot really is and tells each phone what it would hear.
 
 /**
@@ -152,7 +152,7 @@ class FakeRadio(
         sink?.trySend(RadioSighting(token, rssi, clock()))
     }
 
-    /** Whether [listener] can hear this phone's frame at all (docs/adr/0010-nearby-radar.md, section 1.1). */
+    /** Whether [listener] can hear this phone's frame at all (docs/adr/0012-nearby-radar.md, section 1.1). */
     internal fun isHeardBy(listener: FakeRadio): Boolean =
         asSeeker || platform != Platform.IOS || carry() != Carry.IN_POCKET || listener.platform == Platform.IOS
 }

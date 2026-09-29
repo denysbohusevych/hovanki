@@ -230,7 +230,7 @@ private fun GameContent(
         state.bluetoothMillisLeft != null -> GameAlert.BLUETOOTH_OFF
         else -> null
     }
-    // The quests and the perks (docs/adr/0011) as panels over the round; the decoy is placed on the map itself.
+    // The quests and the perks (docs/adr/0013) as panels over the round; the decoy is placed on the map itself.
     var panel by remember { mutableStateOf<GamePanel?>(null) }
     var placingDecoy by remember { mutableStateOf(false) }
     var decoyPick by remember { mutableStateOf<GeoPoint?>(null) }
@@ -556,7 +556,7 @@ private fun GameContent(
     }
 }
 
-/** A panel over the round: the quests or the perks (docs/adr/0011-quests-sparks-and-sensors.md). */
+/** A panel over the round: the quests or the perks (docs/adr/0013-quests-sparks-and-sensors.md). */
 private enum class GamePanel { QUESTS, PERKS }
 
 /** The capsule, the chips, the alerts and the notices, stacked at the top of the map. */
@@ -815,7 +815,7 @@ private fun ColumnScope.SeekerCatch(state: GameUiState, viewModel: GameViewModel
     }
 }
 
-/** The decoy (docs/adr/0011): tap the map, then «Put it here»; in place of the controls meanwhile. */
+/** The decoy (docs/adr/0013): tap the map, then «Put it here»; in place of the controls meanwhile. */
 @Composable
 private fun DecoyBar(canPut: Boolean, onPut: () -> Unit, onCancel: () -> Unit, modifier: Modifier = Modifier) {
     PopSurface(
@@ -850,7 +850,7 @@ private fun DecoyBar(canPut: Boolean, onPut: () -> Unit, onCancel: () -> Unit, m
     }
 }
 
-/** The hiders to claim; with the radar (docs/adr/0010), how warm each one is on it. */
+/** The hiders to claim; with the radar (docs/adr/0012), how warm each one is on it. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HiderChips(

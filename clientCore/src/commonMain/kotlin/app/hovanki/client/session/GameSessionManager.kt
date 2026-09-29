@@ -97,12 +97,12 @@ import kotlin.math.roundToInt
  * nickname, and joining again (a new phone) gives back the same player. The chat of the game is merged from every
  * snapshot into [SessionState.chat].
  *
- * The radar (docs/adr/0010-nearby-radar.md) runs through [radio] while a round with it goes on: the phone advertises
+ * The radar (docs/adr/0012-nearby-radar.md) runs through [radio] while a round with it goes on: the phone advertises
  * its token and reports whom it heard with every sync, along with what it says about itself ([DeviceReport]). The
  * pulse ([pulse], «Пульс») is felt on the phone itself: a hider's phone knows the seekers' tokens
  * ([MyState.seekerTokens]) and smooths what it hears of them with the same rules as the server, so it beats the
  * moment a seeker comes near, network or not; the server's band counts too, whichever is warmer.
- * The board and the perks (docs/adr/0011-quests-sparks-and-sensors.md) are commands like the others.
+ * The board and the perks (docs/adr/0013-quests-sparks-and-sensors.md) are commands like the others.
  *
  * Commands return true on success; on failure they return false and put the reason into [SessionState.lastError].
  * Every command applies the snapshot from its response immediately. Runs on the main thread.
@@ -286,7 +286,7 @@ class GameSessionManager(
     suspend fun invite(userIds: List<UserId> = emptyList(), groupId: GroupId? = null): Boolean =
         sessionCommand { api.invite(it, InviteRequest(userIds, groupId)) }
 
-    // The board and the perks (docs/adr/0011-quests-sparks-and-sensors.md).
+    // The board and the perks (docs/adr/0013-quests-sparks-and-sensors.md).
 
     /** The host places an item on the map in the lobby: a quest point, a checkpoint or a perk lying around. */
     suspend fun placeItem(request: PlaceItemRequest): Boolean = sessionCommand { api.placeItem(it, request) }
@@ -321,7 +321,7 @@ class GameSessionManager(
     suspend fun reviewQuest(questId: QuestId, playerId: PlayerId, approved: Boolean): Boolean =
         sessionCommand { api.reviewQuest(it, questId, QuestReviewRequest(playerId, approved)) }
 
-    // The radar (docs/adr/0010-nearby-radar.md).
+    // The radar (docs/adr/0012-nearby-radar.md).
 
     /** «The radar on my phone»: off, this phone neither advertises nor scans, and the server hears it is off. */
     fun setRadarEnabled(enabled: Boolean) {

@@ -232,7 +232,7 @@ fun SettingsPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
 }
 
 /**
- * The extras (docs/adr/0010-nearby-radar.md, docs/adr/0011-quests-sparks-and-sensors.md): only what the server's
+ * The extras (docs/adr/0012-nearby-radar.md, docs/adr/0013-quests-sparks-and-sensors.md): only what the server's
  * operator has switched on is offered; the radar's companions only with the radar; the quests to pick with the
  * quests on, the ones that need the radar or the glow greyed out without them.
  */

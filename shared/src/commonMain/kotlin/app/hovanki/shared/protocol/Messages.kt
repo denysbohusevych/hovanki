@@ -60,7 +60,7 @@ data class SyncRequest(
      * the player may see in [GameSnapshot.chat]. Null (clients without chat): no chat in the response.
      */
     val chatAfter: Long? = null,
-    /** Whom this phone heard over Bluetooth since the last sync (docs/adr/0010-nearby-radar.md). */
+    /** Whom this phone heard over Bluetooth since the last sync (docs/adr/0012-nearby-radar.md). */
     val nearby: List<NearbySighting> = emptyList(),
     /** What this phone can do and what state it is in; null (older apps): nothing known. */
     val device: DeviceReport? = null,

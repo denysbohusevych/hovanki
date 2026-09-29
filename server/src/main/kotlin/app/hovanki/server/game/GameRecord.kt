@@ -35,7 +35,7 @@ class GameRecord(
     val buildings: BuildingsState,
     /** Players with an account only; guests have no history. */
     val results: List<PlayerResult>,
-    /** The radar's readings by phone model (docs/adr/0010-nearby-radar.md, «Калибровка»): numbers, nobody's. */
+    /** The radar's readings by phone model (docs/adr/0012-nearby-radar.md, «Калибровка»): numbers, nobody's. */
     val radioCalibration: List<CalibrationBucket> = emptyList(),
 ) {
     override fun toString(): String = "GameRecord(${gameId.value}, ${results.size} accounts)"
@@ -59,7 +59,7 @@ class PlayerResult(
     val maxSpeedMetersPerSecond: Double?,
     /** Kept only with the player's consent. */
     val route: List<RoutePoint>,
-    /** Sparks left at the end and quests done (docs/adr/0011-quests-sparks-and-sensors.md); numbers only. */
+    /** Sparks left at the end and quests done (docs/adr/0013-quests-sparks-and-sensors.md); numbers only. */
     val sparks: Int = 0,
     val questsDone: Int = 0,
 ) {

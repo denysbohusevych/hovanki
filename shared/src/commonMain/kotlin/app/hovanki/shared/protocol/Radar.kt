@@ -2,7 +2,7 @@ package app.hovanki.shared.protocol
 
 import kotlinx.serialization.Serializable
 
-// The radar (docs/adr/0010-nearby-radar.md): what the phones hear of each other over Bluetooth and what the server
+// The radar (docs/adr/0012-nearby-radar.md): what the phones hear of each other over Bluetooth and what the server
 // makes of it. Positions never travel here: only bands.
 
 /**

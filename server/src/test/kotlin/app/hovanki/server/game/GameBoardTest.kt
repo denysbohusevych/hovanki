@@ -45,7 +45,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * The board (docs/adr/0011-quests-sparks-and-sensors.md): what the host places in the lobby, the quests judged on the
+ * The board (docs/adr/0013-quests-sparks-and-sensors.md): what the host places in the lobby, the quests judged on the
  * fixes, the sparks and the perks. The glow is on (every minute for 10 s): most perks work on its spots.
  */
 class GameBoardTest {

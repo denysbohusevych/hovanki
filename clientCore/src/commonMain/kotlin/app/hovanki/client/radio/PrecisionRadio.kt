@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 
 /**
- * The precision radar by UWB (docs/adr/0010-nearby-radar.md, section 3): metres and a direction to another phone of
+ * The precision radar by UWB (docs/adr/0012-nearby-radar.md, section 3): metres and a direction to another phone of
  * the same kind, while both players look at their phones. The server pairs the phones and passes their discovery
  * tokens ([token], `MyState.uwbPeers`); the phones range on their own. iOS: Nearby Interaction; Android:
  * `androidx.core.uwb`. Neither is implemented yet ([NoopPrecisionRadio]): the server then pairs nobody.

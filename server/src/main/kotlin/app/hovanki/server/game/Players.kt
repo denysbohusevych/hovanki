@@ -78,7 +78,7 @@ internal class Player(
     /** The player's last [Game.CHAT_IDS_KEPT] messages by the app's id for them (`SendChatRequest.clientMessageId`). */
     val chatByClientId = LinkedHashMap<String, ChatMessage>()
 
-    // The radar (docs/adr/0010-nearby-radar.md).
+    // The radar (docs/adr/0012-nearby-radar.md).
 
     /** Hex secret the phone derives its radar token from; only ever sent to the player themselves. */
     var radarSecret: String? = null
@@ -90,7 +90,7 @@ internal class Player(
     /** Since when the phone reports Bluetooth off while the radar is required; null: it is on (or never required). */
     var bluetoothOffSinceMillis: Long? = null
 
-    // The board (docs/adr/0011-quests-sparks-and-sensors.md).
+    // The board (docs/adr/0013-quests-sparks-and-sensors.md).
 
     var sparks = 0
     var questsDone = 0
@@ -141,7 +141,7 @@ internal class CatchClaim(
     val isOpen get() = status == CatchStatus.AWAITING_CODE || status == CatchStatus.DISPUTED
 }
 
-/** A catalog quest of one player (docs/adr/0011-quests-sparks-and-sensors.md), with what its rule remembers. */
+/** A catalog quest of one player (docs/adr/0013-quests-sparks-and-sensors.md), with what its rule remembers. */
 internal class PlayerQuest(val id: QuestId, val spec: QuestSpec, val startedAtMillis: Long) {
     val kind: QuestKind get() = spec.kind
     var status = QuestStatus.ACTIVE

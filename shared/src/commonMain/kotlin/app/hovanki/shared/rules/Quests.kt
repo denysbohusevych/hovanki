@@ -25,7 +25,7 @@ data class QuestSpec(
 )
 
 /**
- * The quests (docs/adr/0011-quests-sparks-and-sensors.md, section 2): the numbers of each. The server judges them by
+ * The quests (docs/adr/0013-quests-sparks-and-sensors.md, section 2): the numbers of each. The server judges them by
  * its own data; the app shows the progress with the same numbers.
  */
 object QuestCatalog {
@@ -96,7 +96,7 @@ object QuestCatalog {
     }
 }
 
-/** What a perk does and costs (docs/adr/0011-quests-sparks-and-sensors.md, section 3). */
+/** What a perk does and costs (docs/adr/0013-quests-sparks-and-sensors.md, section 3). */
 data class PerkSpec(
     val perk: PerkKind,
     val role: Role,
@@ -130,7 +130,7 @@ object PerkCatalog {
     const val FRESH_TRAIL_AGE_MILLIS = 60_000L
 }
 
-/** The board's items (docs/adr/0011-quests-sparks-and-sensors.md, section 2.4): defaults and limits. */
+/** The board's items (docs/adr/0013-quests-sparks-and-sensors.md, section 2.4): defaults and limits. */
 object BoardRules {
     const val MAX_ITEMS = 40
     const val MAX_NAME_LENGTH = 30
