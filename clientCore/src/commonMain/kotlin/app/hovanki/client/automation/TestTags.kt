@@ -384,6 +384,37 @@ object TestTags {
 
     fun settingPlus(name: String) = "setting_${name}_plus"
 
+    /** One of a setting's chips by its value (e.g. `glow_every` 5), and a tab of the settings by its name. */
+    fun settingChip(name: String, value: Int) = "setting_${name}_$value"
+
+    fun settingsTab(name: String) = "settings_tab_${name.lowercase()}"
+
+    /** A setting's «?»: the explainer of [name] (docs/adr/0014-settings-lobby-redesign-open-buildings.md). */
+    fun settingHelp(name: String) = "setting_help_${name.lowercase()}"
+
+    /** The explainer's sheet over the settings, and its «Got it». */
+    const val SETTINGS_HELP = "settings_help"
+    const val SETTINGS_HELP_OK = "settings_help_ok"
+
+    /** «What changes» before a setup that touches the map is saved: save, or back to the settings. */
+    const val SETTINGS_CHANGES = "settings_changes"
+    const val SETTINGS_CONFIRM = "settings_confirm"
+    const val SETTINGS_BACK = "settings_back"
+
+    /** On the settings' map: play the shrink or the game, move the zone's center. */
+    const val SETTINGS_PREVIEW = "settings_preview"
+    const val SETTINGS_CENTER = "settings_center"
+
+    /** The row that opens the map of the zone's buildings, the map, its «Allow hiding» / «Close again», «Done». */
+    const val SETTINGS_BUILDINGS = "settings_buildings"
+    const val BUILDINGS_PANEL = "buildings_panel"
+    const val BUILDINGS_TOGGLE = "buildings_toggle"
+    const val BUILDINGS_DONE = "buildings_done"
+
+    /** The lobby's map of the zone («Where we play») and the same map full screen. */
+    const val LOBBY_MAP = "lobby_map"
+    const val LOBBY_MAP_PANEL = "lobby_map_panel"
+
     /** Title of the game screen; changes with the phase, so a flow can wait for the next phase. */
     fun phase(phase: GamePhase) = "phase_${phase.name.lowercase()}"
 

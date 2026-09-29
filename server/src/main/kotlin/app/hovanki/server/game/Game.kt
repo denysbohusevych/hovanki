@@ -444,7 +444,11 @@ class Game(
         if (!isServerHosted &&
             newSettings.zone.initial.center.distanceTo(origin) > SettingsLimits.MAX_CENTER_MOVE_METERS
         ) {
-            throw GameException(ErrorCode.BAD_REQUEST, "The zone moves too far from where the game was made")
+            throw GameException(
+                ErrorCode.BAD_REQUEST,
+                "The zone moves too far from where the game was made",
+                ErrorReason.ZONE_TOO_FAR,
+            )
         }
         val open = (newSettings.openBuildings ?: settings.openBuildings.orEmpty())
             .filter { SettingsLimits.isNearZone(it, newSettings.zone) }

@@ -142,6 +142,12 @@ import kotlin.time.Duration.Companion.milliseconds
  * The board ([items], docs/adr/0013-quests-sparks-and-sensors.md) is drawn by kind, what is taken in grey; with
  * [onMapClick] a tap on the map gives its point (the host placing an item, a hider placing a decoy) and [pickedPoint]
  * marks the last one.
+ *
+ * The buildings the host opened for hiding ([BuildingsResponse.open], docs/adr/0014-settings-lobby-redesign-open-
+ * buildings.md) are lime with an ink dash; [highlightedBuilding] is outlined in ink. For the lobby and the settings:
+ * without [interactive] the map takes no gestures (a card to tap); [fitTo] moves the camera onto a zone whenever it
+ * changes (the settings' draft); [cameraArea] lets the camera go further than the zone, and [onCameraIdle] gives where
+ * it stopped (moving the zone's center under a pin); [animateZone] redraws the zone every frame for a sped-up preview.
  */
 @Composable
 fun GameMap(

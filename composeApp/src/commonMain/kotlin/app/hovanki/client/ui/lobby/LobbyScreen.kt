@@ -11,7 +11,6 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
@@ -35,14 +34,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
@@ -50,7 +47,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
-import app.hovanki.client.radio.rememberBluetoothPermissionRequester
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_dismiss
 import app.hovanki.client.resources.action_leave
@@ -63,80 +59,31 @@ import app.hovanki.client.resources.big_lobby_starting
 import app.hovanki.client.resources.big_lobby_starts_in
 import app.hovanki.client.resources.building_rule_off
 import app.hovanki.client.resources.ic_back
-import app.hovanki.client.resources.ic_copy
 import app.hovanki.client.resources.ic_dice
-import app.hovanki.client.resources.ic_eye
 import app.hovanki.client.resources.ic_person_add
-import app.hovanki.client.resources.ic_share
-import app.hovanki.client.resources.ic_sliders
 import app.hovanki.client.resources.invites_sent
-import app.hovanki.client.resources.lobby_bluetooth_by_player
-import app.hovanki.client.resources.lobby_bluetooth_denied
-import app.hovanki.client.resources.lobby_bluetooth_off
-import app.hovanki.client.resources.lobby_bluetooth_on
-import app.hovanki.client.resources.lobby_board_count
-import app.hovanki.client.resources.lobby_buildings_loading
-import app.hovanki.client.resources.lobby_buildings_ready
-import app.hovanki.client.resources.lobby_chip_activity
-import app.hovanki.client.resources.lobby_chip_capacity
-import app.hovanki.client.resources.lobby_chip_checkpoints
-import app.hovanki.client.resources.lobby_chip_glow
-import app.hovanki.client.resources.lobby_chip_open
-import app.hovanki.client.resources.lobby_chip_open_live
-import app.hovanki.client.resources.lobby_chip_perks
-import app.hovanki.client.resources.lobby_chip_pickups
-import app.hovanki.client.resources.lobby_chip_pocket_stealth
-import app.hovanki.client.resources.lobby_chip_precision
-import app.hovanki.client.resources.lobby_chip_proximity
-import app.hovanki.client.resources.lobby_chip_quests
-import app.hovanki.client.resources.lobby_chip_radar
-import app.hovanki.client.resources.lobby_chip_radar_required
-import app.hovanki.client.resources.lobby_chip_sense
-import app.hovanki.client.resources.lobby_chip_streets
-import app.hovanki.client.resources.lobby_chip_time
-import app.hovanki.client.resources.lobby_chip_zone
 import app.hovanki.client.resources.lobby_code_copied
-import app.hovanki.client.resources.lobby_code_hint
-import app.hovanki.client.resources.lobby_code_title
-import app.hovanki.client.resources.lobby_copy_code
 import app.hovanki.client.resources.lobby_crowded
 import app.hovanki.client.resources.lobby_few_covers
 import app.hovanki.client.resources.lobby_hider
 import app.hovanki.client.resources.lobby_host
 import app.hovanki.client.resources.lobby_invite
-import app.hovanki.client.resources.lobby_my_radar
-import app.hovanki.client.resources.lobby_my_radar_hint
 import app.hovanki.client.resources.lobby_no_radar
 import app.hovanki.client.resources.lobby_offline
 import app.hovanki.client.resources.lobby_pick_seekers
 import app.hovanki.client.resources.lobby_play_anyway
 import app.hovanki.client.resources.lobby_players
-import app.hovanki.client.resources.lobby_radar_allow
-import app.hovanki.client.resources.lobby_radar_denied
-import app.hovanki.client.resources.lobby_radar_required_off
-import app.hovanki.client.resources.lobby_radar_text
-import app.hovanki.client.resources.lobby_radar_turn_on
-import app.hovanki.client.resources.lobby_radar_unsupported
 import app.hovanki.client.resources.lobby_random
-import app.hovanki.client.resources.lobby_recorded
-import app.hovanki.client.resources.lobby_roles_by_host
 import app.hovanki.client.resources.lobby_seeker
-import app.hovanki.client.resources.lobby_settings
-import app.hovanki.client.resources.lobby_share
-import app.hovanki.client.resources.lobby_share_text
 import app.hovanki.client.resources.lobby_start
 import app.hovanki.client.resources.lobby_start_hint
 import app.hovanki.client.resources.lobby_start_wait_streets
-import app.hovanki.client.resources.lobby_streets_loading
 import app.hovanki.client.resources.lobby_title
 import app.hovanki.client.resources.lobby_uwb
 import app.hovanki.client.resources.lobby_waiting
 import app.hovanki.client.resources.lobby_you
-import app.hovanki.client.resources.lobby_you_hide
-import app.hovanki.client.resources.lobby_you_seek
 import app.hovanki.client.resources.street_zone_off
 import app.hovanki.client.session.ServerClock
-import app.hovanki.client.share.ShareSheet
 import app.hovanki.client.ui.chat.ChatIconButton
 import app.hovanki.client.ui.chat.ChatPanel
 import app.hovanki.client.ui.chat.ChatViewModel
@@ -148,7 +95,6 @@ import app.hovanki.client.ui.common.LoadingScreen
 import app.hovanki.client.ui.common.PlayerAccountBadge
 import app.hovanki.client.ui.common.PopButton
 import app.hovanki.client.ui.common.PopCard
-import app.hovanki.client.ui.common.PopChip
 import app.hovanki.client.ui.common.PopIconButton
 import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopSurface
@@ -156,26 +102,21 @@ import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SectionTitle
 import app.hovanki.client.ui.common.SessionBanners
-import app.hovanki.client.ui.common.SpectatorsChip
 import app.hovanki.client.ui.common.Toast
 import app.hovanki.client.ui.common.formatDateTimeIn
-import app.hovanki.client.ui.common.plainTextClipEntry
 import app.hovanki.client.ui.common.rememberReduceMotion
 import app.hovanki.client.ui.common.rememberToastVisible
-import app.hovanki.client.ui.theme.Hovanki
+import app.hovanki.client.ui.settings.BuildingsPanel
+import app.hovanki.client.ui.settings.SettingsPanel
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.theme.color
 import app.hovanki.client.ui.theme.onColor
 import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.BluetoothState
-import app.hovanki.shared.protocol.BuildingsState
-import app.hovanki.shared.protocol.FeatureMode
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.UserId
-import app.hovanki.shared.protocol.ZoneShape
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
@@ -205,8 +146,16 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
         InvitePanel(state, viewModel)
         return
     }
+    if (state.isHost && viewModel.buildingsPanelIn == state.gameId) {
+        BuildingsPanel(state, viewModel)
+        return
+    }
     if (state.isHost && viewModel.settingsPanelIn == state.gameId) {
         SettingsPanel(state, viewModel)
+        return
+    }
+    if (viewModel.mapPanelIn == state.gameId) {
+        LobbyMapPanel(state, viewModel)
         return
     }
     if (state.isHost && viewModel.boardPanelIn == state.gameId) {
@@ -235,7 +184,8 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                 if (bigGame != null) {
                     BigGameCard(bigGame, playersHere = state.playerCount)
                 } else {
-                    JoinCodeCard(state.joinCode, onCopied = { codeCopies++ })
+                    JoinCodeRow(state.joinCode, onCopied = { codeCopies++ })
+                    if (!state.isHost) MyRoleRow(isSeeker = state.amSeeker)
                 }
                 SessionBanners(
                     connectionStatus = state.connectionStatus,
@@ -244,16 +194,12 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                     onDismissError = viewModel::dismissError,
                     onLocationPermissionGranted = viewModel::onLocationPermissionGranted,
                 )
-                SettingsChips(state, onOpenSettings = viewModel::openSettings, onOpenBoard = viewModel::openBoard)
-                if (state.features.hasRadar) RadarCard(state, viewModel)
+                WherePlayCard(state, onExpand = viewModel::openMap)
+                SettingsTiles(state, onOpenSettings = viewModel::openSettings, onOpenBoard = viewModel::openBoard)
+                if (state.features.hasRadar) RadarRow(state, viewModel)
                 // Everybody is told before the round (docs/adr/0011-spectators-and-recordings.md), guests too. A big
                 // game is not recorded.
-                if (state.bigGame == null) {
-                    SecondaryText(
-                        stringResource(Res.string.lobby_recorded),
-                        Modifier.testTag(TestTags.LOBBY_RECORDED),
-                    )
-                }
+                if (state.bigGame == null) RecordingLine()
                 if (state.isBuildingRuleOff) {
                     Banner(
                         text = stringResource(Res.string.building_rule_off),
@@ -272,7 +218,6 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                 if (state.bigGame != null) {
                     BigGameFriends(state, isBusy = isBusy, onAddFriend = viewModel::addFriend)
                 } else {
-                    if (!state.isHost) MyRoleCard(isSeeker = state.amSeeker)
                     PlayersSection(state, viewModel, isBusy, reduceMotion, shuffles, initialPlayers)
                 }
                 CommandStatus(
@@ -452,59 +397,6 @@ private fun Header(chatUnread: Int, onOpenChat: () -> Unit, onLeave: () -> Unit)
     }
 }
 
-/** The join code on lime: «Share» sends it through the system menu, the corner button copies it. */
-@Composable
-private fun JoinCodeCard(joinCode: String, onCopied: () -> Unit) {
-    val clipboard = LocalClipboard.current
-    val scope = rememberCoroutineScope()
-    val shareSheet = koinInject<ShareSheet>()
-    val shareText = stringResource(Res.string.lobby_share_text, joinCode)
-    Box {
-        PopCard(
-            modifier = Modifier.fillMaxWidth(),
-            color = Palette.Lime,
-            borderWidth = 2.5.dp,
-            shadow = 5.dp,
-            shape = RoundedCornerShape(24.dp),
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            CapsText(stringResource(Res.string.lobby_code_title))
-            Text(
-                text = joinCode,
-                style = Hovanki.text.code.copy(fontSize = 34.sp, letterSpacing = 3.sp),
-                modifier = Modifier.testTag(TestTags.LOBBY_JOIN_CODE),
-            )
-            Text(
-                text = stringResource(Res.string.lobby_code_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = Palette.LimeInk,
-                modifier = Modifier.padding(end = 48.dp),
-            )
-            PopButton(
-                text = stringResource(Res.string.lobby_share),
-                onClick = { shareSheet.share(shareText) },
-                style = PopStyle.Dark,
-                height = 44.dp,
-                icon = Res.drawable.ic_share,
-                modifier = Modifier.padding(top = 10.dp).testTag(TestTags.LOBBY_SHARE),
-            )
-        }
-        PopIconButton(
-            icon = Res.drawable.ic_copy,
-            contentDescription = stringResource(Res.string.lobby_copy_code),
-            onClick = {
-                scope.launch { clipboard.setClipEntry(plainTextClipEntry(joinCode)) }
-                onCopied()
-            },
-            style = PopStyle.Dark,
-            size = 44.dp,
-            iconSize = 20.dp,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp),
-        )
-    }
-}
-
 /**
  * A player: avatar, name, «you»/«host», «not connected», «guest» or what they are to the viewer (add as a friend), and
  * a pill with the role: the host taps it to switch between «hides» and «seeks», everybody else just sees it.
@@ -629,188 +521,6 @@ private fun RolePill(isSeeker: Boolean, onClick: (() -> Unit)?, modifier: Modifi
 }
 
 /**
- * The game's setup as chips (the zone and its shape, hiding + search time, the glow, the extras that are on), the
- * state of the zone's map data, the board when the game has one, and for the host the button to change the setup.
- */
-@Composable
-private fun SettingsChips(state: LobbyUiState, onOpenSettings: () -> Unit, onOpenBoard: () -> Unit) {
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        PopChip(
-            if (state.zoneShape == ZoneShape.STREETS) {
-                stringResource(Res.string.lobby_chip_streets, state.zoneRadiusMeters)
-            } else {
-                stringResource(Res.string.lobby_chip_zone, state.zoneRadiusMeters)
-            },
-        )
-        PopChip(stringResource(Res.string.lobby_chip_time, state.hidingMinutes, state.seekingMinutes))
-        state.glowEveryMinutes?.let { PopChip(stringResource(Res.string.lobby_chip_glow, it)) }
-        FeatureChips(state)
-        state.capacity?.let { capacity ->
-            PopChip(
-                text = pluralStringResource(Res.plurals.lobby_chip_capacity, capacity, capacity),
-                modifier = Modifier.testTag(TestTags.LOBBY_CAPACITY),
-            )
-        }
-        if (state.openGame) {
-            PopChip(
-                text = if (state.spectatorDelaySeconds > 0) {
-                    stringResource(Res.string.lobby_chip_open, spectatorDelayText(state.spectatorDelaySeconds))
-                } else {
-                    stringResource(Res.string.lobby_chip_open_live)
-                },
-                color = Palette.Ink,
-                contentColor = Palette.Lime,
-                icon = Res.drawable.ic_eye,
-                modifier = Modifier.testTag(TestTags.LOBBY_OPEN),
-            )
-            if (state.spectators > 0) SpectatorsChip(state.spectators)
-        }
-        when {
-            state.isBuildingStreetZone -> PopChip(
-                text = stringResource(Res.string.lobby_streets_loading),
-                color = Palette.Sand,
-                contentColor = Palette.Ink2,
-                modifier = Modifier.testTag(TestTags.LOBBY_STREETS),
-            )
-
-            state.buildingsState == BuildingsState.LOADING -> PopChip(
-                text = stringResource(Res.string.lobby_buildings_loading),
-                color = Palette.Sand,
-                contentColor = Palette.Ink2,
-                modifier = Modifier.testTag(TestTags.LOBBY_BUILDINGS),
-            )
-
-            state.buildingCount != null -> PopChip(
-                text = stringResource(Res.string.lobby_buildings_ready, state.buildingCount),
-                color = Palette.Sand,
-                contentColor = Palette.Ink2,
-                modifier = Modifier.testTag(TestTags.LOBBY_BUILDINGS),
-            )
-        }
-        if (state.features.hasBoard) {
-            PopChip(
-                text = stringResource(Res.string.lobby_board_count, state.items.size),
-                color = Palette.Orange,
-                contentColor = Palette.Ink,
-                border = Palette.Ink,
-                onClick = onOpenBoard.takeIf { state.isHost },
-                modifier = Modifier.testTag(TestTags.LOBBY_BOARD),
-            )
-        }
-        if (state.isHost) {
-            PopChip(
-                text = stringResource(Res.string.lobby_settings),
-                color = Palette.Lime,
-                contentColor = Palette.Ink,
-                border = Palette.Ink,
-                icon = Res.drawable.ic_sliders,
-                onClick = onOpenSettings,
-                modifier = Modifier.testTag(TestTags.LOBBY_SETTINGS),
-            )
-        }
-    }
-}
-
-/** The extras the host turned on (docs/adr/0012-nearby-radar.md, docs/adr/0013), one chip each. */
-@Composable
-private fun FeatureChips(state: LobbyUiState) {
-    val features = state.features
-    val chips = listOfNotNull(
-        when (features.radar) {
-            FeatureMode.OFF -> null
-            FeatureMode.OPTIONAL -> Res.string.lobby_chip_radar
-            FeatureMode.REQUIRED -> Res.string.lobby_chip_radar_required
-        },
-        Res.string.lobby_chip_sense.takeIf { features.hiderSense },
-        Res.string.lobby_chip_proximity.takeIf { features.proximityCatch },
-        Res.string.lobby_chip_pocket_stealth.takeIf { features.pocketStealth },
-        Res.string.lobby_chip_precision.takeIf { features.precisionRadar },
-        Res.string.lobby_chip_quests.takeIf { features.quests },
-        Res.string.lobby_chip_perks.takeIf { features.perks },
-        Res.string.lobby_chip_checkpoints.takeIf { features.checkpoints },
-        Res.string.lobby_chip_pickups.takeIf { features.pickups },
-        Res.string.lobby_chip_activity.takeIf { features.activity },
-    )
-    chips.forEach { chip ->
-        PopChip(
-            text = stringResource(chip),
-            color = Palette.Violet,
-            contentColor = androidx.compose.ui.graphics.Color.White,
-        )
-    }
-}
-
-/**
- * The radar on this phone (docs/adr/0012-nearby-radar.md, section 4.4): what the game does with Bluetooth, whether
- * this phone can take part (allow it, turn it on), and «the radar on my phone» when the game leaves the choice.
- */
-@Composable
-private fun RadarCard(state: LobbyUiState, viewModel: LobbyViewModel) {
-    val requestPermission = rememberBluetoothPermissionRequester {}
-    val bluetooth = state.bluetooth
-    val (stateText, stateColor) = when {
-        bluetooth == BluetoothState.ON && !state.radarEnabled ->
-            stringResource(Res.string.lobby_bluetooth_by_player) to Palette.Sand
-
-        bluetooth == BluetoothState.ON -> stringResource(Res.string.lobby_bluetooth_on) to Palette.Lime
-
-        bluetooth == BluetoothState.DENIED -> stringResource(Res.string.lobby_bluetooth_denied) to Palette.Pink
-
-        else -> stringResource(Res.string.lobby_bluetooth_off) to Palette.Pink
-    }
-    PopCard(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = stringResource(Res.string.lobby_chip_radar),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f),
-            )
-            PopChip(
-                text = stateText,
-                color = stateColor,
-                contentColor = Palette.Ink,
-                border = Palette.Ink,
-                modifier = Modifier.testTag(TestTags.LOBBY_BLUETOOTH),
-            )
-        }
-        SecondaryText(stringResource(Res.string.lobby_radar_text))
-        when (bluetooth) {
-            BluetoothState.DENIED -> {
-                SecondaryText(stringResource(Res.string.lobby_radar_denied))
-                PopButton(
-                    text = stringResource(Res.string.lobby_radar_allow),
-                    onClick = requestPermission,
-                    height = 44.dp,
-                    modifier = Modifier.testTag(TestTags.LOBBY_BLUETOOTH_ALLOW),
-                )
-            }
-
-            BluetoothState.OFF -> SecondaryText(stringResource(Res.string.lobby_radar_turn_on))
-
-            BluetoothState.UNSUPPORTED -> SecondaryText(stringResource(Res.string.lobby_radar_unsupported))
-
-            BluetoothState.ON, BluetoothState.OFF_BY_PLAYER -> Unit
-        }
-        if (state.features.radar == FeatureMode.REQUIRED && (bluetooth != BluetoothState.ON || !state.radarEnabled)) {
-            Banner(text = stringResource(Res.string.lobby_radar_required_off))
-        }
-        if (bluetooth == BluetoothState.ON) {
-            SwitchRow(
-                text = stringResource(Res.string.lobby_my_radar),
-                checked = state.radarEnabled,
-                onCheckedChange = viewModel::setRadarEnabled,
-                tag = TestTags.LOBBY_MY_RADAR,
-            )
-            SecondaryText(stringResource(Res.string.lobby_my_radar_hint))
-        }
-    }
-}
-
-/**
  * The host's warning (docs/adr/0010-big-games.md): the zone has room for fewer players than there are, and/or few places
  * to hide. A recommendation: «Play anyway» takes it away for the rest of the game.
  */
@@ -829,32 +539,6 @@ private fun CrowdingBanner(crowding: Crowding, onPlayAnyway: () -> Unit) {
         modifier = Modifier.testTag(TestTags.LOBBY_CROWDED),
         actionModifier = Modifier.testTag(TestTags.LOBBY_PLAY_ANYWAY),
     )
-}
-
-/** A player who is not the host: the role the host gave them so far, big, in its color. */
-@Composable
-private fun MyRoleCard(isSeeker: Boolean) {
-    val role = if (isSeeker) GameRole.SEEKER else GameRole.HIDER
-    val container by animateColorAsState(role.color, Motion.fast())
-    val content by animateColorAsState(role.onColor, Motion.fast())
-    PopCard(
-        modifier = Modifier.fillMaxWidth(),
-        color = container,
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Text(
-            text = stringResource(if (isSeeker) Res.string.lobby_you_seek else Res.string.lobby_you_hide),
-            style = MaterialTheme.typography.headlineSmall,
-            color = content,
-            modifier = Modifier.testTag(TestTags.LOBBY_MY_ROLE),
-        )
-        Text(
-            text = stringResource(Res.string.lobby_roles_by_host),
-            style = MaterialTheme.typography.bodySmall,
-            color = content,
-        )
-    }
 }
 
 /**
