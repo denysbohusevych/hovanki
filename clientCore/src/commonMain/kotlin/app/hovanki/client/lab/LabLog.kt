@@ -75,6 +75,9 @@ class LabLog(
     /** The lab is running: events are written. Off, the game's radio tracing outside the lab writes nothing. */
     var isRecording: Boolean = false
 
+    /** Every line as it is written, besides the ring: the Mac streams its log into a file (docs/radio-lab.md §6). */
+    var onLine: ((String) -> Unit)? = null
+
     /** The log's device clock: for the parts that measure against it (the clock sync, the controller). */
     fun deviceNow(): Long = deviceTimeMillis()
 
@@ -101,6 +104,7 @@ class LabLog(
         // A field without a value is left out rather than written as null: the lines stay short.
         val line = JsonObject(built.filterValues { it !is JsonNull }).toString()
         ring.addLast(line.encodeToByteArray())
+        onLine?.invoke(line)
         if (ring.size > capacity) {
             ring.removeFirst()
             dropped++

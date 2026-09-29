@@ -1,6 +1,7 @@
 package app.hovanki.e2e.cli
 
 import app.hovanki.e2e.beacon.BeaconCli
+import app.hovanki.e2e.beacon.BeaconLabCli
 import app.hovanki.e2e.devices.AndroidDevice
 import app.hovanki.e2e.devices.Device
 import app.hovanki.e2e.devices.DeviceRun
@@ -28,6 +29,7 @@ import kotlin.time.Duration.Companion.minutes
  *   Studio.
  * - `route`: prints the fixes of a route or feeds them to an emulator/simulator in real time (see [RouteCli]).
  * - `beacon`: a MacBook joins a game as one more player with its own Bluetooth (see [BeaconCli]).
+ * - `beacon-lab`: the MacBook in the radio lab, without a game (see [BeaconLabCli]).
  */
 fun main(args: Array<String>) {
     val options = CliArgs(args.drop(1))
@@ -37,6 +39,8 @@ fun main(args: Array<String>) {
         "route" -> RouteCli.run(options)
 
         "beacon" -> BeaconCli.run(options)
+
+        "beacon-lab" -> BeaconLabCli.run(options)
 
         else -> {
             System.err.println(USAGE)
@@ -193,4 +197,6 @@ private val USAGE = """
                   [--noise none|open-sky|city] [--seed 1] [--format csv|geo-fix] [--adb <serial> | --simctl <udid>]
       e2e beacon  --join <game code> --server https://... --helper <beacon binary> [--name MacBook] [--at <lat,lon>]
                   (macOS: start it with e2e/mac-beacon/run.sh --join <game code>)
+      e2e beacon-lab --server https://... --helper <beacon binary> [--label mac] [--advertise <token> | --ibeacon <token>]
+                  [--sniff on] [--out e2e/build/lab] (macOS: e2e/mac-beacon/run.sh --lab ...)
 """.trimIndent()

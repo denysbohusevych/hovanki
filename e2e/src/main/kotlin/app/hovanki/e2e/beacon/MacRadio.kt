@@ -1,6 +1,7 @@
 package app.hovanki.e2e.beacon
 
 import app.hovanki.client.radio.ProximityRadio
+import app.hovanki.client.radio.RadioApi
 import app.hovanki.client.radio.RadioSighting
 import app.hovanki.shared.protocol.BluetoothState
 import kotlinx.coroutines.flow.Flow
@@ -59,9 +60,14 @@ class MacRadio(
             }
 
             "heard" -> {
-                val rssi = parts.getOrNull(2)?.toIntOrNull() ?: return
-                onHeard(parts[1], rssi, parts.getOrNull(3) ?: "?")
-                if (report) sightings.tryEmit(RadioSighting(parts[1], rssi, System.currentTimeMillis()))
+                val heard = HelperLine.parse(line) as? HelperLine.Heard ?: return
+                onHeard(heard.token, heard.rssi, heard.how)
+                if (report) {
+                    val at = System.currentTimeMillis()
+                    val sighting =
+                        RadioSighting(heard.token, heard.rssi, at, RadioApi.MAC_COREBLUETOOTH, heard.via, heard.peer)
+                    sightings.tryEmit(sighting)
+                }
             }
 
             "log" -> onLine(line.removePrefix("log "))

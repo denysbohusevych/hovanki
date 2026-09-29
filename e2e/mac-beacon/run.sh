@@ -2,7 +2,9 @@
 # The MacBook as a second phone for the radar (docs/e2e-local.md, «Ноутбук вместо второго телефона»):
 #
 #   e2e/mac-beacon/run.sh --join <game code> [--name MacBook] [--at <lat,lon>] [--server https://...]
+#   e2e/mac-beacon/run.sh --lab [--label mac] [--advertise <token> | --ibeacon <token>] [--sniff] [--out <folder>]
 #
+# --lab: the radio lab (docs/radio-lab.md §6) without a game: every reading into a JSONL log on the server's clock.
 # Builds the Bluetooth helper (beacon.swift, with Info.plist linked in so macOS asks for Bluetooth) and the e2e
 # command line, then joins the game as one more player. Run it in Terminal itself, not through Gradle: macOS gives
 # Bluetooth to the app that started the process (Terminal asks once; System Settings → Privacy & Security →
@@ -24,9 +26,21 @@ fi
 echo "Building the e2e command line…"
 ./gradlew -q :e2e:installDist
 
-args=("$@")
+# --lab and --sniff are switches here; the command line takes a value after every option.
+command=beacon
+args=()
+for arg in "$@"; do
+  case "$arg" in
+    --lab) command=beacon-lab ;;
+    --sniff) args+=(--sniff on) ;;
+    *) args+=("$arg") ;;
+  esac
+done
 if [[ " $* " != *" --server "* ]]; then
   server=$(grep -E '^hovanki.serverUrl=' gradle.properties | cut -d= -f2-)
   args+=(--server "$server")
 fi
-exec e2e/build/install/e2e/bin/e2e beacon --helper "$out/beacon" "${args[@]}"
+if [[ "$command" == beacon-lab ]]; then
+  args+=(--commit "$(git rev-parse --short HEAD 2> /dev/null || echo unknown)")
+fi
+exec e2e/build/install/e2e/bin/e2e "$command" --helper "$out/beacon" "${args[@]}"
