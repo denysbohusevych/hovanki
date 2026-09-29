@@ -19,17 +19,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.diagnostics.BenchRadio
+import app.hovanki.client.lab.HapticKind
 import app.hovanki.client.lab.LabController
 import app.hovanki.client.lab.LabPlaces
 import app.hovanki.client.lab.LabPulse
+import app.hovanki.client.lab.LabRunState
 import app.hovanki.client.lab.LabScenarios
 import app.hovanki.client.lab.ProbeMode
+import app.hovanki.client.lab.RunPhase
 import app.hovanki.client.location.rememberLocationPermissionRequester
 import app.hovanki.client.radio.rememberBluetoothPermissionRequester
 import app.hovanki.client.ui.common.PopButton
 import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopTextField
 import app.hovanki.client.ui.common.SecondaryText
+import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.rules.OverflowArea
 import kotlinx.coroutines.delay
@@ -54,10 +58,12 @@ internal fun LabContent() {
     }
     val inGame = session.session != null
     HeaderCard(viewModel, running, inGame, now)
+    RunCard(viewModel, inGame, now)
+    VibrationCard(viewModel, inGame)
     if (!running) return
     AsInGameCard(viewModel)
     LabRadioCard(viewModel, now)
-    ScreenAndVibrationCard(viewModel)
+    ScreenAndPulseCard(viewModel)
     MarksCard(viewModel)
     ScenarioCard(viewModel, now)
 }
@@ -102,6 +108,91 @@ private fun HeaderCard(viewModel: LabViewModel, running: Boolean, inGame: Boolea
             PopButton(text = "Clear", onClick = viewModel::clear, height = 44.dp, style = PopStyle.Outline)
         }
     }
+}
+
+/**
+ * The automatic radio run (docs/radio-lab-tests.md): one button, the steps change by themselves, the Mac follows
+ * (`run.sh --lab --auto`); the tester locks the phone when told and unlocks it at the end.
+ */
+@Composable
+private fun RunCard(viewModel: LabViewModel, inGame: Boolean, @Suppress("UNUSED_PARAMETER") tick: Long) {
+    val run by viewModel.run.collectAsStateWithLifecycle()
+    val runError by viewModel.runError.collectAsStateWithLifecycle()
+    val bluetooth by viewModel.bluetooth.collectAsStateWithLifecycle()
+    val requestBluetooth = rememberBluetoothPermissionRequester { viewModel.refreshBluetooth() }
+    val requestLocation = rememberLocationPermissionRequester { viewModel.startRun() }
+    val current = run
+    Section("Radio run (automatic)") {
+        if (current == null || current.finished) {
+            SecondaryText(
+                "Bluetooth only, about 9 minutes, the phone and the Mac on the table 1 m apart. On the Mac first: " +
+                    "e2e/mac-beacon/run.sh --lab --auto. Then press the button, keep the screen on, lock the phone " +
+                    "when it says so and leave it until the notification.",
+            )
+            runError?.let { SecondaryText("⚠ $it") }
+            if (current != null) RunResult(viewModel, current)
+            PopButton(
+                text = if (current == null) "Start the radio run" else "Run again",
+                onClick = {
+                    when {
+                        bluetooth != BluetoothState.ON -> {
+                            viewModel.refreshBluetooth()
+                            requestBluetooth()
+                        }
+
+                        !viewModel.hasLocationPermission() -> requestLocation()
+
+                        else -> viewModel.startRun()
+                    }
+                },
+                enabled = !inGame,
+                height = 52.dp,
+                style = PopStyle.Primary,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (bluetooth != BluetoothState.ON) SecondaryText("Bluetooth is $bluetooth: the button asks for it first.")
+        } else {
+            val now = viewModel.serverNow()
+            val step = current.step
+            if (step == null) {
+                Line("Starting in ${seconds(current.startAtServer - now)} s: the Mac joins when it hears the phone.")
+            } else {
+                val stepEnd = current.startAtServer + current.script.startOf(current.index) + step.seconds * 1000L
+                Line("Step ${current.index + 1} of ${current.script.steps.size}: ${step.title}")
+                if (step.phase == RunPhase.LOCK) {
+                    Text(
+                        "LOCK THE PHONE NOW · ${seconds(stepEnd - now)} s",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Palette.PinkInk,
+                    )
+                }
+                if (step.hint.isNotEmpty()) SecondaryText(step.hint)
+                Line("${clock(stepEnd - now)} left in the step · ${clock(current.endsAtServer - now)} in all")
+            }
+            Line(
+                "Mac: " + if (current.macHeard) "heard ✓" else "not heard yet (is run.sh --lab --auto running?)",
+            )
+            if (current.index >= 3) Line("Mac's iBeacon: " + if (current.macBeaconHeard) "heard ✓" else "not heard")
+            current.warnings.forEach { SecondaryText("⚠ $it") }
+            PopButton(text = "Stop the run", onClick = viewModel::stopRun, height = 40.dp, style = PopStyle.Outline)
+        }
+    }
+}
+
+@Composable
+private fun RunResult(viewModel: LabViewModel, run: LabRunState) {
+    Line(if (run.stopped) "The run was stopped." else "The run is over (token ${run.token}).")
+    Line("Mac heard: ${if (run.macHeard) "yes" else "no"} · Mac's iBeacon: ${if (run.macBeaconHeard) "yes" else "no"}")
+    run.warnings.forEach { SecondaryText("⚠ $it") }
+    SecondaryText("Then Export, and AirDrop the file to the Mac; the Mac's log of the run is already there.")
+    PopButton(text = "Export", onClick = viewModel::export, height = 44.dp, style = PopStyle.Dark)
+}
+
+private fun seconds(millis: Long): Long = (millis.coerceAtLeast(0) + 999) / 1000
+
+private fun clock(millis: Long): String {
+    val total = seconds(millis)
+    return "${total / 60}:${(total % 60).toString().padStart(2, '0')}"
 }
 
 @Composable
@@ -215,12 +306,79 @@ private fun ProbeControls(
     )
 }
 
+/**
+ * The vibration test on its own (H2): lock when told, then bursts of 1, 2, 3 and 4 beats, one kind each; the count
+ * tells which kind got through even when another stays silent. Afterwards the tester marks the counts they felt.
+ */
 @Composable
-private fun ScreenAndVibrationCard(viewModel: LabViewModel) {
+private fun VibrationCard(viewModel: LabViewModel, inGame: Boolean) {
+    val hapticTest by viewModel.hapticTest.collectAsStateWithLifecycle()
+    val felt by viewModel.felt.collectAsStateWithLifecycle()
+    val kinds = viewModel.hapticKinds
+    Section("Vibration test (separate)") {
+        if (kinds.isEmpty()) {
+            SecondaryText("No vibration to test on this phone.")
+        } else {
+            VibrationTest(viewModel, inGame, hapticTest, felt)
+        }
+    }
+}
+
+@Composable
+private fun VibrationTest(viewModel: LabViewModel, inGame: Boolean, hapticTest: String?, felt: Set<Int>) {
+    var keepAwake by remember { mutableStateOf(true) }
+    val kinds = viewModel.hapticKinds
+    SecondaryText(
+        "15 s to lock the phone, then bursts 6 s apart; count the beats in each burst. " +
+            "A notification says when it is over.",
+    )
+    kinds.forEachIndexed { index, kind ->
+        Line("${index + 1} ${if (index == 0) "beat" else "beats"} · ${kind.label}")
+    }
+    BenchSwitch(
+        text = "Keep the app awake by GPS («as in a game»)",
+        checked = keepAwake,
+        enabled = hapticTest == null,
+        onCheckedChange = { keepAwake = it },
+    )
+    PopButton(
+        text = if (hapticTest == null) "Start the vibration test" else "Stop",
+        onClick = {
+            if (hapticTest == null) viewModel.startHapticTest(keepAwake) else viewModel.stopHapticTest()
+        },
+        enabled = !inGame,
+        height = 48.dp,
+        style = if (hapticTest == null) PopStyle.Primary else PopStyle.Outline,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    hapticTest?.let { Line(it) }
+    SecondaryText("After unlocking, tap every count you felt (tap again to take it back):")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        kinds.indices.forEach { index ->
+            val group = index + 1
+            val selected = group in felt
+            ChoiceButton(if (selected) "$group ✓" else "$group", selected, Modifier.weight(1f)) {
+                viewModel.toggleFelt(group)
+            }
+        }
+    }
+    Line(if (felt.isEmpty()) "Felt: nothing marked" else "Felt: ${felt.sorted().joinToString()}")
+}
+
+private val HapticKind.label: String
+    get() = when (this) {
+        HapticKind.CORE_HAPTICS -> "Core Haptics"
+        HapticKind.IMPACT -> "impact"
+        HapticKind.NOTIFY_SILENT_SOUND -> "notification, silent sound"
+        HapticKind.NOTIFY_NO_SOUND -> "notification, no sound"
+        HapticKind.VIBRATOR -> "vibration motor"
+    }
+
+@Composable
+private fun ScreenAndPulseCard(viewModel: LabViewModel) {
     val screenOff by viewModel.screenOff.collectAsStateWithLifecycle()
     val pulse by viewModel.pulse.collectAsStateWithLifecycle()
-    val hapticTest by viewModel.hapticTest.collectAsStateWithLifecycle()
-    Section("Screen and vibration") {
+    Section("Screen and pulse") {
         if (viewModel.canTurnScreenOff) {
             BenchSwitch(
                 text = "Screen off by the proximity sensor",
@@ -228,25 +386,6 @@ private fun ScreenAndVibrationCard(viewModel: LabViewModel) {
                 enabled = true,
                 onCheckedChange = viewModel::setScreenOff,
             )
-        }
-        SecondaryText("Vibration test: 10 s to lock the phone, then groups of 3 beats: ${viewModel.hapticKinds}.")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PopButton(
-                text = if (hapticTest == null) "Vibration test" else "Stop",
-                onClick = { if (hapticTest == null) viewModel.startHapticTest() else viewModel.stopHapticTest() },
-                enabled = viewModel.hapticGroups > 0,
-                height = 44.dp,
-                style = PopStyle.Dark,
-            )
-        }
-        hapticTest?.let { Line(it) }
-        if (viewModel.hapticGroups > 0) {
-            SecondaryText("Felt, after unlocking:")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                (1..viewModel.hapticGroups).forEach { group ->
-                    ChoiceButton("$group", false, Modifier.weight(1f)) { viewModel.felt(group) }
-                }
-            }
         }
         SecondaryText("Pulse by the lab's loudest band:")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -263,7 +402,9 @@ private fun ScreenAndVibrationCard(viewModel: LabViewModel) {
 @Composable
 private fun MarksCard(viewModel: LabViewModel) {
     var text by remember { mutableStateOf("") }
+    val lastMark by viewModel.lastMark.collectAsStateWithLifecycle()
     Section("Marks") {
+        Line("Last mark: ${lastMark ?: "none yet"}")
         SecondaryText("Distance")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             LabPlaces.DISTANCES.forEach { meters ->

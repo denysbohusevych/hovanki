@@ -16,6 +16,7 @@ import app.hovanki.client.lab.LabController
 import app.hovanki.client.lab.LabLog
 import app.hovanki.client.lab.LabProbes
 import app.hovanki.client.lab.LabRadioTrace
+import app.hovanki.client.lab.LabRunner
 import app.hovanki.client.network.AccountApi
 import app.hovanki.client.network.AdaptiveGameConnection
 import app.hovanki.client.network.BigGameApi
@@ -137,6 +138,7 @@ val commonModule: Module = module {
             inAGame = get<GameSessionManager>().state.map { it.session != null },
         )
     }
+    single { LabRunner(get(), MainScope(), appState = get<LabProbes>()::appState) }
     single { AccountManager(get(), get(), get()) }
     single { SocialManager(get(), get()) }
     single { HistoryManager(get(), get()) }

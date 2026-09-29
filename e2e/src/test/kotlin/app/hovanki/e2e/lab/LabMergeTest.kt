@@ -158,10 +158,11 @@ class LabMergeTest {
         val rows = merged().masksCsv().lines().filter { it.isNotBlank() }
         assertEquals(2, rows.size, rows.joinToString("\n"))
         val row = rows[1].split(',')
-        assertEquals("true", row[11], rows[1])
-        assertEquals("100", row[12], "the extra bit")
-        assertEquals("", row[13], "none missing")
-        assertEquals("A", row[10])
+        assertEquals("5a5a0000000000000000000008000000", row[6], "the mask as it came")
+        assertEquals("true", row[10], rows[1])
+        assertEquals("100", row[11], "the extra bit")
+        assertEquals("", row[12], "none missing")
+        assertEquals("A", row[9])
     }
 
     @Test

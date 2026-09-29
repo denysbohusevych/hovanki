@@ -4,6 +4,7 @@ import app.hovanki.client.lab.LabFields
 import app.hovanki.client.lab.LabLog
 import app.hovanki.client.lab.LabPlaces
 import app.hovanki.shared.rules.OverflowArea
+import app.hovanki.shared.rules.OverflowCode
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -142,7 +143,7 @@ class LabMerge(files: List<Pair<String, String>>) {
         "rx" -> "rx ${event.string("token") ?: "-"} from ${sender(event.string("token"))} " +
             "${event.int("rssi")} dBm ${event.string("api")}/${event.string("via")}"
 
-        "mask" -> "mask bits ${event.ints("bits")} decoded ${event.strings("decoded")} ${event.int("rssi")} dBm " +
+        "mask" -> "mask bits ${maskBits(event).sorted()} decoded ${maskDecoded(event)} ${event.int("rssi")} dBm " +
             "${event.string("api")}"
 
         else ->
@@ -363,7 +364,7 @@ class LabMerge(files: List<Pair<String, String>>) {
     /** Every mask heard, with what the probe advertised then ([expected]: the last probe `adv` of any device). */
     fun masksCsv(): String = buildString {
         appendLine(
-            "t_utc,dev,app,api,rssi,peer,hex,bits,bits_msb_first,expected,expected_from,match,extra,missing,decoded",
+            "t_utc,dev,app,api,rssi,peer,hex,bits,expected,expected_from,match,extra,missing,decoded",
         )
         var expected: List<Int>? = null
         var expectedFrom: String? = null
@@ -379,22 +380,17 @@ class LabMerge(files: List<Pair<String, String>>) {
                 }
             }
             if (event.k != "mask") continue
-            val bits = event.ints("bits").toSet()
-            val msb = event.string("hex")?.let { hex ->
-                val bytes = ByteArray(hex.length / 2) { hex.substring(2 * it, 2 * it + 2).toInt(16).toByte() }
-                OverflowArea.bitsOfMsbFirst(bytes)
-            }
+            val bits = maskBits(event)
             val wanted = expected?.toSet()
             val match = wanted?.let { bits.containsAll(it) }
             appendLine(
                 listOf(
                     LabLog.formatUtc(event.t), event.dev, event.app, event.string("api"), event.int("rssi"),
                     event.string("peer"), event.string("hex"), bits.sorted().joinToString(" "),
-                    msb?.sorted()?.joinToString(" "),
                     wanted?.sorted()?.joinToString(" "),
                     expectedFrom.takeIf { wanted != null },
                     match, wanted?.let { (bits - it).sorted().joinToString(" ") },
-                    wanted?.let { (it - bits).sorted().joinToString(" ") }, event.strings("decoded").joinToString(" "),
+                    wanted?.let { (it - bits).sorted().joinToString(" ") }, maskDecoded(event).joinToString(" "),
                 ).joinToString(",") { it?.toString().orEmpty() },
             )
         }
@@ -419,6 +415,21 @@ class LabMerge(files: List<Pair<String, String>>) {
     }
 
     companion object {
+        /**
+         * A mask's bits: read again from its raw bytes when it has them (the air's order, [OverflowArea.bitsOf]), so
+         * logs written before the bit order was measured (2026-09-29) come out right too; else as logged (an iPhone
+         * lists table UUIDs, no order involved).
+         */
+        fun maskBits(event: LabEvent): Set<Int> = event.string("hex")
+            ?.takeIf { it.length == OverflowArea.MASK_BYTES * 2 }
+            ?.let { hex ->
+                OverflowArea.bitsOf(ByteArray(hex.length / 2) { hex.substring(2 * it, 2 * it + 2).toInt(16).toByte() })
+            }
+            ?: event.ints("bits").toSet()
+
+        /** The tokens a mask carries, decoded again from [maskBits]. */
+        fun maskDecoded(event: LabEvent): List<String> = OverflowCode.decode(maskBits(event))
+
         private val COMMON = setOf(LabFields.T, LabFields.DT, LabFields.MONO, LabFields.DEV, LabFields.K, LabFields.APP)
         private val BENCH_TOKEN = Regex("bench radio on as \\w+, token ([0-9a-f]{8})")
         const val NO_TRUTH = "-"

@@ -50,8 +50,11 @@ class DiagnosticsBench(
     private var radioJob: Job? = null
     private var gpsJob: Job? = null
 
-    /** Advertises [token] as a hider's service, or as a seeker's iBeacon ([asSeeker]), and listens. */
-    fun startRadio(asSeeker: Boolean) {
+    /**
+     * Advertises [token] (the bench's own unless the radio lab's run gives one) as a hider's service, or as a seeker's
+     * iBeacon ([asSeeker]), and listens.
+     */
+    fun startRadio(asSeeker: Boolean, token: String = this.token) {
         stopRadio()
         radio.refresh()
         mutableRadio.value = BenchRadio(asSeeker)

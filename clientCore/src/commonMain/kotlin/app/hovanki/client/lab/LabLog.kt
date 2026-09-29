@@ -84,6 +84,14 @@ class LabLog(
     /** The log's monotonic clock. */
     fun monoNow(): Long = monotonicMillis()
 
+    /** The server's clock as this device knows it: its own plus the last measured offset. */
+    fun serverNow(): Long = deviceTimeMillis() + (mutableClock.value?.offsetMillis ?: 0L)
+
+    private val lastHeard = HashMap<String, Long>()
+
+    /** When [token] was last heard (device clock); null: not since the start or [clear]. */
+    fun lastHeardMillis(token: String): Long? = lastHeard[token]
+
     fun setLabel(label: String) {
         mutableLabel.value = label.trim().ifEmpty { DEFAULT_LABEL }
     }
@@ -211,6 +219,7 @@ class LabLog(
             if (atMillis != null && now - atMillis > 0) put("ago", now - atMillis)
         }
         if (token != null) {
+            lastHeard[token] = now
             val smoother = smoothers.getOrPut(token) { RadarSmoother() }
             val at = atMillis ?: now
             smoother.add(rssi, at)
@@ -358,6 +367,7 @@ class LabLog(
         kinds.clear()
         smoothers.clear()
         bands.clear()
+        lastHeard.clear()
         tickGaps.clear()
         lastTickMono = null
         dropped = 0

@@ -2,6 +2,7 @@ package app.hovanki.e2e.beacon
 
 import app.hovanki.client.lab.LabClockSync
 import app.hovanki.client.lab.LabLog
+import app.hovanki.client.lab.LabRunScripts
 import app.hovanki.client.network.HttpGameApi
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.createHttpClient
@@ -30,12 +31,16 @@ import kotlin.concurrent.thread
 /**
  * `e2e beacon-lab` (docs/radio-lab.md §6): the MacBook in the radio lab, without a game. A still listener and sender on
  * the table: every reading the Bluetooth helper reports goes into the lab's log (`LabLog`, the phones' schema) on the
- * server's clock, streamed into `hovanki-lab-<label>-<start>.jsonl`; `--sniff on` adds the overflow masks in Apple's
- * raw frames. `--advertise <token>` sends as an iPhone hider (the game's service and the token as the name),
- * `--ibeacon <token>` as a seeker, if macOS lets it. Lines on stdin: `m <text>` puts a mark, `clock` measures the clock
- * again, `q` ends. The terminal shows a summary every 2 seconds for the eyes; the file has everything.
+ * server's clock, streamed into `hovanki-lab-<label>-<start>.jsonl`.
  *
- * Start it with `e2e/mac-beacon/run.sh --lab [--advertise <token>] [--ibeacon <token>] [--sniff]`.
+ * `--auto on` (docs/radio-lab-tests.md): start it once and leave it. It sniffs, advertises as a hider between runs (the
+ * manual scenarios need that), and when a phone starts the automatic radio run it hears the run's token and follows its
+ * steps by itself ([MacRunFollower]), every run in a file of its own. By hand instead: `--sniff on` adds the overflow
+ * masks in Apple's raw frames, `--advertise <token>` sends as an iPhone hider (the game's service and the token as the
+ * name), `--ibeacon <token>` as a seeker, if macOS lets it. Lines on stdin: `m <text>` puts a mark, `clock` measures the
+ * clock again, `q` ends. The terminal shows a summary every 2 seconds for the eyes; the file has everything.
+ *
+ * Start it with `e2e/mac-beacon/run.sh --lab --auto` (or with the flags by hand).
  */
 object BeaconLabCli {
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -53,39 +58,88 @@ object BeaconLabCli {
             require(RadarToken.isWellFormed(token)) { "A token is 8 hex characters, lower case: '$token'" }
         }
         require(advertise == null || iBeacon == null) { "--advertise or --ibeacon, not both" }
-        val sniff = options.single("sniff") == "on"
+        val auto = options.single("auto") == "on"
+        require(!auto || (advertise == null && iBeacon == null)) { "--auto sets the advertising itself" }
+        val sniff = auto || options.single("sniff") == "on"
         val out = File(options.single("out") ?: "e2e/build/lab").apply { mkdirs() }
+        val commit = options.single("commit")
 
         val mainThread = Dispatchers.Default.limitedParallelism(1)
         val scope = CoroutineScope(SupervisorJob() + mainThread)
         val log = LabLog(isEnabled = true)
         log.setLabel(options.single("label") ?: "mac")
-        val file = File(out, log.export().fileName)
-        val writer = file.bufferedWriter()
-        log.onLine = { line ->
-            writer.write(line)
-            writer.newLine()
-            writer.flush()
-        }
+        val files = LogFiles(out, log)
         log.isRecording = true
         val api = HttpGameApi(createHttpClient(OkHttp.create(), logRequests = false), ServerUrl(serverUrl))
         val clock = LabClockSync({ api.serverTime() }, log::deviceNow, log::monoNow)
         val summary = AirSummary()
 
-        // The helper's lines come on its reader thread: into the log on the one "main thread".
-        val macHelper = MacHelper(helper) { line -> scope.launch { onHelperLine(log, summary, line) } }
-        log.session(
+        fun session(mode: String?) = log.session(
             model = "MacBook",
             os = "${System.getProperty("os.name")} ${System.getProperty("os.version")}",
             build = "e2e beacon-lab",
-            commit = options.single("commit"),
-            mode = listOfNotNull(
-                advertise?.let { "hider_name" },
-                iBeacon?.let { "ibeacon" },
-                "sniff".takeIf { sniff },
-            ).joinToString(",").ifEmpty { null },
+            commit = commit,
+            mode = mode,
+        )
+
+        lateinit var follower: MacRunFollower
+        // The helper's lines come on its reader thread: into the log on the one "main thread".
+        val macHelper = MacHelper(helper) { line ->
+            scope.launch {
+                onHelperLine(log, summary, line)
+                if (auto && line is HelperLine.Heard) follower.onHeard(line.token)
+            }
+        }
+        follower = MacRunFollower(
+            serverNow = log::serverNow,
+            command = { command ->
+                macHelper.command(command)
+                val parts = command.split(' ')
+                when (parts[0]) {
+                    "advertise" -> log.adv("start", "hider_name", parts[1])
+                    "ibeacon" -> log.adv("start", "ibeacon", parts[1])
+                    else -> log.adv("stop", "mac")
+                }
+            },
+            onRunStart = { token, script, startAt ->
+                files.open()
+                session("auto run $token")
+                log.note("run: script ${script.version}, token $token, starts at ${LabLog.formatUtc(startAt)}")
+                val inSeconds = (startAt - log.serverNow()) / 1000
+                say(
+                    "Run $token heard: script ${script.version}, ${script.totalMillis / 60_000} min, starts in ${inSeconds}s",
+                )
+                say("Log: ${files.current?.path}")
+            },
+            onStep = { index, step ->
+                log.mark("run: ${step.id}", by = "mac", step = index + 1)
+                say("Step ${index + 1}: ${step.title} (${step.seconds}s)")
+            },
+            onRunEnd = { token ->
+                log.mark("run: done", by = "mac")
+                val done = files.current
+                files.open()
+                session("auto idle")
+                say("Run $token over: ${done?.path}")
+                say("Waiting for the next run; the manual scenarios work meanwhile (advertising $MAC_TOKEN).")
+            },
+        )
+
+        files.open()
+        session(
+            when {
+                auto -> "auto idle"
+
+                else -> listOfNotNull(
+                    advertise?.let { "hider_name" },
+                    iBeacon?.let { "ibeacon" },
+                    "sniff".takeIf { sniff },
+                ).joinToString(",").ifEmpty { null }
+            },
         )
         when {
+            auto -> follower.idle()
+
             advertise != null -> {
                 macHelper.command("advertise $advertise")
                 log.adv("start", "hider_name", advertise)
@@ -97,7 +151,10 @@ object BeaconLabCli {
             }
         }
         if (sniff) macHelper.command("sniff on")
-        say("Lab log: ${file.path}")
+        say("Lab log: ${files.current?.path}")
+        if (auto) {
+            say("Auto: waiting for a radio run from the phone (Lab → Start the radio run). Leave this running.")
+        }
         say("Lines: m <text> puts a mark, clock measures the clock again, q ends.")
 
         return runBlocking {
@@ -112,6 +169,14 @@ object BeaconLabCli {
                 while (true) {
                     measure(log, clock)
                     delay(LabClockSync.EVERY_MILLIS)
+                }
+            }
+            if (auto) {
+                scope.launch {
+                    while (true) {
+                        follower.tick()
+                        delay(FOLLOW_MILLIS)
+                    }
                 }
             }
             scope.launch {
@@ -138,14 +203,13 @@ object BeaconLabCli {
                 }
             }
             withContext(Dispatchers.IO) { input.join() }
-            withContext(mainThread) {
+            val last = withContext(mainThread) {
                 log.note("lab stopped")
                 macHelper.close()
-                File(out, log.export().summaryName).writeText(log.summary(listOf("model: MacBook")))
-                writer.close()
+                files.current.also { files.close() }
             }
             scope.cancel()
-            say("Saved ${file.path} and its summary.")
+            say("Saved ${last?.path} and its summary.")
             0
         }
     }
@@ -205,13 +269,47 @@ object BeaconLabCli {
     private val API = RadioApi.MAC_COREBLUETOOTH
     private val TIME = DateTimeFormatter.ofPattern("HH:mm:ss")
     private const val TICK_MILLIS = 1_000L
+    private const val FOLLOW_MILLIS = 200L
+    private const val MAC_TOKEN = LabRunScripts.MAC_HIDER_TOKEN
     private const val SUMMARY_EVERY_MILLIS = 2_000L
     private const val CLOCK_TIMEOUT_MILLIS = 10_000L
 
     private val USAGE = """
-        Usage: e2e/mac-beacon/run.sh --lab [--label mac] [--advertise <token> | --ibeacon <token>] [--sniff]
-                                     [--out e2e/build/lab] [--server https://...]
+        Usage: e2e/mac-beacon/run.sh --lab --auto [--label mac] [--out e2e/build/lab] [--server https://...]
+               e2e/mac-beacon/run.sh --lab [--advertise <token> | --ibeacon <token>] [--sniff] [...]
     """.trimIndent()
+}
+
+/**
+ * The Mac's lab log as files: every [open] starts a new one (a fresh [LabLog], its lines streamed into
+ * `hovanki-lab-<label>-<start>.jsonl`) and closes the one before with its summary next to it.
+ */
+private class LogFiles(private val out: File, private val log: LabLog) {
+    var current: File? = null
+        private set
+    private var writer: java.io.BufferedWriter? = null
+
+    fun open() {
+        close()
+        log.clear()
+        val file = File(out, log.export().fileName)
+        val opened = file.bufferedWriter()
+        log.onLine = { line ->
+            opened.write(line)
+            opened.newLine()
+            opened.flush()
+        }
+        writer = opened
+        current = file
+    }
+
+    fun close() {
+        val opened = writer ?: return
+        File(out, log.export().summaryName).writeText(log.summary(listOf("model: MacBook")))
+        log.onLine = null
+        opened.close()
+        writer = null
+    }
 }
 
 /** What the terminal shows every 2 seconds: per token and per mask, the best reading and how many. */

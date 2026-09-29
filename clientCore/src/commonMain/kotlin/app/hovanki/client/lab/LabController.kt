@@ -121,12 +121,18 @@ class LabController(
     /** The vibration test's progress for the screen; null: not running. */
     val hapticTest: StateFlow<String?> = mutableHapticTest.asStateFlow()
 
+    private val mutableFelt = MutableStateFlow<Set<Int>>(emptySet())
+
+    /** The groups of the last vibration test the tester marked as felt ([toggleFelt]). */
+    val felt: StateFlow<Set<Int>> = mutableFelt.asStateFlow()
+
     private val mutableElapsed = MutableSharedFlow<LabStep>(extraBufferCapacity = 4)
 
-    /** A scenario's step is over: the screen calls for «Next». */
+    /** A scenario's step is over: the next one starts by itself, with a signal. */
     val elapsed: SharedFlow<LabStep> = mutableElapsed.asSharedFlow()
 
     val scenarios = LabScenarioRunner(
+        autoAdvance = true,
         nowMillis = monotonicMillis,
         onStep = { scenario, index, step ->
             log.mark(
@@ -137,12 +143,17 @@ class LabController(
                 action = step.action,
                 distance = step.distance,
             )
+            // The step changed by itself: tell the tester what to do now, by a notification when locked.
+            if (index > 0) {
+                val text = listOf(step.label, step.hint).filter { it.isNotEmpty() }.joinToString(". ")
+                scope.launch { signal(text) }
+            }
         },
-        onElapsed = { step ->
-            mutableElapsed.tryEmit(step)
-            scope.launch { beepOnScreen() }
+        onElapsed = { step -> mutableElapsed.tryEmit(step) },
+        onFinished = {
+            log.mark("${it.id}: done", by = "scenario")
+            scope.launch { signal("${it.title}: done") }
         },
-        onFinished = { log.mark("${it.id}: done", by = "scenario") },
     )
 
     val canProbe: Boolean get() = air.canProbe
@@ -219,8 +230,9 @@ class LabController(
         log.note("as in a game ${if (on) "on" else "off"}")
     }
 
-    fun setBenchRadio(asSeeker: Boolean?) {
-        if (asSeeker == null) bench.stopRadio() else bench.startRadio(asSeeker)
+    /** The game's radio on the bench as a hider or a seeker ([token]: the bench's own unless given); null: off. */
+    fun setBenchRadio(asSeeker: Boolean?, token: String? = null) {
+        if (asSeeker == null) bench.stopRadio() else bench.startRadio(asSeeker, token ?: bench.token)
     }
 
     fun setProbe(mode: ProbeMode?) {
@@ -333,36 +345,37 @@ class LabController(
     }
 
     /**
-     * The vibration test (H2): [HAPTIC_TEST_LEAD_MILLIS] to lock the phone and put it away, then every kind in turn,
-     * [HAPTIC_TEST_BEATS] beats each, [HAPTIC_TEST_PAUSE_MILLIS] apart, then one more beat for «over». The tester marks
-     * what they felt afterwards ([felt]).
+     * The vibration test (H2): [leadMillis] to lock the phone and put it away, then every kind in turn, group N with N
+     * beats, so the tester tells a group by its count even when another group stays silent: 1 Core Haptics, 2 impact,
+     * 3 a notification with a silent sound, 4 one without. [HAPTIC_TEST_PAUSE_MILLIS] between the groups; at the end a
+     * notification with text says the test is over. The tester marks what they felt afterwards ([toggleFelt]).
      */
-    fun startHapticTest() {
+    fun startHapticTest(leadMillis: Long = HAPTIC_TEST_LEAD_MILLIS) {
         stopHapticTest()
         val kinds = haptics.kinds
         if (kinds.isEmpty()) {
             log.note("vibration test: no haptics here")
             return
         }
+        mutableFelt.value = emptySet()
         hapticTestJob = scope.launch {
             try {
                 haptics.prepare()
                 log.mark("vibration test: start", by = "lab")
-                countdown(HAPTIC_TEST_LEAD_MILLIS) { "lock the phone: ${it}s" }
+                if (leadMillis > 0) signal("Lock the phone now: the vibration test starts in ${leadMillis / 1000} s")
+                countdown(leadMillis) { "lock the phone: ${it}s" }
                 for ((index, kind) in kinds.withIndex()) {
                     val group = index + 1
-                    mutableHapticTest.value = "group $group: ${kind.key}"
-                    repeat(HAPTIC_TEST_BEATS) {
+                    mutableHapticTest.value = "group $group: ${kind.key}, $group ${if (group == 1) "beat" else "beats"}"
+                    repeat(group) {
                         val result = haptics.play(kind)
                         log.haptic(kind.key, result.result, result.error, group = group)
                         delay(if (kind.isNotification) NOTIFICATION_GAP_MILLIS else HAPTIC_BEAT_GAP_MILLIS)
                     }
-                    if (index < kinds.lastIndex) delay(HAPTIC_TEST_PAUSE_MILLIS)
+                    delay(HAPTIC_TEST_PAUSE_MILLIS)
                 }
-                delay(HAPTIC_TEST_PAUSE_MILLIS)
-                val over = kinds.first()
-                log.haptic(over.key, haptics.play(over).result, reason = "test over")
                 log.mark("vibration test: over", by = "lab")
+                haptics.notify("Vibration test over: unlock and mark how many beats you felt in each burst")
             } finally {
                 mutableHapticTest.value = null
             }
@@ -375,8 +388,12 @@ class LabController(
         mutableHapticTest.value = null
     }
 
-    /** The tester felt the vibration test's group [group]. */
-    fun felt(group: Int) = log.mark("felt group $group", by = "tester", step = group)
+    /** The tester felt the vibration test's group [group] (its count of beats), or takes it back. */
+    fun toggleFelt(group: Int) {
+        val felt = group !in mutableFelt.value
+        mutableFelt.value = if (felt) mutableFelt.value + group else mutableFelt.value - group
+        log.mark(if (felt) "felt group $group" else "not felt group $group", by = "tester", step = group)
+    }
 
     /** A mark by hand: the distance, the place, what the tester does, or any text. */
     fun mark(label: String, place: String? = null, action: String? = null, distance: Double? = null) =
@@ -486,6 +503,15 @@ class LabController(
         }
     }
 
+    /**
+     * Tells the tester something happened: two taps on the screen and, off it, a notification with [text] (the taps
+     * may not get through there, docs/radio-lab.md H2).
+     */
+    suspend fun signal(text: String? = null) {
+        if (text != null && probes.appState() != "active" && probes.appState() != "screen_on") haptics.notify(text)
+        beepOnScreen()
+    }
+
     private suspend fun beepOnScreen() {
         val kind = haptics.kinds.firstOrNull { !it.isNotification } ?: return
         repeat(2) {
@@ -526,9 +552,8 @@ class LabController(
         const val TICK_MILLIS = 1_000L
         const val ROTATE_DELAY_MILLIS = 60_000L
         const val CLOCK_TIMEOUT_MILLIS = 10_000L
-        const val HAPTIC_TEST_LEAD_MILLIS = 10_000L
-        const val HAPTIC_TEST_BEATS = 3
-        const val HAPTIC_TEST_PAUSE_MILLIS = 5_000L
+        const val HAPTIC_TEST_LEAD_MILLIS = 15_000L
+        const val HAPTIC_TEST_PAUSE_MILLIS = 6_000L
         const val HAPTIC_BEAT_GAP_MILLIS = 700L
 
         /** Notifications at most this often: iOS piles up more. */

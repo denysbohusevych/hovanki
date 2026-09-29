@@ -175,10 +175,12 @@ data class LabRun(val scenario: LabScenario, val index: Int, val stepStartedMill
 
 /**
  * Runs a scenario: [start], [next] at the tester's hand; every step puts its own mark ([onStep]); [tick] says once when
- * a step's time is up, for the beep ([onElapsed]). Time comes in ([nowMillis], monotonic). Main thread.
+ * a step's time is up, for the signal ([onElapsed]), and with [autoAdvance] moves on to the next step by itself: the
+ * tester follows the signals instead of a timer. Time comes in ([nowMillis], monotonic). Main thread.
  */
 class LabScenarioRunner(
     private val nowMillis: () -> Long,
+    private val autoAdvance: Boolean = false,
     private val onStep: (LabScenario, Int, LabStep) -> Unit,
     private val onElapsed: (LabStep) -> Unit = {},
     private val onFinished: (LabScenario) -> Unit = {},
@@ -214,6 +216,7 @@ class LabScenarioRunner(
         if (!current.elapsed && current.remainingMillis(nowMillis()) <= 0) {
             mutableRun.value = current.copy(elapsed = true)
             onElapsed(current.step)
+            if (autoAdvance) next()
         }
     }
 
