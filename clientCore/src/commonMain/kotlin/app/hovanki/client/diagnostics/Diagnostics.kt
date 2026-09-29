@@ -3,6 +3,7 @@
 package app.hovanki.client.diagnostics
 
 import app.hovanki.client.network.Transport
+import app.hovanki.client.radio.SightingVia
 import app.hovanki.shared.protocol.DeviceReport
 import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.rules.RadarSmoother
@@ -81,7 +82,7 @@ class Diagnostics(
      * Another phone heard: its [token] at [rssi] dBm at [atMillis] of the device's clock; [isRival]: the other team's
      * token (a seeker's for a hider, a hider's for a seeker), which the pulse listens for.
      */
-    fun onSighting(token: String, rssi: Int, atMillis: Long, isRival: Boolean = false) {
+    fun onSighting(token: String, rssi: Int, atMillis: Long, isRival: Boolean = false, via: SightingVia? = null) {
         if (!isEnabled) return
         val smoother = smoothers.getOrPut(token) { RadarSmoother() }
         smoother.add(rssi, atMillis)
@@ -109,7 +110,8 @@ class Diagnostics(
             lastRadioLine[token] = atMillis
             val level = smoother.levelDbm?.let { " → ${formatDbm(it)}" }.orEmpty()
             val rival = if (isRival) " rival" else ""
-            log(DiagnosticsKind.RADIO, "$token$rival $rssi dBm$level ${band.name}", atMillis)
+            val how = via?.takeIf { it != SightingVia.UNKNOWN }?.let { " (${it.key})" }.orEmpty()
+            log(DiagnosticsKind.RADIO, "$token$rival $rssi dBm$level ${band.name}$how", atMillis)
         }
     }
 
