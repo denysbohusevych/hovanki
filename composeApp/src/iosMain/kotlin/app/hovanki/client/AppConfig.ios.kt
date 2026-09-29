@@ -3,6 +3,7 @@
 package app.hovanki.client
 
 import platform.Foundation.NSBundle
+import platform.Foundation.NSProcessInfo
 import kotlin.experimental.ExperimentalNativeApi
 import kotlin.native.Platform
 
@@ -17,5 +18,7 @@ internal fun iosBuildInfo(): BuildInfo {
         buildNumber = info?.get("CFBundleVersion") as? String ?: "",
         commit = BuildConstants.COMMIT,
         isDebug = Platform.isDebugBinary,
+        // The simulator runs the app with its SIMULATOR_* environment; a real iPhone has none.
+        isEmulator = NSProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"] != null,
     )
 }

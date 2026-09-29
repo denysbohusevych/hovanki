@@ -59,10 +59,10 @@ curl http://localhost:8080/actuator/health   # {"status":"UP",...}
 ./gradlew :androidApp:installDebug   # на запущенный эмулятор или устройство
 ```
 
-Или конфигурация `androidApp` в Android Studio. Адрес сервера вводится на главном экране приложения (приложение запоминает его и имя игрока):
+Или конфигурация `androidApp` в Android Studio. Поля адреса в приложении нет, debug-сборка выбирает сервер сама:
 
 - эмулятор: `http://10.0.2.2:8080` (так эмулятор видит компьютер; debug-сборка разрешает HTTP);
-- реальный телефон: `http://<IP компьютера в LAN>:8080`, телефон в той же Wi-Fi сети.
+- реальный телефон: общий сервер из `hovanki.serverUrl`, как тестовые сборки, с панелью диагностики «DBG» ([architecture.md](docs/architecture.md#диагностика-debug-сборки)); на свой компьютер — параметром запуска: `adb shell am start -n app.hovanki/app.hovanki.android.MainActivity --es hovanki.server http://<IP компьютера в LAN>:8080`, телефон в той же Wi-Fi сети.
 
 **3. iOS**
 
@@ -73,7 +73,7 @@ open iosApp/iosApp.xcodeproj
 Схема `iosApp`, симулятор, Run. Первая сборка долгая: Xcode вызывает Gradle и собирает Kotlin-фреймворк.
 
 - симулятор: `http://localhost:8080`;
-- реальный iPhone: `http://<имя-мака>.local:8080` (Debug-сборка пускает HTTP только к localhost и `*.local`), Team ID — в `iosApp/Configuration/Local.xcconfig`. Подробности — [iosApp/README.md](iosApp/README.md).
+- реальный iPhone: общий сервер, как на Android; на свой Mac — `-hovanki.server http://<имя-мака>.local:8080` в аргументах схемы (Debug-сборка пускает HTTP только к localhost и `*.local`), Team ID — в `iosApp/Configuration/Local.xcconfig`. Подробности — [iosApp/README.md](iosApp/README.md).
 
 **4. Движение без прогулки**
 
@@ -86,7 +86,7 @@ open iosApp/iosApp.xcodeproj
 
 Играть на улице с друзьями: сервер работает в AWS (`https://hovanki.duckdns.org`, [docs/deploy.md](docs/deploy.md)), и тестовые сборки ходят на этот адрес; свою версию сервера можно открыть наружу через HTTPS-туннель (`cloudflared tunnel --url http://localhost:8080`, без аккаунта) и собрать под него тестовую сборку. Android-сборка ставится с pre-release [`preview`](https://github.com/denysbohusevych/hovanki/releases/tag/preview) (каждый push в `main`, обновления через Obtainium), iPhone — через TestFlight или из Xcode по кабелю. Пошагово — [docs/ci-cd.md, «Как поставить сборку на телефон»](docs/ci-cd.md#как-поставить-сборку-на-телефон).
 
-Тестовые сборки ходят только по HTTPS и только на сервер из Gradle-свойства `hovanki.serverUrl` (`gradle.properties`): аккаунты живут на одном сервере, поля адреса в приложении нет ([ADR 0004](docs/adr/0004-accounts-friends-chat.md)). Debug-сборки ходят на компьютер разработчика или на адрес из параметра запуска `server`. Версия и commit сборки — мелко внизу экрана входа и профиля.
+Тестовые сборки ходят только по HTTPS и только на сервер из Gradle-свойства `hovanki.serverUrl` (`gradle.properties`): аккаунты живут на одном сервере, поля адреса в приложении нет ([ADR 0004](docs/adr/0004-accounts-friends-chat.md)). Debug-сборки в эмуляторе и симуляторе ходят на компьютер разработчика, на телефоне — на тот же сервер, что тестовые (с панелью диагностики «DBG»: GPS, dBm Bluetooth, синхронизации, см. [architecture.md](docs/architecture.md#диагностика-debug-сборки)); параметр запуска `server` ведёт куда угодно. Версия и commit сборки — мелко внизу экрана входа и профиля.
 
 ## Команды
 

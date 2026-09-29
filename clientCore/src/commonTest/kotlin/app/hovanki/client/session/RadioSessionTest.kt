@@ -1,5 +1,6 @@
 package app.hovanki.client.session
 
+import app.hovanki.client.diagnostics.Diagnostics
 import app.hovanki.client.network.FakeGameApi
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
@@ -36,6 +37,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * The radar on the phone (docs/adr/0012-nearby-radar.md): the app advertises its token while a round with the radar
@@ -73,21 +75,25 @@ class RadioSessionTest {
         round(phase(), withRadar, serverTime, role, sense, radar())
     }
 
-    private fun TestScope.manager(api: FakeGameApi, radio: FakeRadio = this@RadioSessionTest.radio) =
-        GameSessionManager(
-            api,
-            PollingGameConnection(api),
-            ServerClock { deviceNow },
-            FakeLocationProvider(),
-            FakeBackgroundTracker(),
-            ServerUrl("http://10.0.2.2:8080"),
-            storage,
-            backgroundScope,
-            radio = radio,
-            deviceInfo = FakeDeviceInfo(Platform.IOS, model = "iPhone15,2"),
-            pocketPulse = pulse,
-            carryMonitor = carry,
-        )
+    private fun TestScope.manager(
+        api: FakeGameApi,
+        radio: FakeRadio = this@RadioSessionTest.radio,
+        diagnostics: Diagnostics = Diagnostics.Off,
+    ) = GameSessionManager(
+        api,
+        PollingGameConnection(api),
+        ServerClock { deviceNow },
+        FakeLocationProvider(),
+        FakeBackgroundTracker(),
+        ServerUrl("http://10.0.2.2:8080"),
+        storage,
+        backgroundScope,
+        radio = radio,
+        deviceInfo = FakeDeviceInfo(Platform.IOS, model = "iPhone15,2"),
+        pocketPulse = pulse,
+        carryMonitor = carry,
+        diagnostics = diagnostics,
+    )
 
     private fun round(
         phase: GamePhase,
@@ -160,6 +166,33 @@ class RadioSessionTest {
             "sent once, in server time",
         )
         assertEquals("iPhone15,2", withSightings.device?.model, "the model, since the game has the radar")
+    }
+
+    @Test
+    fun aDebugBuildShowsWhatThePhoneHeardAndTheSyncs() = runTest {
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        val api = snapshots({ GamePhase.SEEKING })
+        val diagnostics = Diagnostics(isEnabled = true) { deviceNow }
+        val manager = manager(api, diagnostics = diagnostics)
+
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        runCurrent()
+        assertEquals(RadarToken.at(secret, serverNow), diagnostics.state.value.ownToken)
+        radio.hears("0123abcd", -71, atMillis = deviceNow)
+        runCurrent()
+        val before = api.syncRequests.size
+        manager.state.first { api.syncRequests.size >= before + 2 }
+
+        val measured = diagnostics.state.value
+        // The raw dBm at the phone's own clock, as the scan reported it.
+        val contact = measured.contacts.single()
+        assertEquals("0123abcd", contact.token)
+        assertEquals(-71, contact.lastRssi)
+        assertEquals(RadarBand.WARM, contact.band)
+        assertTrue(measured.syncs >= 2)
+        assertEquals(Platform.IOS, measured.device?.platform, "what the phone told the server")
+        assertTrue(measured.log.any { it.text.startsWith("phase SEEKING") })
     }
 
     @Test

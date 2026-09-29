@@ -3,9 +3,16 @@ package app.hovanki.client
 /**
  * The running build. Shown small on the start screen, so feedback from testers names the exact build.
  * [version] and [buildNumber] come from the platform (Android versionName and versionCode, iOS
- * CFBundleShortVersionString and CFBundleVersion), [commit] from the build (`BuildConstants`).
+ * CFBundleShortVersionString and CFBundleVersion), [commit] from the build (`BuildConstants`). [isEmulator]: the Android
+ * emulator or the iOS simulator rather than a real phone.
  */
-data class BuildInfo(val version: String, val buildNumber: String, val commit: String, val isDebug: Boolean) {
+data class BuildInfo(
+    val version: String,
+    val buildNumber: String,
+    val commit: String,
+    val isDebug: Boolean,
+    val isEmulator: Boolean = false,
+) {
     /** E.g. "0.1.0 (42) · 1a2b3c4"; debug builds say so. */
     val label: String
         get() = buildString {

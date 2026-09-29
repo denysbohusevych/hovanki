@@ -25,6 +25,7 @@ import app.hovanki.client.ui.common.LocationConsentLayer
 import app.hovanki.client.ui.common.LocationConsentState
 import app.hovanki.client.ui.common.ResumingScreen
 import app.hovanki.client.ui.common.appSafeDrawingPadding
+import app.hovanki.client.ui.debug.DiagnosticsOverlay
 import app.hovanki.client.ui.game.GameScreen
 import app.hovanki.client.ui.invite.InviteBanner
 import app.hovanki.client.ui.lobby.LobbyScreen
@@ -63,6 +64,8 @@ fun App() {
             CompositionLocalProvider(LocalLocationConsent provides locationConsent) {
                 Screen(state, account, isWatching = watching.isWatching, onLeave = sessionManager::leave)
                 LocationConsentLayer(locationConsent)
+                // Debug builds: the diagnostics tab over everything (nothing in other builds).
+                DiagnosticsOverlay()
             }
         }
     }

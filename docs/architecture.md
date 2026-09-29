@@ -68,18 +68,27 @@ flowchart LR
   - Android читает их только в source set `debug` (`androidApp/src/debug`): extras `hovanki.*` или deep link `hovanki://join?server=…&name=…&joinCode=…`, объявленный только в debug-манифесте. В `release` лежат no-op-двойники, их же берёт тестовая сборка `preview`.
   - iOS читает `NSUserDefaults` (launch arguments `-hovanki.server …`) только в debug-бинаре (`Platform.isDebugBinary`).
 
+### Диагностика debug-сборки
+
+Debug-сборку ставят на телефоны для проверки в поле: она ходит на тот же сервер, что релиз, и показывает, что телефон намерил. Слева на любом экране — язычок «DBG» с точностью последней точки GPS; он открывает панель «Diagnostics». В других сборках ни язычка, ни записи нет (`Diagnostics.Off`).
+
+- **Что записывается** (`clientCore/.../diagnostics/Diagnostics.kt`): точки GPS — точность, время, интервал между точками, задержка доставки, флаг подмены, медиана точности последних 30; радио — свой жетон и режим (прячущийся — сервис игры, ищущий — iBeacon), каждый услышанный телефон: последний, минимальный и максимальный dBm, число показаний, уровень и полоса по тем же правилам сглаживания, что на сервере (`RadarSmoother`, без поправки за карман), жетоны ищущих помечены; синхронизации — длительность, ошибки, сколько наблюдений ушло, что телефон сказал о себе (`DeviceReport`), сдвиг часов сервера. Плюс журнал событий (последние 2000 строк, радио — не чаще строки в секунду на телефон), время — UTC.
+- **Чего нет:** координат. Точка GPS — это её точность и время. Всё живёт в памяти процесса, на сервер не уходит и на диск не пишется; «Share» отдаёт текстовый отчёт в системное меню «Поделиться» — только руками разработчика.
+- **Стенд вне игры** (`DiagnosticsBench`): GPS раз в секунду и радио без игры. Телефон вещает придуманный жетон как прячущийся или как ищущий и слушает эфир: два телефона на стенде слышат друг друга — разойтись и смотреть на dBm. Это замер чисел [ADR 0012, раздел 8](adr/0012-nearby-radar.md) без партии. Стенд работает только вне игры: как только появляется игра, он выключается, радио и GPS берёт игра.
+- В игре панель показывает то же по живой партии и радар глазами сервера (полосы по игрокам из снимка).
+
 ### Сборки и адрес сервера
 
 Сервер один, поля «Адрес сервера» в приложении нет: аккаунты, друзья и группы живут на одном сервере ([ADR 0004](adr/0004-accounts-friends-chat.md#12-один-сервер)).
 
 | Сборка | Android | iOS | Сервер | HTTP |
 |---|---|---|---|---|
-| debug | build type `debug`, хуки автоматизации | конфигурация Debug | компьютер разработчика (`10.0.2.2:8080` / `localhost:8080`) или `LaunchOptions.server` | да (Android — cleartext в debug-манифесте, iOS — `NSAllowsLocalNetworking` из build phase «Debug: local network») |
+| debug | build type `debug`, хуки автоматизации, [диагностика](#диагностика-debug-сборки) | конфигурация Debug | на телефоне — `hovanki.serverUrl`, как у релиза; в эмуляторе и симуляторе — компьютер разработчика (`10.0.2.2:8080` / `localhost:8080`); параметр запуска `LaunchOptions.server` — куда угодно | да (Android — cleartext в debug-манифесте, iOS — `NSAllowsLocalNetworking` из build phase «Debug: local network») |
 | тестовая | build type `preview` (= release, `app.hovanki.preview`) | Release в TestFlight | `hovanki.serverUrl` | нет, только HTTPS |
 | релиз | build type `release` | Release в App Store | `hovanki.serverUrl` | нет, только HTTPS |
 
 - `:composeApp` генерирует `BuildConstants` (задача `generateBuildConstants`): `SERVER_URL` из Gradle-свойства `hovanki.serverUrl` и `COMMIT` из `git describe`. Сборка падает, если адрес пустой или не `https://`. Одинаково для Android и iOS, потому что Xcode собирает фреймворк тем же Gradle.
-- `BuildInfo` (версия, номер сборки, commit, debug или нет) даёт платформенный Koin-модуль: Android — из `PackageInfo` и `FLAG_DEBUGGABLE`, iOS — из `Info.plist` и `Platform.isDebugBinary`. Приложение показывает его внизу экрана входа и профиля, `defaultServerUrl(buildInfo)` выбирает сервер.
+- `BuildInfo` (версия, номер сборки, commit, debug или нет, эмулятор или телефон) даёт платформенный Koin-модуль: Android — из `PackageInfo`, `FLAG_DEBUGGABLE` и `Build.HARDWARE` (`ranchu`/`goldfish` у эмулятора), iOS — из `Info.plist`, `Platform.isDebugBinary` и переменной окружения `SIMULATOR_DEVICE_NAME` симулятора. Приложение показывает его внизу экрана входа и профиля, `defaultServerUrl(buildInfo)` выбирает сервер: debug-сборка на телефоне играет на том же сервере, что и все, а в эмуляторе — на локальном.
 - Сохранённая игра или аккаунт с другого сервера (debug-сборки его меняют) при запуске отбрасываются.
 - Как собираются и публикуются тестовые сборки — [ci-cd.md](ci-cd.md#тестовые-сборки-previewyml).
 

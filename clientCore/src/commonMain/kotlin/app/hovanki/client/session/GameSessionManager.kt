@@ -2,6 +2,7 @@ package app.hovanki.client.session
 
 import app.hovanki.client.account.AccountCredentials
 import app.hovanki.client.device.DeviceInfo
+import app.hovanki.client.diagnostics.Diagnostics
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.ConnectionEvent
@@ -126,6 +127,7 @@ class GameSessionManager(
     private val activityMonitor: ActivityMonitor = NoopActivityMonitor(),
     private val pocketPulse: PocketPulse = NoopPocketPulse,
     private val carryMonitor: CarryMonitor = NoopCarryMonitor(),
+    private val diagnostics: Diagnostics = Diagnostics.Off,
 ) {
     private val mutableState = MutableStateFlow(SessionState())
     val state: StateFlow<SessionState> = mutableState.asStateFlow()
@@ -477,6 +479,7 @@ class GameSessionManager(
 
     /** What else goes with the next sync: whom the phone heard since the last one, and what it says about itself. */
     private fun syncExtras(): SyncExtras = SyncExtras(heard.getAndUpdate { emptyList() }, deviceReport())
+        .also { diagnostics.onSyncSent(it.nearby.size, it.device) }
 
     private fun deviceReport(): DeviceReport {
         val features = mutableState.value.snapshot?.settings?.features
@@ -505,6 +508,7 @@ class GameSessionManager(
         val resuming = mutableState.value.isResuming
         when (event) {
             is ConnectionEvent.Snapshot -> {
+                diagnostics.onSynced(event.snapshot.serverTimeMillis)
                 if (resuming && event.snapshot.phase == GamePhase.FINISHED) {
                     endSession(SessionError.SavedGameFinished)
                     return
@@ -515,8 +519,10 @@ class GameSessionManager(
                 if (resuming) startLocationUpdates()
             }
 
-            is ConnectionEvent.Problem ->
+            is ConnectionEvent.Problem -> {
+                diagnostics.onSyncFailed(event.error, event.retryInMillis)
                 mutableState.update { it.copy(connectionStatus = ConnectionStatus.RECONNECTING) }
+            }
 
             is ConnectionEvent.Ended -> when {
                 resuming -> endSession(SessionError.SavedGameGone)
@@ -547,6 +553,7 @@ class GameSessionManager(
         if (previous != null && snapshot.serverTimeMillis < previous.serverTimeMillis) return
 
         clock.onServerTime(snapshot.serverTimeMillis)
+        if (previous?.phase != snapshot.phase) diagnostics.note("phase ${snapshot.phase}, ${snapshot.me.role}")
         mutableState.update { state ->
             // The host changed the zone: the map data of the old one no longer applies.
             state.copy(
@@ -609,10 +616,13 @@ class GameSessionManager(
             return
         }
         radarToken.value = RadarToken.at(secret, clock.now())
+        diagnostics.onRadio(radarToken.value, asSeeker = snapshot.me.role == Role.SEEKER)
         if (radioJob?.isActive == true) return
         radioJob = scope.launch {
             try {
                 radio.run(radarToken, asSeeker = snapshot.me.role == Role.SEEKER).collect { sighting ->
+                    val isSeeker = sighting.token in seekerTokens
+                    diagnostics.onSighting(sighting.token, sighting.rssi, sighting.atMillis, isSeeker)
                     val atMillis = clock.toServerTime(sighting.atMillis)
                     val sample = NearbySighting(sighting.token, sighting.rssi, atMillis)
                     heard.update { kept -> keepRecent(kept + sample) }
@@ -628,6 +638,7 @@ class GameSessionManager(
                 throw e
             } catch (e: Exception) {
                 // Bluetooth failed underneath: the round goes on without the radar on this phone.
+                diagnostics.note("radio failed: ${e.message ?: e::class.simpleName}")
             }
         }
     }
@@ -654,6 +665,7 @@ class GameSessionManager(
         .takeLast(MAX_SIGHTINGS_PER_SYNC)
 
     private fun stopRadio() {
+        if (radioJob != null) diagnostics.onRadio(null, asSeeker = false)
         radioJob?.cancel()
         radioJob = null
         radarToken.value = null
@@ -777,6 +789,7 @@ class GameSessionManager(
         val job = scope.launch {
             try {
                 locationProvider.locationUpdates(intervalMillis).collect { fix ->
+                    diagnostics.onFix(fix.accuracyMeters, fix.isMock, fix.timestampMillis)
                     val sample = fix.copy(timestampMillis = clock.toServerTime(fix.timestampMillis))
                     mutableMyLocation.value = sample
                     sessionOutbox.add(sample)
