@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalTime::class)
+
 package app.hovanki.client.diagnostics
 
+import app.hovanki.client.lab.LabLog
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.radio.ProximityRadio
 import app.hovanki.shared.rules.RadarToken
@@ -11,13 +14,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.random.Random
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 /**
  * The debug build's bench (docs/architecture.md, «Диагностика debug-сборки»): Bluetooth and GPS outside a game, to
  * measure them where the game would be. Two phones on the bench hear each other: each advertises a made-up token, the
  * way a game's hider or seeker would ([startRadio]), and reports the other's dBm into [diagnostics]; walk apart and
  * watch the numbers. GPS reports every fix's accuracy. Only outside a game: the owner stops the bench when a game
- * starts ([stop]), so a round's radio never shares the adapter with it. Main thread.
+ * starts ([stop]), so a round's radio never shares the adapter with it. The radio lab (docs/radio-lab.md §5) builds on
+ * it: every reading and fix goes into [lab] too while the lab records. Main thread.
  */
 class DiagnosticsBench(
     private val radio: ProximityRadio,
@@ -25,6 +31,8 @@ class DiagnosticsBench(
     private val diagnostics: Diagnostics,
     private val scope: CoroutineScope,
     random: Random = Random.Default,
+    private val lab: LabLog = LabLog.Off,
+    private val deviceTimeMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
     /** What this phone advertises on the bench: a token like a game's, the same until the app restarts. */
     val token: String = random.nextBytes(RadarToken.LENGTH / 2).joinToString("") {
@@ -48,10 +56,12 @@ class DiagnosticsBench(
         radio.refresh()
         mutableRadio.value = BenchRadio(asSeeker)
         diagnostics.onRadio(token, asSeeker)
+        lab.note("bench radio on as ${if (asSeeker) "seeker" else "hider"}, token $token")
         val job = scope.launch {
             try {
                 radio.run(MutableStateFlow(token), asSeeker).collect { sighting ->
-                    diagnostics.onSighting(sighting.token, sighting.rssi, sighting.atMillis)
+                    diagnostics.onSighting(sighting.token, sighting.rssi, sighting.atMillis, via = sighting.via)
+                    lab.rx(sighting.token, sighting.rssi, sighting.api, sighting.via, sighting.peer, sighting.atMillis)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -67,7 +77,10 @@ class DiagnosticsBench(
     fun stopRadio() {
         radioJob?.cancel()
         radioJob = null
-        if (mutableRadio.value != null) diagnostics.onRadio(null, asSeeker = false)
+        if (mutableRadio.value != null) {
+            diagnostics.onRadio(null, asSeeker = false)
+            lab.note("bench radio off")
+        }
         mutableRadio.value = null
     }
 
@@ -81,6 +94,7 @@ class DiagnosticsBench(
             try {
                 locationProvider.locationUpdates(intervalMillis).collect { fix ->
                     diagnostics.onFix(fix.accuracyMeters, fix.isMock, fix.timestampMillis)
+                    lab.gps(fix.accuracyMeters, (deviceTimeMillis() - fix.timestampMillis).coerceAtLeast(0))
                 }
             } catch (e: CancellationException) {
                 throw e
