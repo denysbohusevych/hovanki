@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.hovanki.client.diagnostics.BenchRadio
 import app.hovanki.client.lab.ClockEstimate
+import app.hovanki.client.lab.HapticKind
 import app.hovanki.client.lab.LabController
+import app.hovanki.client.lab.LabLog
 import app.hovanki.client.lab.LabPulse
 import app.hovanki.client.lab.LabRun
 import app.hovanki.client.lab.LabRunState
@@ -16,7 +18,9 @@ import app.hovanki.client.radio.ProximityRadio
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.SessionState
 import app.hovanki.shared.protocol.BluetoothState
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -45,6 +49,7 @@ class LabViewModel(
     val screenOff: StateFlow<Boolean> = lab.screenOff
     val pulse: StateFlow<LabPulse> = lab.pulse
     val hapticTest: StateFlow<String?> = lab.hapticTest
+    val felt: StateFlow<Set<Int>> = lab.felt
     val scenario: StateFlow<LabRun?> = lab.scenarios.run
     val benchRadio: StateFlow<BenchRadio?> = lab.bench.radioMode
     val bluetooth: StateFlow<BluetoothState> = radio.state
@@ -56,8 +61,12 @@ class LabViewModel(
     val canProbe: Boolean get() = lab.canProbe
     val canListen: Boolean get() = lab.canListen
     val canTurnScreenOff: Boolean get() = lab.canTurnScreenOff
-    val hapticGroups: Int get() = lab.hapticKinds.size
-    val hapticKinds: String get() = lab.hapticKinds.joinToString { it.key }
+    val hapticKinds: List<HapticKind> get() = lab.hapticKinds
+
+    private val mutableLastMark = MutableStateFlow<String?>(null)
+
+    /** The last mark put by hand, with its time: the buttons' answer on the screen. */
+    val lastMark: StateFlow<String?> = mutableLastMark.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -102,14 +111,25 @@ class LabViewModel(
 
     fun setPulse(pulse: LabPulse) = lab.setPulse(pulse)
 
-    fun startHapticTest() = lab.startHapticTest()
+    /**
+     * The vibration test as a test of its own: the lab starts if it is off; [keepAwake] keeps the app alive locked by
+     * «as in a game» (GPS), off for the attempt without it.
+     */
+    fun startHapticTest(keepAwake: Boolean) {
+        if (session.value.session != null) return
+        if (!running.value) lab.start()
+        lab.setInGame(keepAwake)
+        lab.startHapticTest()
+    }
 
     fun stopHapticTest() = lab.stopHapticTest()
 
-    fun felt(group: Int) = lab.felt(group)
+    fun toggleFelt(group: Int) = lab.toggleFelt(group)
 
-    fun mark(label: String, place: String? = null, action: String? = null, distance: Double? = null) =
+    fun mark(label: String, place: String? = null, action: String? = null, distance: Double? = null) {
         lab.mark(label, place, action, distance)
+        mutableLastMark.value = "$label · ${LabLog.formatUtc(lab.log.serverNow()).substringAfter(' ').take(8)} UTC"
+    }
 
     fun startScenario(scenario: LabScenario) = lab.scenarios.start(scenario)
 

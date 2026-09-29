@@ -19,11 +19,11 @@ class LabRunTest {
 
     @Test
     fun theRunsTokenCarriesTheScriptAndTheStart() {
-        val token = LabRunToken.encode(1, start)
+        val token = LabRunToken.encode(LabRunScripts.RADIO.version, start)
         assertEquals(8, token.length)
-        assertTrue(token.startsWith("1ab1"))
-        assertEquals(1 to start, LabRunToken.decode(token, start - 10_000))
-        assertEquals(1 to start, LabRunToken.decode(token, start + 600_000), "heard late in the run")
+        assertTrue(token.startsWith("1ab${LabRunScripts.RADIO.version}"))
+        assertEquals(LabRunScripts.RADIO.version to start, LabRunToken.decode(token, start - 10_000))
+        assertEquals(LabRunScripts.RADIO.version to start, LabRunToken.decode(token, start + 600_000), "heard late")
         assertNull(LabRunToken.decode("cafe0001", start))
         assertNull(LabRunToken.decode("1abx0000", start))
         assertFailsWith<IllegalArgumentException> { LabRunToken.encode(1, start + 500) }
@@ -108,8 +108,7 @@ class LabRunTest {
         assertTrue(done.finished && !done.stopped)
         assertTrue(done.macHeard)
         assertFalse(done.macBeaconHeard)
-        assertTrue(done.hadHapticTest)
-        assertTrue(lab.haptics.played.isNotEmpty())
+        assertTrue(LabRunScripts.RADIO.steps.none { "haptic" in it.id }, "the vibration test is a test of its own")
         assertTrue("Radio run done: unlock the phone" in lab.haptics.notified)
         assertFalse(runner.isRunning)
         assertNull(lab.controller.probe.value)

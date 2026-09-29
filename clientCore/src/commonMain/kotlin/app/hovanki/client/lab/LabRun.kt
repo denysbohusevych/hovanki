@@ -17,14 +17,9 @@ enum class RunPhase { SCREEN, LOCK, LOCKED }
 /**
  * What the phone does in a step. [hider]: the game's radio as a hider with the run's token (it also scans: the game's
  * service by CoreBluetooth, the seekers' iBeacon by ranging). [probe]: the overflow probe. [rotateToken]: the probe's
- * token changes when the step starts. [hapticTest]: the vibration test, without the lead.
+ * token changes when the step starts. The vibration test is a test of its own, not a step.
  */
-data class PhoneSetup(
-    val hider: Boolean = false,
-    val probe: ProbeMode? = null,
-    val rotateToken: Boolean = false,
-    val hapticTest: Boolean = false,
-)
+data class PhoneSetup(val hider: Boolean = false, val probe: ProbeMode? = null, val rotateToken: Boolean = false)
 
 /** What the Mac does in a step, besides sniffing (always): advertise as a hider, or as a seeker's iBeacon. */
 data class MacSetup(val advertise: Boolean = false, val iBeacon: Boolean = false)
@@ -79,9 +74,9 @@ object LabRunScripts {
 
     private val pocket = PhoneSetup(hider = true, probe = ProbeMode.Token)
 
-    /** Version 1: 10 minutes, the phone and the Mac on the table 1 m apart. */
+    /** Version 2: 9 minutes of Bluetooth only, the phone and the Mac on the table 1 m apart. */
     val RADIO = LabRunScript(
-        1,
+        2,
         listOf(
             RunStep(
                 "baseline",
@@ -155,15 +150,6 @@ object LabRunScripts {
                 MacSetup(advertise = true),
                 "Does the locked phone's CoreBluetooth scan hear the Mac's name?",
             ),
-            RunStep(
-                "haptics_locked",
-                "Vibration from the background",
-                60,
-                RunPhase.LOCKED,
-                pocket.copy(hapticTest = true),
-                MacSetup(),
-                "Four groups of three: Core Haptics, impact, a notification with a silent sound, one without (H2).",
-            ),
         ),
     )
 
@@ -212,7 +198,6 @@ data class LabRunState(
 ) {
     val step: RunStep? get() = script.steps.getOrNull(index)
     val endsAtServer: Long get() = startAtServer + script.totalMillis
-    val hadHapticTest: Boolean get() = script.steps.take(index + 1).any { it.phone.hapticTest }
 }
 
 /**
@@ -324,7 +309,6 @@ class LabRunner(
             if (!step.phone.hider && hiderOn) controller.setBenchRadio(null)
         }
         if (step.phone.rotateToken) controller.rotateProbeToken(delayMillis = 0)
-        if (step.phone.hapticTest) controller.startHapticTest(leadMillis = 0)
         if (step.phase == RunPhase.LOCK) controller.signal("Lock the phone now")
     }
 

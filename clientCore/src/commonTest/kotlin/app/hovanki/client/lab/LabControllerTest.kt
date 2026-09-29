@@ -108,23 +108,34 @@ class LabControllerTest {
     }
 
     @Test
-    fun theVibrationTestPlaysEveryKindInTurn() = runTest {
+    fun theVibrationTestTellsItsGroupsByTheirCount() = runTest {
         val lab = Lab(this)
         lab.controller.start()
         lab.controller.startHapticTest()
         runCurrent()
         advanceTimeBy(LabController.HAPTIC_TEST_LEAD_MILLIS - 1)
-        assertEquals(emptyList(), lab.haptics.played, "time to lock the phone first")
+        val signal = List(2) { HapticKind.CORE_HAPTICS }
+        assertEquals(signal, lab.haptics.played, "only the signal to lock the phone first")
         advanceTimeBy(60_000)
         assertEquals(
-            List(3) { HapticKind.CORE_HAPTICS } + List(3) { HapticKind.NOTIFY_NO_SOUND } + HapticKind.CORE_HAPTICS,
+            signal + HapticKind.CORE_HAPTICS + List(2) { HapticKind.NOTIFY_NO_SOUND },
             lab.haptics.played,
+            "group N: N beats",
         )
-        lab.controller.felt(1)
+        assertTrue(lab.haptics.notified.last().startsWith("Vibration test over"))
+        lab.controller.toggleFelt(2)
+        lab.controller.toggleFelt(1)
+        lab.controller.toggleFelt(2)
+        assertEquals(setOf(1), lab.controller.felt.value)
         val marks = lab.events().filter {
             it["k"]!!.jsonPrimitive.content == "mark"
         }.map { it["label"]!!.jsonPrimitive.content }
-        assertEquals(listOf("vibration test: start", "vibration test: over", "felt group 1"), marks)
+        assertEquals(
+            listOf("vibration test: start", "vibration test: over", "felt group 2", "felt group 1", "not felt group 2"),
+            marks,
+        )
+        lab.controller.startHapticTest()
+        assertEquals(emptySet(), lab.controller.felt.value, "a new test starts clean")
     }
 
     @Test
