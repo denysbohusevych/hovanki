@@ -16,6 +16,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,11 +29,13 @@ import androidx.compose.ui.text.intl.Locale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.ic_crosshair
 import app.hovanki.client.resources.ic_pause
 import app.hovanki.client.resources.ic_play
+import app.hovanki.client.resources.lobby_streets_loading
 import app.hovanki.client.resources.preview_final
 import app.hovanki.client.resources.preview_glow
 import app.hovanki.client.resources.preview_hider
@@ -47,10 +50,14 @@ import app.hovanki.client.resources.settings_chip_circle
 import app.hovanki.client.resources.settings_chip_streets
 import app.hovanki.client.resources.settings_km
 import app.hovanki.client.resources.settings_map_after_save
+import app.hovanki.client.resources.settings_map_buildings_after_save
+import app.hovanki.client.resources.settings_map_no_streets
 import app.hovanki.client.resources.settings_meters
 import app.hovanki.client.resources.settings_play_game
 import app.hovanki.client.resources.settings_play_shrink
 import app.hovanki.client.resources.settings_play_stop
+import app.hovanki.client.session.DraftZone
+import app.hovanki.client.session.DraftZoneState
 import app.hovanki.client.session.ZoneCue
 import app.hovanki.client.session.momentAt
 import app.hovanki.client.ui.common.PopButton
@@ -69,10 +76,12 @@ import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.ZoneCircle
+import app.hovanki.shared.protocol.ZoneSchedule
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.Glow
 import app.hovanki.shared.rules.SettingsLimits
 import app.hovanki.shared.rules.stateAt
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -81,9 +90,9 @@ import kotlin.math.sin
 /**
  * The draft on the real map (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 2.2): the zone the host is
  * choosing, where it will be, and the zone's buildings (pink, open ones lime). The camera follows the draft. A zone by
- * streets is drawn once the server built it; a new one shows as its circles until saved. «Shrink» plays the zone's
- * stages, «Play the game» the whole game with made-up hiders ([elapsed], sped up). «Center» moves the zone: the host
- * pans the map under a pin.
+ * streets is drawn once the server built it, a draft's too, before it is saved (section 2.3; its circles meanwhile); the
+ * buildings of a new zone come with saving. «Shrink» plays the zone's stages, «Play the game» the whole game with
+ * made-up hiders ([elapsed], sped up). «Center» moves the zone: the host pans the map under a pin.
  */
 @Composable
 internal fun SettingsMap(
@@ -97,7 +106,9 @@ internal fun SettingsMap(
     val moving = viewModel.isMovingCenter
     val saved = state.zone.schedule
     val isSavedZone = draft.zone == saved && draft.zoneShape == state.zoneShape
-    val streets = state.streets.takeIf { isSavedZone }
+    val draftZone by viewModel.draftZone.collectAsStateWithLifecycle()
+    val draftStreets = draftZone?.takeIf { draft.zoneShape == ZoneShape.STREETS && it.zone == draft.zone }
+    val streets = if (isSavedZone) state.streets else draftStreets?.streets
     val zoneStart = when (preview) {
         null -> null
         SettingsPreview.SHRINK -> 0L
@@ -150,13 +161,15 @@ internal fun SettingsMap(
                 text = stringResource(Res.string.settings_center_hint),
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp, start = 16.dp, end = 16.dp),
             )
-        } else if (!isSavedZone && preview == null) {
-            MapChip(
-                text = stringResource(Res.string.settings_map_after_save),
-                color = Palette.Paper,
-                contentColor = Palette.Ink,
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 60.dp),
-            )
+        } else if (preview == null) {
+            draftNote(isSavedZone, draft, saved, draftStreets)?.let { note ->
+                MapChip(
+                    text = stringResource(note),
+                    color = Palette.Paper,
+                    contentColor = Palette.Ink,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 60.dp),
+                )
+            }
         }
         Row(
             modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
@@ -189,6 +202,30 @@ internal fun SettingsMap(
             }
         }
     }
+}
+
+/**
+ * What the map can't show of the draft yet: the blocks while the server builds them, the buildings of a new zone until
+ * it is saved. Null: the map shows the draft as it will be.
+ */
+private fun draftNote(
+    isSavedZone: Boolean,
+    draft: GameSettings,
+    saved: ZoneSchedule,
+    streets: DraftZone?,
+): StringResource? = when {
+    isSavedZone -> null
+
+    draft.zoneShape == ZoneShape.STREETS -> when (streets?.state) {
+        null, DraftZoneState.LOADING -> Res.string.lobby_streets_loading
+        DraftZoneState.READY -> Res.string.settings_map_buildings_after_save.takeIf { draft.zone != saved }
+        DraftZoneState.NO_STREETS -> Res.string.settings_map_no_streets
+        DraftZoneState.UNKNOWN -> Res.string.settings_map_after_save
+    }
+
+    draft.zone != saved -> Res.string.settings_map_buildings_after_save
+
+    else -> null
 }
 
 /** The capsule over the map while a preview plays: what happens and how long for, like the game's HUD. */

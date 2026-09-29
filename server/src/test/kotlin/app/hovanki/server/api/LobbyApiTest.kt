@@ -29,6 +29,8 @@ import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsPreviewRequest
+import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
@@ -187,6 +189,40 @@ class LobbyApiTest(
             get(ApiRoutes.buildings(host.session.gameId), host.session.token).expect(200).body,
         )
         assertEquals(BuildingsState.READY, buildings.state)
+    }
+
+    /** docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 2.3. */
+    @Test
+    fun theHostSeesTheZoneByStreetsBeforeSaving() {
+        val (host, anna) = lobby("Host", "Anna")
+        val draft = settings.copy(
+            zone = shrinkingZone(park, initialRadiusMeters = 300.0, steps = 0),
+            zoneShape = ZoneShape.STREETS,
+        )
+
+        // The fake street source builds right away: the first answer has the blocks.
+        val preview = post(ApiRoutes.settingsPreview(host.gameId), SettingsPreviewRequest(draft).toJson(), host.token)
+            .ok<SettingsPreviewResponse>()
+
+        assertEquals(StreetZoneState.READY, preview.streetZone)
+        assertEquals(1, preview.stages.size)
+        assertTrue(preview.stages.single().outline.size >= 4)
+        assertEquals(0, sync(anna).mapRevision, "a preview changes nothing")
+        post(ApiRoutes.settingsPreview(anna.gameId), SettingsPreviewRequest(draft).toJson(), anna.token)
+            .error(403, ErrorCode.FORBIDDEN)
+        val circle = post(ApiRoutes.settingsPreview(host.gameId), SettingsPreviewRequest(settings).toJson(), host.token)
+            .ok<SettingsPreviewResponse>()
+        assertNull(circle.streetZone, "a circle needs nothing built")
+
+        val saved = post(
+            ApiRoutes.settings(host.gameId),
+            SettingsRequest(draft).toJson(),
+            host.token,
+        ).ok<GameSnapshot>()
+
+        assertEquals(StreetZoneState.READY, saved.streetZone)
+        val zone = get(ApiRoutes.streetZone(anna.gameId), anna.token).ok<StreetZoneResponse>()
+        assertEquals(preview.stages, zone.stages, "everybody gets the blocks the host saw")
     }
 
     @Test

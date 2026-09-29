@@ -29,6 +29,12 @@ object ApiRoutes {
     /** POST [SettingsRequest]: the host changes the setup in the lobby. */
     const val SETTINGS = "$GAMES/{gameId}/settings"
 
+    /**
+     * POST [SettingsPreviewRequest]: what the host's draft makes before it is saved, the zone by streets
+     * ([SettingsPreviewResponse]); host only, in the lobby.
+     */
+    const val SETTINGS_PREVIEW = "$SETTINGS/preview"
+
     /** POST, no body, 204: the player leaves the game for good; their token stops working. */
     const val LEAVE = "$GAMES/{gameId}/leave"
 
@@ -247,6 +253,8 @@ object ApiRoutes {
     fun roles(gameId: GameId): String = ROLES.fill("gameId" to gameId.value)
 
     fun settings(gameId: GameId): String = SETTINGS.fill("gameId" to gameId.value)
+
+    fun settingsPreview(gameId: GameId): String = SETTINGS_PREVIEW.fill("gameId" to gameId.value)
 
     fun leave(gameId: GameId): String = LEAVE.fill("gameId" to gameId.value)
 

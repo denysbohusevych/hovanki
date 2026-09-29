@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import app.hovanki.client.account.AccountManager
 import app.hovanki.client.account.AccountState
 import app.hovanki.client.session.ConnectionStatus
+import app.hovanki.client.session.DraftZone
+import app.hovanki.client.session.DraftZonePreview
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
@@ -144,6 +146,13 @@ class LobbyViewModel(
     /** «What changes», asked before a setup that touches the map is sent; null: not asked. */
     var pendingChanges by mutableStateOf<List<SettingsChange>?>(null)
         private set
+
+    /**
+     * The zone by streets of the draft, built by the server before «Save»
+     * (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 2.3): a tap on «By streets» shows the blocks.
+     */
+    private val draftZonePreview = DraftZonePreview(viewModelScope, sessionManager::previewSettings)
+    val draftZone: StateFlow<DraftZone?> = draftZonePreview.zone
 
     /**
      * Where each game was made, as far as this phone knows: the zone moves at most so far from it
@@ -416,6 +425,7 @@ class LobbyViewModel(
         pendingChanges = null
         settingsPanelIn = snapshot.gameId
         sessionManager.clearError()
+        previewDraftZone()
     }
 
     fun closeSettings() {
@@ -424,10 +434,12 @@ class LobbyViewModel(
         preview = null
         isMovingCenter = false
         pendingChanges = null
+        previewDraftZone()
     }
 
     fun editSetup(setup: GameSetup) {
         setupDraft = setup.coerced()
+        previewDraftZone()
     }
 
     fun pickSettingsTab(tab: SettingsTab) {
@@ -476,6 +488,13 @@ class LobbyViewModel(
             val offset = point.offsetFrom(origin)
             origin.moveBy(offset.eastMeters * reach / distance, offset.northMeters * reach / distance)
         }
+        previewDraftZone()
+    }
+
+    /** The draft's zone by streets is asked for while the settings are open and the game has another zone. */
+    private fun previewDraftZone() {
+        val saved = sessionManager.state.value.snapshot?.settings
+        draftZonePreview.show(draftSettings()?.takeIf { settingsPanelIn != null }, saved)
     }
 
     /** Where this phone first saw [gameId]'s zone: the pin moves around it. */

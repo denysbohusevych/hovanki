@@ -31,6 +31,8 @@ import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsPreviewRequest
+import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
@@ -93,6 +95,7 @@ class FakeGameApi(
     private val onTracks: suspend () -> TracksResponse = { unused() },
     private val onRoles: suspend (RolesRequest) -> GameSnapshot = { unused() },
     private val onSettings: suspend (SettingsRequest) -> GameSnapshot = { unused() },
+    private val onPreview: suspend (SettingsPreviewRequest) -> SettingsPreviewResponse = { unused() },
     private val onStreetZone: suspend () -> StreetZoneResponse = { unused() },
     private val onLeave: suspend () -> Unit = {},
     /** Every call of the board and the perks (items, checkpoints, perks, quests) answers with this. */
@@ -182,6 +185,16 @@ class FakeGameApi(
     override suspend fun updateSettings(session: PlayerSession, request: SettingsRequest): GameSnapshot {
         settingsRequests += request
         return onSettings(request)
+    }
+
+    val previewRequests = mutableListOf<SettingsPreviewRequest>()
+
+    override suspend fun previewSettings(
+        session: PlayerSession,
+        request: SettingsPreviewRequest,
+    ): SettingsPreviewResponse {
+        previewRequests += request
+        return onPreview(request)
     }
 
     override suspend fun leave(session: PlayerSession) {

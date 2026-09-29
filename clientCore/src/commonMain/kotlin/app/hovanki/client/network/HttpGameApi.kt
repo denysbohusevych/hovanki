@@ -22,6 +22,8 @@ import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.ScanCheckpointRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsPreviewRequest
+import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
@@ -55,6 +57,11 @@ class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
 
     override suspend fun updateSettings(session: PlayerSession, request: SettingsRequest): GameSnapshot =
         http.post(ApiRoutes.settings(session.gameId), session.token, request)
+
+    override suspend fun previewSettings(
+        session: PlayerSession,
+        request: SettingsPreviewRequest,
+    ): SettingsPreviewResponse = http.post(ApiRoutes.settingsPreview(session.gameId), session.token, request)
 
     override suspend fun acceptCrowding(session: PlayerSession): GameSnapshot =
         http.post(ApiRoutes.crowdingAccept(session.gameId), session.token)

@@ -40,6 +40,12 @@ enum class RateLimit {
 
     /** Starting to watch a game per account, found or not: open games are not found by trying codes. */
     WATCH,
+
+    /**
+     * New drafts whose zone by streets the host has the server build before saving, per host
+     * (docs/adr/0014-settings-lobby-redesign-open-buildings.md); asking again about the same draft is free.
+     */
+    SETTINGS_PREVIEW,
 }
 
 /** `hovanki.rate-limits.*`. Tests and the `e2e` profile turn them off ([enabled]); one test context turns them on. */
@@ -60,6 +66,7 @@ data class RateLimitProperties(
     val reports: Limit = Limit(10, Duration.ofHours(1)),
     val adminTotp: Limit = Limit(10, Duration.ofMinutes(15)),
     val watch: Limit = Limit(30, Duration.ofHours(1)),
+    val settingsPreview: Limit = Limit(120, Duration.ofMinutes(10)),
 ) {
     /** At most [count] events per key within any [window]. */
     data class Limit(val count: Int, val window: Duration)
@@ -77,5 +84,6 @@ data class RateLimitProperties(
         RateLimit.REPORTS -> reports
         RateLimit.ADMIN_TOTP -> adminTotp
         RateLimit.WATCH -> watch
+        RateLimit.SETTINGS_PREVIEW -> settingsPreview
     }
 }
