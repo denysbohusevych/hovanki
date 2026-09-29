@@ -42,8 +42,9 @@ import kotlin.random.Random
  * The air between the bots' phones. Once a second every listening phone hears every advertising one within range:
  * the signal falls with the distance like it does outdoors (about -58 dBm a metre away, -73 at five, -85 at
  * twenty), a little noise on top, and the body takes [POCKET_DAMPING_DB] off for each phone in a pocket. What the
- * platforms can hear of each other follows the ADR: an iPhone in a pocket advertising the hiders' service is heard
- * by iPhones only; a seeker's iBeacon frame and any phone on the screen by everybody.
+ * platforms can hear of each other follows the phones: an iPhone in a pocket (the app in the background) sends
+ * neither its name nor the iBeacon frame, so nobody reads its token (docs/adr/0016-iphone-overflow-radar.md); an
+ * Android in a pocket and any phone on the screen are heard by everybody.
  */
 class RadioWorld : AutoCloseable {
     private val phones = CopyOnWriteArrayList<FakeRadio>()
@@ -73,7 +74,7 @@ class RadioWorld : AutoCloseable {
             val here = listener.position()
             for (other in on) {
                 val token = other.token ?: continue
-                if (other === listener || !other.isHeardBy(listener)) continue
+                if (other === listener || !other.isHeard) continue
                 val meters = here.distanceTo(other.position())
                 var level = rssiAt(meters) + gaussian() * NOISE_DB
                 if (listener.carry() == Carry.IN_POCKET) level -= POCKET_DAMPING_DB
@@ -152,9 +153,12 @@ class FakeRadio(
         sink?.trySend(RadioSighting(token, rssi, clock()))
     }
 
-    /** Whether [listener] can hear this phone's frame at all (docs/adr/0012-nearby-radar.md, section 1.1). */
-    internal fun isHeardBy(listener: FakeRadio): Boolean =
-        asSeeker || platform != Platform.IOS || carry() != Carry.IN_POCKET || listener.platform == Platform.IOS
+    /**
+     * Whether anybody can read this phone's token at all: not an iPhone in a pocket, whose app in the background sends
+     * neither the hider's name nor the seeker's iBeacon frame (the first test on real phones, 2026-09-29;
+     * docs/adr/0016-iphone-overflow-radar.md). It still hears the others: a seeker's iBeacon through CoreLocation.
+     */
+    internal val isHeard: Boolean get() = platform != Platform.IOS || carry() != Carry.IN_POCKET
 }
 
 /** The bot's phone as the app sees it: its kind, no UWB, no motion sensors, a model for the calibration. */
