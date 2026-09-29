@@ -12,6 +12,7 @@ import app.hovanki.e2e.devices.LocalSetup
 import app.hovanki.e2e.devices.Maestro
 import app.hovanki.e2e.devices.Shell
 import app.hovanki.e2e.devices.warmUpServer
+import app.hovanki.e2e.lab.LabCli
 import app.hovanki.shared.protocol.GeoPoint
 import kotlinx.coroutines.runBlocking
 import java.io.File
@@ -30,9 +31,11 @@ import kotlin.time.Duration.Companion.minutes
  * - `route`: prints the fixes of a route or feeds them to an emulator/simulator in real time (see [RouteCli]).
  * - `beacon`: a MacBook joins a game as one more player with its own Bluetooth (see [BeaconCli]).
  * - `beacon-lab`: the MacBook in the radio lab, without a game (see [BeaconLabCli]).
+ * - `lab merge`: the radio lab's logs of several devices on one timeline (see [LabCli]).
  */
 fun main(args: Array<String>) {
-    val options = CliArgs(args.drop(1))
+    // `lab merge` takes file names without options before them; the others take `--key value` pairs only.
+    val options by lazy { CliArgs(args.drop(1)) }
     val code = when (args.firstOrNull()) {
         "devices" -> runDevices(options)
 
@@ -41,6 +44,8 @@ fun main(args: Array<String>) {
         "beacon" -> BeaconCli.run(options)
 
         "beacon-lab" -> BeaconLabCli.run(options)
+
+        "lab" -> LabCli.run(args.drop(1))
 
         else -> {
             System.err.println(USAGE)
@@ -199,4 +204,5 @@ private val USAGE = """
                   (macOS: start it with e2e/mac-beacon/run.sh --join <game code>)
       e2e beacon-lab --server https://... --helper <beacon binary> [--label mac] [--advertise <token> | --ibeacon <token>]
                   [--sniff on] [--out e2e/build/lab] (macOS: e2e/mac-beacon/run.sh --lab ...)
+      e2e lab merge <lab log .jsonl> [...] [--out e2e/build/lab/merged]
 """.trimIndent()
