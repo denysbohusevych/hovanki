@@ -169,6 +169,12 @@ object SettingsLimits {
     const val MAX_OPEN_BUILDINGS = 10
     const val OPEN_BUILDING_MARGIN_METERS = 50.0
 
+    /**
+     * How far the host may move the zone's center in the lobby from where the game was made
+     * (docs/adr/0014-settings-lobby-redesign-open-buildings.md): the next park, not another town.
+     */
+    const val MAX_CENTER_MOVE_METERS = 3_000.0
+
     /** Whether [point] is near enough to [zone] for a building there to be open. */
     fun isNearZone(point: GeoPoint, zone: ZoneSchedule): Boolean {
         val around = zone.boundingCircle(OPEN_BUILDING_MARGIN_METERS)
