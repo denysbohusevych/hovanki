@@ -21,7 +21,7 @@ enum class ServerFeature {
     /** The hider's sense: «a seeker is near» from the pocket ([GameFeatures.hiderSense]). */
     HIDER_SENSE,
 
-    /** The precision radar by UWB: meters and an arrow while both look at their phones ([GameFeatures.precisionRadar]). */
+    /** The precision radar by UWB: meters and an arrow while both look ([GameFeatures.precisionRadar]). */
     PRECISION_RADAR,
 
     /** A catch claim only up close by the radar ([GameFeatures.proximityCatch]). */
