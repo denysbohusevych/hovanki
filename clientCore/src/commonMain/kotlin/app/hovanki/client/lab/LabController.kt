@@ -123,10 +123,11 @@ class LabController(
 
     private val mutableElapsed = MutableSharedFlow<LabStep>(extraBufferCapacity = 4)
 
-    /** A scenario's step is over: the screen calls for «Next». */
+    /** A scenario's step is over: the next one starts by itself, with a signal. */
     val elapsed: SharedFlow<LabStep> = mutableElapsed.asSharedFlow()
 
     val scenarios = LabScenarioRunner(
+        autoAdvance = true,
         nowMillis = monotonicMillis,
         onStep = { scenario, index, step ->
             log.mark(
@@ -137,12 +138,17 @@ class LabController(
                 action = step.action,
                 distance = step.distance,
             )
+            // The step changed by itself: tell the tester what to do now, by a notification when locked.
+            if (index > 0) {
+                val text = listOf(step.label, step.hint).filter { it.isNotEmpty() }.joinToString(". ")
+                scope.launch { signal(text) }
+            }
         },
-        onElapsed = { step ->
-            mutableElapsed.tryEmit(step)
-            scope.launch { beepOnScreen() }
+        onElapsed = { step -> mutableElapsed.tryEmit(step) },
+        onFinished = {
+            log.mark("${it.id}: done", by = "scenario")
+            scope.launch { signal("${it.title}: done") }
         },
-        onFinished = { log.mark("${it.id}: done", by = "scenario") },
     )
 
     val canProbe: Boolean get() = air.canProbe
@@ -219,8 +225,9 @@ class LabController(
         log.note("as in a game ${if (on) "on" else "off"}")
     }
 
-    fun setBenchRadio(asSeeker: Boolean?) {
-        if (asSeeker == null) bench.stopRadio() else bench.startRadio(asSeeker)
+    /** The game's radio on the bench as a hider or a seeker ([token]: the bench's own unless given); null: off. */
+    fun setBenchRadio(asSeeker: Boolean?, token: String? = null) {
+        if (asSeeker == null) bench.stopRadio() else bench.startRadio(asSeeker, token ?: bench.token)
     }
 
     fun setProbe(mode: ProbeMode?) {
@@ -333,11 +340,11 @@ class LabController(
     }
 
     /**
-     * The vibration test (H2): [HAPTIC_TEST_LEAD_MILLIS] to lock the phone and put it away, then every kind in turn,
+     * The vibration test (H2): [leadMillis] to lock the phone and put it away, then every kind in turn,
      * [HAPTIC_TEST_BEATS] beats each, [HAPTIC_TEST_PAUSE_MILLIS] apart, then one more beat for «over». The tester marks
      * what they felt afterwards ([felt]).
      */
-    fun startHapticTest() {
+    fun startHapticTest(leadMillis: Long = HAPTIC_TEST_LEAD_MILLIS) {
         stopHapticTest()
         val kinds = haptics.kinds
         if (kinds.isEmpty()) {
@@ -348,7 +355,7 @@ class LabController(
             try {
                 haptics.prepare()
                 log.mark("vibration test: start", by = "lab")
-                countdown(HAPTIC_TEST_LEAD_MILLIS) { "lock the phone: ${it}s" }
+                countdown(leadMillis) { "lock the phone: ${it}s" }
                 for ((index, kind) in kinds.withIndex()) {
                     val group = index + 1
                     mutableHapticTest.value = "group $group: ${kind.key}"
@@ -484,6 +491,15 @@ class LabController(
             }
             delay(beat.periodMillis)
         }
+    }
+
+    /**
+     * Tells the tester something happened: two taps on the screen and, off it, a notification with [text] (the taps
+     * may not get through there, docs/radio-lab.md H2).
+     */
+    suspend fun signal(text: String? = null) {
+        if (text != null && probes.appState() != "active" && probes.appState() != "screen_on") haptics.notify(text)
+        beepOnScreen()
     }
 
     private suspend fun beepOnScreen() {

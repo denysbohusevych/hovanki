@@ -141,6 +141,9 @@ interface LabHaptics {
     /** One beat of [kind] at [strength] (0..1). */
     suspend fun play(kind: HapticKind, strength: Double = 1.0): HapticResult
 
+    /** A notification with [text], to reach the tester off the screen; nothing where there is none. */
+    suspend fun notify(text: String) = Unit
+
     /** What an engine says by itself, e.g. Core Haptics stopped (`engine_stopped`) and why. */
     fun engineEvents(): Flow<Pair<HapticKind, String>> = emptyFlow()
 }

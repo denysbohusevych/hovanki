@@ -22,10 +22,31 @@ class OverflowAreaTest {
         val bits = setOf(0, 7, 8, 63, 127)
         val mask = OverflowArea.maskOf(bits)
         assertEquals(0x81.toByte(), mask[0])
-        assertEquals(0x01.toByte(), mask[1])
+        assertEquals(0x80.toByte(), mask[1])
         assertEquals(bits, OverflowArea.bitsOf(mask))
-        assertEquals(setOf(7, 0, 15, 56, 120), OverflowArea.bitsOfMsbFirst(mask))
     }
+
+    /** What an iPhone 12 on iOS 26.2.1 put on the air and a MacBook heard (docs/radio-lab.md, «Как прошло», E1b, E2). */
+    @Test
+    fun theAirAsMeasured() {
+        assertEquals(setOf(0), OverflowArea.bitsOf(hex("80000000000000000000000000000000")))
+        assertEquals(setOf(7), OverflowArea.bitsOf(hex("01000000000000000000000000000000")))
+        assertEquals(setOf(8), OverflowArea.bitsOf(hex("00800000000000000000000000000000")))
+        assertEquals(setOf(11), OverflowArea.bitsOf(hex("00100000000000000000000000000000")))
+        // A locked hider: our service's bit alone.
+        assertEquals(setOf(OverflowArea.OUR_SERVICE_BIT), OverflowArea.bitsOf(hex("00000000000000000000000000000400")))
+        // The probe's tokens: locked (our service's bit too) and on the screen.
+        val locked = hex("996995aaa6a99659a280000000000400")
+        assertEquals(listOf("68fde92c"), OverflowCode.decode(OverflowArea.bitsOf(locked)))
+        assertTrue(
+            OverflowArea.maskOf(OverflowCode.encode("68fde92c") + OverflowArea.OUR_SERVICE_BIT).contentEquals(locked),
+        )
+        val onScreen = hex("9956655a659a699a9280000000000000")
+        assertEquals(listOf("1434b6b8"), OverflowCode.decode(OverflowArea.bitsOf(onScreen)))
+        assertTrue(OverflowArea.maskOf(OverflowCode.encode("1434b6b8")).contentEquals(onScreen))
+    }
+
+    private fun hex(text: String) = ByteArray(text.length / 2) { text.substring(2 * it, 2 * it + 2).toInt(16).toByte() }
 
     @Test
     fun appleDataFindsTheMaskAfterOtherFrames() {
@@ -95,5 +116,6 @@ class OverflowAreaTest {
         val used = (OverflowLayout.LAB.markerPairs + OverflowLayout.LAB.tokenPairs).flatMap { it.toList() }
         assertEquals(72, used.size)
         assertTrue(OverflowArea.APPLE_WATCH_BIT !in used)
+        assertTrue(OverflowArea.OUR_SERVICE_BIT !in used)
     }
 }

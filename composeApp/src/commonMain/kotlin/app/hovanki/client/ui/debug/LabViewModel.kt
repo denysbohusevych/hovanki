@@ -7,6 +7,8 @@ import app.hovanki.client.lab.ClockEstimate
 import app.hovanki.client.lab.LabController
 import app.hovanki.client.lab.LabPulse
 import app.hovanki.client.lab.LabRun
+import app.hovanki.client.lab.LabRunState
+import app.hovanki.client.lab.LabRunner
 import app.hovanki.client.lab.LabScenario
 import app.hovanki.client.lab.ProbeMode
 import app.hovanki.client.location.LocationProvider
@@ -26,6 +28,7 @@ import kotlinx.coroutines.launch
  */
 class LabViewModel(
     private val lab: LabController,
+    private val runner: LabRunner,
     private val sessionManager: GameSessionManager,
     private val radio: ProximityRadio,
     private val locationProvider: LocationProvider,
@@ -46,6 +49,8 @@ class LabViewModel(
     val benchRadio: StateFlow<BenchRadio?> = lab.bench.radioMode
     val bluetooth: StateFlow<BluetoothState> = radio.state
     val session: StateFlow<SessionState> = sessionManager.state
+    val run: StateFlow<LabRunState?> = runner.state
+    val runError: StateFlow<String?> = runner.error
 
     val benchToken: String get() = lab.bench.token
     val canProbe: Boolean get() = lab.canProbe
@@ -60,12 +65,18 @@ class LabViewModel(
                 .map { it.session != null }
                 .distinctUntilChanged()
                 .filter { it }
-                .collect { lab.stop() }
+                .collect {
+                    runner.stop()
+                    lab.stop()
+                }
         }
     }
 
     /** The lab's monotonic clock, for the timers on the screen. */
     fun monoNow(): Long = lab.log.monoNow()
+
+    /** The server's clock as the lab knows it: the run's timers. */
+    fun serverNow(): Long = lab.log.serverNow()
 
     fun setRunning(on: Boolean) {
         if (on && session.value.session == null) lab.start() else lab.stop()
@@ -105,6 +116,13 @@ class LabViewModel(
     fun nextStep() = lab.scenarios.next()
 
     fun stopScenario() = lab.scenarios.stop()
+
+    /** The automatic radio run (docs/radio-lab-tests.md); not in a game. */
+    fun startRun() {
+        if (session.value.session == null) runner.start()
+    }
+
+    fun stopRun() = runner.stop()
 
     fun export() {
         viewModelScope.launch { lab.export() }

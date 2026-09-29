@@ -158,6 +158,18 @@ class IosLabHaptics : LabHaptics {
         return HapticResult("played")
     }
 
+    override suspend fun notify(text: String) {
+        val content = UNMutableNotificationContent()
+        content.setTitle("Hovanki lab")
+        content.setBody(text)
+        val request = UNNotificationRequest.requestWithIdentifier(
+            "hovanki.lab.signal.${notifications++}",
+            content,
+            null,
+        )
+        UNUserNotificationCenter.currentNotificationCenter().addNotificationRequest(request, null)
+    }
+
     private fun notify(withSound: Boolean): HapticResult {
         val content = UNMutableNotificationContent()
         content.setTitle("Hovanki lab")

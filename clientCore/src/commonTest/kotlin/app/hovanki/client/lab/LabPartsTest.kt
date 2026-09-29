@@ -101,6 +101,28 @@ class LabPartsTest {
     }
 
     @Test
+    fun anAutoAdvancingScenarioMovesOnByItself() {
+        var now = 0L
+        val marks = mutableListOf<String>()
+        var finished = 0
+        val runner = LabScenarioRunner(
+            nowMillis = { now },
+            autoAdvance = true,
+            onStep = { _, _, step -> marks += step.label },
+            onFinished = { finished++ },
+        )
+        runner.start(LabScenario("t", "test", listOf(LabStep("one", 10), LabStep("two", 5))))
+        now = 10_000
+        runner.tick()
+        assertEquals(listOf("one", "two"), marks)
+        assertEquals(10_000L, runner.run.value?.stepStartedMillis)
+        now = 15_000
+        runner.tick()
+        assertNull(runner.run.value)
+        assertEquals(1, finished)
+    }
+
+    @Test
     fun theBuiltInScenariosAreSane() {
         val ids = LabScenarios.ALL.map { it.id }
         assertEquals(ids.distinct(), ids)

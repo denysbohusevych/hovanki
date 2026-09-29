@@ -6,9 +6,10 @@ package app.hovanki.shared.rules
  * (`4C 00 01 <16 bytes>`). The hash from UUID to bit is Apple's and unpublished, but [UUID_SUFFIXES] names one UUID for
  * every bit: advertise those UUIDs and exactly those bits are set.
  *
- * The table and the bit order come from David G. Young's OverflowAreaBeaconRef (`OverflowAreaUtils.swift`,
- * https://github.com/davidgyoung/OverflowAreaBeaconRef, Apache License 2.0; see NOTICE). Measured on iOS 13–14; the
- * radio lab checks it on iOS 26 (docs/radio-lab.md, E1). Only the lab uses it so far.
+ * The table comes from David G. Young's OverflowAreaBeaconRef (`OverflowAreaUtils.swift`,
+ * https://github.com/davidgyoung/OverflowAreaBeaconRef, Apache License 2.0; see NOTICE). The radio lab confirmed it on
+ * iOS 26.2.1 (2026-09-29, docs/radio-lab.md «Как прошло»): the table's positions are right, the bytes come in order,
+ * and within a byte the air puts the highest bit first ([bitsOf]). Only the lab uses it so far.
  */
 object OverflowArea {
     const val BITS = 128
@@ -19,6 +20,12 @@ object OverflowArea {
      * few centimeters away offers to set up a watch. Never advertised.
      */
     const val APPLE_WATCH_BIT = 69
+
+    /**
+     * The bit our game's service UUID (`7A0B8D2E-…`) hashes to: a locked iPhone advertising the service alone (a hider)
+     * shows only this bit (measured by the radio lab, E1b). No layout uses it for anything else.
+     */
+    const val OUR_SERVICE_BIT = 117
 
     /** The last byte of the UUID `00000000-0000-0000-0000-0000000000XX` that sets bit N, at index N. */
     private val UUID_SUFFIXES = intArrayOf(
@@ -46,29 +53,23 @@ object OverflowArea {
     }
 
     /**
-     * The bits set in a [MASK_BYTES]-byte mask as it comes on the air, in Young's order: bit N is byte N / 8, value
-     * `1 << (N % 8)`. The air's order is not verified yet (docs/radio-lab.md, E1): the lab reports [bitsOfMsbFirst]
-     * next to it.
+     * The bits set in a [MASK_BYTES]-byte mask as it comes on the air: bit N is byte N / 8, value `0x80 >> (N % 8)`,
+     * the highest bit first. Measured by the radio lab (E1b): the table's bit 0 comes as `80 00…`, bit 7 as `01 00…`,
+     * bit 8 as `00 80…`. Young's code numbers the bits of a byte the other way round; that is his own bookkeeping,
+     * not the air's.
      */
     fun bitsOf(mask: ByteArray): Set<Int> = buildSet {
-        for (bit in 0 until minOf(BITS, mask.size * 8)) {
-            if (mask[bit / 8].toInt() and (1 shl (bit % 8)) != 0) add(bit)
-        }
-    }
-
-    /** The other order: bit N is byte N / 8, value `0x80 >> (N % 8)`. */
-    fun bitsOfMsbFirst(mask: ByteArray): Set<Int> = buildSet {
         for (bit in 0 until minOf(BITS, mask.size * 8)) {
             if (mask[bit / 8].toInt() and (0x80 shr (bit % 8)) != 0) add(bit)
         }
     }
 
-    /** The mask with [bits] set, in [bitsOf]'s order. */
+    /** The mask with [bits] set, as on the air ([bitsOf]'s order). */
     fun maskOf(bits: Collection<Int>): ByteArray {
         val mask = ByteArray(MASK_BYTES)
         for (bit in bits) {
             require(bit in 0 until BITS) { "bit $bit" }
-            mask[bit / 8] = (mask[bit / 8].toInt() or (1 shl (bit % 8))).toByte()
+            mask[bit / 8] = (mask[bit / 8].toInt() or (0x80 shr (bit % 8))).toByte()
         }
         return mask
     }
@@ -125,14 +126,15 @@ class OverflowLayout(val markerPairs: List<Pair<Int, Int>>, val tokenPairs: List
     init {
         require(markerPairs.size == OverflowCode.MARKER.size && tokenPairs.size == RadarToken.LENGTH * 4)
         val all = (markerPairs + tokenPairs).flatMap { listOf(it.first, it.second) }
-        require(all.distinct().size == all.size && OverflowArea.APPLE_WATCH_BIT !in all)
+        require(all.distinct().size == all.size)
+        require(OverflowArea.APPLE_WATCH_BIT !in all && OverflowArea.OUR_SERVICE_BIT !in all)
     }
 
     companion object {
         /**
          * Provisional, for the radio lab only: the first 72 positions but [OverflowArea.APPLE_WATCH_BIT], in pairs of
-         * neighbours. The layout of the game (V1) leaves out our own service's bit and the city's busy bits, which only
-         * the spike tells.
+         * neighbours ([OverflowArea.OUR_SERVICE_BIT] is beyond them). The layout of the game (V1) also leaves out the
+         * city's busy bits, which the street's survey tells (docs/radio-lab.md, E8).
          */
         val LAB: OverflowLayout = run {
             val positions = (0 until OverflowArea.BITS).filter { it != OverflowArea.APPLE_WATCH_BIT }.take(72)
@@ -204,7 +206,7 @@ object OverflowCode {
 
 /** What the lab's overflow probe advertises besides a token (docs/radio-lab.md §5). */
 object OverflowProbe {
-    /** `0x5A 0x5A` in the first 16 bits: easy to tell by eye in a hex dump, whichever the bit order. */
+    /** `0x5A 0x5A` in the first 16 bits: easy to tell by eye in a hex dump (the same either bit order). */
     val PATTERN: Set<Int> = OverflowArea.bitsOf(byteArrayOf(0x5A, 0x5A))
 
     /** Only bit [bit]: to check the table's position against the air's. */
