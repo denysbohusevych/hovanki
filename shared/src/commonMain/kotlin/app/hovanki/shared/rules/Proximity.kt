@@ -119,9 +119,10 @@ object ProximityRules {
 
 /**
  * The pulse from the pocket (docs/adr/0012-nearby-radar.md, «Пульс»): a heartbeat, the hider's when a seeker comes
- * near, the seeker's sonar when a hider is. Every beat is a soft «lub» and a strong «dub», then quiet; the closer, the
- * faster and the stronger, but never a buzz that doesn't stop (at most about an eighth of the time). Nothing for no
- * signal. Android and iOS play the same [Heartbeat]. Guesses until the spike on real phones.
+ * near, the seeker's sonar when a hider is. Every beat is a short «lub» and a longer «dub», then quiet; the closer, the
+ * faster, but never a buzz that doesn't stop (at most about an eighth of the time). Every band beats at full strength:
+ * weaker beats weren't felt in a pocket on an iPhone, and the pace alone tells the bands apart. Nothing for no signal.
+ * Android and iOS play the same [Heartbeat]. Guesses until the spike on real phones.
  */
 object HeartbeatRules {
     const val WARM_PERIOD_MILLIS = 1_800L
@@ -135,28 +136,27 @@ object HeartbeatRules {
     /** A motor of one strength: the soft beat is a shorter one instead. */
     const val SOFT_MILLIS_WITHOUT_AMPLITUDE = 20L
 
-    /** The soft beat against the strong one, and never weaker than [MIN_SOFT_AMPLITUDE], or it isn't felt. */
-    const val SOFT_SHARE = 0.45
-    const val MIN_SOFT_AMPLITUDE = 0.3
+    /** Both beats of every band: full strength, or it isn't felt in a pocket. */
+    const val AMPLITUDE = 1.0
 
     /** The beat for [band]; null: quiet. */
     fun beat(band: RadarBand): Heartbeat? = when (band) {
         RadarBand.NONE -> null
-        RadarBand.WARM -> heartbeat(WARM_PERIOD_MILLIS, strongAmplitude = 0.6)
-        RadarBand.HOT -> heartbeat(HOT_PERIOD_MILLIS, strongAmplitude = 0.8)
-        RadarBand.BURNING -> heartbeat(BURNING_PERIOD_MILLIS, strongAmplitude = 1.0)
+        RadarBand.WARM -> heartbeat(WARM_PERIOD_MILLIS)
+        RadarBand.HOT -> heartbeat(HOT_PERIOD_MILLIS)
+        RadarBand.BURNING -> heartbeat(BURNING_PERIOD_MILLIS)
     }
 
     /** The beat's period for [band]; null: quiet. */
     fun periodMillis(band: RadarBand): Long? = beat(band)?.periodMillis
 
-    private fun heartbeat(periodMillis: Long, strongAmplitude: Double) = Heartbeat(
+    private fun heartbeat(periodMillis: Long) = Heartbeat(
         periodMillis = periodMillis,
         softMillis = SOFT_MILLIS,
         gapMillis = GAP_MILLIS,
         strongMillis = STRONG_MILLIS,
-        softAmplitude = maxOf(MIN_SOFT_AMPLITUDE, strongAmplitude * SOFT_SHARE),
-        strongAmplitude = strongAmplitude,
+        softAmplitude = AMPLITUDE,
+        strongAmplitude = AMPLITUDE,
     )
 }
 
