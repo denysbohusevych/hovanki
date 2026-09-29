@@ -1,5 +1,6 @@
 package app.hovanki.e2e.scenarios
 
+import app.hovanki.client.session.DraftZoneState
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.route.offset
 import app.hovanki.e2e.scenario
@@ -11,6 +12,7 @@ import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.VisibilityReason
+import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.ZoneArea
 import kotlin.math.cos
 import kotlin.math.sin
@@ -61,5 +63,29 @@ class StreetZoneTest {
             anna.snapshot?.me?.outOfZoneDeadlineMillis
         }
         awaitReveal(anna, VisibilityReason.OUT_OF_ZONE, to = sam, within = 5.seconds)
+    }
+
+    /**
+     * A tap on «By streets» in the settings shows the blocks before «Save»
+     * (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 2.3), and saving the draft takes them.
+     */
+    @Test
+    fun theHostSeesTheBlocksBeforeSaving() = scenario("The zone by streets before saving", timeout = 3.minutes) {
+        val sam = player("Sam", at = PARK)
+        val anna = player("Anna", at = PARK.offset(eastMeters = 20.0))
+        val circle = GameSetups.fixedZone(300.0)
+        sam.createsGame(circle)
+        join(anna)
+        val draft = circle.copy(zoneShape = ZoneShape.STREETS)
+
+        val seen = sam.looksAtDraft(draft)
+        check(seen?.state == DraftZoneState.READY, "Sam's map has the draft's blocks")
+        check(anna.looksAtDraft(draft)?.state == DraftZoneState.UNKNOWN, "only the host looks at drafts")
+        check(state().streetZone == null && state().mapRevision == 0, "looking saves nothing")
+
+        requireOk(sam.changesSettings(draft), "Sam saves the zone by streets")
+        check(state().streetZone == StreetZoneState.READY, "the zone is there right away")
+        val blocks = checkNotNull(seen?.streets).stages
+        awaitThat("Anna's phone has the blocks Sam saw") { anna.state.streetZone?.stages == blocks }
     }
 }

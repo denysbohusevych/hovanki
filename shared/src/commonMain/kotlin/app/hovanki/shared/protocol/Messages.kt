@@ -51,6 +51,24 @@ data class RolesRequest(val seekers: List<PlayerId> = emptyList(), val randomSee
 @Serializable
 data class SettingsRequest(val settings: GameSettings)
 
+/**
+ * The host's draft in the settings, not saved yet (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section
+ * 2.3): the server builds its zone by streets, so the map shows the blocks while the host chooses. Sent again while the
+ * answer says [StreetZoneState.LOADING]; saving the same draft then takes the zone already built.
+ */
+@Serializable
+data class SettingsPreviewRequest(val settings: GameSettings)
+
+/**
+ * What the server made of a draft so far: for a draft by streets ([ZoneShape.STREETS]) its zone, one polygon per stage
+ * like [StreetZoneResponse] ([streetZone] says whether it is there yet); nothing for a circle.
+ */
+@Serializable
+data class SettingsPreviewResponse(
+    val streetZone: StreetZoneState? = null,
+    val stages: List<ZonePolygon> = emptyList(),
+)
+
 /** Periodic position report; the response is the fresh [GameSnapshot]. */
 @Serializable
 data class SyncRequest(

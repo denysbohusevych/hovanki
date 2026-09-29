@@ -20,6 +20,8 @@ import app.hovanki.shared.protocol.QuestReviewRequest
 import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsPreviewRequest
+import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
@@ -53,6 +55,12 @@ interface GameApi {
 
     /** The host changes the setup in the lobby. */
     suspend fun updateSettings(session: PlayerSession, request: SettingsRequest): GameSnapshot
+
+    /**
+     * What the host's draft makes before it is saved: its zone by streets
+     * (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 2.3).
+     */
+    suspend fun previewSettings(session: PlayerSession, request: SettingsPreviewRequest): SettingsPreviewResponse
 
     /**
      * The host plays anyway in a zone that fits fewer players than there are, or has few places to hide

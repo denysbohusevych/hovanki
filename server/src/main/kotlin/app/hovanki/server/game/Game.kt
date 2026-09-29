@@ -57,6 +57,7 @@ import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.RadarContact
 import app.hovanki.shared.protocol.RadarState
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SpectatedPlayer
 import app.hovanki.shared.protocol.SpectatorId
 import app.hovanki.shared.protocol.SpectatorSnapshot
@@ -71,6 +72,7 @@ import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.VisibleLocation
 import app.hovanki.shared.protocol.ZoneCapacity
 import app.hovanki.shared.protocol.ZonePolygon
+import app.hovanki.shared.protocol.ZoneSchedule
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.BoardRules
 import app.hovanki.shared.rules.BuildingMap
@@ -203,6 +205,13 @@ class Game(
 
     /** Since when the zone by streets is being built: after [STREET_ZONE_PATIENCE_MILLIS] the game uses the circles. */
     private var streetZoneSinceMillis = createdAtMillis
+
+    /**
+     * The zone by streets of the host's draft in the settings, built before it is saved
+     * (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 2.3); null: none asked for. Only the last draft:
+     * the host looks at one at a time.
+     */
+    private var draftZone: DraftZone? = null
 
     /** When the host last drew the roles at random ([drawRoles]). */
     private var rolesDrawnAtMillis: Long? = null
@@ -458,15 +467,7 @@ class Game(
     fun updateSettings(by: PlayerId, newSettings: GameSettings, nowMillis: Long): Boolean {
         requirePhase(GamePhase.LOBBY)
         requireHost(by, "change the settings")
-        if (!isServerHosted &&
-            newSettings.zone.initial.center.distanceTo(origin) > SettingsLimits.MAX_CENTER_MOVE_METERS
-        ) {
-            throw GameException(
-                ErrorCode.BAD_REQUEST,
-                "The zone moves too far from where the game was made",
-                ErrorReason.ZONE_TOO_FAR,
-            )
-        }
+        requireNearOrigin(newSettings.zone)
         val open = (newSettings.openBuildings ?: settings.openBuildings.orEmpty())
             .filter { SettingsLimits.isNearZone(it, newSettings.zone) }
         val next = newSettings.copy(rules = rules, openBuildings = open)
@@ -486,15 +487,71 @@ class Game(
             buildingMap = null
             loadedBuildings = emptyList()
             loadedPassages = emptyList()
-            streetZone = null
-            streetZoneState = if (next.zoneShape.hasPolygons) StreetZoneState.LOADING else null
+            // The draft the host looked at is saved: its zone by streets is there already, nothing to build.
+            val built = draftZone?.takeIf { next.zoneShape == ZoneShape.STREETS && it.zone == next.zone }?.stages
+            streetZone = built
+            streetZoneState = when {
+                built != null -> StreetZoneState.READY
+                next.zoneShape.hasPolygons -> StreetZoneState.LOADING
+                else -> null
+            }
             streetZoneSinceMillis = nowMillis
             terrain = null
             capacityAreas = null
             capacityState = CapacityState.LOADING
             terrainSinceMillis = nowMillis
         }
+        draftZone = null
         return mapChanged
+    }
+
+    /**
+     * What the host's [draft] in the settings makes before it is saved
+     * (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 2.3): for a draft by streets, its zone as far
+     * as it is built. Null when that zone has not been asked for yet: the service builds it ([startDraftZone]).
+     */
+    fun settingsPreview(by: PlayerId, draft: GameSettings, nowMillis: Long): SettingsPreviewResponse? {
+        requirePhase(GamePhase.LOBBY)
+        requireHost(by, "preview the settings")
+        requireNearOrigin(draft.zone)
+        if (draft.zoneShape != ZoneShape.STREETS) return SettingsPreviewResponse()
+        if (draft.zone == settings.zone && settings.zoneShape == ZoneShape.STREETS) {
+            return SettingsPreviewResponse(streetZoneState, streetZone?.stages.orEmpty())
+        }
+        val built = draftZone?.takeIf { it.zone == draft.zone } ?: return null
+        if (built.state == StreetZoneState.LOADING && nowMillis - built.sinceMillis >= DRAFT_ZONE_PATIENCE_MILLIS) {
+            built.state = StreetZoneState.UNAVAILABLE
+        }
+        return SettingsPreviewResponse(built.state, built.stages?.stages.orEmpty())
+    }
+
+    /** The zone by streets of the host's draft [zone] is being built; the draft before it is wanted no more. */
+    fun startDraftZone(zone: ZoneSchedule, nowMillis: Long) {
+        draftZone = DraftZone(zone, nowMillis)
+    }
+
+    /** Whether the zone by streets of the draft [zone] is still wanted: the host may have moved on meanwhile. */
+    fun wantsDraftZone(zone: ZoneSchedule): Boolean {
+        val draft = draftZone ?: return false
+        return phase == GamePhase.LOBBY && draft.zone == zone && draft.state == StreetZoneState.LOADING
+    }
+
+    /** The zone by streets of the draft [zone] is built ([stages]: one polygon per stage), or can't be (null). */
+    fun onDraftZoneBuilt(zone: ZoneSchedule, stages: List<ZonePolygon>?) {
+        val draft = draftZone?.takeIf { it.zone == zone && it.state == StreetZoneState.LOADING } ?: return
+        val usable = stages != null && stages.size == zone.stages.size + 1 && stages.all { it.outline.size >= 4 }
+        draft.stages = if (usable) StreetZone(stages) else null
+        draft.state = if (usable) StreetZoneState.READY else StreetZoneState.UNAVAILABLE
+    }
+
+    /** A game made by a player keeps its zone near where it was made: nobody takes it to another city. */
+    private fun requireNearOrigin(zone: ZoneSchedule) {
+        if (isServerHosted || zone.initial.center.distanceTo(origin) <= SettingsLimits.MAX_CENTER_MOVE_METERS) return
+        throw GameException(
+            ErrorCode.BAD_REQUEST,
+            "The zone moves too far from where the game was made",
+            ErrorReason.ZONE_TOO_FAR,
+        )
     }
 
     /**
@@ -585,6 +642,7 @@ class Game(
         enterPhase(GamePhase.HIDING, nowMillis)
         hidingStartedAtMillis = nowMillis
         lastActivityMillis = nowMillis
+        draftZone = null
     }
 
     /**
@@ -2147,6 +2205,12 @@ class Game(
 
     private class Spectator(val id: SpectatorId, val userId: UserId, var lastSeenMillis: Long)
 
+    /** The zone by streets of a draft [zone], asked for at [sinceMillis]: [stages] once [state] is READY. */
+    private class DraftZone(val zone: ZoneSchedule, val sinceMillis: Long) {
+        var state = StreetZoneState.LOADING
+        var stages: StreetZone? = null
+    }
+
     companion object {
         const val MAX_PLAYERS = 30
 
@@ -2160,6 +2224,9 @@ class Game(
 
         /** The zone by streets is given up on (circles instead) after this long; the loader gives up well before. */
         const val STREET_ZONE_PATIENCE_MILLIS = 120_000L
+
+        /** A draft's zone by streets is given up on after this long: the host is told it comes after saving. */
+        const val DRAFT_ZONE_PATIENCE_MILLIS = 30_000L
 
         /** The ground under the zone is given up on (no estimate) after this long; the loader gives up well before. */
         const val MAP_PATIENCE_MILLIS = 120_000L

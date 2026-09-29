@@ -5,12 +5,14 @@ import app.hovanki.client.device.DeviceInfo
 import app.hovanki.client.diagnostics.Diagnostics
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.network.ApiException
+import app.hovanki.client.network.ApiResult
 import app.hovanki.client.network.ConnectionEvent
 import app.hovanki.client.network.GameApi
 import app.hovanki.client.network.GameConnection
 import app.hovanki.client.network.LocationOutbox
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.SyncExtras
+import app.hovanki.client.network.apiResult
 import app.hovanki.client.network.defaultSyncIntervalMillis
 import app.hovanki.client.radio.NoopPrecisionRadio
 import app.hovanki.client.radio.NoopProximityRadio
@@ -65,6 +67,8 @@ import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SettingsPreviewRequest
+import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneState
@@ -274,6 +278,16 @@ class GameSessionManager(
         val updated = sessionCommand { api.updateSettings(it, SettingsRequest(settings)) }
         if (updated && setup != null) storage.saveGameSetup(setup)
         return updated
+    }
+
+    /**
+     * What the host's [draft] makes before it is saved: its zone by streets
+     * (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 2.3; [DraftZonePreview] asks). A failure is no
+     * session error: the map just keeps the circles.
+     */
+    suspend fun previewSettings(draft: GameSettings): ApiResult<SettingsPreviewResponse> {
+        val session = mutableState.value.session ?: return ApiResult.Network("Not in a game")
+        return apiResult { api.previewSettings(session, SettingsPreviewRequest(draft)) }
     }
 
     /**

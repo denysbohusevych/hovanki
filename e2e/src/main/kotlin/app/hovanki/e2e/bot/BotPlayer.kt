@@ -25,6 +25,9 @@ import app.hovanki.client.radio.NoopProximityRadio
 import app.hovanki.client.radio.ProximityRadio
 import app.hovanki.client.session.CatchCode
 import app.hovanki.client.session.ChatLine
+import app.hovanki.client.session.DraftZone
+import app.hovanki.client.session.DraftZonePreview
+import app.hovanki.client.session.DraftZoneState
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
 import app.hovanki.client.session.SessionError
@@ -88,11 +91,15 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
 import java.util.Collections
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * A headless player: the app's real client stack ([GameSessionManager], [AccountManager], [SocialManager], the HTTP
@@ -220,6 +227,24 @@ class BotPlayer(
     /** The host changes the setup in the lobby. */
     suspend fun changesSettings(settings: GameSettings): CommandResult =
         command("changes the settings") { it.updateSettings(settings) }
+
+    /**
+     * The host looks at [draft] in the settings before saving it, as the settings' map does
+     * (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 2.3): the zone by streets the server built for
+     * it; null when nothing came [within] (or there is nothing to build).
+     */
+    suspend fun looksAtDraft(draft: GameSettings, within: Duration = 30.seconds): DraftZone? {
+        val running = app ?: run {
+            notRunning("looks at a draft of the settings")
+            return null
+        }
+        val preview = DraftZonePreview(running.scope, running.session::previewSettings)
+        withContext(running.mainThread) { preview.show(draft, running.session.state.value.snapshot?.settings) }
+        val zone = withTimeoutOrNull(within) { preview.zone.first { it?.state != DraftZoneState.LOADING } }
+        withContext(running.mainThread) { preview.show(null, saved = null) }
+        log("looks at a draft of the settings: the zone by streets ${zone?.state ?: "did not come"}")
+        return zone
+    }
 
     /**
      * The host taps the building at [point] on the map of the zone's buildings: it opens for hiding, or closes again
@@ -752,9 +777,9 @@ class BotPlayer(
             snapshot.players.forEach { player -> player.location?.let { reveals += player.id to it.exactReason } }
             return
         }
-        // Building outlines and the zone by streets are map data, not a snapshot; the tracks come only after the
-        // round (the server refuses them before, see PrivacyTest).
-        val notSnapshots = listOf("/buildings", "/street-zone", "/tracks")
+        // Building outlines and the zone by streets (the host's draft's too) are map data, not a snapshot; the tracks
+        // come only after the round (the server refuses them before, see PrivacyTest).
+        val notSnapshots = listOf("/buildings", "/street-zone", "/settings/preview", "/tracks")
         if (notSnapshots.any(exchange.path::endsWith)) return
         // A spectator's view (docs/adr/0011-spectators-and-recordings.md): nothing newer than the delay allows.
         if (exchange.path == ApiRoutes.WATCH || exchange.path.endsWith(SPECTATE_SUFFIX)) {
