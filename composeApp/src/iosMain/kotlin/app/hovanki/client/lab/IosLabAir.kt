@@ -61,6 +61,9 @@ class IosLabAir : LabAir {
     }
 }
 
+/** Anything weaker than this is noise, as in the game's radio. */
+private const val MIN_RSSI = -110
+
 /** Scans for the table's UUIDs; the delegate of its manager, kept by whoever runs it until [close]. */
 private class OverflowScanner(private val onFrame: (AirFrame) -> Unit) :
     NSObject(),
@@ -101,10 +104,6 @@ private class OverflowScanner(private val onFrame: (AirFrame) -> Unit) :
         val atMillis = (NSDate().timeIntervalSince1970 * 1000).toLong()
         val peer = didDiscoverPeripheral.identifier.UUIDString
         onFrame(AirFrame.Mask(bits, null, rssi, peer, atMillis, RadioApi.COREBLUETOOTH))
-    }
-
-    private companion object {
-        const val MIN_RSSI = -110
     }
 }
 
