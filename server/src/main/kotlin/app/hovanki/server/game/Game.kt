@@ -997,6 +997,7 @@ class Game(
                 radarSecret = viewer.radarSecret.takeIf { features.hasRadar && inRound },
                 radar = radarStateFor(viewer, nowMillis),
                 seekerTokens = seekerTokensFor(viewer, nowMillis),
+                hiderTokens = hiderTokensFor(viewer, nowMillis),
                 bluetoothDeadlineMillis = viewer.bluetoothDeadlineMillis(),
                 uwbPeers = uwbPeersFor(viewer, nowMillis),
                 sparks = if (features.hasSparks) viewer.sparks else 0,
@@ -1635,6 +1636,22 @@ class Game(
         return players.values
             .filter { it.role == Role.SEEKER && !it.left }
             .flatMap { seeker -> seeker.radarSecret?.let { RadarToken.candidates(it, nowMillis) }.orEmpty() }
+    }
+
+    /**
+     * The active hiders' radar tokens for a seeker with the radar, during the search: nameless and shuffled, so the
+     * seeker's phone warms up the moment it hears one; the band per hider, the claim up close and the pocket's
+     * evening out stay the server's. The phone reads them raw, so it never reads warmer than the server would: the
+     * server only adds to a pocketed hider's signal (the stealth takes off less than the pocket's damping). Nothing for
+     * a hider.
+     */
+    private fun hiderTokensFor(viewer: Player, nowMillis: Long): List<String> {
+        if (!settings.features.hasRadar || phase != GamePhase.SEEKING) return emptyList()
+        if (viewer.role != Role.SEEKER || !viewer.isPlayingNow) return emptyList()
+        return players.values
+            .filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE && !it.left }
+            .flatMap { hider -> hider.radarSecret?.let { RadarToken.candidates(it, nowMillis) }.orEmpty() }
+            .sorted()
     }
 
     /**

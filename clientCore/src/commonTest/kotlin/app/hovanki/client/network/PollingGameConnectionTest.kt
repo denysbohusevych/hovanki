@@ -36,6 +36,28 @@ class PollingGameConnectionTest {
     }
 
     @Test
+    fun theCallerMayAskForAShorterPause() = runTest {
+        var polls = 0L
+        val api = FakeGameApi { testSnapshot(serverTimeMillis = ++polls, syncIntervalSeconds = 3) }
+        val connection = PollingGameConnection(api)
+
+        connection.connect(testSession, LocationOutbox(), intervalMillis = { 1_000L }).test {
+            awaitItem()
+            awaitItem()
+            assertEquals(1_000L, time())
+            cancelAndIgnoreRemainingEvents()
+        }
+        // Never faster than half a second, whatever it asks.
+        connection.connect(testSession, LocationOutbox(), intervalMillis = { 0L }).test {
+            val start = time()
+            awaitItem()
+            awaitItem()
+            assertEquals(PollingGameConnection.MIN_INTERVAL_MILLIS, time() - start)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
     fun sendsQueuedSamplesWithTheNextSync() = runTest {
         val api = FakeGameApi { testSnapshot() }
         val outbox = LocationOutbox()

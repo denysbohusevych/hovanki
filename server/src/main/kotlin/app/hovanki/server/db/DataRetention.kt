@@ -63,10 +63,10 @@ class DataRetention(
             ),
             emailCodes = delete("DELETE FROM email_codes WHERE expires_at < :t", now.toTimestamptz()),
             routes = delete("DELETE FROM game_routes WHERE saved_at < :t", before(history.routeRetention)),
-            adminSessions = delete(
-                "DELETE FROM admin_sessions WHERE created_at < :t",
-                before(admin.sessionMax),
-            ),
+            adminSessions = jdbc.sql("DELETE FROM admin_sessions WHERE created_at < :max OR last_used_at < :idle")
+                .param("max", before(admin.sessionMax))
+                .param("idle", before(admin.sessionIdle))
+                .update(),
             sanctions = delete(
                 "DELETE FROM sanctions WHERE coalesce(lifted_at, until) < :t",
                 before(admin.auditRetention),

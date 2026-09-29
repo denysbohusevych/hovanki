@@ -63,9 +63,11 @@ Kotlin-фреймворк собирается только для `iosArm64` и
   (`Configuration/debug-info-plist.sh`) добавляет `NSAllowsLocalNetworking` и `NSLocalNetworkUsageDescription`
   в Info.plist Debug-сборки. Release (TestFlight, App Store) ходит только по HTTPS — на хостинг или через туннель
   ([docs/ci-cd.md](../docs/ci-cd.md#сервер-через-туннель)).
-- Адрес по умолчанию: Debug — `http://localhost:8080`, Release — Gradle-свойство `hovanki.serverUrl`
-  (сейчас `https://hovanki.duckdns.org`, [docs/deploy.md](../docs/deploy.md)). Release ходит только туда: аккаунты
-  живут на одном сервере ([ADR 0004](../docs/adr/0004-accounts-friends-chat.md)).
+- Адрес по умолчанию: Release и Debug на iPhone — Gradle-свойство `hovanki.serverUrl` (сейчас
+  `https://hovanki.duckdns.org`, [docs/deploy.md](../docs/deploy.md)), Debug в симуляторе — `http://localhost:8080`.
+  Release ходит только туда: аккаунты живут на одном сервере ([ADR 0004](../docs/adr/0004-accounts-friends-chat.md)).
+  Debug-сборка на iPhone играет с остальными и показывает панель диагностики «DBG»: GPS, dBm Bluetooth,
+  синхронизации ([docs/architecture.md](../docs/architecture.md#диагностика-debug-сборки)).
 
 ## Геолокация в фоне
 

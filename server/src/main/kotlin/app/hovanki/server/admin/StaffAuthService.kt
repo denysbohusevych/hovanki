@@ -23,6 +23,7 @@ import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserRole
 import app.hovanki.shared.qr.QrCode
 import app.hovanki.shared.totp.Totp
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
@@ -52,6 +53,14 @@ data class Staff(
 class AdminLogin(val token: String, val me: AdminMe)
 
 /**
+ * An admin request's session: its [staff] member and, when this request rotated the session's token, the [newToken]
+ * for the cookie, which lives [cookieMaxAge] more (the rest of the session's maximum).
+ */
+class AdminAuthentication(val staff: Staff, val newToken: String?, val cookieMaxAge: Duration) {
+    override fun toString(): String = "AdminAuthentication($staff, rotated=${newToken != null})"
+}
+
+/**
  * The staff login (docs/adr/0008-admin.md): the account's password, then a code of the authenticator app (RFC 6238,
  * [Totp]). The first time, the authenticator is set up with a code emailed to the account's confirmed address, so that
  * someone who only knows the password can't set up theirs. Between the steps, a challenge lives in memory for
@@ -77,6 +86,7 @@ class StaffAuthService(
         var newSecret: ByteArray? = null
     }
 
+    private val log = LoggerFactory.getLogger(javaClass)
     private val challenges = ConcurrentHashMap<String, Challenge>()
     private val transactions = TransactionTemplate(transactionManager)
     private val random = SecureRandom()
@@ -183,23 +193,46 @@ class StaffAuthService(
     /**
      * The staff member of an admin session token (the cookie), on every admin request: 401 when the session is unknown,
      * idle for [AdminProperties.sessionIdle], older than [AdminProperties.sessionMax], or the account is no longer staff.
+     * The first request [AdminProperties.sessionRotate] after the token last changed gets a new one
+     * ([AdminAuthentication.newToken], for the cookie). The replaced token still works for
+     * [AdminProperties.sessionRotateGrace], for the requests already on their way; coming back after that, it ends the
+     * session: somebody else has it (a stolen cookie works only until one of the two uses the session again).
      */
-    fun authenticate(token: String): Staff {
+    fun authenticate(token: String): AdminAuthentication {
         val hash = AccountKeys.tokenHash(token)
         val session = staff.findSession(hash) ?: throw sessionEnded()
         val now = clock.instant()
+        val replaced = hash != session.tokenHash
+        if (replaced && session.previousUntil?.isAfter(now) != true) {
+            staff.deleteSession(session.tokenHash)
+            log.warn("An admin session of {} ended: its replaced token came back", session.userId.value)
+            throw sessionEnded()
+        }
         val user = users.findById(session.userId)
         if (session.lastUsedAt <= now.minus(properties.sessionIdle) ||
             session.createdAt <= now.minus(properties.sessionMax) ||
             user == null ||
             !user.role.isStaff
         ) {
-            staff.deleteSession(hash)
+            staff.deleteSession(session.tokenHash)
             throw sessionEnded()
         }
-        if (Duration.between(session.lastUsedAt, now) >= TOUCH_INTERVAL) staff.touchSession(hash, now)
-        val expiresAt = minOf(session.createdAt.plus(properties.sessionMax), now.plus(properties.sessionIdle))
-        return Staff(user.id, user.nickname, user.role, hash, expiresAt)
+        var currentHash = session.tokenHash
+        var newToken: String? = null
+        if (!replaced && Duration.between(session.rotatedAt, now) >= properties.sessionRotate) {
+            val next = ids.token()
+            val nextHash = AccountKeys.tokenHash(next)
+            if (staff.rotateSession(hash, nextHash, now, now.plus(properties.sessionRotateGrace))) {
+                currentHash = nextHash
+                newToken = next
+            }
+        } else if (Duration.between(session.lastUsedAt, now) >= TOUCH_INTERVAL) {
+            staff.touchSession(session.tokenHash, now)
+        }
+        val endsAt = session.createdAt.plus(properties.sessionMax)
+        val member =
+            Staff(user.id, user.nickname, user.role, currentHash, minOf(endsAt, now.plus(properties.sessionIdle)))
+        return AdminAuthentication(member, newToken, Duration.between(now, endsAt))
     }
 
     fun logout(member: Staff) {

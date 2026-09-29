@@ -1,10 +1,13 @@
 package app.hovanki.client.di
 
+import app.hovanki.client.BuildInfo
 import app.hovanki.client.account.AccountManager
 import app.hovanki.client.automation.LaunchOptions
 import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.bigGames.BigGameManager
 import app.hovanki.client.defaultServerUrl
+import app.hovanki.client.diagnostics.Diagnostics
+import app.hovanki.client.diagnostics.DiagnosticsBench
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.network.AccountApi
 import app.hovanki.client.network.BigGameApi
@@ -28,6 +31,7 @@ import app.hovanki.client.social.SocialManager
 import app.hovanki.client.spectator.SpectatorManager
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.ui.chat.ChatViewModel
+import app.hovanki.client.ui.debug.DiagnosticsViewModel
 import app.hovanki.client.ui.friends.FriendsViewModel
 import app.hovanki.client.ui.game.GameViewModel
 import app.hovanki.client.ui.groups.GroupsViewModel
@@ -65,7 +69,8 @@ fun initKoin(appDeclaration: KoinAppDeclaration = {}) {
 
 val commonModule: Module = module {
     single { ClientStorage(get()) }
-    // One server: the build's (debug builds: the development machine, or the launch options' server, see onAppStart).
+    // One server: the build's (debug builds on an emulator: the development machine; the launch options' server, see
+    // onAppStart).
     single { ServerUrl(defaultServerUrl(get())) }
     single { LaunchOptionsHolder() }
     single { createHttpClient(get()) }
@@ -77,6 +82,9 @@ val commonModule: Module = module {
     single<SpectatorApi> { HttpSpectatorApi(get(), get()) }
     single<GameConnection> { PollingGameConnection(get()) }
     single { ServerClock() }
+    // Debug builds only: the phone's measurements for the developer (a no-op in other builds).
+    single { Diagnostics(isEnabled = get<BuildInfo>().isDebug) }
+    single { DiagnosticsBench(get(), get(), get(), MainScope()) }
     single { AccountManager(get(), get(), get()) }
     single { SocialManager(get(), get()) }
     single { HistoryManager(get(), get()) }
@@ -96,6 +104,7 @@ val commonModule: Module = module {
             activityMonitor = get(),
             pocketPulse = get(),
             carryMonitor = get(),
+            diagnostics = get(),
         )
     }
     single { BigGameManager(get(), get()) }
@@ -115,6 +124,7 @@ val commonModule: Module = module {
     viewModelOf(::ChatViewModel)
     viewModelOf(::InviteBannerViewModel)
     viewModelOf(::SpectatorViewModel)
+    viewModelOf(::DiagnosticsViewModel)
 }
 
 /** Hands debug start parameters (UI automation) to the screens; see [LaunchOptions]. */

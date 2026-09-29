@@ -14,11 +14,15 @@ class BuildInfoTest {
     }
 
     @Test
-    fun debugBuildsDefaultToTheDevelopmentMachine() {
-        val debug = BuildInfo("0.1.0", "1", "1a2b3c4", isDebug = true)
-        val preview = debug.copy(isDebug = false)
+    fun debugBuildsOnPhonesPlayOnTheServerOnEmulatorsOnTheDevelopmentMachine() {
+        val phone = BuildInfo("0.1.0", "1", "1a2b3c4", isDebug = true)
+        val emulator = phone.copy(isEmulator = true)
+        val preview = phone.copy(isDebug = false)
 
-        assertEquals(developmentServerUrl(), defaultServerUrl(debug))
+        assertEquals(BuildConstants.SERVER_URL, defaultServerUrl(phone))
+        assertEquals(developmentServerUrl(), defaultServerUrl(emulator))
         assertEquals(BuildConstants.SERVER_URL, defaultServerUrl(preview))
+        // A preview build on an emulator is still a preview build: its one server.
+        assertEquals(BuildConstants.SERVER_URL, defaultServerUrl(preview.copy(isEmulator = true)))
     }
 }

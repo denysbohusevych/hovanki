@@ -87,7 +87,8 @@ class AdminController(
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun logout(staff: Staff, response: HttpServletResponse) {
         auth.logout(staff)
-        response.addHeader(HttpHeaders.SET_COOKIE, AdminWebConfig.clearedCookie())
+        // Replaces the cookie of a rotation by this very request, if any.
+        response.setHeader(HttpHeaders.SET_COOKIE, AdminWebConfig.clearedCookie())
     }
 
     @GetMapping(ApiRoutes.ADMIN_ME)

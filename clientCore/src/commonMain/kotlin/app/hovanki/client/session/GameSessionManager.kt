@@ -2,6 +2,7 @@ package app.hovanki.client.session
 
 import app.hovanki.client.account.AccountCredentials
 import app.hovanki.client.device.DeviceInfo
+import app.hovanki.client.diagnostics.Diagnostics
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.ConnectionEvent
@@ -10,6 +11,7 @@ import app.hovanki.client.network.GameConnection
 import app.hovanki.client.network.LocationOutbox
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.SyncExtras
+import app.hovanki.client.network.defaultSyncIntervalMillis
 import app.hovanki.client.radio.NoopPrecisionRadio
 import app.hovanki.client.radio.NoopProximityRadio
 import app.hovanki.client.radio.PeerRange
@@ -104,8 +106,10 @@ import kotlin.math.roundToInt
  * The radar (docs/adr/0012-nearby-radar.md) runs through [radio] while a round with it goes on: the phone advertises
  * its token and reports whom it heard with every sync, along with what it says about itself ([DeviceReport]). The
  * pulse ([pulse], «Пульс») is felt on the phone itself: a hider's phone knows the seekers' tokens
- * ([MyState.seekerTokens]) and smooths what it hears of them with the same rules as the server, so it beats the
- * moment a seeker comes near, network or not; the server's band counts too, whichever is warmer.
+ * ([MyState.seekerTokens]), a seeker's the hiders' ([MyState.hiderTokens]), and smooths what it hears of them with
+ * the same rules as the server, so it beats the moment the other team comes near, network or not; the server's band
+ * counts too, whichever is warmer. While somebody is near, the phone syncs every second, so the server's bands come
+ * fast too ([syncIntervalMillis]).
  * The board and the perks (docs/adr/0013-quests-sparks-and-sensors.md) are commands like the others.
  *
  * Commands return true on success; on failure they return false and put the reason into [SessionState.lastError].
@@ -127,6 +131,7 @@ class GameSessionManager(
     private val activityMonitor: ActivityMonitor = NoopActivityMonitor(),
     private val pocketPulse: PocketPulse = NoopPocketPulse,
     private val carryMonitor: CarryMonitor = NoopCarryMonitor(),
+    private val diagnostics: Diagnostics = Diagnostics.Off,
 ) {
     private val mutableState = MutableStateFlow(SessionState())
     val state: StateFlow<SessionState> = mutableState.asStateFlow()
@@ -163,14 +168,20 @@ class GameSessionManager(
     private var latestActivity = Activity.UNKNOWN
     private var latestCarry = Carry.UNKNOWN
 
-    /** The seekers' tokens the server gave this hider, and what the phone hears of each, smoothed like the server. */
-    private var seekerTokens: Set<String> = emptySet()
-    private val seekerSmoothers = HashMap<String, RadarSmoother>()
+    /**
+     * The other team's tokens the server gave this player (a hider with the sense: the seekers'; a seeker: the
+     * hiders'), and what the phone hears of each, smoothed like the server.
+     */
+    private var rivalTokens: Set<String> = emptySet()
+    private val rivalSmoothers = HashMap<String, RadarSmoother>()
     private val mutablePulse = MutableStateFlow(RadarBand.NONE)
 
+    /** Until when (server time) the phone counts somebody as near by its own ears: it syncs faster till then. */
+    private val nearUntilMillis = MutableStateFlow(0L)
+
     /**
-     * The pulse's band: a hider's, the nearest seeker (what this phone hears of them, or the server's band, whichever
-     * is warmer); a seeker's sonar, the nearest hider by the server. [RadarBand.NONE] outside the search.
+     * The pulse's band: a hider's, the nearest seeker; a seeker's sonar, the nearest hider — what this phone hears of
+     * them, or the server's band, whichever is warmer. [RadarBand.NONE] outside the search.
      */
     val pulse: StateFlow<RadarBand> = mutablePulse.asStateFlow()
 
@@ -485,7 +496,13 @@ class GameSessionManager(
         outbox = sessionOutbox
         connectionJob = scope.launch {
             // Off the main thread: JSON of every poll is parsed in the flow.
-            connection.connect(session, sessionOutbox, chatAfter = ::chatCursor, extras = ::syncExtras)
+            connection.connect(
+                session,
+                sessionOutbox,
+                chatAfter = ::chatCursor,
+                extras = ::syncExtras,
+                intervalMillis = ::syncIntervalMillis,
+            )
                 .flowOn(Dispatchers.Default)
                 .collect { onConnectionEvent(it) }
         }
@@ -494,6 +511,7 @@ class GameSessionManager(
 
     /** What else goes with the next sync: whom the phone heard since the last one, and what it says about itself. */
     private fun syncExtras(): SyncExtras = SyncExtras(heard.getAndUpdate { emptyList() }, deviceReport())
+        .also { diagnostics.onSyncSent(it.nearby.size, it.device) }
 
     private fun deviceReport(): DeviceReport {
         val features = mutableState.value.snapshot?.settings?.features
@@ -522,6 +540,7 @@ class GameSessionManager(
         val resuming = mutableState.value.isResuming
         when (event) {
             is ConnectionEvent.Snapshot -> {
+                diagnostics.onSynced(event.snapshot.serverTimeMillis)
                 if (resuming && event.snapshot.phase == GamePhase.FINISHED) {
                     endSession(SessionError.SavedGameFinished)
                     return
@@ -532,8 +551,10 @@ class GameSessionManager(
                 if (resuming) startLocationUpdates()
             }
 
-            is ConnectionEvent.Problem ->
+            is ConnectionEvent.Problem -> {
+                diagnostics.onSyncFailed(event.error, event.retryInMillis)
                 mutableState.update { it.copy(connectionStatus = ConnectionStatus.RECONNECTING) }
+            }
 
             is ConnectionEvent.Ended -> when {
                 resuming -> endSession(SessionError.SavedGameGone)
@@ -564,6 +585,13 @@ class GameSessionManager(
         if (previous != null && snapshot.serverTimeMillis < previous.serverTimeMillis) return
 
         clock.onServerTime(snapshot.serverTimeMillis)
+        if (previous?.phase != snapshot.phase) diagnostics.note("phase ${snapshot.phase}, ${snapshot.me.role}")
+        val serverBand = snapshot.radarBand()
+        if (serverBand !=
+            previous?.radarBand()
+        ) {
+            diagnostics.note("server's radar ${previous?.radarBand()} → $serverBand")
+        }
         mutableState.update { state ->
             // The host changed the zone: the map data of the old one no longer applies.
             state.copy(
@@ -587,8 +615,11 @@ class GameSessionManager(
                 updateCarryMonitor(snapshot)
                 updateActivityMonitor(snapshot)
                 updateRanging(snapshot)
-                seekerTokens = snapshot.me.seekerTokens.toSet()
-                seekerSmoothers.keys.retainAll(seekerTokens)
+                rivalTokens = when (snapshot.me.role) {
+                    Role.HIDER -> snapshot.me.seekerTokens
+                    Role.SEEKER -> snapshot.me.hiderTokens
+                }.toSet()
+                rivalSmoothers.keys.retainAll(rivalTokens)
                 refreshPulse()
                 val alerts = alertRepeats.update(snapshot.hiderAlerts(), snapshot.serverTimeMillis)
                 alerts.ended.forEach(backgroundTracker::endAlert)
@@ -626,18 +657,23 @@ class GameSessionManager(
             return
         }
         radarToken.value = RadarToken.at(secret, clock.now())
+        diagnostics.onRadio(radarToken.value, asSeeker = snapshot.me.role == Role.SEEKER)
         if (radioJob?.isActive == true) return
         radioJob = scope.launch {
             try {
                 radio.run(radarToken, asSeeker = snapshot.me.role == Role.SEEKER).collect { sighting ->
+                    val isRival = sighting.token in rivalTokens
+                    diagnostics.onSighting(sighting.token, sighting.rssi, sighting.atMillis, isRival)
                     val atMillis = clock.toServerTime(sighting.atMillis)
                     val sample = NearbySighting(sighting.token, sighting.rssi, atMillis)
                     heard.update { kept -> keepRecent(kept + sample) }
-                    if (sighting.token in seekerTokens) {
-                        // Heard from a pocket, the signal is weaker than the distance says: evened out like the server.
-                        val offset = if (carry() == Carry.IN_POCKET) ProximityRules.POCKET_OFFSET_DB else 0.0
-                        val smoother = seekerSmoothers.getOrPut(sighting.token) { RadarSmoother() }
-                        smoother.add((sighting.rssi + offset).roundToInt(), atMillis)
+                    // Heard from a pocket, the signal is weaker than the distance says: evened out like the server.
+                    val offset = if (carry() == Carry.IN_POCKET) ProximityRules.POCKET_OFFSET_DB else 0.0
+                    val level = (sighting.rssi + offset).roundToInt()
+                    // Any phone of the game this close (a teammate too, whose token this one doesn't know): sync fast.
+                    if (level >= ProximityRules.WARM_ENTER_DBM) nearUntilMillis.value = atMillis + NEAR_HOLD_MILLIS
+                    if (isRival) {
+                        rivalSmoothers.getOrPut(sighting.token) { RadarSmoother() }.add(level, atMillis)
                         refreshPulse()
                     }
                 }
@@ -645,6 +681,7 @@ class GameSessionManager(
                 throw e
             } catch (e: Exception) {
                 // Bluetooth failed underneath: the round goes on without the radar on this phone.
+                diagnostics.note("radio failed: ${e.message ?: e::class.simpleName}")
             }
         }
     }
@@ -671,12 +708,14 @@ class GameSessionManager(
         .takeLast(MAX_SIGHTINGS_PER_SYNC)
 
     private fun stopRadio() {
+        if (radioJob != null) diagnostics.onRadio(null, asSeeker = false)
         radioJob?.cancel()
         radioJob = null
         radarToken.value = null
         heard.value = emptyList()
-        seekerTokens = emptySet()
-        seekerSmoothers.clear()
+        rivalTokens = emptySet()
+        rivalSmoothers.clear()
+        nearUntilMillis.value = 0L
         refreshPulse()
     }
 
@@ -684,6 +723,7 @@ class GameSessionManager(
     private fun refreshPulse() {
         val band = pulseBand(mutableState.value.snapshot)
         if (mutablePulse.value == band) return
+        diagnostics.note("pulse ${mutablePulse.value} → $band")
         mutablePulse.value = band
         pocketPulse.set(band)
     }
@@ -691,18 +731,33 @@ class GameSessionManager(
     private fun pulseBand(snapshot: GameSnapshot?): RadarBand {
         if (snapshot == null || snapshot.phase != GamePhase.SEEKING || radioJob?.isActive != true) return RadarBand.NONE
         val server = snapshot.radarBand() ?: RadarBand.NONE
+        val now = clock.now()
+        val heard = rivalSmoothers.values.maxOfOrNull { it.bandAt(now) } ?: RadarBand.NONE
         return when (snapshot.me.role) {
-            Role.SEEKER -> server
+            Role.SEEKER -> maxOf(server, heard)
 
             Role.HIDER -> {
                 if (!snapshot.settings.features.hiderSense || snapshot.me.status != PlayerStatus.ACTIVE) {
                     RadarBand.NONE
                 } else {
-                    val now = clock.now()
-                    maxOf(server, seekerSmoothers.values.maxOfOrNull { it.bandAt(now) } ?: RadarBand.NONE)
+                    maxOf(server, heard)
                 }
             }
         }
+    }
+
+    /**
+     * The pause before the next sync: the game's interval, or [NEAR_SYNC_MILLIS] during the search while somebody is
+     * near — by the server's band or by this phone's own ears — so both phones of a pair report sooner and the
+     * server's band comes back sooner. Asked by the connection, off the main thread.
+     */
+    private fun syncIntervalMillis(snapshot: GameSnapshot): Long {
+        val base = defaultSyncIntervalMillis(snapshot)
+        if (snapshot.phase != GamePhase.SEEKING) return base
+        val near = nearUntilMillis.value > clock.now() ||
+            (snapshot.radarBand() ?: RadarBand.NONE) >= RadarBand.WARM ||
+            mutablePulse.value >= RadarBand.WARM
+        return if (near) minOf(base, NEAR_SYNC_MILLIS) else base
     }
 
     /** Where the phone is, while a round with the radar goes on: for the radar's evening out and the pocket stealth. */
@@ -794,6 +849,7 @@ class GameSessionManager(
         val job = scope.launch {
             try {
                 locationProvider.locationUpdates(intervalMillis).collect { fix ->
+                    diagnostics.onFix(fix.accuracyMeters, fix.isMock, fix.timestampMillis)
                     val sample = fix.copy(timestampMillis = clock.toServerTime(fix.timestampMillis))
                     mutableMyLocation.value = sample
                     sessionOutbox.add(sample)
@@ -947,6 +1003,12 @@ class GameSessionManager(
         private const val UNAUTHORIZED = 401
         private const val READINGS_PER_TOKEN = 8
         private const val READING_GAP_MILLIS = 400L
+
+        /** The sync's pace while somebody is near ([syncIntervalMillis]). */
+        const val NEAR_SYNC_MILLIS = 1_000L
+
+        /** How long one close reading keeps the fast pace. */
+        private const val NEAR_HOLD_MILLIS = 5_000L
         private const val MAX_SIGHTINGS_PER_SYNC = 200
 
         /** Good enough to center the zone on (the default zone is hundreds of meters wide). */

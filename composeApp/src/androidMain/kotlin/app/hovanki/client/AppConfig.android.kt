@@ -18,8 +18,16 @@ internal fun androidBuildInfo(context: Context): BuildInfo {
         buildNumber = PackageInfoCompat.getLongVersionCode(packageInfo).toString(),
         commit = BuildConstants.COMMIT,
         isDebug = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
+        isEmulator = isEmulator(),
     )
 }
+
+/** The Android emulator: its virtual hardware is `ranchu` (`goldfish` on old images), its products `sdk_*`. */
+private fun isEmulator(): Boolean = Build.HARDWARE == "ranchu" ||
+    Build.HARDWARE == "goldfish" ||
+    Build.PRODUCT.startsWith("sdk") ||
+    Build.FINGERPRINT.startsWith("generic") ||
+    Build.MANUFACTURER == "Genymotion"
 
 private fun PackageManager.packageInfo(packageName: String): PackageInfo =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

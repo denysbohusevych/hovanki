@@ -27,7 +27,10 @@ import org.springframework.web.servlet.config.annotation.ViewControllerRegistry
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 import java.time.Duration
 
-/** Resolves a [Staff] controller parameter from the admin session cookie (docs/adr/0008-admin.md). */
+/**
+ * Resolves a [Staff] controller parameter from the admin session cookie (docs/adr/0008-admin.md); when the request
+ * rotated the session's token, the answer carries the new cookie.
+ */
 class StaffArgumentResolver(private val auth: StaffAuthService) : HandlerMethodArgumentResolver {
     override fun supportsParameter(parameter: MethodParameter): Boolean = parameter.parameterType == Staff::class.java
 
@@ -42,7 +45,14 @@ class StaffArgumentResolver(private val auth: StaffAuthService) : HandlerMethodA
         if (token.isNullOrBlank()) {
             throw GameException(ErrorCode.UNAUTHORIZED, "Log in to the admin", ErrorReason.SESSION_EXPIRED)
         }
-        return auth.authenticate(token)
+        val authentication = auth.authenticate(token)
+        authentication.newToken?.let { newToken ->
+            webRequest.getNativeResponse(HttpServletResponse::class.java)?.addHeader(
+                HttpHeaders.SET_COOKIE,
+                AdminWebConfig.sessionCookie(newToken, authentication.cookieMaxAge),
+            )
+        }
+        return authentication.staff
     }
 }
 
