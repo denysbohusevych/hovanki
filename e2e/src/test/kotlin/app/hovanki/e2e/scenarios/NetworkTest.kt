@@ -111,9 +111,11 @@ class NetworkTest {
 
         // A code from Anna's device clock would be four periods off.
         val secret = checkNotNull(anna.snapshot?.me?.catchCodeSecret)
-        val shown = eventually("Anna shows the code") { anna.shownCode() }
-        val deviceClockCode = catchCodeTotp(secret, rules).codeAt(anna.clock.now())
-        if (deviceClockCode != shown.code) {
+        eventually("Anna shows the code") { anna.shownCode() }
+        val totp = catchCodeTotp(secret, rules)
+        val deviceClockCode = totp.codeAt(anna.clock.now())
+        // Four digits: now and then that code is also one the server takes right now (it takes a period either side).
+        if (!totp.verify(deviceClockCode, checkNotNull(anna.serverNow()))) {
             expectRejected(
                 sam.confirmCatch(deviceClockCode),
                 ErrorCode.INVALID_CODE,
