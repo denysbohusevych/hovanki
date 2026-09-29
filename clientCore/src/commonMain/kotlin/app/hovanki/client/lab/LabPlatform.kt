@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.emptyFlow
 
 /** The app's life, the sensors and the battery. */
 interface LabProbes {
+    /** The system and its version for the log's header: «Android 16 (API 36)», «iOS 26.0». */
+    val os: String? get() = null
+
     /** The app's state now: `active` / `inactive` / `background` (iOS), `screen_on` / `screen_off` (Android). */
     fun appState(): String
 

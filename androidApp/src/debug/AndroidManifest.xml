@@ -11,5 +11,13 @@
         <data android:scheme="hovanki" android:host="join" />
       </intent-filter>
     </activity>
+    <!-- The radio lab's export (docs/radio-lab.md §4.2): its files go to the system «Share» from cache/lab/ only. -->
+    <provider
+      android:name="androidx.core.content.FileProvider"
+      android:authorities="${applicationId}.lab"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/lab_paths" />
+    </provider>
   </application>
 </manifest>

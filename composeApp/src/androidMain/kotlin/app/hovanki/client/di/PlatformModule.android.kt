@@ -4,6 +4,16 @@ import app.hovanki.client.BuildInfo
 import app.hovanki.client.androidBuildInfo
 import app.hovanki.client.device.AndroidDeviceInfo
 import app.hovanki.client.device.DeviceInfo
+import app.hovanki.client.lab.AndroidLabAir
+import app.hovanki.client.lab.AndroidLabFiles
+import app.hovanki.client.lab.AndroidLabHaptics
+import app.hovanki.client.lab.AndroidLabProbes
+import app.hovanki.client.lab.AndroidLabScreen
+import app.hovanki.client.lab.LabAir
+import app.hovanki.client.lab.LabFiles
+import app.hovanki.client.lab.LabHaptics
+import app.hovanki.client.lab.LabProbes
+import app.hovanki.client.lab.LabScreen
 import app.hovanki.client.location.AndroidLocationProvider
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.radio.AndroidProximityRadio
@@ -36,10 +46,16 @@ actual val platformModule: Module = module {
     single<BackgroundTracker> { AndroidBackgroundTracker(androidContext()) }
     single<ShareSheet> { AndroidShareSheet(androidContext()) }
     // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md); the precision radar by UWB is not implemented yet.
-    single<ProximityRadio> { AndroidProximityRadio(androidContext()) }
+    single<ProximityRadio> { AndroidProximityRadio(androidContext(), get()) }
     single<PrecisionRadio> { NoopPrecisionRadio() }
     single<DeviceInfo> { AndroidDeviceInfo(androidContext()) }
     single<ActivityMonitor> { AndroidActivityMonitor(androidContext()) }
     single<PocketPulse> { AndroidPocketPulse(androidContext()) }
     single<CarryMonitor> { AndroidCarryMonitor(androidContext()) }
+    // The radio lab (docs/radio-lab.md), reached from the debug build's diagnostics only.
+    single<LabProbes> { AndroidLabProbes(androidContext()) }
+    single<LabAir> { AndroidLabAir(androidContext()) }
+    single<LabScreen> { AndroidLabScreen(androidContext()) }
+    single<LabHaptics> { AndroidLabHaptics(androidContext()) }
+    single<LabFiles> { AndroidLabFiles(androidContext()) }
 }

@@ -77,7 +77,7 @@ class LabController(
     private val clockSync: LabClockSync,
     private val about: () -> LabAbout,
     private val scope: CoroutineScope,
-    private val monotonicMillis: () -> Long = LabLog.monotonicClock(),
+    private val monotonicMillis: () -> Long = log::monoNow,
     private val random: Random = Random.Default,
 ) {
     private val mutableRunning = MutableStateFlow(false)

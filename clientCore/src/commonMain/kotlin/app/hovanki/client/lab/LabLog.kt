@@ -75,6 +75,12 @@ class LabLog(
     /** The lab is running: events are written. Off, the game's radio tracing outside the lab writes nothing. */
     var isRecording: Boolean = false
 
+    /** The log's device clock: for the parts that measure against it (the clock sync, the controller). */
+    fun deviceNow(): Long = deviceTimeMillis()
+
+    /** The log's monotonic clock. */
+    fun monoNow(): Long = monotonicMillis()
+
     fun setLabel(label: String) {
         mutableLabel.value = label.trim().ifEmpty { DEFAULT_LABEL }
     }
