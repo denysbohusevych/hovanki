@@ -165,16 +165,16 @@ class ProximityTest {
             checkNotNull(HeartbeatRules.beat(it))
         }
         for (beat in beats) {
-            // «Lub-DUB»: soft first, strong second; quiet most of the time, even up close.
-            assertTrue(beat.softAmplitude < beat.strongAmplitude, "$beat")
+            // «Lub-DUB»: short first, longer second, both at full strength; quiet most of the time, even up close.
+            assertEquals(1.0, beat.softAmplitude, "$beat")
+            assertEquals(1.0, beat.strongAmplitude, "$beat")
             assertTrue(beat.softMillis < beat.strongMillis, "$beat")
             assertTrue(beat.dutyCycle <= 0.15, "$beat")
             assertTrue(beat.periodMillis >= 800, "$beat")
             assertTrue(beat.restMillis > beat.gapMillis, "$beat")
         }
-        // Closer: faster and stronger.
+        // Closer: faster; the pace alone tells the bands apart.
         assertEquals(beats.sortedByDescending { it.periodMillis }, beats)
-        assertEquals(beats.sortedBy { it.strongAmplitude }, beats)
     }
 
     @Test
