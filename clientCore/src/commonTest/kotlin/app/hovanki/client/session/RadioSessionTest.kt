@@ -73,20 +73,21 @@ class RadioSessionTest {
         round(phase(), withRadar, serverTime, role, sense, radar())
     }
 
-    private fun TestScope.manager(api: FakeGameApi) = GameSessionManager(
-        api,
-        PollingGameConnection(api),
-        ServerClock { deviceNow },
-        FakeLocationProvider(),
-        FakeBackgroundTracker(),
-        ServerUrl("http://10.0.2.2:8080"),
-        storage,
-        backgroundScope,
-        radio = radio,
-        deviceInfo = FakeDeviceInfo(Platform.IOS, model = "iPhone15,2"),
-        pocketPulse = pulse,
-        carryMonitor = carry,
-    )
+    private fun TestScope.manager(api: FakeGameApi, radio: FakeRadio = this@RadioSessionTest.radio) =
+        GameSessionManager(
+            api,
+            PollingGameConnection(api),
+            ServerClock { deviceNow },
+            FakeLocationProvider(),
+            FakeBackgroundTracker(),
+            ServerUrl("http://10.0.2.2:8080"),
+            storage,
+            backgroundScope,
+            radio = radio,
+            deviceInfo = FakeDeviceInfo(Platform.IOS, model = "iPhone15,2"),
+            pocketPulse = pulse,
+            carryMonitor = carry,
+        )
 
     private fun round(
         phase: GamePhase,
@@ -159,6 +160,37 @@ class RadioSessionTest {
             "sent once, in server time",
         )
         assertEquals("iPhone15,2", withSightings.device?.model, "the model, since the game has the radar")
+    }
+
+    @Test
+    fun theLobbyOfAGameWithTheRadarLooksAtBluetooth() = runTest {
+        // An iPhone: nothing known of its Bluetooth until the app looks, and then it is on.
+        val iphone = FakeRadio(BluetoothState.UNSUPPORTED, onRefresh = BluetoothState.ON)
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        val api = snapshots({ GamePhase.LOBBY })
+        val manager = manager(api, iphone)
+
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        runCurrent()
+        assertEquals(BluetoothState.ON, manager.bluetooth.value)
+        val before = api.syncRequests.size
+        manager.state.first { api.syncRequests.size > before }
+        assertEquals(BluetoothState.ON, api.syncRequests.last().device?.bluetooth, "the host may start the game")
+    }
+
+    @Test
+    fun aGameWithoutTheRadarNeverAsksForBluetooth() = runTest {
+        val iphone = FakeRadio(BluetoothState.UNSUPPORTED, onRefresh = BluetoothState.ON)
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        val api = snapshots({ GamePhase.LOBBY }, withRadar = false)
+        val manager = manager(api, iphone)
+
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        runCurrent()
+        assertEquals(0, iphone.refreshes)
+        assertEquals(BluetoothState.UNSUPPORTED, manager.bluetooth.value)
     }
 
     @Test

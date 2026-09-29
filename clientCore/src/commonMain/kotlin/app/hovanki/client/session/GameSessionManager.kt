@@ -557,6 +557,10 @@ class GameSessionManager(
         }
         if (snapshot.buildings == BuildingsState.READY) loadBuildings()
         if (snapshot.streetZone == StreetZoneState.READY) loadStreetZone()
+        // A game with the radar: the phone looks at its Bluetooth from the lobby on, so every sync says whether it can
+        // take part (the host can't start a game that requires it otherwise). An iPhone knows nothing of its Bluetooth
+        // until the app touches CoreBluetooth, which also asks the player; a game without the radar never asks.
+        if (snapshot.phase != GamePhase.FINISHED && snapshot.settings.features.hasRadar) radio.refresh()
         when (snapshot.phase) {
             GamePhase.LOBBY -> Unit
 

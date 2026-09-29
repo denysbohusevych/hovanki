@@ -19,7 +19,11 @@ interface ProximityRadio {
     /** Whether the phone can take part right now: on, switched off in the system, refused, or no Bluetooth LE. */
     val state: StateFlow<BluetoothState>
 
-    /** Looks at the adapter and the permissions again, after the player answered a permission dialog. */
+    /**
+     * Looks at the adapter and the permissions again: with every snapshot of a game with the radar, and after the
+     * player answered a permission dialog. On iOS the first call starts watching the adapter (and asks the player):
+     * until then [state] knows nothing.
+     */
     fun refresh() = Unit
 
     fun run(tokens: StateFlow<String?>, asSeeker: Boolean = false): Flow<RadioSighting>

@@ -41,8 +41,20 @@ class FakeLocationProvider : LocationProvider {
 }
 
 /** Bluetooth LE that hears what the test says ([hears]); remembers the tokens it was told to advertise. */
-class FakeRadio(state: BluetoothState = BluetoothState.ON) : ProximityRadio {
+class FakeRadio(
+    state: BluetoothState = BluetoothState.ON,
+    /** What the phone finds when it looks ([refresh]); null: the state stays. An iPhone knows nothing before. */
+    private val onRefresh: BluetoothState? = null,
+) : ProximityRadio {
     override val state = MutableStateFlow(state)
+
+    var refreshes = 0
+        private set
+
+    override fun refresh() {
+        refreshes++
+        onRefresh?.let { state.value = it }
+    }
 
     /** The token flow of the running collection; null while nothing collects. */
     var tokens: StateFlow<String?>? = null
