@@ -318,7 +318,9 @@ e2e/mac-beacon/run.sh --lab --sniff
 
 **Как не терять данные.**
 - После каждого опыта жми **Export** на телефоне и отправляй по AirDrop на Мак. iOS может выгрузить приложение, и память пропадёт.
-- Журнал Мака пишется сам, в `e2e/build/lab/`. **Clear** между опытами нажимать не нужно.
+- Сразу после **Export** жми **Clear**: экспорт выгружает журнал с самого запуска, и без **Clear** следующий файл повторит предыдущий.
+- Журнал Мака пишется сам, в `e2e/build/lab/`, каждый запуск `run.sh --lab` — свой файл.
+- Точные настройки каждого опыта — в [radio-lab-tests.md](radio-lab-tests.md).
 - Каждый запуск `run.sh --lab` начинает новый файл журнала — так и задумано.
 
 ---
@@ -420,11 +422,11 @@ e2e/mac-beacon/run.sh --lab --sniff
 - **Сведение на Маке:**
 
   ```bash
-  ./gradlew :e2e:lab --args="merge <все hovanki-lab-A-*.jsonl> e2e/build/lab/hovanki-lab-mac-*.jsonl --out e2e/build/lab/merged"
+  ./gradlew :e2e:lab --args="merge $(echo e2e/build/lab/e1/*.jsonl) --out e2e/build/lab/e1/merged"
   ```
 
-  Внутри `e2e/build/lab/merged/`: `summary.md`, `timeline.txt`, `carry.csv`, `masks.csv`, `haptics.csv`.
-- **В новую сессию:** папку `merged` и сами `.jsonl`. Если телефонных журналов много — кидай все, сведение разберётся по времени.
+  Внутри `e2e/build/lab/e1/merged/`: `summary.md`, `timeline.txt`, `carry.csv`, `masks.csv`, `haptics.csv`.
+- **В новую сессию:** папку `merged` и сами `.jsonl`. Файлы каждого опыта — в своей папке (`e1`, `e2`, …), по одному экспорту телефона на опыт.
 - **Если что-то не собралось или упало:** ошибки Xcode, `swiftc`, сообщения в терминале Мака — присылай как есть.
 
 ### Чего не проверить с одним телефоном
