@@ -17,6 +17,7 @@ import app.hovanki.client.ui.common.CommandRunner
 import app.hovanki.client.ui.common.FormMessage
 import app.hovanki.client.ui.common.PlayerAccount
 import app.hovanki.client.ui.common.playerAccount
+import app.hovanki.client.ui.game.ZoneTimeline
 import app.hovanki.shared.protocol.Audience
 import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.BluetoothState
@@ -45,7 +46,6 @@ import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.Capacity
 import app.hovanki.shared.rules.GameSetup
 import app.hovanki.shared.rules.Glow
-import app.hovanki.shared.rules.ZoneState
 import app.hovanki.shared.rules.stateAt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -495,7 +495,7 @@ class LobbyViewModel(
             items = snapshot.items,
             quests = snapshot.quests,
             zoneCenter = settings.zone.initial.center,
-            zone = settings.zone.stateAt(0L),
+            zone = ZoneTimeline(settings.zone, startedAtMillis = null, streets = null),
             bluetooth = bluetooth,
             radarEnabled = radarEnabled,
             capacity = capacity?.players,
@@ -584,8 +584,8 @@ data class LobbyUiState(
     /** The host's own quests so far. */
     val quests: List<QuestView>,
     val zoneCenter: GeoPoint,
-    /** The zone as the search starts, for the board's map. */
-    val zone: ZoneState,
+    /** The zone as the search starts (not started, the circles), for the board's map. */
+    val zone: ZoneTimeline,
     /** This phone's Bluetooth, for the radar. */
     val bluetooth: BluetoothState,
     /** «The radar on my phone». */

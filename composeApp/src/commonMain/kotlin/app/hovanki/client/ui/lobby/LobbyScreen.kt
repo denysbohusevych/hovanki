@@ -404,6 +404,7 @@ private fun PlayersSection(
                             if (index > 0) HorizontalDivider(color = Palette.Line, thickness = 1.5.dp)
                             PlayerRow(
                                 player = player,
+                                showRadar = state.features.hasRadar,
                                 canPickRoles = state.isHost,
                                 isBusy = isBusy,
                                 isNew = isNew,
@@ -906,6 +907,7 @@ private fun BigGameFriends(state: LobbyUiState, isBusy: Boolean, onAddFriend: (U
                 if (index > 0) HorizontalDivider(color = Palette.Line, thickness = 1.5.dp)
                 PlayerRow(
                     player = player,
+                    showRadar = state.features.hasRadar,
                     canPickRoles = false,
                     isBusy = isBusy,
                     isNew = false,

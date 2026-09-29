@@ -100,6 +100,8 @@ fun BoardPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
             ) {
                 GameMap(
                     zone = state.zone,
+                    // The zone has not started: its shape is the initial one whatever the time.
+                    serverNow = { 0L },
                     cue = ZoneCue.CALM,
                     myLocation = null,
                     myRole = if (state.amSeeker) Role.SEEKER else Role.HIDER,
