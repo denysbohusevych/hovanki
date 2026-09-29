@@ -160,8 +160,10 @@ class AndroidProximityRadio(private val context: Context) : ProximityRadio {
                 return RadarToken.fromMajorMinor(major, minor)
             }
         }
+        // An iPhone hider: the token as its name, bare (iOS keeps 8 characters next to the service) or after the first
+        // apps' prefix. Only the game's service and iBeacon frames pass the scan filters.
         val name = record.deviceName ?: return null
-        return name.takeIf { it.startsWith(NAME_PREFIX) }?.removePrefix(NAME_PREFIX)
+        return name.removePrefix(NAME_PREFIX)
     }
 
     private fun currentState(): BluetoothState {

@@ -1,8 +1,8 @@
 // The radar's Bluetooth on a Mac, for `e2e beacon` (docs/e2e-local.md, «Ноутбук вместо второго телефона»): the bot
 // on the laptop plays through the app's client code, and this helper is its phone's Bluetooth. It advertises the
-// bot's token the way an iPhone hider does (the game's service with «hv» + the token as the name, which Android and
-// iOS phones both scan for) and reports every radar token it hears: an Android hider's service data, an iPhone
-// hider's name, a seeker's iBeacon frame when macOS shows it.
+// bot's token the way an iPhone hider does (the game's service with the token as the name, which Android and iOS
+// phones both scan for) and reports every radar token it hears: an Android hider's service data, an iPhone hider's
+// name (bare, or after the first apps' «hv»), a seeker's iBeacon frame when macOS shows it.
 //
 // Lines on stdin: `advertise <token>`, `stop`. Lines on stdout: `state on|off|denied|unsupported`,
 // `heard <token> <rssi>`, `log <text>`. Closing stdin ends it. Built by e2e/mac-beacon/run.sh.
@@ -51,7 +51,7 @@ final class Beacon: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDeleg
         guard let token = token else { return }
         peripheral.startAdvertising([
             CBAdvertisementDataServiceUUIDsKey: [serviceUUID],
-            CBAdvertisementDataLocalNameKey: namePrefix + token,
+            CBAdvertisementDataLocalNameKey: token,
         ])
     }
 
@@ -82,7 +82,7 @@ final class Beacon: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDeleg
         if let error = error {
             say("log advertising failed: \(error.localizedDescription)")
         } else {
-            say("log advertising \(namePrefix)\(token ?? "")")
+            say("log advertising \(token ?? "")")
         }
     }
 
@@ -122,9 +122,10 @@ final class Beacon: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDeleg
                 return hex(Data(bytes[20..<24]))
             }
         }
-        // An iPhone hider on the screen: the token in the name.
-        if let name = advertisement[CBAdvertisementDataLocalNameKey] as? String, name.hasPrefix(namePrefix) {
-            let token = String(name.dropFirst(namePrefix.count))
+        // An iPhone hider on the screen: the token as the name, only with the game's service next to it.
+        let services = advertisement[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
+        if services.contains(serviceUUID), let name = advertisement[CBAdvertisementDataLocalNameKey] as? String {
+            let token = name.hasPrefix(namePrefix) ? String(name.dropFirst(namePrefix.count)) : name
             if isToken(token) { return token }
         }
         return nil
