@@ -47,8 +47,9 @@ import platform.posix.memcpy
 
 /**
  * The radar over Bluetooth LE on iOS (docs/adr/0012-nearby-radar.md, section 2.2). A hider's phone advertises the
- * game's service UUID with the token in its name (iOS lets a third-party app advertise nothing else; in the
- * background only the UUID goes out, in the overflow area other iPhones see). A seeker's phone advertises an
+ * game's service UUID with the token as its name (iOS lets a third-party app advertise nothing else, and keeps only 8
+ * characters of the name next to a 128-bit UUID; in the background only the UUID goes out, in the overflow area
+ * other iPhones see). A seeker's phone advertises an
  * iBeacon frame with the token as major and minor, which works on the screen only, where a seeker is anyway. Every
  * phone scans through CoreBluetooth for the hiders' service (an Android's service data, an iPhone's name) and ranges
  * the seekers' iBeacon through CoreLocation, which keeps giving the signal once a second from a pocket, screen off,
@@ -77,82 +78,16 @@ class IosProximityRadio : ProximityRadio {
     }
 
     override fun run(tokens: StateFlow<String?>, asSeeker: Boolean): Flow<RadioSighting> = callbackFlow {
-        val serviceUuid = CBUUID.UUIDWithString(SERVICE_UUID)
-        fun now(): Long = (NSDate().timeIntervalSince1970 * 1000).toLong()
-        fun heard(token: String, rssi: Int) {
-            if (RadarToken.isWellFormed(token)) trySend(RadioSighting(token, rssi, now()))
-        }
-
-        // The hiders: their service, by CoreBluetooth.
-        val centralDelegate = object : NSObject(), CBCentralManagerDelegateProtocol {
-            override fun centralManagerDidUpdateState(central: CBCentralManager) {
-                mutableState.value = stateOf(central)
-                if (central.state == CBManagerStatePoweredOn) {
-                    central.scanForPeripheralsWithServices(
-                        listOf(serviceUuid),
-                        mapOf(CBCentralManagerScanOptionAllowDuplicatesKey to true),
-                    )
+        val listener = Listener(
+            onState = { central -> mutableState.value = stateOf(central) },
+            onHeard = { token, rssi ->
+                if (RadarToken.isWellFormed(token)) {
+                    trySend(RadioSighting(token, rssi, (NSDate().timeIntervalSince1970 * 1000).toLong()))
                 }
-            }
-
-            override fun centralManager(
-                central: CBCentralManager,
-                didDiscoverPeripheral: CBPeripheral,
-                advertisementData: Map<Any?, *>,
-                RSSI: NSNumber,
-            ) {
-                val rssi = RSSI.intValue
-                if (rssi == 0 || rssi < MIN_RSSI) return
-                @Suppress("UNCHECKED_CAST")
-                val serviceData = advertisementData[CBAdvertisementDataServiceDataKey] as? Map<Any?, *>
-                val data = serviceData?.entries?.firstOrNull { (key, _) ->
-                    (key as? CBUUID)?.UUIDString.equals(SERVICE_UUID, ignoreCase = true)
-                }?.value as? NSData
-                if (data != null) {
-                    heard(data.toHex(), rssi)
-                    return
-                }
-                val name = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?: return
-                if (name.startsWith(NAME_PREFIX)) heard(name.removePrefix(NAME_PREFIX), rssi)
-            }
-        }
-        val central = CBCentralManager(centralDelegate, null)
-
-        // The seekers: their iBeacon, by CoreLocation (CoreBluetooth never shows iBeacon frames to an app).
-        val constraint = CLBeaconIdentityConstraint(NSUUID(SERVICE_UUID))
-        val ranger = CLLocationManager()
-        val rangerDelegate = object : NSObject(), CLLocationManagerDelegateProtocol {
-            override fun locationManager(
-                manager: CLLocationManager,
-                didRangeBeacons: List<*>,
-                satisfyingConstraint: CLBeaconIdentityConstraint,
-            ) {
-                for (beacon in didRangeBeacons) {
-                    val found = beacon as? CLBeacon ?: continue
-                    val rssi = found.rssi.toInt()
-                    if (rssi == 0 || rssi < MIN_RSSI) continue
-                    heard(RadarToken.fromMajorMinor(found.major.intValue, found.minor.intValue), rssi)
-                }
-            }
-        }
-        ranger.delegate = rangerDelegate
-        val region = CLBeaconRegion(constraint, BEACON_REGION_ID)
-        region.notifyEntryStateOnDisplay = false
-        ranger.startMonitoringForRegion(region)
-        ranger.startRangingBeaconsSatisfyingConstraint(constraint)
-
-        val peripheralDelegate = object : NSObject(), CBPeripheralManagerDelegateProtocol {
-            override fun peripheralManagerDidUpdateState(peripheral: CBPeripheralManager) = Unit
-        }
-        val peripheral = CBPeripheralManager(peripheralDelegate, null)
-        var advertising = false
-        fun advertise(token: String?) {
-            if (advertising) {
-                peripheral.stopAdvertising()
-                advertising = false
-            }
-            if (token == null) return
-            val data: Map<Any?, *> = if (asSeeker) {
+            },
+        )
+        val advertiser = Advertiser { token ->
+            if (asSeeker) {
                 val (major, minor) = RadarToken.toMajorMinor(token)
                 val beacon = CLBeaconRegion(
                     uUID = NSUUID(SERVICE_UUID),
@@ -163,24 +98,20 @@ class IosProximityRadio : ProximityRadio {
                 val dictionary = beacon.peripheralDataWithMeasuredPower(null)
                 dictionary.allKeys.associateWith<Any?, Any?> { dictionary.objectForKey(it) }
             } else {
+                // The bare token: next to a 128-bit service iOS keeps 8 characters of the name, which is exactly it.
                 mapOf(
-                    CBAdvertisementDataServiceUUIDsKey to listOf(serviceUuid),
-                    CBAdvertisementDataLocalNameKey to NAME_PREFIX + token,
+                    CBAdvertisementDataServiceUUIDsKey to listOf(CBUUID.UUIDWithString(SERVICE_UUID)),
+                    CBAdvertisementDataLocalNameKey to token,
                 )
             }
-            peripheral.startAdvertising(data)
-            advertising = true
         }
-        val tokenJob = tokens.onEach { advertise(it) }.launchIn(this)
+        val tokenJob = tokens.onEach { advertiser.advertise(it) }.launchIn(this)
+        // Both are the delegates of their managers, which hold them only weakly: referenced here, they live as long
+        // as the radio runs (a delegate the garbage collector took would leave the phone deaf without a word).
         awaitClose {
             tokenJob.cancel()
-            if (advertising) peripheral.stopAdvertising()
-            ranger.stopRangingBeaconsSatisfyingConstraint(constraint)
-            ranger.stopMonitoringForRegion(region)
-            ranger.delegate = null
-            central.stopScan()
-            central.delegate = null
-            peripheral.delegate = null
+            advertiser.close()
+            listener.close()
         }
     }
 
@@ -199,23 +130,145 @@ class IosProximityRadio : ProximityRadio {
         else -> BluetoothState.OFF
     }
 
-    private fun NSData.toHex(): String {
-        val bytes = ByteArray(length.toInt())
-        if (bytes.isNotEmpty()) {
-            bytes.usePinned { pinned -> memcpy(pinned.addressOf(0), this.bytes, length) }
-        }
-        return bytes.joinToString("") { byte -> byte.toUByte().toString(16).padStart(2, '0') }
-    }
-
     companion object {
         /** The same as on Android: the phones of both kinds hear each other by it. */
         const val SERVICE_UUID = "7A0B8D2E-4C1F-4E6A-9B3D-2F5E8C1A7D10"
 
-        /** An iPhone hider on the screen carries its token in its name (iOS advertises no data). */
+        /**
+         * An iPhone hider on the screen carries its token as its name (iOS advertises no data); the first apps put
+         * this before it, which iOS cut off with the token's end, so it is only still read.
+         */
         const val NAME_PREFIX = "hv"
-        private const val BEACON_REGION_ID = "app.hovanki.radar"
+    }
+}
 
-        /** CoreLocation reports 0 for a beacon it lost; anything weaker than this is noise. */
-        private const val MIN_RSSI = -110
+private const val BEACON_REGION_ID = "app.hovanki.radar"
+
+/** Anything weaker than this is noise. */
+private const val MIN_RSSI = -110
+
+/** A real reading: CoreLocation reports 0 for a beacon it lost, CoreBluetooth 127 for none; weaker is noise. */
+private fun isReading(rssi: Int): Boolean = rssi in MIN_RSSI..-1
+
+private fun NSData.toHex(): String {
+    val bytes = ByteArray(length.toInt())
+    if (bytes.isNotEmpty()) {
+        bytes.usePinned { pinned -> memcpy(pinned.addressOf(0), this.bytes, length) }
+    }
+    return bytes.joinToString("") { byte -> byte.toUByte().toString(16).padStart(2, '0') }
+}
+
+/**
+ * Listens while the radio runs: scans through CoreBluetooth for the hiders' service (an Android's service data, an
+ * iPhone's name) and ranges the seekers' iBeacon through CoreLocation (CoreBluetooth never shows iBeacon frames to an
+ * app). The delegate of both managers, which hold it only weakly: whoever runs it keeps a reference until [close].
+ */
+private class Listener(
+    private val onState: (CBCentralManager) -> Unit,
+    private val onHeard: (token: String, rssi: Int) -> Unit,
+) : NSObject(),
+    CBCentralManagerDelegateProtocol,
+    CLLocationManagerDelegateProtocol {
+    private val serviceUuid = CBUUID.UUIDWithString(IosProximityRadio.SERVICE_UUID)
+    private val central = CBCentralManager()
+    private val ranger = CLLocationManager()
+    private val constraint = CLBeaconIdentityConstraint(NSUUID(IosProximityRadio.SERVICE_UUID))
+    private val region = CLBeaconRegion(constraint, BEACON_REGION_ID)
+
+    init {
+        central.delegate = this
+        ranger.delegate = this
+        region.notifyEntryStateOnDisplay = false
+        ranger.startMonitoringForRegion(region)
+        ranger.startRangingBeaconsSatisfyingConstraint(constraint)
+    }
+
+    fun close() {
+        ranger.stopRangingBeaconsSatisfyingConstraint(constraint)
+        ranger.stopMonitoringForRegion(region)
+        ranger.delegate = null
+        if (central.state == CBManagerStatePoweredOn) central.stopScan()
+        central.delegate = null
+    }
+
+    override fun centralManagerDidUpdateState(central: CBCentralManager) {
+        onState(central)
+        if (central.state == CBManagerStatePoweredOn) {
+            central.scanForPeripheralsWithServices(
+                listOf(serviceUuid),
+                mapOf(CBCentralManagerScanOptionAllowDuplicatesKey to true),
+            )
+        }
+    }
+
+    override fun centralManager(
+        central: CBCentralManager,
+        didDiscoverPeripheral: CBPeripheral,
+        advertisementData: Map<Any?, *>,
+        RSSI: NSNumber,
+    ) {
+        val rssi = RSSI.intValue
+        if (!isReading(rssi)) return
+        @Suppress("UNCHECKED_CAST")
+        val serviceData = advertisementData[CBAdvertisementDataServiceDataKey] as? Map<Any?, *>
+        val data = serviceData?.entries?.firstOrNull { (key, _) ->
+            (key as? CBUUID)?.UUIDString.equals(IosProximityRadio.SERVICE_UUID, ignoreCase = true)
+        }?.value as? NSData
+        if (data != null) {
+            onHeard(data.toHex(), rssi)
+            return
+        }
+        // Only the game's service is scanned for: its name is a token, bare or after the first apps' prefix.
+        val name = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?: return
+        onHeard(name.removePrefix(IosProximityRadio.NAME_PREFIX), rssi)
+    }
+
+    override fun locationManager(
+        manager: CLLocationManager,
+        didRangeBeacons: List<*>,
+        satisfyingConstraint: CLBeaconIdentityConstraint,
+    ) {
+        for (beacon in didRangeBeacons) {
+            val found = beacon as? CLBeacon ?: continue
+            val rssi = found.rssi.toInt()
+            if (!isReading(rssi)) continue
+            onHeard(RadarToken.fromMajorMinor(found.major.intValue, found.minor.intValue), rssi)
+        }
+    }
+}
+
+/**
+ * Advertises the latest token for as long as it is set, whatever the adapter does meanwhile. iOS takes
+ * `startAdvertising` only once the peripheral manager says it is powered on, which comes a moment after it is made
+ * (and again after Bluetooth was switched off and on): a call before that is dropped without a word, so the token
+ * waits here and goes out from [peripheralManagerDidUpdateState].
+ */
+private class Advertiser(private val data: (token: String) -> Map<Any?, *>) :
+    NSObject(),
+    CBPeripheralManagerDelegateProtocol {
+    private val manager = CBPeripheralManager()
+    private var token: String? = null
+
+    init {
+        manager.delegate = this
+    }
+
+    fun advertise(token: String?) {
+        this.token = token
+        restart()
+    }
+
+    fun close() {
+        token = null
+        restart()
+        manager.delegate = null
+    }
+
+    override fun peripheralManagerDidUpdateState(peripheral: CBPeripheralManager) = restart()
+
+    private fun restart() {
+        if (manager.state != CBManagerStatePoweredOn) return
+        manager.stopAdvertising()
+        token?.let { manager.startAdvertising(data(it)) }
     }
 }
