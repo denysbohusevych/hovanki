@@ -688,4 +688,5 @@
   <string name="recording_you">%1$s (you)</string>
   <string name="error_game_not_open">This game is not open to spectators.</string>
   <string name="error_playing_this_game">You play in this game, so you can’t watch it.</string>
+  <string name="building_open_tag">open</string>
 </resources>

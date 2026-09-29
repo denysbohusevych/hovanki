@@ -50,6 +50,7 @@ import app.hovanki.shared.rules.ZoneArea
 import app.hovanki.shared.rules.ZoneState
 import app.hovanki.shared.rules.areaAt
 import app.hovanki.shared.rules.stateAt
+import app.hovanki.shared.rules.withOpenBuildings
 import app.hovanki.shared.totp.CatchCodePayload
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -319,7 +320,9 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
                 .map { it.toUi() },
             outOfZoneMillisLeft = me.outOfZoneDeadlineMillis?.let { it - now },
             insideBuildingMillisLeft = me.insideBuildingRevealAtMillis?.let { it - now },
-            buildings = state.buildings?.takeIf { snapshot.buildings == BuildingsState.READY },
+            buildings = state.buildings
+                ?.takeIf { snapshot.buildings == BuildingsState.READY }
+                ?.withOpenBuildings(snapshot.settings.openBuildings),
             isBuildingRuleOff = snapshot.buildings == BuildingsState.UNAVAILABLE,
             connectionStatus = state.connectionStatus,
             isSharingLocation = state.isSharingLocation,

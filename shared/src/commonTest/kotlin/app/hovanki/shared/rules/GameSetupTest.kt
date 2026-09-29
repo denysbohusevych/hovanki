@@ -1,5 +1,6 @@
 package app.hovanki.shared.rules
 
+import app.hovanki.shared.geo.moveBy
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.ZoneShape
@@ -120,5 +121,17 @@ class GameSetupTest {
         assertNotNull(SettingsLimits.problem(fine.copy(hidingSeconds = 100_000)))
         assertNotNull(SettingsLimits.problem(fine.copy(glowEverySeconds = 10, glowForSeconds = 10)))
         assertNull(SettingsLimits.problem(GameSettings(zone = shrinkingZone(center), hidingSeconds = 0)))
+    }
+
+    @Test
+    fun openBuildingsAreFewAndInTheZone() {
+        val fine = GameSetup().settings(center)
+        val near = List(SettingsLimits.MAX_OPEN_BUILDINGS) { center.moveBy(it * 10.0, 0.0) }
+
+        assertNull(SettingsLimits.problem(fine.copy(openBuildings = near)))
+        assertNull(SettingsLimits.problem(fine.copy(openBuildings = listOf(center.moveBy(530.0, 0.0)))), "the margin")
+        assertNotNull(SettingsLimits.problem(fine.copy(openBuildings = near + center)), "too many")
+        assertNotNull(SettingsLimits.problem(fine.copy(openBuildings = listOf(center.moveBy(600.0, 0.0)))), "far")
+        assertEquals(null, fine.openBuildings, "a new setup says nothing about them")
     }
 }

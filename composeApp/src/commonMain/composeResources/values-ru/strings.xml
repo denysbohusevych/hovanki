@@ -692,4 +692,5 @@
   <string name="recording_you">%1$s (вы)</string>
   <string name="error_game_not_open">Эта игра закрыта для зрителей.</string>
   <string name="error_playing_this_game">Вы играете в этой игре, смотреть её нельзя.</string>
+  <string name="building_open_tag">можно</string>
 </resources>

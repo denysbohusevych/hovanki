@@ -9,6 +9,8 @@ import app.hovanki.server.game.GameRegistry
 import app.hovanki.server.game.IdGenerator
 import app.hovanki.server.social.TestUser
 import app.hovanki.server.social.TestUsers
+import app.hovanki.shared.debug.DebugBuildings
+import app.hovanki.shared.geo.moveBy
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.BuildingsResponse
@@ -35,6 +37,7 @@ import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.Capacity
+import app.hovanki.shared.rules.SettingsLimits
 import app.hovanki.shared.rules.shrinkingZone
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -118,6 +121,37 @@ class LobbyApiTest(
             SettingsRequest(huge).toJson(),
             host.token,
         ).error(400, ErrorCode.BAD_REQUEST)
+    }
+
+    /** docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 4. */
+    @Test
+    fun theHostOpensABuildingForHiding() {
+        val (host, anna) = lobby("Host", "Anna")
+        val insideBlock = park.moveBy(DebugBuildings.INSIDE_EAST, DebugBuildings.INSIDE_NORTH)
+
+        val snapshot = post(
+            ApiRoutes.settings(host.gameId),
+            SettingsRequest(settings.copy(openBuildings = listOf(insideBlock))).toJson(),
+            host.token,
+        ).ok<GameSnapshot>()
+
+        assertEquals(listOf(insideBlock), snapshot.settings.openBuildings)
+        assertEquals(0, snapshot.mapRevision, "nothing to load again")
+        val buildings = get(ApiRoutes.buildings(anna.gameId), anna.token).ok<BuildingsResponse>()
+        assertEquals(emptyList(), buildings.buildings)
+        assertEquals(DebugBuildings.around(park).buildings, buildings.open)
+
+        val tooMany = List(SettingsLimits.MAX_OPEN_BUILDINGS + 1) { park.moveBy(it * 5.0, 0.0) }
+        post(
+            ApiRoutes.settings(host.gameId),
+            SettingsRequest(settings.copy(openBuildings = tooMany)).toJson(),
+            host.token,
+        ).error(400, ErrorCode.BAD_REQUEST)
+        // A request of an older app has no list: the block stays open.
+        val older = protocolJson.encodeToString(SettingsRequest(settings.copy(hidingSeconds = 60)))
+        assertTrue("openBuildings" !in older)
+        val kept = post(ApiRoutes.settings(host.gameId), older, host.token).ok<GameSnapshot>()
+        assertEquals(listOf(insideBlock), kept.settings.openBuildings)
     }
 
     @Test

@@ -1,11 +1,13 @@
 package app.hovanki.shared.rules
 
+import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.FeatureMode
 import app.hovanki.shared.protocol.GameFeatures
 import app.hovanki.shared.protocol.GameRules
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.QuestKind
+import app.hovanki.shared.protocol.ZoneSchedule
 import app.hovanki.shared.protocol.ZoneShape
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
@@ -160,6 +162,19 @@ object SettingsLimits {
     /** The spectators of an open game are at most this far behind it (docs/adr/0011-spectators-and-recordings.md). */
     const val MAX_SPECTATOR_DELAY_SECONDS = 600
 
+    /**
+     * The host opens at most this many buildings for hiding, each within [OPEN_BUILDING_MARGIN_METERS] of the zone:
+     * the buildings are loaded that far around it (docs/adr/0014-settings-lobby-redesign-open-buildings.md).
+     */
+    const val MAX_OPEN_BUILDINGS = 10
+    const val OPEN_BUILDING_MARGIN_METERS = 50.0
+
+    /** Whether [point] is near enough to [zone] for a building there to be open. */
+    fun isNearZone(point: GeoPoint, zone: ZoneSchedule): Boolean {
+        val around = zone.boundingCircle(OPEN_BUILDING_MARGIN_METERS)
+        return point.distanceTo(around.center) <= around.radiusMeters
+    }
+
     /** What is wrong with [settings]; null when the server takes them. */
     fun problem(settings: GameSettings): String? {
         val zone = settings.zone
@@ -198,6 +213,10 @@ object SettingsLimits {
 
             settings.spectatorDelaySeconds !in 0..MAX_SPECTATOR_DELAY_SECONDS ->
                 "Spectators are 0..$MAX_SPECTATOR_DELAY_SECONDS s behind"
+
+            settings.openBuildings.orEmpty().size > MAX_OPEN_BUILDINGS -> "At most $MAX_OPEN_BUILDINGS open buildings"
+
+            settings.openBuildings.orEmpty().any { !isNearZone(it, zone) } -> "An open building is outside the zone"
 
             else -> settings.quests.firstNotNullOfOrNull { QuestCatalog.problem(it, settings) }
         }

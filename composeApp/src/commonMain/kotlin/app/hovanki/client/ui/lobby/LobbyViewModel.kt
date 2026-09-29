@@ -47,6 +47,7 @@ import app.hovanki.shared.rules.Capacity
 import app.hovanki.shared.rules.GameSetup
 import app.hovanki.shared.rules.Glow
 import app.hovanki.shared.rules.stateAt
+import app.hovanki.shared.rules.withOpenBuildings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -460,7 +461,9 @@ class LobbyViewModel(
         val seekerCount = players.count { it.isSeeker }
         val capacity = snapshot.capacity?.takeIf { it.state == CapacityState.READY }
         val streetZone = snapshot.streetZone
-        val buildings = state.buildings?.takeIf { it.mapRevision == snapshot.mapRevision }
+        val buildings = state.buildings
+            ?.takeIf { it.mapRevision == snapshot.mapRevision }
+            ?.withOpenBuildings(settings.openBuildings)
         return LobbyUiState(
             gameId = snapshot.gameId,
             joinCode = snapshot.joinCode,
