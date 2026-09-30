@@ -385,6 +385,9 @@ Job проверяет профиль до сборки: тип App Store (бе�
 
 ### Google Play (позже)
 
+Для полевого теста ([ADR 0018, §8](adr/0018-field-test-build.md#8-раздача)) — раньше релиза: `app.hovanki.preview` отдельным приложением в Play Console, только трек internal testing (до 100 тестеров, без ревью), AAB из `preview.yml`; сборки `preview` тогда ходят на staging, а TestFlight-сборку из `preview.yml` в App Store не отправляют — для него сборка из `release.yml`. Пошагово — [field-test.md](field-test.md), шаг 8.
+
+
 Аккаунт разработчика, первая загрузка AAB вручную, затем service account JSON в секретах и загрузка из CI (fastlane supply или `r0adkll/upload-google-play`). В Play Console нужно заполнить декларации для фоновой геолокации и foreground service с типом `location`.
 
 ## Защита веток

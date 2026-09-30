@@ -288,6 +288,10 @@ docker compose down postgres
 - **Выключить**: `sudo systemctl disable --now hovanki-update.timer`.
 - **Проверить**: `systemctl list-timers hovanki-update.timer` — когда следующий запуск; `journalctl -u hovanki-update -n 50` — что было при последних. Обновление пишет «New server image …» и «Server updated», ожидание большой игры — «… waits for a big game until …». Ошибка `unauthorized` значит, что истёк PAT: создать новый и повторить `docker login ghcr.io`.
 
+## Staging (план)
+
+Для полевого теста ([ADR 0018, §2](adr/0018-field-test-build.md#2-staging)) — второй сервер тем же способом: своя EC2 (t3.small, на день теста t3.medium), своё имя DuckDNS, база `hovanki_staging` на том же RDS, флаги `FIELD_LOG`, `RADIO_LAB`, `LIVE_SOCKET`; в день теста автообновление выключено. Сборки `preview` ходят туда. Пошагово — [field-test.md](field-test.md), шаг 1.
+
 ## Большие игры
 
 Большие игры ([ADR 0010](adr/0010-big-games.md)) создаёт админ в разделе «Большие игры» админки ([Админка](#админка)). Серверу для них ничего настраивать не нужно. Что учесть:
