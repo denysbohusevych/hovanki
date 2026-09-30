@@ -1,0 +1,517 @@
+{
+    "version": 1,
+    "runId": "hovanki-lab-A-20260930T151415Z",
+    "computedAtMillis": 1790782874170,
+    "scenarioId": "radio",
+    "devices": [
+        {
+            "label": "A",
+            "deviceId": "A",
+            "model": "iPhone13,2",
+            "os": "iOS 26.2.1",
+            "build": "0.1.0 (1)",
+            "commit": "21a9f40-dirty",
+            "schema": 2,
+            "events": 3623,
+            "clockOffsetsMillis": [
+                1,
+                -1
+            ],
+            "radarToken": null
+        },
+        {
+            "label": "mac",
+            "deviceId": "mac",
+            "model": "MacBook",
+            "os": "Mac OS X 26.3",
+            "build": "e2e beacon-lab",
+            "commit": "21a9f40",
+            "schema": 2,
+            "events": 2921,
+            "clockOffsetsMillis": [
+                13
+            ],
+            "radarToken": null
+        }
+    ],
+    "problems": [
+        "different commits: 21a9f40-dirty, 21a9f40"
+    ],
+    "steps": [
+        {
+            "index": -1,
+            "id": "before",
+            "title": "Before the first step",
+            "startMillis": 1790781255573,
+            "endMillis": 1790781266041,
+            "directions": [
+                {
+                    "from": "A",
+                    "to": "mac",
+                    "channel": "mac_corebluetooth/name",
+                    "readings": 54,
+                    "perSecond": 5.16,
+                    "medianRssi": -47,
+                    "p80Rssi": -42,
+                    "minRssi": -61,
+                    "maxRssi": -38,
+                    "longestGapMillis": 913,
+                    "during": "",
+                    "tech": null
+                }
+            ]
+        },
+        {
+            "index": 0,
+            "id": "baseline",
+            "title": "Both advertise as hiders",
+            "startMillis": 1790781266041,
+            "endMillis": 1790781326023,
+            "directions": [
+                {
+                    "from": "A",
+                    "to": "mac",
+                    "channel": "mac_corebluetooth/name",
+                    "readings": 349,
+                    "perSecond": 5.82,
+                    "medianRssi": -43,
+                    "p80Rssi": -42,
+                    "minRssi": -64,
+                    "maxRssi": -37,
+                    "longestGapMillis": 1801,
+                    "during": "",
+                    "tech": null
+                },
+                {
+                    "from": "mac",
+                    "to": "A",
+                    "channel": "corebluetooth/name",
+                    "readings": 468,
+                    "perSecond": 7.8,
+                    "medianRssi": -50,
+                    "p80Rssi": -49,
+                    "minRssi": -66,
+                    "maxRssi": -44,
+                    "longestGapMillis": 814,
+                    "during": "",
+                    "tech": "ble.name"
+                }
+            ]
+        },
+        {
+            "index": 1,
+            "id": "mask_pattern",
+            "title": "Overflow mask: 0x5A",
+            "startMillis": 1790781326023,
+            "endMillis": 1790781366064,
+            "directions": []
+        },
+        {
+            "index": 2,
+            "id": "mask_token",
+            "title": "Overflow mask: a token",
+            "startMillis": 1790781366064,
+            "endMillis": 1790781406110,
+            "directions": []
+        },
+        {
+            "index": 3,
+            "id": "ibeacon_screen",
+            "title": "The Mac as a seeker's iBeacon",
+            "startMillis": 1790781406110,
+            "endMillis": 1790781466096,
+            "directions": [
+                {
+                    "from": "A",
+                    "to": "mac",
+                    "channel": "mac_corebluetooth/name",
+                    "readings": 313,
+                    "perSecond": 5.22,
+                    "medianRssi": -45,
+                    "p80Rssi": -40,
+                    "minRssi": -71,
+                    "maxRssi": -36,
+                    "longestGapMillis": 1498,
+                    "during": "",
+                    "tech": null
+                }
+            ]
+        },
+        {
+            "index": 4,
+            "id": "lock",
+            "title": "Lock the phone now",
+            "startMillis": 1790781466096,
+            "endMillis": 1790781511130,
+            "directions": [
+                {
+                    "from": "A",
+                    "to": "mac",
+                    "channel": "mac_corebluetooth/name",
+                    "readings": 20,
+                    "perSecond": 0.44,
+                    "medianRssi": -44,
+                    "p80Rssi": -39,
+                    "minRssi": -66,
+                    "maxRssi": -38,
+                    "longestGapMillis": 41573,
+                    "during": "",
+                    "tech": null
+                }
+            ]
+        },
+        {
+            "index": 5,
+            "id": "ibeacon_locked",
+            "title": "iBeacon while locked",
+            "startMillis": 1790781511130,
+            "endMillis": 1790781631103,
+            "directions": []
+        },
+        {
+            "index": 6,
+            "id": "token_rotates",
+            "title": "The token changes in the background",
+            "startMillis": 1790781631103,
+            "endMillis": 1790781721101,
+            "directions": []
+        },
+        {
+            "index": 7,
+            "id": "mac_hider_locked",
+            "title": "The Mac as a hider while locked",
+            "startMillis": 1790781721101,
+            "endMillis": 1790781818880,
+            "directions": [
+                {
+                    "from": "mac",
+                    "to": "A",
+                    "channel": "corebluetooth/name",
+                    "readings": 380,
+                    "perSecond": 3.89,
+                    "medianRssi": -56,
+                    "p80Rssi": -53,
+                    "minRssi": -80,
+                    "maxRssi": -47,
+                    "longestGapMillis": 7990,
+                    "during": "protected_data_on, protected_data_on, will_enter_foreground, did_become_active",
+                    "tech": "ble.name"
+                }
+            ]
+        }
+    ],
+    "carry": [
+        {
+            "label": "A",
+            "truth": "not_pocket",
+            "said": "none",
+            "seconds": 215,
+            "tech": "carry.v1"
+        },
+        {
+            "label": "A",
+            "truth": "not_pocket",
+            "said": "unknown",
+            "seconds": 348,
+            "tech": "carry.v1"
+        },
+        {
+            "label": "A",
+            "truth": "not_pocket",
+            "said": "none",
+            "seconds": 1,
+            "tech": "carry.v2"
+        },
+        {
+            "label": "A",
+            "truth": "not_pocket",
+            "said": "in_hand",
+            "seconds": 214,
+            "tech": "carry.v2"
+        },
+        {
+            "label": "A",
+            "truth": "not_pocket",
+            "said": "unknown",
+            "seconds": 345,
+            "tech": "carry.v2"
+        },
+        {
+            "label": "A",
+            "truth": "not_pocket",
+            "said": "in_pocket",
+            "seconds": 3,
+            "tech": "carry.v2"
+        }
+    ],
+    "masks": [
+        {
+            "label": "mac",
+            "frames": 1610,
+            "matched": 1201,
+            "decoded": 1370
+        }
+    ],
+    "haptics": [],
+    "battery": [
+        {
+            "label": "A",
+            "firstLevel": 0.45,
+            "lastLevel": 0.45,
+            "samples": 9
+        }
+    ],
+    "ticks": [
+        {
+            "label": "A",
+            "ticks": 559,
+            "gaps": 0,
+            "longestGapMillis": 1103
+        },
+        {
+            "label": "mac",
+            "ticks": 553,
+            "gaps": 0,
+            "longestGapMillis": 1006
+        }
+    ],
+    "noise": [],
+    "touches": [],
+    "touchSpreads": [],
+    "missedTouches": 0,
+    "calibrations": [
+        {
+            "id": "calib.model",
+            "offsetsDb": {
+                "A|mac": -16.0,
+                "mac|A": -8.0
+            }
+        }
+    ],
+    "bands": [
+        {
+            "smoothing": "smooth.ema",
+            "calibration": "calib.none",
+            "seconds": 552,
+            "exact": 239,
+            "oneOff": 0,
+            "wrong": 313,
+            "meanError": 1.7
+        },
+        {
+            "smoothing": "smooth.ema",
+            "calibration": "calib.model",
+            "seconds": 552,
+            "exact": 176,
+            "oneOff": 63,
+            "wrong": 313,
+            "meanError": 1.82
+        },
+        {
+            "smoothing": "smooth.ema",
+            "calibration": "calib.touch",
+            "seconds": 552,
+            "exact": 239,
+            "oneOff": 0,
+            "wrong": 313,
+            "meanError": 1.7
+        },
+        {
+            "smoothing": "smooth.p80",
+            "calibration": "calib.none",
+            "seconds": 552,
+            "exact": 239,
+            "oneOff": 0,
+            "wrong": 313,
+            "meanError": 1.7
+        },
+        {
+            "smoothing": "smooth.p80",
+            "calibration": "calib.model",
+            "seconds": 552,
+            "exact": 220,
+            "oneOff": 19,
+            "wrong": 313,
+            "meanError": 1.74
+        },
+        {
+            "smoothing": "smooth.p80",
+            "calibration": "calib.touch",
+            "seconds": 552,
+            "exact": 239,
+            "oneOff": 0,
+            "wrong": 313,
+            "meanError": 1.7
+        },
+        {
+            "smoothing": "smooth.rate",
+            "calibration": "calib.none",
+            "seconds": 552,
+            "exact": 239,
+            "oneOff": 0,
+            "wrong": 313,
+            "meanError": 1.7
+        },
+        {
+            "smoothing": "smooth.rate",
+            "calibration": "calib.model",
+            "seconds": 552,
+            "exact": 227,
+            "oneOff": 12,
+            "wrong": 313,
+            "meanError": 1.72
+        },
+        {
+            "smoothing": "smooth.rate",
+            "calibration": "calib.touch",
+            "seconds": 552,
+            "exact": 239,
+            "oneOff": 0,
+            "wrong": 313,
+            "meanError": 1.7
+        }
+    ],
+    "without": [
+        {
+            "tech": "ble.name",
+            "seconds": 250,
+            "same": 153,
+            "onlyChannel": 97
+        },
+        {
+            "tech": "mac_corebluetooth/name",
+            "seconds": 250,
+            "same": 166,
+            "onlyChannel": 84
+        }
+    ],
+    "witness": null,
+    "cards": [
+        {
+            "tech": "ble.service_data.scan_response",
+            "verdict": "INSUFFICIENT",
+            "criterion": "≥ 2 показаний/с в 5 м у каждого слушателя на экране; из раскладок — лучшая",
+            "numbers": [],
+            "missing": "нет шага, где канал вещали в 5 м от слушателя на экране (с расстояниями из сценария)"
+        },
+        {
+            "tech": "ble.name",
+            "verdict": "KEEP",
+            "criterion": "остаётся (слышен хоть кем-то)",
+            "numbers": [
+                "848 показаний: mac → A"
+            ],
+            "missing": null
+        },
+        {
+            "tech": "ble.ibeacon",
+            "verdict": "INSUFFICIENT",
+            "criterion": "заблокированный iPhone получает показания дольше 60 с после блокировки; ≥ 2 показаний/с в 5 м у каждого слушателя на экране",
+            "numbers": [
+                "заблокированный A, mac: iBeacon mac не услышал никто за весь прогон — вещал ли он, не судим"
+            ],
+            "missing": "нет шага, где канал вещали в 5 м от слушателя на экране (с расстояниями из сценария)"
+        },
+        {
+            "tech": "ble.ibeacon.region",
+            "verdict": "INSUFFICIENT",
+            "criterion": "вход ≤ 30 с после появления ищущего в 10 м",
+            "numbers": [
+                "iBeacon mac не услышал никто за весь прогон — вещал ли он, не судим"
+            ],
+            "missing": "ищущий не начинал iBeacon в 10 м от телефона, следящего за регионом"
+        },
+        {
+            "tech": "ble.overflow",
+            "verdict": "INSUFFICIENT",
+            "criterion": "≥ 1 кадра за 3 с в 10 м у Android, телефон в кармане; ≥ 95 % разборов верны",
+            "numbers": [
+                "разобрано верно 964 из 964 масок с жетоном (100.0 %)"
+            ],
+            "missing": "нет шага, где телефон в кармане вещал маску в 10 м от Android"
+        },
+        {
+            "tech": "smooth.ema",
+            "verdict": "INSUFFICIENT",
+            "criterion": "ошибка полосы против отметок расстояния, пересчётом по журналам: из трёх остаётся лучшая",
+            "numbers": [
+                "smooth.ema + calib.none: точно 43.3 %, на полосу мимо 0.0 %, средняя ошибка 1.7 полосы, 552 пар·с"
+            ],
+            "missing": "все секунды на одном расстоянии (1.0 м): нужно хотя бы 2"
+        },
+        {
+            "tech": "smooth.p80",
+            "verdict": "INSUFFICIENT",
+            "criterion": "ошибка полосы против отметок расстояния, пересчётом по журналам: из трёх остаётся лучшая",
+            "numbers": [
+                "smooth.p80 + calib.none: точно 43.3 %, на полосу мимо 0.0 %, средняя ошибка 1.7 полосы, 552 пар·с"
+            ],
+            "missing": "все секунды на одном расстоянии (1.0 м): нужно хотя бы 2"
+        },
+        {
+            "tech": "smooth.rate",
+            "verdict": "INSUFFICIENT",
+            "criterion": "ошибка полосы против отметок расстояния, пересчётом по журналам: из трёх остаётся лучшая",
+            "numbers": [
+                "smooth.rate + calib.none: точно 43.3 %, на полосу мимо 0.0 %, средняя ошибка 1.7 полосы, 552 пар·с"
+            ],
+            "missing": "все секунды на одном расстоянии (1.0 м): нужно хотя бы 2"
+        },
+        {
+            "tech": "calib.none",
+            "verdict": "INSUFFICIENT",
+            "criterion": "ошибка полосы против отметок расстояния: остаётся, если ни одна калибровка не лучше на 10 п. п.",
+            "numbers": [
+                "smooth.ema + calib.none: точно 43.3 %, на полосу мимо 0.0 %, средняя ошибка 1.7 полосы, 552 пар·с"
+            ],
+            "missing": "все секунды на одном расстоянии (1.0 м): нужно хотя бы 2"
+        },
+        {
+            "tech": "calib.model",
+            "verdict": "INSUFFICIENT",
+            "criterion": "ошибка полосы против отметок расстояния: точных секунд хотя бы на 10 п. п. больше, чем без калибровки",
+            "numbers": [
+                "smooth.ema + calib.model: точно 31.9 %, на полосу мимо 11.4 %, средняя ошибка 1.82 полосы, 552 пар·с",
+                "smooth.ema + calib.none: точно 43.3 %, на полосу мимо 0.0 %, средняя ошибка 1.7 полосы, 552 пар·с"
+            ],
+            "missing": "все секунды на одном расстоянии (1.0 м): нужно хотя бы 2"
+        },
+        {
+            "tech": "calib.touch",
+            "verdict": "INSUFFICIENT",
+            "criterion": "с касанием ошибка полосы меньше хотя бы на 10 процентных пунктов, а три касания расходятся не больше чем на 6 dB",
+            "numbers": [
+                "smooth.ema + calib.touch: точно 43.3 %, на полосу мимо 0.0 %, средняя ошибка 1.7 полосы, 552 пар·с",
+                "smooth.ema + calib.none: точно 43.3 %, на полосу мимо 0.0 %, средняя ошибка 1.7 полосы, 552 пар·с"
+            ],
+            "missing": "все секунды на одном расстоянии (1.0 м): нужно хотя бы 2"
+        },
+        {
+            "tech": "carry.v1",
+            "verdict": "INSUFFICIENT",
+            "criterion": "совпадение с разметкой сценария по секундам: из двух — лучшее, ≥ 60 с у обоих",
+            "numbers": [
+                "carry.v1: совпало 348 из 563 с (61.8 %)",
+                "carry.v2: совпало 559 из 563 с (99.3 %)"
+            ],
+            "missing": "в кармане по разметке меньше 60 с (0 с)"
+        },
+        {
+            "tech": "carry.v2",
+            "verdict": "INSUFFICIENT",
+            "criterion": "совпадение с разметкой сценария по секундам: из двух — лучшее, ≥ 60 с у обоих",
+            "numbers": [
+                "carry.v1: совпало 348 из 563 с (61.8 %)",
+                "carry.v2: совпало 559 из 563 с (99.3 %)"
+            ],
+            "missing": "в кармане по разметке меньше 60 с (0 с)"
+        },
+        {
+            "tech": "infer.witness",
+            "verdict": "INSUFFICIENT",
+            "criterion": "выведенная пара рядом по расстоянию в ≥ 80 % случаев, случаев ≥ 10",
+            "numbers": [],
+            "missing": "меньше 10 выведенных пар·с с расстоянием (нужны три телефона и расстояния)"
+        }
+    ]
+}
