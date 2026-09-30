@@ -1,5 +1,11 @@
 package app.hovanki.client.lab
 
+import app.hovanki.shared.lab.LabRunScript
+import app.hovanki.shared.lab.LabRunScripts
+import app.hovanki.shared.lab.PhoneSetup
+import app.hovanki.shared.lab.ProbeMode
+import app.hovanki.shared.lab.RunPhase
+import app.hovanki.shared.lab.RunStep
 import app.hovanki.shared.rules.OverflowCode
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -39,29 +45,21 @@ class LabRunTest {
     }
 
     @Test
-    fun theScriptFindsItsStepsAndKeepsTheLockedAdvertisement() {
-        val script = LabRunScripts.RADIO
-        assertNull(script.at(-1))
-        assertEquals(0, script.at(0)?.index)
-        assertEquals(1, script.at(script.startOf(1))?.index)
-        assertEquals(script.steps.lastIndex, script.at(script.totalMillis - 1)?.index)
-        assertNull(script.at(script.totalMillis))
-        assertEquals(script, LabRunScripts.of(script.version))
-        assertNull(LabRunScripts.of(script.version + 1))
-        val phases = script.steps.map { it.phase }
-        assertEquals(listOf(RunPhase.LOCK), phases.filter { it == RunPhase.LOCK })
-        assertTrue(phases.indexOf(RunPhase.LOCK) < phases.indexOf(RunPhase.LOCKED))
-        assertTrue(script.steps.none { it.mac.advertise && it.mac.iBeacon })
+    fun theLocalRunFollowsThePhonesLabel() = runTest {
+        // The script and its checks are :shared's (LabRunScriptTest); here: whose setups the phone follows.
+        val lab = Lab(this)
+        lab.log.setLabel("mac")
+        val runner = LabRunner(lab.controller, backgroundScope)
+        runner.start()
+        advanceTimeBy(LabRunner.LEAD_MILLIS + 5_000)
+        val state = assertNotNull(runner.state.value)
+        assertEquals("A", state.label, "never the Mac's setups")
+        assertEquals(PhoneSetup(hider = true), state.setup)
+        runner.stop()
 
-        val step = script.steps.first()
-        assertFailsWith<IllegalArgumentException> {
-            LabRunScript(
-                1,
-                listOf(
-                    step.copy(phase = RunPhase.LOCK, phone = PhoneSetup(hider = true)),
-                    step.copy(phase = RunPhase.LOCKED, phone = PhoneSetup(probe = ProbeMode.Token)),
-                ),
-            )
+        val manual = LabRunScript("manual", 1, "Manual", listOf("A"), listOf(RunStep("one", "One", null, mapOf())))
+        assertFailsWith<IllegalArgumentException>("the local run goes by its timers") {
+            LabRunner(lab.controller, backgroundScope, script = manual)
         }
     }
 
@@ -90,7 +88,8 @@ class LabRunTest {
         assertNull(lab.radio.tokens, "the hider is off while the probe shows the pattern")
 
         advanceTimeBy(LabRunScripts.RADIO.startOf(4) - LabRunScripts.RADIO.startOf(1))
-        assertEquals(RunPhase.LOCK, runner.state.value?.step?.phase)
+        assertEquals(RunPhase.LOCK, runner.state.value?.setup?.phase)
+        assertEquals("A", runner.state.value?.label)
         assertEquals(ProbeMode.Token, lab.controller.probe.value)
         assertNotNull(lab.radio.tokens, "the pocket: the hider and the probe's token")
         advanceTimeBy(1_000)

@@ -329,6 +329,18 @@ enum class AdminAction {
 
     /** An admin started watching an open game live. */
     WATCH_GAME,
+
+    /** The radio lab (docs/adr/0017-radar-techniques-and-big-run.md §5): a new run. */
+    LAB_RUN_CREATE,
+
+    /** A run's step moved on, repeated, paused, resumed or the run was finished. */
+    LAB_RUN_CONTROL,
+
+    /** A run's raw logs downloaded. */
+    LAB_RUN_DOWNLOAD,
+
+    /** A run deleted with its devices, logs and report. */
+    LAB_RUN_DELETE,
 }
 
 /**

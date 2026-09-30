@@ -3,10 +3,14 @@
 #
 #   e2e/mac-beacon/run.sh --join <game code> [--name MacBook] [--at <lat,lon>] [--server https://...]
 #   e2e/mac-beacon/run.sh --lab --auto [--label mac] [--out <folder>]
+#   e2e/mac-beacon/run.sh --lab --run <code> [--label mac] [--out <folder>] [--server https://...]
 #   e2e/mac-beacon/run.sh --lab [--label mac] [--advertise <token> | --ibeacon <token>] [--sniff] [--out <folder>]
 #
 # --lab: the radio lab (docs/radio-lab.md §6) without a game: every reading into a JSONL log on the server's clock.
 # --auto: leave it running; it follows the phone's automatic radio run by itself (docs/radio-lab-tests.md).
+# --run <code>: joins the run an admin created in the admin (Радиолаба; the code under its QR) as --label (mac),
+# follows its plan by the server's clock, uploads its log to the run and ends when the run is over (docs/radar-run.md
+# step 1). The server needs the RADIO_LAB feature on.
 # Builds the Bluetooth helper (beacon.swift, with Info.plist linked in so macOS asks for Bluetooth) and the e2e
 # command line, then joins the game as one more player. Run it in Terminal itself, not through Gradle: macOS gives
 # Bluetooth to the app that started the process (Terminal asks once; System Settings → Privacy & Security →
@@ -36,6 +40,7 @@ for arg in "$@"; do
     --lab) command=beacon-lab ;;
     --sniff) args+=(--sniff on) ;;
     --auto) command=beacon-lab; args+=(--auto on) ;;
+    --run) command=beacon-lab; args+=(--run) ;;
     *) args+=("$arg") ;;
   esac
 done

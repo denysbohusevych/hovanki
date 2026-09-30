@@ -1,10 +1,14 @@
 package app.hovanki.client.ui.debug
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -16,17 +20,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.hovanki.client.catchcode.CatchCodeScanner
 import app.hovanki.client.diagnostics.BenchRadio
 import app.hovanki.client.lab.HapticKind
 import app.hovanki.client.lab.LabController
-import app.hovanki.client.lab.LabPlaces
+import app.hovanki.client.lab.LabFollowState
 import app.hovanki.client.lab.LabPulse
 import app.hovanki.client.lab.LabRunState
 import app.hovanki.client.lab.LabScenarios
-import app.hovanki.client.lab.ProbeMode
-import app.hovanki.client.lab.RunPhase
 import app.hovanki.client.location.rememberLocationPermissionRequester
 import app.hovanki.client.radio.rememberBluetoothPermissionRequester
 import app.hovanki.client.ui.common.PopButton
@@ -34,7 +38,13 @@ import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopTextField
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.theme.Palette
+import app.hovanki.shared.lab.LabJoinCode
+import app.hovanki.shared.lab.LabPlaces
+import app.hovanki.shared.lab.ProbeMode
+import app.hovanki.shared.lab.RunPhase
 import app.hovanki.shared.protocol.BluetoothState
+import app.hovanki.shared.protocol.LabRunAction
+import app.hovanki.shared.protocol.LabRunStatus
 import app.hovanki.shared.rules.OverflowArea
 import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
@@ -57,8 +67,11 @@ internal fun LabContent() {
         }
     }
     val inGame = session.session != null
-    HeaderCard(viewModel, running, inGame, now)
-    RunCard(viewModel, inGame, now)
+    val follow by viewModel.follow.collectAsStateWithLifecycle()
+    val following = follow?.left == false
+    ServerRunCard(viewModel, inGame, now)
+    HeaderCard(viewModel, running, inGame, following, now)
+    RunCard(viewModel, inGame, following, now)
     VibrationCard(viewModel, inGame)
     if (!running) return
     AsInGameCard(viewModel)
@@ -68,8 +81,162 @@ internal fun LabContent() {
     ScenarioCard(viewModel, now)
 }
 
+/**
+ * A run of the lab on the server (docs/adr/0017-radar-techniques-and-big-run.md §5): an admin makes it in the admin's
+ * «Радиолаба», the phones join by its code (typed or its QR), follow its plan by the server's clock and upload their
+ * logs; the buttons are the admin's and every phone's.
+ */
 @Composable
-private fun HeaderCard(viewModel: LabViewModel, running: Boolean, inGame: Boolean, now: Long) {
+private fun ServerRunCard(viewModel: LabViewModel, inGame: Boolean, @Suppress("UNUSED_PARAMETER") tick: Long) {
+    val follow by viewModel.follow.collectAsStateWithLifecycle()
+    val followError by viewModel.followError.collectAsStateWithLifecycle()
+    val current = follow
+    Section("Server run") {
+        if (current == null || current.left) {
+            JoinServerRun(viewModel, inGame, followError)
+        } else {
+            FollowedRun(viewModel, current, followError)
+        }
+    }
+}
+
+@Composable
+private fun JoinServerRun(viewModel: LabViewModel, inGame: Boolean, error: String?) {
+    val logLabel by viewModel.label.collectAsStateWithLifecycle()
+    val bluetooth by viewModel.bluetooth.collectAsStateWithLifecycle()
+    val localRun by viewModel.run.collectAsStateWithLifecycle()
+    var code by remember { mutableStateOf("") }
+    var label by remember(logLabel) { mutableStateOf(logLabel) }
+    var scanning by remember { mutableStateOf(false) }
+    val requestBluetooth = rememberBluetoothPermissionRequester { viewModel.refreshBluetooth() }
+    val requestLocation = rememberLocationPermissionRequester { viewModel.joinRun(code, label) }
+    val localRunning = localRun?.finished == false
+    SecondaryText(
+        "An admin makes the run in the admin («Радиолаба») and shows its code. Join as this phone's label; the " +
+            "steps change by themselves on every phone and the log goes to the server.",
+    )
+    PopTextField(
+        value = code,
+        onValueChange = { text ->
+            code = text.uppercase().filter { it in LabJoinCode.ALPHABET }.take(LabJoinCode.LENGTH)
+        },
+        singleLine = true,
+        label = { Text("Code") },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    PopTextField(
+        value = label,
+        onValueChange = { label = it.trim().take(LABEL_MAX_LENGTH) },
+        singleLine = true,
+        label = { Text("Label: A, B, droid…") },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        PopButton(
+            text = if (scanning) "Close the camera" else "Scan QR",
+            onClick = { scanning = !scanning },
+            height = 44.dp,
+            style = PopStyle.Outline,
+            modifier = Modifier.weight(1f),
+        )
+        PopButton(
+            text = "Join",
+            onClick = {
+                when {
+                    bluetooth != BluetoothState.ON -> {
+                        viewModel.refreshBluetooth()
+                        requestBluetooth()
+                    }
+
+                    !viewModel.hasLocationPermission() -> requestLocation()
+
+                    else -> viewModel.joinRun(code, label)
+                }
+            },
+            enabled = !inGame && !localRunning && code.length == LabJoinCode.LENGTH && label.isNotBlank(),
+            height = 44.dp,
+            style = PopStyle.Primary,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    if (scanning) {
+        // The camera in the card: the panel scrolls, so not full screen as the game's scanner.
+        Box(modifier = Modifier.fillMaxWidth().height(SCANNER_HEIGHT).clip(RoundedCornerShape(16.dp))) {
+            CatchCodeScanner(
+                onScanned = { text ->
+                    viewModel.runCodeFromQr(text)?.let {
+                        code = it
+                        scanning = false
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+    if (bluetooth != BluetoothState.ON) SecondaryText("Bluetooth is $bluetooth: «Join» asks for it first.")
+    if (localRunning) SecondaryText("The local radio run is on: stop it first.")
+    if (inGame) SecondaryText("In a game: no lab.")
+    error?.let { SecondaryText("⚠ $it") }
+}
+
+@Composable
+private fun FollowedRun(viewModel: LabViewModel, run: LabFollowState, error: String?) {
+    val pending by viewModel.uploadPending.collectAsStateWithLifecycle()
+    val uploadError by viewModel.uploadError.collectAsStateWithLifecycle()
+    val now = viewModel.serverNow()
+    val status = run.plan.status
+    Line("${run.script.title} · ${run.code} · as ${run.label}")
+    Line("${status.name.lowercase()} · token ${run.radarToken}")
+    val step = run.step
+    when {
+        run.finished -> Line("The run is over: unlock the phone. Leave when the upload is done.")
+
+        step == null -> Line("Waiting for the start: the admin or any phone presses Next.")
+
+        else -> {
+            Line("Step ${run.plan.stepIndex + 1} of ${run.script.steps.size}: ${step.title}")
+            val setup = run.setup
+            if (setup?.phase == RunPhase.LOCK) {
+                Text("LOCK THE PHONE NOW", style = MaterialTheme.typography.headlineSmall, color = Palette.PinkInk)
+            }
+            setup?.let { Line("this phone: ${it.describe()}") }
+            val hint = run.device?.hint.orEmpty().ifEmpty { step.hint }
+            if (hint.isNotEmpty()) SecondaryText(hint)
+            val endsAt = run.stepEndsAtMillis
+            Line(
+                when {
+                    endsAt != null -> "${clock(endsAt - now)} left in the step"
+                    status == LabRunStatus.PAUSED -> "paused"
+                    else -> "until Next"
+                },
+            )
+        }
+    }
+    Line("upload: $pending pending")
+    uploadError?.let { SecondaryText("⚠ upload: $it") }
+    error?.let { SecondaryText("⚠ $it") }
+    run.warnings.forEach { SecondaryText("⚠ $it") }
+    if (!run.finished) {
+        val started = status == LabRunStatus.RUNNING || status == LabRunStatus.PAUSED
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ChoiceButton("Next", false, Modifier.weight(1f)) { viewModel.advanceRun(LabRunAction.NEXT) }
+            ChoiceButton("Repeat", false, Modifier.weight(1f), enabled = started) {
+                viewModel.advanceRun(LabRunAction.REPEAT)
+            }
+            if (status == LabRunStatus.PAUSED) {
+                ChoiceButton("Resume", false, Modifier.weight(1f)) { viewModel.advanceRun(LabRunAction.RESUME) }
+            } else {
+                ChoiceButton("Pause", false, Modifier.weight(1f), enabled = started) {
+                    viewModel.advanceRun(LabRunAction.PAUSE)
+                }
+            }
+        }
+    }
+    PopButton(text = "Leave", onClick = viewModel::leaveRun, height = 40.dp, style = PopStyle.Outline)
+}
+
+@Composable
+private fun HeaderCard(viewModel: LabViewModel, running: Boolean, inGame: Boolean, following: Boolean, now: Long) {
     val label by viewModel.label.collectAsStateWithLifecycle()
     val clock by viewModel.clock.collectAsStateWithLifecycle()
     val count by viewModel.count.collectAsStateWithLifecycle()
@@ -99,10 +266,11 @@ private fun HeaderCard(viewModel: LabViewModel, running: Boolean, inGame: Boolea
         BenchSwitch(
             text = "Lab running",
             checked = running,
-            enabled = !inGame || running,
+            enabled = (!inGame || running) && !following,
             onCheckedChange = viewModel::setRunning,
         )
         if (inGame) SecondaryText("In a game: the lab is off.")
+        if (following) SecondaryText("In a server run: leave it to stop the lab.")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PopButton(text = "Export", onClick = viewModel::export, height = 44.dp, style = PopStyle.Dark)
             PopButton(text = "Clear", onClick = viewModel::clear, height = 44.dp, style = PopStyle.Outline)
@@ -115,7 +283,12 @@ private fun HeaderCard(viewModel: LabViewModel, running: Boolean, inGame: Boolea
  * (`run.sh --lab --auto`); the tester locks the phone when told and unlocks it at the end.
  */
 @Composable
-private fun RunCard(viewModel: LabViewModel, inGame: Boolean, @Suppress("UNUSED_PARAMETER") tick: Long) {
+private fun RunCard(
+    viewModel: LabViewModel,
+    inGame: Boolean,
+    following: Boolean,
+    @Suppress("UNUSED_PARAMETER") tick: Long,
+) {
     val run by viewModel.run.collectAsStateWithLifecycle()
     val runError by viewModel.runError.collectAsStateWithLifecycle()
     val bluetooth by viewModel.bluetooth.collectAsStateWithLifecycle()
@@ -145,11 +318,12 @@ private fun RunCard(viewModel: LabViewModel, inGame: Boolean, @Suppress("UNUSED_
                         else -> viewModel.startRun()
                     }
                 },
-                enabled = !inGame,
+                enabled = !inGame && !following,
                 height = 52.dp,
                 style = PopStyle.Primary,
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (following) SecondaryText("In a server run: the local run waits until you leave it.")
             if (bluetooth != BluetoothState.ON) SecondaryText("Bluetooth is $bluetooth: the button asks for it first.")
         } else {
             val now = viewModel.serverNow()
@@ -157,9 +331,10 @@ private fun RunCard(viewModel: LabViewModel, inGame: Boolean, @Suppress("UNUSED_
             if (step == null) {
                 Line("Starting in ${seconds(current.startAtServer - now)} s: the Mac joins when it hears the phone.")
             } else {
-                val stepEnd = current.startAtServer + current.script.startOf(current.index) + step.seconds * 1000L
+                val stepEnd =
+                    current.startAtServer + current.script.startOf(current.index) + (step.seconds ?: 0) * 1000L
                 Line("Step ${current.index + 1} of ${current.script.steps.size}: ${step.title}")
-                if (step.phase == RunPhase.LOCK) {
+                if (current.setup?.phase == RunPhase.LOCK) {
                     Text(
                         "LOCK THE PHONE NOW · ${seconds(stepEnd - now)} s",
                         style = MaterialTheme.typography.headlineSmall,
@@ -505,3 +680,5 @@ private fun nextBit(bit: Int, step: Int): Int {
 }
 
 private const val LAB_TICK_MILLIS = 500L
+private const val LABEL_MAX_LENGTH = 12
+private val SCANNER_HEIGHT = 320.dp

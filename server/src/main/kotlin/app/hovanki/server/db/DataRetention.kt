@@ -4,6 +4,8 @@ import app.hovanki.server.account.AccountProperties
 import app.hovanki.server.admin.AdminProperties
 import app.hovanki.server.bigGames.BigGameProperties
 import app.hovanki.server.history.HistoryProperties
+import app.hovanki.server.lab.LabProperties
+import app.hovanki.server.lab.LabRunRepository
 import app.hovanki.server.moderation.ModerationProperties
 import org.slf4j.LoggerFactory
 import org.springframework.jdbc.core.simple.JdbcClient
@@ -17,9 +19,11 @@ import java.time.Duration
  * docs/adr/0007-game-history-and-routes.md, docs/adr/0008-admin.md): idle sessions, old reports, friend requests and
  * saved routes, game recordings (docs/adr/0011-spectators-and-recordings.md), expired email codes, ended admin sessions,
  * bans and chat bans a year after their end, the audit log after a year, big games and their sign-ups 90 days after
- * their end (docs/adr/0010-big-games.md). Accounts, and the history and statistics of their games, stay until their
- * owners delete them, whether their email is confirmed or not (confirming is optional). Runs once a day
- * (`hovanki.retention.cron`); logs only counts.
+ * their end (docs/adr/0010-big-games.md), the radio lab's logs 90 days after their run's end
+ * (docs/adr/0017-radar-techniques-and-big-run.md §7; a run never finished ends with its join window) and the name of
+ * the admin who made a run a year after, as the audit log's. Accounts, and
+ * the history and statistics of their games, stay until their owners delete them, whether their email is confirmed or
+ * not (confirming is optional). Runs once a day (`hovanki.retention.cron`); logs only counts.
  */
 @Component
 class DataRetention(
@@ -29,6 +33,8 @@ class DataRetention(
     private val history: HistoryProperties,
     private val admin: AdminProperties,
     private val bigGames: BigGameProperties,
+    private val lab: LabProperties,
+    private val labRuns: LabRunRepository,
     private val clock: Clock,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -44,6 +50,8 @@ class DataRetention(
         val auditEntries: Int = 0,
         val bigGames: Int = 0,
         val recordings: Int = 0,
+        val labChunks: Int = 0,
+        val labRunNames: Int = 0,
     )
 
     @Scheduled(cron = "\${hovanki.retention.cron:0 17 3 * * *}")
@@ -79,11 +87,21 @@ class DataRetention(
                 "DELETE FROM game_recordings WHERE saved_at < :t",
                 before(history.recordingRetention),
             ),
+            // The runs, their devices and reports stay: labels, models and numbers.
+            labChunks = labRuns.deleteChunksOfRunsFinishedBefore(
+                finishedBefore = now.minus(lab.chunkRetention),
+                createdBefore = now.minus(lab.chunkRetention).minus(lab.joinWindow),
+            ),
+            // Who made a run: as long as the audit log keeps who did what.
+            labRunNames = delete(
+                "UPDATE lab_runs SET created_by_name = NULL WHERE created_at < :t AND created_by_name IS NOT NULL",
+                before(admin.auditRetention),
+            ),
         )
         log.info(
             "Data retention: deleted {} idle sessions, {} reports, {} friend requests, {} expired email codes, " +
                 "{} saved routes, {} admin sessions, {} ended sanctions, {} audit entries, {} big games, " +
-                "{} game recordings",
+                "{} game recordings, {} lab log chunks, {} lab runs' makers",
             deleted.sessions,
             deleted.reports,
             deleted.friendRequests,
@@ -94,6 +112,8 @@ class DataRetention(
             deleted.auditEntries,
             deleted.bigGames,
             deleted.recordings,
+            deleted.labChunks,
+            deleted.labRunNames,
         )
         return deleted
     }

@@ -7,6 +7,7 @@ import app.hovanki.client.radio.SightingVia
 import app.hovanki.client.tracking.ActivityClassifier
 import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.client.tracking.CarryMonitor
+import app.hovanki.shared.lab.ProbeMode
 import app.hovanki.shared.rules.HeartbeatRules
 import app.hovanki.shared.rules.OverflowArea
 import app.hovanki.shared.rules.OverflowCode
@@ -40,18 +41,6 @@ data class LabAbout(val model: String?, val os: String?, val build: String?, val
             build?.let { "build: $it" },
             commit?.let { "commit: $it" },
         )
-}
-
-/** What the overflow probe advertises (docs/radio-lab.md §5). */
-sealed interface ProbeMode {
-    /** [OverflowProbe.PATTERN]. */
-    data object Pattern : ProbeMode
-
-    /** Only bit [bit]. */
-    data class Bit(val bit: Int) : ProbeMode
-
-    /** A token, Manchester-coded as in ADR 0016 §2.1 ([OverflowCode]). */
-    data object Token : ProbeMode
 }
 
 /** The pulse the lab beats from its own loudest band: by haptics, by a notification, or off. */
@@ -155,6 +144,9 @@ class LabController(
             scope.launch { signal("${it.title}: done") }
         },
     )
+
+    /** Who this device is: for the log's header, and for a run on the server when the phone joins it. */
+    val device: LabAbout get() = about()
 
     val canProbe: Boolean get() = air.canProbe
     val canListen: Boolean get() = air.canListen
@@ -265,6 +257,20 @@ class LabController(
                 }
             }
         }
+    }
+
+    /**
+     * The probe advertises [token] from now on in [ProbeMode.Token] (a run on the server gives every device its own); a
+     * change pending by [rotateProbeToken] is called off.
+     */
+    fun setProbeToken(token: String) {
+        rotateJob?.cancel()
+        rotateJob = null
+        mutableRotateAt.value = null
+        if (token == mutableProbeToken.value) return
+        mutableProbeToken.value = token
+        log.note("probe token now $token")
+        if (mutableProbe.value == ProbeMode.Token) probeBits.value = bitsOf(ProbeMode.Token)
     }
 
     /** The probe's token changes in [delayMillis] (H5: does the mask survive a change while locked?). */

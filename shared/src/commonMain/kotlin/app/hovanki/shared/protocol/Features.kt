@@ -50,6 +50,13 @@ enum class ServerFeature {
      * server pokes them when something happens. Not a game's choice: every game on the server, the host picks nothing.
      */
     LIVE_SOCKET,
+
+    /**
+     * The radio lab's runs on the server (docs/adr/0017-radar-techniques-and-big-run.md §5): test phones of the debug
+     * build join a run by its code and upload their lab logs ([ApiRoutes.LAB_RUNS]); off, those routes answer 404. Not
+     * a game's choice: it changes nothing in a game.
+     */
+    RADIO_LAB,
 }
 
 /** How a feature applies to a game: off, for the players whose phones have it, or every phone must have it. */

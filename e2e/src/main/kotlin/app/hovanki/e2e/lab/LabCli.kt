@@ -1,5 +1,6 @@
 package app.hovanki.e2e.lab
 
+import app.hovanki.shared.lab.LabMerge
 import java.io.File
 import kotlin.system.exitProcess
 

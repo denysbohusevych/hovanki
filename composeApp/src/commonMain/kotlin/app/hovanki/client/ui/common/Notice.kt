@@ -24,6 +24,7 @@ import app.hovanki.client.resources.error_invalid_message
 import app.hovanki.client.resources.error_invalid_nickname
 import app.hovanki.client.resources.error_invalid_password
 import app.hovanki.client.resources.error_item_limit
+import app.hovanki.client.resources.error_lab_run_closed
 import app.hovanki.client.resources.error_limit_reached
 import app.hovanki.client.resources.error_network
 import app.hovanki.client.resources.error_nickname_taken
@@ -154,6 +155,8 @@ fun reasonNotice(
         ErrorReason.PLAYING_THIS_GAME -> Res.string.error_playing_this_game
 
         ErrorReason.ZONE_TOO_FAR -> Res.string.error_zone_too_far
+
+        ErrorReason.LAB_RUN_CLOSED -> Res.string.error_lab_run_closed
 
         ErrorReason.ACCOUNT_BANNED -> return untilMillis?.let {
             Notice.Text(Res.string.error_account_banned, listOf(formatDateTime(it)))

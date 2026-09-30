@@ -95,6 +95,10 @@ hovanki:
     settings-preview: { count: 120, window: 10m }
     # The server's clock without a token (GET /api/v1/time), per client IP: a phone asks 5 times every 5 minutes.
     time-per-ip: { count: 120, window: 1m }
+    # The radio lab (docs/adr/0017-radar-techniques-and-big-run.md §5): joining a run per client IP (a wrong code
+    # counts too), and a lab device's uploads (one every 5 s, more right away while it catches up).
+    lab-join-per-ip: { count: 20, window: 1h }
+    lab-events-per-device: { count: 60, window: 1m }
   # Staff admin, the /admin page (docs/adr/0008-admin.md). Off without a secret key: HOVANKI_ADMIN_SECRET_KEY in .env
   # (deploy/compose.yaml passes it on), base64 of 32 random bytes (openssl rand -base64 32); it encrypts the staff's
   # authenticator secrets.
@@ -144,3 +148,19 @@ hovanki:
     tick: 10s
     start-patience: 1h
     retention: 90d
+  # The radio lab's runs (docs/adr/0017-radar-techniques-and-big-run.md §5, §7), while the server feature RADIO_LAB is
+  # on: test phones of the debug build join a run by its code during the join window and upload their lab logs (a
+  # finished run takes the last uploads for the upload grace). Limits per run and per upload (uncompressed); the live
+  # view keeps the last seconds of readings in memory. The logs (chunks) are deleted 90 days after the run's end; the
+  # run and its report (labels, models, numbers) stay.
+  lab:
+    chunk-retention: 90d
+    join-window: 24h
+    upload-grace: 30m
+    max-devices: 8
+    max-run-bytes: 300MB
+    max-chunk-bytes: 4MB
+    # The report reads at most this many events of a run, about 200 bytes of heap each (the heap is ~480 MB in
+    # production); a bigger run's raw logs are merged on a computer.
+    max-report-events: 500000
+    live-window: 30s

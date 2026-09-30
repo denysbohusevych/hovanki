@@ -2,6 +2,7 @@ package app.hovanki.client.lab
 
 import app.hovanki.client.radio.RadioApi
 import app.hovanki.client.radio.SightingVia
+import app.hovanki.shared.lab.ProbeMode
 import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.rules.OverflowCode
 import app.hovanki.shared.rules.OverflowProbe

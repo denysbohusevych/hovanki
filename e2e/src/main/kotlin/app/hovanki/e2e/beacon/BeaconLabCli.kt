@@ -1,18 +1,29 @@
 package app.hovanki.e2e.beacon
 
+import app.hovanki.client.lab.HttpLabApi
+import app.hovanki.client.lab.LabApi
 import app.hovanki.client.lab.LabClockSync
 import app.hovanki.client.lab.LabLog
-import app.hovanki.client.lab.LabRunScripts
+import app.hovanki.client.lab.LabUploader
 import app.hovanki.client.network.HttpGameApi
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.createHttpClient
 import app.hovanki.client.radio.RadioApi
 import app.hovanki.e2e.cli.CliArgs
+import app.hovanki.shared.lab.LabJoinCode
+import app.hovanki.shared.lab.LabRunScripts
+import app.hovanki.shared.lab.LabSchema
+import app.hovanki.shared.protocol.BluetoothState
+import app.hovanki.shared.protocol.LabCapabilities
+import app.hovanki.shared.protocol.LabJoinRequest
+import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.rules.AppleData
 import app.hovanki.shared.rules.OverflowArea
 import app.hovanki.shared.rules.OverflowCode
 import app.hovanki.shared.rules.RadarToken
 import io.ktor.client.engine.okhttp.OkHttp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -40,7 +51,14 @@ import kotlin.concurrent.thread
  * name), `--ibeacon <token>` as a seeker, if macOS lets it. Lines on stdin: `m <text>` puts a mark, `clock` measures the
  * clock again, `q` ends. The terminal shows a summary every 2 seconds for the eyes; the file has everything.
  *
- * Start it with `e2e/mac-beacon/run.sh --lab --auto` (or with the flags by hand).
+ * `--run <code>` (docs/radar-run.md step 1): the Mac joins a run an admin created in the admin, by its code, as
+ * `--label` (`mac`, the plans' label for it), follows its plan by the server's clock ([MacServerRun]: its label's
+ * setup of every step, advertising the radar token the server gave it), uploads its log to the run as the phones do
+ * ([LabUploader]) and ends when the run is over; sniffing stays on. `q` leaves the run early (the rest of the log goes
+ * up first).
+ *
+ * Start it with `e2e/mac-beacon/run.sh --lab --auto`, `e2e/mac-beacon/run.sh --lab --run <code>` (or with the flags by
+ * hand).
  */
 object BeaconLabCli {
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -60,17 +78,27 @@ object BeaconLabCli {
         require(advertise == null || iBeacon == null) { "--advertise or --ibeacon, not both" }
         val auto = options.single("auto") == "on"
         require(!auto || (advertise == null && iBeacon == null)) { "--auto sets the advertising itself" }
-        val sniff = auto || options.single("sniff") == "on"
+        val runCode = options.single("run")?.let { code ->
+            requireNotNull(LabJoinCode.normalize(code)) {
+                "A run's code is ${LabJoinCode.LENGTH} letters and digits: '$code'"
+            }
+        }
+        require(runCode == null || (!auto && advertise == null && iBeacon == null)) {
+            "--run follows the run's plan: no --auto, --advertise or --ibeacon"
+        }
+        val sniff = auto || runCode != null || options.single("sniff") == "on"
         val out = File(options.single("out") ?: "e2e/build/lab").apply { mkdirs() }
         val commit = options.single("commit")
 
         val mainThread = Dispatchers.Default.limitedParallelism(1)
         val scope = CoroutineScope(SupervisorJob() + mainThread)
         val log = LabLog(isEnabled = true)
-        log.setLabel(options.single("label") ?: "mac")
+        log.setLabel(options.single("label") ?: MacRunFollower.MAC_LABEL)
         val files = LogFiles(out, log)
         log.isRecording = true
-        val api = HttpGameApi(createHttpClient(OkHttp.create(), logRequests = false), ServerUrl(serverUrl))
+        val httpClient = createHttpClient(OkHttp.create(), logRequests = false)
+        val api = HttpGameApi(httpClient, ServerUrl(serverUrl))
+        val labApi = HttpLabApi(httpClient, ServerUrl(serverUrl))
         val clock = LabClockSync({ api.serverTime() }, log::deviceNow, log::monoNow)
         val summary = AirSummary()
 
@@ -104,7 +132,7 @@ object BeaconLabCli {
             onRunStart = { token, script, startAt ->
                 files.open()
                 session("auto run $token")
-                log.note("run: script ${script.version}, token $token, starts at ${LabLog.formatUtc(startAt)}")
+                log.note("run: script ${script.version}, token $token, starts at ${LabSchema.formatUtc(startAt)}")
                 val inSeconds = (startAt - log.serverNow()) / 1000
                 say(
                     "Run $token heard: script ${script.version}, ${script.totalMillis / 60_000} min, starts in ${inSeconds}s",
@@ -129,6 +157,8 @@ object BeaconLabCli {
         session(
             when {
                 auto -> "auto idle"
+
+                runCode != null -> "run $runCode"
 
                 else -> listOfNotNull(
                     advertise?.let { "hider_name" },
@@ -156,6 +186,9 @@ object BeaconLabCli {
             say("Auto: waiting for a radio run from the phone (Lab → Start the radio run). Leave this running.")
         }
         say("Lines: m <text> puts a mark, clock measures the clock again, q ends.")
+        val uploader = LabUploader(log, labApi, scope)
+        // Ends the command: q (or the end of stdin), or the server's run over and its log uploaded.
+        val done = CompletableDeferred<Unit>()
 
         return runBlocking {
             scope.launch {
@@ -185,6 +218,42 @@ object BeaconLabCli {
                     summary.flush().forEach(::say)
                 }
             }
+            val joined = runCode?.let { code ->
+                val joined = withContext(mainThread) {
+                    measure(log, clock)
+                    joinRun(
+                        code = code,
+                        log = log,
+                        labApi = labApi,
+                        uploader = uploader,
+                        command = macHelper::command,
+                        commit = commit,
+                        session = { session("run $code") },
+                        onFinished = {
+                            scope.launch {
+                                flush(uploader, "Run over")
+                                done.complete(Unit)
+                            }
+                        },
+                    )
+                }
+                if (joined == null) {
+                    withContext(mainThread) { macHelper.close() }
+                    scope.cancel()
+                    httpClient.close()
+                    return@runBlocking 1
+                }
+                joined
+            }
+            if (joined != null) {
+                scope.launch {
+                    while (!joined.run.finished) {
+                        joined.run.tick()
+                        delay(FOLLOW_MILLIS)
+                    }
+                }
+                scope.launch { pollRun(joined, log, labApi) }
+            }
             val input = thread(isDaemon = true, name = "lab-stdin") {
                 while (true) {
                     val line = readlnOrNull()?.trim() ?: break
@@ -201,16 +270,130 @@ object BeaconLabCli {
                         line.isNotEmpty() -> say("? m <text>, clock or q")
                     }
                 }
+                done.complete(Unit)
             }
-            withContext(Dispatchers.IO) { input.join() }
+            done.await()
+            if (joined != null && !joined.run.finished) {
+                withContext(mainThread) {
+                    log.mark("run: left", by = "mac")
+                    macHelper.command("stop")
+                    log.adv("stop", "mac")
+                    flush(uploader, "Leaving the run")
+                }
+            }
             val last = withContext(mainThread) {
                 log.note("lab stopped")
                 macHelper.close()
                 files.current.also { files.close() }
             }
             scope.cancel()
+            httpClient.close()
             say("Saved ${last?.path} and its summary.")
             0
+        }
+    }
+
+    /**
+     * Joins the run of [code] as the log's label and starts uploading to it; null when the server refused or the run's
+     * plan is one this build doesn't know (said on the terminal). [onFinished]: the run is over by its plan or the
+     * admin's button.
+     */
+    private suspend fun joinRun(
+        code: String,
+        log: LabLog,
+        labApi: LabApi,
+        uploader: LabUploader,
+        command: (String) -> Unit,
+        commit: String?,
+        session: () -> Unit,
+        onFinished: () -> Unit,
+    ): JoinedRun? {
+        val label = log.label.value
+        val request = LabJoinRequest(
+            code = code,
+            label = label,
+            model = "MacBook",
+            os = "${System.getProperty("os.name")} ${System.getProperty("os.version")}",
+            build = "e2e beacon-lab",
+            commit = commit,
+            capabilities = LabCapabilities(platform = Platform.OTHER, bluetooth = BluetoothState.ON),
+        )
+        val startedAt = log.monoNow()
+        val response = try {
+            labApi.join(request)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val reason = LabUploader.describe(e)
+            log.net("join", ok = false, millis = log.monoNow() - startedAt, error = reason)
+            say("Could not join the run $code as $label: $reason")
+            return null
+        }
+        log.net("join", ok = true, millis = log.monoNow() - startedAt)
+        val script = LabRunScripts.byId(response.scenarioId)?.takeIf { it.version == response.scenarioVersion }
+        if (script == null) {
+            say("This build doesn't know the plan ${response.scenarioId} v${response.scenarioVersion}: update it")
+            return null
+        }
+        log.setRun(response.runId.value, response.salt)
+        session()
+        uploader.start(response.runId, response.token)
+        say("In the run ${response.runId.value} as $label: ${script.title}, token ${response.radarToken}")
+        log.mark("run: joined", by = "run")
+        val run = MacServerRun(
+            runId = response.runId,
+            script = script,
+            radarToken = response.radarToken,
+            initial = response.state,
+            serverNow = log::serverNow,
+            command = { line ->
+                command(line)
+                val parts = line.split(' ')
+                when (parts[0]) {
+                    "advertise" -> log.adv("start", "hider_name", parts[1])
+                    "ibeacon" -> log.adv("start", "ibeacon", parts[1])
+                    else -> log.adv("stop", "mac")
+                }
+            },
+            onStep = { index, step, revision ->
+                log.step(index, step.id, step.title, revision)
+                log.mark("run: ${step.id}", by = "run", step = index + 1)
+                val seconds = step.seconds?.let { " (${it}s)" } ?: ""
+                say("Step ${index + 1} of ${script.steps.size}: ${step.title}$seconds")
+            },
+            onFinished = {
+                log.mark("run: done", by = "run")
+                onFinished()
+            },
+            label = label,
+            clockKnown = { log.clock.value != null },
+        )
+        return JoinedRun(run, response.token)
+    }
+
+    /** The rest of the log up to the run, then no more uploads. */
+    private suspend fun flush(uploader: LabUploader, why: String) {
+        say("$why: uploading the rest of the log…")
+        val all = uploader.flush()
+        uploader.stop()
+        say(if (all) "Uploaded." else "Not everything uploaded: ${uploader.lastError.value ?: "timed out"}")
+    }
+
+    /** Asks the server for the run's state every [POLL_MILLIS] until it is over; the timed steps go on meanwhile. */
+    private suspend fun pollRun(joined: JoinedRun, log: LabLog, labApi: LabApi) {
+        val run = joined.run
+        while (!run.finished) {
+            delay(POLL_MILLIS)
+            val startedAt = log.monoNow()
+            try {
+                run.onAnswer(labApi.state(run.runId, joined.token))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val reason = LabUploader.describe(e)
+                log.net("state", ok = false, millis = log.monoNow() - startedAt, error = reason)
+                say("run: the server didn't answer ($reason)")
+            }
         }
     }
 
@@ -270,15 +453,20 @@ object BeaconLabCli {
     private val TIME = DateTimeFormatter.ofPattern("HH:mm:ss")
     private const val TICK_MILLIS = 1_000L
     private const val FOLLOW_MILLIS = 200L
+    private const val POLL_MILLIS = 2_000L
     private const val MAC_TOKEN = LabRunScripts.MAC_HIDER_TOKEN
     private const val SUMMARY_EVERY_MILLIS = 2_000L
     private const val CLOCK_TIMEOUT_MILLIS = 10_000L
 
     private val USAGE = """
         Usage: e2e/mac-beacon/run.sh --lab --auto [--label mac] [--out e2e/build/lab] [--server https://...]
+               e2e/mac-beacon/run.sh --lab --run <code> [--label mac] [--out e2e/build/lab] [--server https://...]
                e2e/mac-beacon/run.sh --lab [--advertise <token> | --ibeacon <token>] [--sniff] [...]
     """.trimIndent()
 }
+
+/** The Mac in a run on the server: its [run] and the device [token] of the join for the phone routes. */
+private class JoinedRun(val run: MacServerRun, val token: String)
 
 /**
  * The Mac's lab log as files: every [open] starts a new one (a fresh [LabLog], its lines streamed into

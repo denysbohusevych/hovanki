@@ -5,6 +5,7 @@ import app.hovanki.server.game.GameException
 import app.hovanki.server.game.GameRegistry
 import app.hovanki.server.game.PlayerRef
 import app.hovanki.server.game.SpectatorRef
+import app.hovanki.server.lab.LabRunService
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.ErrorCode
 import org.springframework.context.annotation.Configuration
@@ -63,10 +64,15 @@ fun NativeWebRequest.bearerToken(): String? {
 }
 
 @Configuration(proxyBeanMethods = false)
-class WebConfig(private val registry: GameRegistry, private val accounts: AccountService) : WebMvcConfigurer {
+class WebConfig(
+    private val registry: GameRegistry,
+    private val accounts: AccountService,
+    private val labs: LabRunService,
+) : WebMvcConfigurer {
     override fun addArgumentResolvers(resolvers: MutableList<HandlerMethodArgumentResolver>) {
         resolvers.add(PlayerRefArgumentResolver(registry))
         resolvers.add(SpectatorRefArgumentResolver(registry))
         resolvers.add(UserArgumentResolver(accounts))
+        resolvers.add(LabDeviceArgumentResolver(labs))
     }
 }

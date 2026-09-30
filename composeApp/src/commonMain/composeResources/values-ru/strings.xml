@@ -652,6 +652,7 @@
   <string name="error_playing_this_game">Вы играете в этой игре, смотреть её нельзя.</string>
   <string name="building_open_tag">можно</string>
   <string name="error_zone_too_far">Так далеко от места, где создана игра, зону не перенести.</string>
+  <string name="error_lab_run_closed">Этот прогон радиолабы закончен.</string>
   <string name="settings_tab_zone">Зона</string>
   <string name="settings_tab_time">Время</string>
   <string name="settings_tab_more">Ещё</string>

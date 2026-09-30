@@ -4,6 +4,8 @@ import app.hovanki.server.account.AccountProperties
 import app.hovanki.server.admin.AdminProperties
 import app.hovanki.server.bigGames.BigGameProperties
 import app.hovanki.server.history.HistoryProperties
+import app.hovanki.server.lab.LabProperties
+import app.hovanki.server.lab.LabRunRepository
 import app.hovanki.server.moderation.ModerationProperties
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -19,6 +21,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** The schema itself (db/migration) on the test database (TestPostgres): keys, cascades, retention. */
@@ -122,6 +125,8 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             HistoryProperties(),
             AdminProperties(),
             BigGameProperties(),
+            LabProperties(),
+            LabRunRepository(jdbc),
             Clock.fixed(now, ZoneOffset.UTC),
         )
         val longAgo = now.minus(Duration.ofDays(400))
@@ -223,6 +228,103 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             .query(Int::class.java)
             .single()
         assertEquals(1, entries)
+    }
+
+    @Test
+    fun labLogsGoNinetyDaysAfterTheirRun() {
+        val retention = DataRetention(
+            jdbc,
+            AccountProperties(),
+            ModerationProperties(),
+            HistoryProperties(),
+            AdminProperties(),
+            BigGameProperties(),
+            LabProperties(),
+            LabRunRepository(jdbc),
+            Clock.fixed(now, ZoneOffset.UTC),
+        )
+        fun daysAgo(days: Double) = now.minusSeconds((days * 86_400).toLong())
+
+        // Finished 91 and 89 days ago; never finished, made 92 days ago (its join window ended 91 days ago) and 90.5
+        // days ago (its window ended 89.5 days ago).
+        val old = insertLabRun(createdAt = daysAgo(92.0), finishedAt = daysAgo(91.0))
+        val recent = insertLabRun(createdAt = daysAgo(90.0), finishedAt = daysAgo(89.0))
+        val abandoned = insertLabRun(createdAt = daysAgo(92.0), finishedAt = null)
+        val lately = insertLabRun(createdAt = daysAgo(90.5), finishedAt = null)
+
+        val deleted = retention.run()
+
+        assertTrue(deleted.labChunks >= 2, "$deleted")
+        val runs = listOf(old, recent, abandoned, lately)
+        val chunks = runs.filter { run ->
+            jdbc.sql(
+                "SELECT count(*) FROM lab_chunks c JOIN lab_devices d ON d.id = c.device_id WHERE d.run_id = :a",
+            ).param("a", run).query(Long::class.java).single() > 0
+        }
+        assertEquals(listOf(recent, lately), chunks)
+        // The runs and their devices stay: labels, models and numbers.
+        for (run in runs) {
+            assertEquals(listOf(run), jdbc.sql("SELECT run_id FROM lab_devices WHERE run_id = :a").ids(run))
+        }
+    }
+
+    @Test
+    fun theAdminWhoMadeALabRunIsForgottenAfterAYear() {
+        val retention = DataRetention(
+            jdbc,
+            AccountProperties(),
+            ModerationProperties(),
+            HistoryProperties(),
+            AdminProperties(),
+            BigGameProperties(),
+            LabProperties(),
+            LabRunRepository(jdbc),
+            Clock.fixed(now, ZoneOffset.UTC),
+        )
+        fun daysAgo(days: Long) = now.minus(Duration.ofDays(days))
+        val old = insertLabRun(createdAt = daysAgo(366), finishedAt = daysAgo(365))
+        val recent = insertLabRun(createdAt = daysAgo(364), finishedAt = null)
+
+        val deleted = retention.run()
+
+        assertTrue(deleted.labRunNames >= 1, "$deleted")
+        fun maker(run: String): String? = jdbc.sql("SELECT created_by_name FROM lab_runs WHERE id = :id")
+            .param("id", run).query { rs, _ -> listOf(rs.getString(1)) }.single().single()
+        assertNull(maker(old))
+        assertEquals("admin", maker(recent))
+        // The run itself stays, with its report.
+        assertEquals(listOf(old), jdbc.sql("SELECT id FROM lab_runs WHERE id = :a").ids(old))
+    }
+
+    /** A run of the radio lab with one device and one chunk of its log. */
+    private fun insertLabRun(createdAt: Instant, finishedAt: Instant?): String {
+        val run = unique("lab")
+        jdbc.sql(
+            """
+            INSERT INTO lab_runs (id, code, title, scenario_id, scenario_version, status, created_by_name, created_at,
+                                  finished_at, salt)
+            VALUES (:id, :id, 'test', 'e2e', 3, :status, 'admin', :createdAt, :finishedAt, '00')
+            """.trimIndent(),
+        )
+            .param("id", run)
+            .param("status", if (finishedAt == null) "RUNNING" else "FINISHED")
+            .param("createdAt", createdAt.toTimestamptz())
+            .param("finishedAt", finishedAt?.toTimestamptz())
+            .update()
+        val device = unique("device")
+        jdbc.sql(
+            """
+            INSERT INTO lab_devices (id, run_id, label, capabilities, token_hash, radar_token, joined_at)
+            VALUES (:id, :run, 'A', '{}', :id, 'abcd0123', :at)
+            """.trimIndent(),
+        ).param("id", device).param("run", run).param("at", createdAt.toTimestamptz()).update()
+        jdbc.sql(
+            """
+            INSERT INTO lab_chunks (device_id, seq_from, seq_to, events, received_at, body)
+            VALUES (:id, 1, 1, 1, :at, :body)
+            """.trimIndent(),
+        ).param("id", device).param("at", createdAt.toTimestamptz()).param("body", byteArrayOf(1, 2, 3)).update()
+        return run
     }
 
     private fun insertUser(
@@ -346,6 +448,10 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             "radio_calibration",
             "game_recordings",
             "game_recording_tracks",
+            "lab_runs",
+            "lab_devices",
+            "lab_chunks",
+            "lab_reports",
         )
 
         /** Every column that points at a user, with ON DELETE CASCADE. */

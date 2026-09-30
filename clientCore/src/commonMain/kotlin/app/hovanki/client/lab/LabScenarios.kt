@@ -1,5 +1,6 @@
 package app.hovanki.client.lab
 
+import app.hovanki.shared.lab.LabPlaces
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,34 +20,6 @@ data class LabStep(
 
 /** An experiment of docs/radio-lab.md §8 as a list of steps with timers. */
 data class LabScenario(val id: String, val title: String, val steps: List<LabStep>)
-
-/** The places and actions the marks and the scenarios use: the merge's truth for the pocket (docs/radio-lab.md §7). */
-object LabPlaces {
-    const val HAND = "hand"
-    const val HAND_LOCKED = "hand_locked"
-    const val POCKET_FRONT = "pocket_front"
-    const val POCKET_BACK = "pocket_back"
-    const val JACKET = "jacket"
-    const val BACKPACK = "backpack"
-    const val TABLE_UP = "table_up"
-    const val TABLE_DOWN = "table_down"
-    const val POCKET_PROXIMITY = "pocket_proximity"
-
-    val ALL = listOf(HAND, HAND_LOCKED, POCKET_FRONT, POCKET_BACK, JACKET, BACKPACK, TABLE_UP, TABLE_DOWN)
-
-    /** Places that are «in the pocket» for the carry classifier's truth. */
-    val CARRIED_HIDDEN = setOf(POCKET_FRONT, POCKET_BACK, JACKET, BACKPACK, POCKET_PROXIMITY)
-
-    const val STAND = "stand"
-    const val WALK = "walk"
-    const val SIT = "sit"
-    const val RUN = "run"
-    const val LIE = "lie"
-
-    val ACTIONS = listOf(STAND, WALK, SIT, RUN)
-
-    val DISTANCES = listOf(0.5, 1.0, 3.0, 5.0, 10.0, 20.0, 40.0)
-}
 
 /** The scenarios built into the debug build (docs/radio-lab.md §8), so nothing has to be made up in the street. */
 object LabScenarios {

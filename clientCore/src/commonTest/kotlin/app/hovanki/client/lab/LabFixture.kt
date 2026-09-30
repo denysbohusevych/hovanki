@@ -6,6 +6,7 @@ import app.hovanki.client.session.FakeBackgroundTracker
 import app.hovanki.client.session.FakeCarryMonitor
 import app.hovanki.client.session.FakeLocationProvider
 import app.hovanki.client.session.FakeRadio
+import app.hovanki.shared.lab.LabFields
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -59,8 +60,11 @@ internal class FakeFiles : LabFiles {
     }
 }
 
-/** The lab on fake parts, time from the test's scheduler: the server's clock is 700 ms ahead of the device's. */
-internal class Lab(scope: TestScope) {
+/**
+ * The lab on fake parts, time from the test's scheduler: the server's clock is 700 ms ahead of the device's; with
+ * [clockWorks] false the server never answers the clock's questions.
+ */
+internal class Lab(scope: TestScope, clockWorks: Boolean = true) {
     val log = LabLog(isEnabled = true, { 1_790_000_000_000L + scope.currentTime }, { scope.currentTime })
     val radio = FakeRadio()
     val location = FakeLocationProvider()
@@ -93,6 +97,7 @@ internal class Lab(scope: TestScope) {
         clockSync = LabClockSync(
             serverTime = {
                 serverAsks++
+                check(clockWorks) { "offline" }
                 1_790_000_000_000L + scope.currentTime + 700
             },
             deviceTimeMillis = { 1_790_000_000_000L + scope.currentTime },

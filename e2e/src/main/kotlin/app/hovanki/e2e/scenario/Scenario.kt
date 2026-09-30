@@ -6,6 +6,7 @@ import app.hovanki.e2e.bot.BotBehavior
 import app.hovanki.e2e.bot.BotPlayer
 import app.hovanki.e2e.bot.BotTransport
 import app.hovanki.e2e.bot.CommandResult
+import app.hovanki.e2e.bot.LabBot
 import app.hovanki.e2e.bot.RadioWorld
 import app.hovanki.e2e.bot.SyncMetrics
 import app.hovanki.e2e.observer.EmailPurpose
@@ -90,6 +91,7 @@ class Scenario(val name: String, val serverUrl: String) {
     /** The air between the phones' Bluetooth (docs/adr/0012-nearby-radar.md). */
     val radio = RadioWorld()
     private val bots = CopyOnWriteArrayList<BotPlayer>()
+    private val labBots = CopyOnWriteArrayList<LabBot>()
 
     val players: List<BotPlayer> get() = bots.toList()
 
@@ -131,6 +133,14 @@ class Scenario(val name: String, val serverUrl: String) {
         bots += bot
         return bot
     }
+
+    /**
+     * A phone with the debug build's radio lab open, standing at [at] in the hand, for a run on the server
+     * (docs/adr/0017-radar-techniques-and-big-run.md §5): it hears the other phones of the scenario through [radio].
+     * [label] is its name in the run.
+     */
+    fun labPhone(label: String, at: GeoPoint, platform: Platform = Platform.ANDROID): LabBot =
+        LabBot(label, at, platform, serverUrl, radio, timeline).also { labBots += it }
 
     /** The same person on another phone: the app freshly installed there, nothing saved; they log in by hand. */
     fun BotPlayer.newPhone(phoneName: String = "$name (new phone)"): BotPlayer =
@@ -513,6 +523,7 @@ class Scenario(val name: String, val serverUrl: String) {
 
     fun close() {
         bots.forEach { it.close() }
+        labBots.forEach { it.close() }
         radio.close()
         observer.close()
     }

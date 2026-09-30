@@ -1,5 +1,6 @@
 package app.hovanki.client.lab
 
+import app.hovanki.shared.lab.LabPlaces
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
