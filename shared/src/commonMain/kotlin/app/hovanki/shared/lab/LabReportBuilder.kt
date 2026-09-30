@@ -319,7 +319,8 @@ object LabReportBuilder {
                     }
                 }
 
-                "stop", "failed" -> active[event.dev]?.remove(tech)
+                "stop", "failed" ->
+                    if (tech == MAC_ALL) active[event.dev]?.clear() else active[event.dev]?.remove(tech)
             }
         }
         closeStep(current)
@@ -377,8 +378,9 @@ object LabReportBuilder {
     /**
      * The cases of `ble.ibeacon` on a locked iPhone ([LockedRanging]): every lock of an iPhone (`life` event
      * `protected_data_off`; `did_enter_background` in a log without protected-data events) while another device's
-     * iBeacon was on, with its last CoreLocation ranging reading of that device until the iBeacon stopped or the
-     * stretch ended.
+     * iBeacon was on, with its last CoreLocation ranging reading of that device until the iBeacon stopped, the iPhone
+     * was unlocked or the run ended: a lock goes on across the steps (the `radio` run locks in one step and ranges in
+     * the next).
      */
     private fun lockedRanging(
         merge: LabMerge,
@@ -390,6 +392,10 @@ object LabReportBuilder {
         val events = merge.events
         val beacons = events.filter { it.k == "adv" && advTech(it) == TechniqueCards.IBEACON }.groupBy { it.dev }
         if (beacons.isEmpty()) return emptyList()
+        val stops = events.filter {
+            it.k == "adv" && it.string("action") in STOPS && advTech(it) in setOf(TechniqueCards.IBEACON, MAC_ALL)
+        }.groupBy { it.dev }
+        val runEnd = stretches.last().end
         val result = ArrayList<LockedRanging>()
         for (listener in iPhones.sorted()) {
             val life = events.filter { it.dev == listener && it.k == "life" }
@@ -397,16 +403,19 @@ object LabReportBuilder {
             val lockEvent = if (protectedData) LOCK_EVENT else LOCK_FALLBACK_EVENT
             val locks = life.filter { it.string("event") == lockEvent }.map { it.t }
             if (locks.isEmpty()) continue
+            val unlocks = life.filter { it.string("event") in UNLOCK_EVENTS }.map { it.t }
             val ranging = events.filter {
                 it.k == "rx" && it.dev == listener && it.string("api") == RANGING_API && it.int("rssi") != null
             }
             for (lock in locks) {
-                val stretchEnd = stretches.lastOrNull { it.start <= lock }?.end ?: continue
+                if (stretches.none { it.start <= lock }) continue
+                val unlock = unlocks.firstOrNull { it > lock } ?: Long.MAX_VALUE
                 for ((seeker, advs) in beacons) {
                     if (seeker == listener) continue
-                    if (advs.lastOrNull { it.t <= lock }?.string("action") != "start") continue
-                    val stop = advs.firstOrNull { it.t > lock && it.string("action") in STOPS }?.t ?: Long.MAX_VALUE
-                    val end = minOf(stop, stretchEnd)
+                    val started = advs.lastOrNull { it.t <= lock && it.string("action") == "start" }?.t ?: continue
+                    if (stops[seeker].orEmpty().any { it.t in started..lock }) continue
+                    val stop = stops[seeker].orEmpty().firstOrNull { it.t > lock }?.t ?: Long.MAX_VALUE
+                    val end = minOf(stop, unlock, runEnd)
                     val last = ranging.lastOrNull { it.t in lock..end && sender(it.string("token")) == seeker }
                     result += LockedRanging(listener, seeker, lock, last?.t, end - lock)
                 }
@@ -507,6 +516,12 @@ object LabReportBuilder {
     /** CoreLocation's ranging, the `rx` api of an iPhone hearing an iBeacon. */
     private const val RANGING_API = "corelocation_ranging"
     private val STOPS = setOf("stop", "failed")
+
+    /** What unlocks an iPhone for [lockedRanging]. */
+    private val UNLOCK_EVENTS = setOf("protected_data_on", "did_become_active")
+
+    /** The Mac's `adv` `stop` (`mode = mac`): everything it advertised stops. */
+    private const val MAC_ALL = "mac"
 
     /** The witness needs a third phone. */
     private const val WITNESS_DEVICES = 3

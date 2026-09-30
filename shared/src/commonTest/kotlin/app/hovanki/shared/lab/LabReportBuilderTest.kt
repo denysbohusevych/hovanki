@@ -437,7 +437,11 @@ class LabReportBuilderTest {
         assertEquals("KEEP", cards.getValue(SCAN).verdict, "${cards[SCAN]}")
         assertEquals("KEEP", cards.getValue(TechniqueCards.WITNESS).verdict, "${cards[TechniqueCards.WITNESS]}")
         assertEquals("INSUFFICIENT", cards.getValue(Calibrations.TOUCH).verdict, "one touch: no spread")
-        for (smoothing in Smoothings.ALL) assertTrue(cards.getValue(smoothing).verdict in setOf("KEEP", "DROP"))
+        // A smoothing that tied the best is not dropped: «мало данных», the tie named.
+        for (smoothing in Smoothings.ALL) {
+            val card = cards.getValue(smoothing)
+            assertTrue(card.verdict in setOf("KEEP", "DROP") || card.missing?.startsWith("ничья") == true, "$card")
+        }
         assertEquals(1, Smoothings.ALL.count { cards.getValue(it).verdict == "KEEP" })
         assertTrue(LabMerge.CARRY_V1 in cards && LabMerge.CARRY_V2 in cards, "${cards.keys}")
 
@@ -504,7 +508,43 @@ class LabReportBuilderTest {
         assertEquals(emptyList(), report.problems)
     }
 
+    @Test
+    fun aLockGoesOnAcrossTheSteps() {
+        // The `radio` run of 2026-09-30: the phone locks in the step «lock» and ranges (or not) in the next one; the
+        // Mac's iBeacon stops with its «stop everything» (`mode = mac`) two steps later.
+        val phone = Log("A", offset = 0)
+        val mac = Log("mac", offset = 0)
+        session(phone, "iPhone13,2", "iOS 26.2.1")
+        session(mac, "MacBook", "Mac OS X 26.3")
+        mac.event(START + 500, "adv", "-", arrayOf("action" to "start", "mode" to "ibeacon", "token" to BEACON))
+        fun mark(t: Long, id: String, step: Int) =
+            phone.event(t, "mark", fields = arrayOf("label" to "run: $id", "by" to "run", "step" to step))
+        mark(START + 1_000, "ibeacon_screen", 4)
+        for (second in 1..9) phone.rx(START + second * 1_000L, BEACON, -50, "corelocation_ranging", "ibeacon", IBEACON)
+        mark(START + 10_000, "lock", 5)
+        phone.event(START + 14_000, "life", "background", arrayOf("event" to "protected_data_off"))
+        mark(START + 55_000, "ibeacon_locked", 6)
+        for (second in 15..104) {
+            phone.rx(START + second * 1_000L, BEACON, -52, "corelocation_ranging", "ibeacon", IBEACON)
+        }
+        mark(START + 175_000, "token_rotates", 7)
+        mac.event(START + 175_000, "adv", "-", arrayOf("action" to "stop", "mode" to "mac"))
+        phone.event(START + 180_000, "mark", fields = arrayOf("label" to "run: done", "by" to "run"))
+
+        val report = LabReportBuilder.build(
+            RUN,
+            LabRunScripts.RADIO,
+            listOf(LabReportInput("A", "a", null, phone.jsonl), LabReportInput("mac", "m", null, mac.jsonl)),
+            NOW,
+        )
+        val card = report.cards.single { it.tech == TechniqueCards.IBEACON }
+        // Locked at 14 s, the last reading at 104 s: 90 s, in a window of 161 s up to the Mac's stop.
+        assertTrue(card.numbers.any { "заблокированный A слышал mac 90.0 с после блокировки" in it }, "$card")
+    }
+
     private companion object {
+        const val BEACON = "cafe0002"
+        const val IBEACON = "ble.ibeacon"
         const val START = 1_790_000_000_000L
         const val NOW = START + 60_000
         const val RUN = "run-1"

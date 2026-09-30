@@ -109,8 +109,14 @@ object TechniqueCards {
     /** …and the touches of a pair in one direction spread by at most this. */
     const val TOUCH_MAX_SPREAD_DB = 6
 
-    /** The carry classifiers compete once each has this many seconds with a truth. */
+    /** The carry classifiers compete once each has this many seconds with a truth, as many of them in the pocket. */
     const val CARRY_MIN_SECONDS = 60
+
+    /**
+     * The smoothings and the calibrations are judged over at least this many distances: over one the band's error is
+     * an offset, not the curve (the run of 2026-09-30: every second at 1 m, the three smoothings tied).
+     */
+    const val MIN_DISTANCES = 2
 
     /** `infer.witness`: at least this many inferred pair-seconds with a truth… */
     const val WITNESS_MIN_CASES = 10
@@ -151,16 +157,25 @@ object TechniqueCards {
     private const val CRITERION_CARRY = "совпадение с разметкой сценария по секундам: из двух — лучшее, ≥ 60 с у обоих"
     private const val CRITERION_WITNESS = "выведенная пара рядом по расстоянию в ≥ 80 % случаев, случаев ≥ 10"
 
+    /** The distances of the pairs the run knew, one each. */
+    private fun CardFacts.distinctDistances(): List<Double> = distances.flatMap { it.values }.distinct().sorted()
+
+    /** Why the bands can't judge a smoothing or a calibration though they have seconds; null: they can. */
+    private fun CardFacts.fewDistances(): String? = distinctDistances().takeIf { it.size < MIN_DISTANCES }?.let {
+        val where = it.singleOrNull()?.let { m -> " (${round1(m)} м)" }.orEmpty()
+        "все секунды на одном расстоянии$where: нужно хотя бы $MIN_DISTANCES"
+    }
+
     fun build(report: LabReport, facts: CardFacts): List<TechniqueCard> = buildList {
         val channels = facts.techs + report.steps.flatMap { step -> step.directions.mapNotNull { it.tech } }
         val layouts = channels.filter { it == SERVICE_DATA || it.startsWith("$SERVICE_DATA.") }.sorted()
         addAll(serviceData(report, facts, layouts))
         if (NAME in channels) add(name(report))
         if (IBEACON in channels) add(iBeacon(report, facts))
-        if (IBEACON_REGION in channels || facts.regionWaits.isNotEmpty()) add(region(facts))
+        if (IBEACON_REGION in channels || facts.regionWaits.isNotEmpty()) add(region(report, facts))
         if (OVERFLOW in channels || report.masks.isNotEmpty()) add(overflow(report, facts))
-        addAll(smoothings(report))
-        addAll(calibrations(report))
+        addAll(smoothings(report, facts))
+        addAll(calibrations(report, facts))
         addAll(carry(report))
         add(witness(report.witness))
     }
@@ -229,7 +244,9 @@ object TechniqueCards {
      */
     private fun iBeacon(report: LabReport, facts: CardFacts): TechniqueCard {
         val screen = readings(report, facts, IBEACON, CRITERION_IBEACON).card
-        val (judged, short) = facts.lockedRanging.partition { it.windowMillis > LOCKED_RANGING_MILLIS }
+        val heard = report.beaconsHeard()
+        val (cases, unheard) = facts.lockedRanging.partition { it.seeker in heard }
+        val (judged, short) = cases.partition { it.windowMillis > LOCKED_RANGING_MILLIS }
         val locked = when {
             judged.isEmpty() -> Verdict.INSUFFICIENT
             judged.all { it.lastedMillis > LOCKED_RANGING_MILLIS } -> Verdict.KEEP
@@ -239,7 +256,9 @@ object TechniqueCards {
             "заблокированный ${it.listener} слышал ${it.seeker} ${round1(it.lastedMillis / 1000.0)} с после блокировки"
         } + short.map {
             "заблокированный ${it.listener}, ${it.seeker}: окно ${round1(it.windowMillis / 1000.0)} с — не судим"
-        } + listOfNotNull(NO_LOCKED_IPHONE.takeIf { judged.isEmpty() })
+        } + unheard.map {
+            "заблокированный ${it.listener}, ${it.seeker}: ${unheardLine(it.seeker)}"
+        } + listOfNotNull(NO_LOCKED_IPHONE.takeIf { judged.isEmpty() && unheard.isEmpty() })
         val verdicts = listOf(locked, screen.verdict)
         val verdict = when {
             Verdict.DROP in verdicts -> Verdict.DROP
@@ -264,13 +283,25 @@ object TechniqueCards {
         }
     }
 
-    private fun region(facts: CardFacts): TechniqueCard {
-        val cases = facts.regionWaits.filter { it.meters <= REGION_METERS }
+    /**
+     * The senders whose iBeacon somebody heard in the run, by any API. A seeker nobody heard may not have been on the
+     * air at all (the Mac's iBeacon on macOS 26, 2026-09-30): a silence of its listeners judges nothing.
+     */
+    private fun LabReport.beaconsHeard(): Set<String> = steps.flatMap { it.directions }
+        .filter { it.tech == IBEACON || it.channel.endsWith("/ibeacon") }
+        .mapTo(HashSet()) { it.from }
+
+    private fun unheardLine(seeker: String) = "iBeacon $seeker не услышал никто за весь прогон — вещал ли он, не судим"
+
+    private fun region(report: LabReport, facts: CardFacts): TechniqueCard {
+        val heard = report.beaconsHeard()
+        val (cases, unheard) = facts.regionWaits.filter { it.meters <= REGION_METERS }.partition { it.seeker in heard }
         if (cases.isEmpty()) {
             return TechniqueCard(
                 IBEACON_REGION,
                 Verdict.INSUFFICIENT,
                 CRITERION_REGION,
+                unheard.map { it.seeker }.distinct().map(::unheardLine),
                 missing = "ищущий не начинал iBeacon в 10 м от телефона, следящего за регионом",
             )
         }
@@ -340,12 +371,23 @@ object TechniqueCards {
 
     private const val NO_DISTANCES = "нет секунд с расстоянием пары (шаги сценария с расстояниями или отметки)"
 
-    private fun smoothings(report: LabReport): List<TechniqueCard> {
+    private fun smoothings(report: LabReport, facts: CardFacts): List<TechniqueCard> {
         val none = Calibrations.NONE
         val shares = Smoothings.ALL.associateWith { report.exactShare(it, none) }
         if (shares.values.all { it == null }) {
             return Smoothings.ALL.map {
                 TechniqueCard(it, Verdict.INSUFFICIENT, CRITERION_SMOOTHING, missing = NO_DISTANCES)
+            }
+        }
+        facts.fewDistances()?.let { few ->
+            return Smoothings.ALL.map {
+                TechniqueCard(
+                    it,
+                    Verdict.INSUFFICIENT,
+                    CRITERION_SMOOTHING,
+                    listOfNotNull(report.bandLine(it, none)),
+                    few,
+                )
             }
         }
         // The first of the best: the game's EMA keeps its place on a tie.
@@ -357,6 +399,15 @@ object TechniqueCards {
 
                 id == best -> TechniqueCard(id, Verdict.KEEP, CRITERION_SMOOTHING, listOf(line))
 
+                // No worse than the best: nothing to drop it for.
+                shares[id] == shares[best] -> TechniqueCard(
+                    id,
+                    Verdict.INSUFFICIENT,
+                    CRITERION_SMOOTHING,
+                    listOf(line),
+                    "ничья с $best",
+                )
+
                 else -> TechniqueCard(
                     id,
                     Verdict.DROP,
@@ -367,11 +418,23 @@ object TechniqueCards {
         }
     }
 
-    private fun calibrations(report: LabReport): List<TechniqueCard> {
+    private fun calibrations(report: LabReport, facts: CardFacts): List<TechniqueCard> {
         val ema = Smoothings.EMA
         val none = report.exactShare(ema, Calibrations.NONE)
         val noneLine = report.bandLine(ema, Calibrations.NONE)
         val offsets = report.calibrations.associate { it.id to it.offsetsDb }
+        val few = facts.fewDistances()
+        if (none != null && few != null) {
+            val criteria = mapOf(
+                Calibrations.NONE to CRITERION_NONE,
+                Calibrations.MODEL to CRITERION_MODEL,
+                Calibrations.TOUCH to CRITERION_TOUCH,
+            )
+            return criteria.map { (id, criterion) ->
+                val line = report.bandLine(ema, id)
+                TechniqueCard(id, Verdict.INSUFFICIENT, criterion, listOfNotNull(line, noneLine).distinct(), few)
+            }
+        }
 
         fun gains(id: String): Boolean? {
             val share = report.exactShare(ema, id) ?: return null
@@ -475,12 +538,16 @@ object TechniqueCards {
         val lines = scores.mapValues { (tech, score) ->
             "$tech: совпало ${score.agreed} из ${score.seconds} с (${percent(score.share)})"
         }
-        val ready = techs.size == 2 && scores.values.all { it.seconds >= CARRY_MIN_SECONDS }
+        val pocket = techs.associateWith { tech ->
+            report.carry.filter { it.tech == tech && it.truth == "in_pocket" }.sumOf { it.seconds }
+        }
+        val ready = techs.size == 2 && scores.values.all { it.seconds >= CARRY_MIN_SECONDS } &&
+            pocket.values.all { it >= CARRY_MIN_SECONDS }
         if (!ready) {
-            val missing = if (techs.size < 2) {
-                "в журналах только ${techs.single()}: сравнивать не с чем"
-            } else {
-                "меньше $CARRY_MIN_SECONDS с с разметкой"
+            val missing = when {
+                techs.size < 2 -> "в журналах только ${techs.single()}: сравнивать не с чем"
+                scores.values.any { it.seconds < CARRY_MIN_SECONDS } -> "меньше $CARRY_MIN_SECONDS с с разметкой"
+                else -> "в кармане по разметке меньше $CARRY_MIN_SECONDS с (${pocket.values.min()} с)"
             }
             return techs.map {
                 TechniqueCard(it, Verdict.INSUFFICIENT, CRITERION_CARRY, lines.values.toList(), missing)
