@@ -135,6 +135,10 @@ class LabViewModel(
 
     fun setPulse(pulse: LabPulse) = lab.setPulse(pulse)
 
+    val availableModes: Set<String> get() = lab.availableModes
+
+    fun setLabTechnique(id: String, on: Boolean) = lab.setLabTechnique(id, on)
+
     /**
      * The vibration test as a test of its own: the lab starts if it is off; [keepAwake] keeps the app alive locked by
      * «as in a game» (GPS), off for the attempt without it.

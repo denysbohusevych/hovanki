@@ -65,6 +65,23 @@ class LabTechniquesTest {
     }
 
     @Test
+    fun aSwitchTurnsOneLabTechniqueOnAndOffKeepingTheRest() = runTest {
+        val lab = Lab(this)
+        lab.controller.start()
+        runCurrent()
+        lab.controller.setTechniques(setOf("ble.name", ModeIds.NOTIFICATION_WAKE))
+        lab.controller.setLabTechnique(ModeIds.AUDIO, true)
+        runCurrent()
+        assertEquals(setOf(ModeIds.AUDIO, ModeIds.NOTIFICATION_WAKE), lab.modes.on)
+        assertEquals(setOf("ble.name"), lab.controller.techniques.value)
+        lab.controller.setLabTechnique(ModeIds.NOTIFICATION_WAKE, false)
+        runCurrent()
+        assertEquals(setOf(ModeIds.AUDIO), lab.modes.on)
+        assertEquals(setOf("ble.name"), lab.controller.techniques.value, "the channels stay")
+        lab.controller.stop()
+    }
+
+    @Test
     fun theLinkRunsWithTheBenchTokenAndWritesItsReadings() = runTest {
         val lab = Lab(this)
         lab.controller.start()
