@@ -2,7 +2,6 @@ package app.hovanki.client.ui.game
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import app.hovanki.client.radio.PeerRange
 import app.hovanki.client.session.CatchCode
 import app.hovanki.client.session.ConnectionStatus
 import app.hovanki.client.session.GameSessionManager
@@ -15,6 +14,7 @@ import app.hovanki.client.session.catchQr
 import app.hovanki.client.session.catchableScan
 import app.hovanki.client.session.momentAt
 import app.hovanki.client.session.myCatchCode
+import app.hovanki.radar.PeerRange
 import app.hovanki.shared.geo.bearingTo
 import app.hovanki.shared.protocol.BoardItem
 import app.hovanki.shared.protocol.BuildingsResponse

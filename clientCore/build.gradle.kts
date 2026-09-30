@@ -2,7 +2,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Client logic without UI: server API, connection (HTTP polling), location outbox, server clock and the game session.
 // Used by :composeApp (the app) and by the headless e2e bots in :e2e, so the bots run exactly the app's network code.
-// No Compose and no platform APIs: platform services are interfaces here, implemented in :composeApp.
+// No Compose and no platform APIs: platform services are interfaces here, implemented in :composeApp; the phone's
+// radio and sensors are :radar and :device, with their platform implementations.
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
@@ -31,6 +32,9 @@ kotlin {
         commonMain.dependencies {
             // Protocol types, Flow and Ktor types are part of this module's API.
             api(projects.shared)
+            // The radar and the phone's sensors: GameSessionManager and the lab take their types.
+            api(projects.radar)
+            api(projects.device)
             api(libs.kotlinx.coroutines.core)
             api(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)

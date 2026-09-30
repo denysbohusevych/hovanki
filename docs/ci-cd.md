@@ -164,7 +164,7 @@ iOS job идёт около 12 минут на каждый push в `main` (бе
 
 **iOS** (`macos-26`, Xcode из образа раннера):
 
-1. `./gradlew :shared:iosSimulatorArm64Test :clientCore:iosSimulatorArm64Test` — тесты общего кода и клиентской логики на iOS-симуляторе (Kotlin/Native).
+1. `./gradlew :shared:iosSimulatorArm64Test :device:iosSimulatorArm64Test :clientCore:iosSimulatorArm64Test` — тесты общего кода, телефона (`:device`) и клиентской логики на iOS-симуляторе (Kotlin/Native).
 2. `xcodebuild` приложения `iosApp` для симулятора, без подписи.
 
 Кэш Kotlin/Native (`~/.konan`) сохраняется между запусками, ключ — хэш `gradle/libs.versions.toml`.
@@ -220,7 +220,7 @@ CI на push не играет партии, поэтому перед PR их �
 
 | Что меняется | Что запустить | Где |
 |---|---|---|
-| Любой код | `./gradlew spotlessApply` и `./gradlew check` (или быстрый цикл `./gradlew :shared:jvmTest :clientCore:jvmTest :server:test`) | локально |
+| Любой код | `./gradlew spotlessApply` и `./gradlew check` (или быстрый цикл `./gradlew :shared:jvmTest :radar:jvmTest :device:jvmTest :clientCore:jvmTest :server:test`) | локально |
 | Правила игры, протокол, поведение клиент–сервер, аккаунты, друзья, чат (`:shared`, `:server`, `:clientCore`, `:e2e`) | `./gradlew :e2e:test` (~6 мин, работает и в облачном контейнере без KVM; PostgreSQL поднимается сам); что трогает синхронизацию или события игры — ещё и `-Pe2e.transport=socket` (боты на живом канале) | локально |
 | UI, платформенный код (`:composeApp`, `androidApp`, `iosApp`), Maestro-флоу, `run-devices.sh` | `./gradlew :e2e:devices` на своих эмуляторах ([e2e-local.md](e2e-local.md)) или ночной workflow вручную на своей ветке: `suite=devices`, нужный сценарий | локально с Android Studio / GitHub Actions, 15–20 мин |
 

@@ -1,12 +1,12 @@
 package app.hovanki.e2e.lab
 
 import app.hovanki.client.lab.ClockEstimate
-import app.hovanki.client.lab.Gravity
 import app.hovanki.client.lab.LabLog
-import app.hovanki.client.lab.MotionFeatures
-import app.hovanki.client.lab.Orientation
-import app.hovanki.client.radio.RadioApi
-import app.hovanki.client.radio.SightingVia
+import app.hovanki.device.lab.Gravity
+import app.hovanki.device.lab.MotionFeatures
+import app.hovanki.device.lab.Orientation
+import app.hovanki.radar.RadioApi
+import app.hovanki.radar.SightingVia
 import app.hovanki.shared.lab.LabMerge
 import app.hovanki.shared.lab.LabPlaces
 import app.hovanki.shared.protocol.Activity

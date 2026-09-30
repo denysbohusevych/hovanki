@@ -8,8 +8,8 @@ import app.hovanki.client.lab.LabUploader
 import app.hovanki.client.network.HttpGameApi
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.createHttpClient
-import app.hovanki.client.radio.RadioApi
 import app.hovanki.e2e.cli.CliArgs
+import app.hovanki.radar.RadioApi
 import app.hovanki.shared.lab.LabJoinCode
 import app.hovanki.shared.lab.LabRunScripts
 import app.hovanki.shared.lab.LabSchema

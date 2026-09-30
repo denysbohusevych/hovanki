@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.hovanki.client.diagnostics.BenchRadio
 import app.hovanki.client.lab.ClockEstimate
-import app.hovanki.client.lab.HapticKind
 import app.hovanki.client.lab.LabController
 import app.hovanki.client.lab.LabFollowState
 import app.hovanki.client.lab.LabPulse
@@ -15,9 +14,10 @@ import app.hovanki.client.lab.LabRunner
 import app.hovanki.client.lab.LabScenario
 import app.hovanki.client.lab.LabUploader
 import app.hovanki.client.location.LocationProvider
-import app.hovanki.client.radio.ProximityRadio
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.SessionState
+import app.hovanki.device.lab.HapticKind
+import app.hovanki.radar.ProximityRadio
 import app.hovanki.shared.lab.LabJoinCode
 import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.lab.ProbeMode

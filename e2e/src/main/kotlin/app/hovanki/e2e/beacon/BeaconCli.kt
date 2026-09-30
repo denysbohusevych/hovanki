@@ -1,6 +1,5 @@
 package app.hovanki.e2e.beacon
 
-import app.hovanki.client.device.DeviceInfo
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.network.HttpGameApi
 import app.hovanki.client.network.PollingGameConnection
@@ -9,6 +8,7 @@ import app.hovanki.client.network.createHttpClient
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
 import app.hovanki.client.storage.ClientStorage
+import app.hovanki.device.DeviceInfo
 import app.hovanki.e2e.bot.FakeBackgroundTracker
 import app.hovanki.e2e.bot.PhoneStorage
 import app.hovanki.e2e.cli.CliArgs

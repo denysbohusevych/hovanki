@@ -4,7 +4,7 @@ package app.hovanki.client.diagnostics
 
 import app.hovanki.client.lab.LabLog
 import app.hovanki.client.location.LocationProvider
-import app.hovanki.client.radio.ProximityRadio
+import app.hovanki.radar.ProximityRadio
 import app.hovanki.shared.rules.RadarToken
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope

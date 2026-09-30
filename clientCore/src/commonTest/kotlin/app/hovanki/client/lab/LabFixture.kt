@@ -6,6 +6,14 @@ import app.hovanki.client.session.FakeBackgroundTracker
 import app.hovanki.client.session.FakeCarryMonitor
 import app.hovanki.client.session.FakeLocationProvider
 import app.hovanki.client.session.FakeRadio
+import app.hovanki.device.lab.HapticKind
+import app.hovanki.device.lab.HapticResult
+import app.hovanki.device.lab.LabHaptics
+import app.hovanki.device.lab.NoopLabProbes
+import app.hovanki.device.lab.NoopLabScreen
+import app.hovanki.radar.lab.AirFrame
+import app.hovanki.radar.lab.LabAir
+import app.hovanki.radar.lab.ProbeEvent
 import app.hovanki.shared.lab.LabFields
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -50,6 +58,11 @@ internal class FakeHaptics : LabHaptics {
     override suspend fun notify(text: String) {
         notified += text
     }
+
+    /** What the engine says by itself: the test emits `engine_stopped: …` here. */
+    val engine = MutableSharedFlow<Pair<HapticKind, String>>(extraBufferCapacity = 4)
+
+    override fun engineEvents(): Flow<Pair<HapticKind, String>> = engine
 }
 
 internal class FakeFiles : LabFiles {

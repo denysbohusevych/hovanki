@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.catchcode.CatchCodeScanner
 import app.hovanki.client.diagnostics.BenchRadio
-import app.hovanki.client.lab.HapticKind
 import app.hovanki.client.lab.LabController
 import app.hovanki.client.lab.LabFollowState
 import app.hovanki.client.lab.LabPulse
@@ -38,6 +37,7 @@ import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopTextField
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.theme.Palette
+import app.hovanki.device.lab.HapticKind
 import app.hovanki.shared.lab.LabJoinCode
 import app.hovanki.shared.lab.LabPlaces
 import app.hovanki.shared.lab.ProbeMode

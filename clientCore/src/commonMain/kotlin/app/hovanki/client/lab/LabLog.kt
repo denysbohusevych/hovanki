@@ -2,8 +2,9 @@
 
 package app.hovanki.client.lab
 
-import app.hovanki.client.radio.RadioApi
-import app.hovanki.client.radio.SightingVia
+import app.hovanki.device.lab.MotionFeatures
+import app.hovanki.radar.RadioApi
+import app.hovanki.radar.SightingVia
 import app.hovanki.shared.lab.LabFields
 import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.protocol.LabUpload

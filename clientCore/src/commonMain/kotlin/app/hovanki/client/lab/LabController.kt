@@ -1,12 +1,23 @@
 package app.hovanki.client.lab
 
 import app.hovanki.client.diagnostics.DiagnosticsBench
-import app.hovanki.client.radio.ProximityRadio
-import app.hovanki.client.radio.RadioApi
-import app.hovanki.client.radio.SightingVia
-import app.hovanki.client.tracking.ActivityClassifier
 import app.hovanki.client.tracking.BackgroundTracker
-import app.hovanki.client.tracking.CarryMonitor
+import app.hovanki.device.ActivityClassifier
+import app.hovanki.device.CarryMonitor
+import app.hovanki.device.lab.Gravity
+import app.hovanki.device.lab.HapticKind
+import app.hovanki.device.lab.LabHaptics
+import app.hovanki.device.lab.LabProbes
+import app.hovanki.device.lab.LabScreen
+import app.hovanki.device.lab.LabSensorReading
+import app.hovanki.device.lab.MotionFeatures
+import app.hovanki.device.lab.MotionWindow
+import app.hovanki.device.lab.Orientation
+import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.RadioApi
+import app.hovanki.radar.SightingVia
+import app.hovanki.radar.lab.AirFrame
+import app.hovanki.radar.lab.LabAir
 import app.hovanki.shared.lab.ProbeMode
 import app.hovanki.shared.rules.HeartbeatRules
 import app.hovanki.shared.rules.OverflowArea
@@ -175,7 +186,14 @@ class LabController(
         jobs += scope.launch { probes.battery().collect { log.battery(it.level, it.state, it.lowPower) } }
         jobs += scope.launch { radio.state.collect { log.bt(it.name.lowercase()) } }
         jobs += scope.launch { carryMonitor.carry().collect { log.carry(it.name.lowercase()) } }
-        jobs += scope.launch { haptics.engineEvents().collect { (kind, event) -> log.haptic(kind.key, event) } }
+        jobs += scope.launch {
+            // «engine_stopped: audio_session_interrupt (1)»: the result and the reason, so the report counts the stops.
+            haptics.engineEvents().collect { (kind, event) ->
+                val result = event.substringBefore(':').trim()
+                val reason = event.substringAfter(':', "").trim().ifEmpty { null }
+                log.haptic(kind.key, result, reason = reason)
+            }
+        }
         jobs += scope.launch {
             inAGame.first { it }
             log.note("a game started: the lab stops")

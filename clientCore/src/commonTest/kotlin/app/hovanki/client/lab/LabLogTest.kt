@@ -1,7 +1,7 @@
 package app.hovanki.client.lab
 
-import app.hovanki.client.radio.RadioApi
-import app.hovanki.client.radio.SightingVia
+import app.hovanki.radar.RadioApi
+import app.hovanki.radar.SightingVia
 import app.hovanki.shared.lab.LabFields
 import app.hovanki.shared.lab.LabSchema
 import kotlinx.serialization.json.Json

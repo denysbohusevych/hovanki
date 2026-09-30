@@ -2,11 +2,11 @@
 
 План для сессий, которые будут реализовывать [ADR 0017](adr/0017-radar-techniques-and-big-run.md): что делать по шагам, в каких файлах, чем проверять и какие правила легко нарушить. Зачем всё это и что именно проверяем — в самом ADR (§2.3 — каталог техник, §6 — программа прогона). Этот документ — «как».
 
-Статус: шаг 1 сделан (2026-09-29), шаги 2–7 впереди. Каждый шаг ниже — отдельная сессия и отдельный PR. Сделанный шаг отмечается здесь ✅, а в ADR 0017 появляется раздел «Отличия реализации».
+Статус: шаги 1 (2026-09-29) и 2 (2026-09-30) сделаны, шаги 3–7 впереди. Каждый шаг ниже — отдельная сессия и отдельный PR. Сделанный шаг отмечается здесь ✅, а в ADR 0017 появляется раздел «Отличия реализации».
 
 ## 0. Правила для каждой сессии
 
-**Прочитать сначала:** `CLAUDE.md`, ADR 0017 целиком, [radio-lab.md](radio-lab.md) §4 (схема журнала) и §12 (что уже измерено), [radio-lab-tests.md](radio-lab-tests.md) (как сейчас идёт автоматический прогон), ADR 0016 §2 (маска), ADR 0008 (админка). Код: `clientCore/.../lab/`, `composeApp/.../ui/debug/`, `composeApp/src/{androidMain,iosMain}/.../lab/` и `.../radio/`, `e2e/.../lab/LabMerge.kt`, `server/.../api/AdminController.kt`, `server/.../features/`.
+**Прочитать сначала:** `CLAUDE.md`, ADR 0017 целиком, [radio-lab.md](radio-lab.md) §4 (схема журнала) и §12 (что уже измерено), [radio-lab-tests.md](radio-lab-tests.md) (как сейчас идёт автоматический прогон), ADR 0016 §2 (маска), ADR 0008 (админка). Код: `clientCore/.../lab/`, `composeApp/.../ui/debug/`, `radar/` и `device/` (с шага 2 там радио, пробы лаборатории и их Android- и iOS-реализации; `composeApp/src/{androidMain,iosMain}/.../lab/` — только «Поделиться»), `e2e/.../lab/LabMerge.kt`, `server/.../api/AdminController.kt`, `server/.../features/`.
 
 **Как работать:**
 
@@ -90,7 +90,7 @@
 
 **Не проверено:** Android и iOS сборки `:composeApp` (в облаке нет Android SDK), вход по QR камерой в карточке, обратный отсчёт, iOS-`gzip`; `:e2e:devices` не гонялся. Проверено: `:shared:jvmTest`, `:clientCore:jvmTest`, `:server:test`, `:e2e:test` (весь набор, включая `LabRunTest`). Чтобы закрыть «Готово, когда» целиком, нужен один выход с настоящим Android.
 
-## 2. Шаг 2 — модули `:radar` и `:device`
+## 2. Шаг 2 — модули `:radar` и `:device` ✅ (2026-09-30)
 
 Цель: перенос без изменения поведения.
 
@@ -102,6 +102,17 @@
 - Тест на границы: техники разных пакетов `:radar` не импортируют друг друга (простой тест, читающий исходники).
 
 **Готово, когда:** `check` и `:e2e:test` зелёные, Android собирается в CI, владелец собрал iOS и нынешний прогон `RADIO` идёт как раньше.
+
+**Как сделано** (полный список — «Отличия реализации» в [ADR 0017](adr/0017-radar-techniques-and-big-run.md#шаг-2-2026-09-30)):
+
+- Пакеты: `app.hovanki.radar` (`ProximityRadio`, `PrecisionRadio`, `AndroidProximityRadio` с `RADAR_PERMISSIONS`, `IosProximityRadio`) и `app.hovanki.radar.lab` (`LabAir`, `AirFrame`, `ProbeEvent`, `AndroidLabAir`, `IosLabAir`); `app.hovanki.device` (`CarryMonitor`, `ActivityMonitor`, `ActivityClassifier`, `PocketPulse`, `DeviceInfo` с реализациями) и `app.hovanki.device.lab` (`LabProbes`, `LabScreen`, `LabHaptics`, `CarryFeatures`, `HapticStopReason` с реализациями). Файлы перенесены `git mv`.
+- В `:clientCore` остались `tracking/BackgroundTracker` и `HiderAlerts` (слежение игры, а не датчики), вся `lab/`, `LabFiles` и `LabRadioTrace` (пишет в `LabLog`, которого `:radar` не знает). `:clientCore` берёт оба модуля через `api`; `:radar` и `:device` друг от друга не зависят. В `:composeApp` — Koin, `BluetoothPermission`, `AndroidLabFiles`/`IosLabFiles` (выделены в свои файлы).
+- `IosPocketPulse` получает тексты уведомления параметром (`notificationText`): у `:device` нет ресурсов Compose, привязка в `PlatformModule.ios.kt` читает `Res.string`, как раньше.
+- `haptic` пишет `engine_stopped: audio_session_interrupt (1)` (`HapticStopReason`, тест в `commonTest`). `LabController` кладёт `engine_stopped` в `result`, причину — в `reason`: раньше всё шло в `result`, и отчёт остановок не считал. Попутно в манифест `composeApp` добавлен `WAKE_LOCK`: без него `PROXIMITY_SCREEN_OFF_WAKE_LOCK` лаборатории на Android бросал бы `SecurityException` (на телефоне не проверялось).
+- `ModuleBoundariesTest` (`jvmTest` обоих модулей) читает исходники: подпакеты не импортируют друг друга, `:radar` не видит `:device`, `:clientCore` и Compose, `:device` — `:radar`, `:clientCore`, Compose и его ресурсы.
+- `ActivityClassifierTest` и `CarryFeaturesTest` (из `LabPartsTest`) — в `:device`; CI гоняет `:device:iosSimulatorArm64Test`. У `:device` свой манифест только с `VIBRATE` (для lint модуля; слитый манифест приложения не меняется).
+
+**Не проверено:** сборка Android (в облаке нет SDK — CI), iOS-приложение и тесты на симуляторе (Мак), прогон `RADIO` на телефонах. Проверено: `spotlessCheck`, `:shared:jvmTest`, `:radar:jvmTest`, `:device:jvmTest`, `:clientCore:jvmTest`, `:server:test`, `:e2e:unitTest`, метаданные `commonMain`/`iosMain` у `:radar`, `:device`, `:clientCore`, `:composeApp`, `:e2e:test`.
 
 ## 3. Шаг 3 — каналы и хосты
 

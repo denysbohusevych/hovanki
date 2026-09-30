@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <!-- The pulse's motor (AndroidPocketPulse) and the radio lab's vibration test (AndroidLabHaptics). The app declares
+       it too (composeApp's manifest); stated here as well so that this module's own lint sees it. -->
+  <uses-permission android:name="android.permission.VIBRATE" />
+</manifest>

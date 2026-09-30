@@ -38,6 +38,10 @@ plugins {
 include(":shared")
 // Spring Boot game server.
 include(":server")
+// The radar between the phones: Bluetooth LE, the precision radar's seam, the radio lab's air (Android, iOS, JVM).
+include(":radar")
+// The phone itself: carry, motion, the pulse's vibration, DeviceInfo, the radio lab's probes (Android, iOS, JVM).
+include(":device")
 // Client logic without UI (API, connection, session), shared by the app and the e2e bots.
 include(":clientCore")
 // Mobile client (Compose Multiplatform UI + platform services) for Android and iOS.

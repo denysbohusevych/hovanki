@@ -1,7 +1,9 @@
 package app.hovanki.client.lab
 
-import app.hovanki.client.radio.RadioApi
-import app.hovanki.client.radio.SightingVia
+import app.hovanki.device.lab.HapticKind
+import app.hovanki.radar.RadioApi
+import app.hovanki.radar.SightingVia
+import app.hovanki.radar.lab.AirFrame
 import app.hovanki.shared.lab.ProbeMode
 import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.rules.OverflowCode
@@ -46,6 +48,21 @@ class LabControllerTest {
         advanceTimeBy(5_000)
         assertEquals(count, lab.log.count.value, "stopped: nothing more")
         assertFalse(lab.controller.running.value)
+    }
+
+    @Test
+    fun anEngineStopIsWrittenWithItsReason() = runTest {
+        val lab = Lab(this)
+        lab.controller.start()
+        runCurrent()
+        lab.haptics.engine.tryEmit(HapticKind.CORE_HAPTICS to "engine_stopped: audio_session_interrupt (1)")
+        runCurrent()
+
+        val haptic = lab.events().last { it["k"]!!.jsonPrimitive.content == "haptic" }
+        assertEquals("core_haptics", haptic["kind"]!!.jsonPrimitive.content)
+        assertEquals("engine_stopped", haptic["result"]!!.jsonPrimitive.content)
+        assertEquals("audio_session_interrupt (1)", haptic["reason"]!!.jsonPrimitive.content)
+        lab.controller.stop()
     }
 
     @Test

@@ -1,7 +1,7 @@
 package app.hovanki.e2e.beacon
 
 import app.hovanki.client.lab.LabLog
-import app.hovanki.client.radio.SightingVia
+import app.hovanki.radar.SightingVia
 import app.hovanki.shared.rules.OverflowArea
 import app.hovanki.shared.rules.OverflowCode
 import kotlinx.serialization.json.Json
