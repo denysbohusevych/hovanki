@@ -375,7 +375,7 @@ class LabController(
             // The modes first: the Live Activity must be asked for while the app is still on the screen.
             setModes(
                 ModeIds.ALL.filterTo(HashSet()) {
-                    it in lab || (it == ModeIds.LIVE_ACTIVITY && PULSE_LIVE in lab)
+                    it in lab || (it == ModeIds.LIVE_ACTIVITY && (PULSE_LIVE in lab || PULSE_LIVE_DOUBLE in lab))
                 },
             )
             setLink(LinkTechnique.id in lab)
@@ -977,6 +977,7 @@ class LabController(
         const val READING = "reading"
 
         private const val PULSE_LIVE = "pulse.live_activity"
+        private const val PULSE_LIVE_DOUBLE = "pulse.live_activity.double"
         private const val PULSE_KINDS_MISSING = "pulse.*"
 
         /**
@@ -987,9 +988,11 @@ class LabController(
             "pulse.core_haptics" to HapticKind.CORE_HAPTICS,
             "pulse.core_haptics.audio" to HapticKind.CORE_HAPTICS_AUDIO,
             PULSE_LIVE to HapticKind.LIVE_ACTIVITY_ALERT,
+            "pulse.live_activity.double" to HapticKind.LIVE_ACTIVITY_ALERT_DOUBLE,
             "pulse.impact" to HapticKind.IMPACT,
             "pulse.notify_silent_sound" to HapticKind.NOTIFY_SILENT_SOUND,
             "pulse.notify" to HapticKind.NOTIFY_NO_SOUND,
+            "pulse.notify_ringtone" to HapticKind.NOTIFY_SILENT_RINGTONE,
         )
 
         /** The ids [setTechniques] knows besides the radar's channels. */

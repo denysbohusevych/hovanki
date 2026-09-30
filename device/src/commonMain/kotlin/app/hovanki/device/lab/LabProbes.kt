@@ -78,13 +78,23 @@ enum class HapticKind {
      * haptic on the lock screen, like a notification's, without a notification. Needs `mode.live_activity` on.
      */
     LIVE_ACTIVITY_ALERT,
+
+    /** Two alerts on the Live Activity 300 ms apart: a longer beat, if iOS gives both their haptic. */
+    LIVE_ACTIVITY_ALERT_DOUBLE,
+
+    /**
+     * A notification whose silent sound is a ringtone (`UNNotificationSound.ringtoneSoundNamed`): iOS vibrates it
+     * with the ringtone's pattern, longer than a notification's.
+     */
+    NOTIFY_SILENT_RINGTONE,
     ;
 
     val key: String get() = name.lowercase()
 
     /** A notification: at most one every few seconds, or iOS piles them up. */
     val isNotification: Boolean get() =
-        this == NOTIFY_SILENT_SOUND || this == NOTIFY_NO_SOUND || this == LIVE_ACTIVITY_ALERT
+        this == NOTIFY_SILENT_SOUND || this == NOTIFY_NO_SOUND || this == NOTIFY_SILENT_RINGTONE ||
+            this == LIVE_ACTIVITY_ALERT || this == LIVE_ACTIVITY_ALERT_DOUBLE
 }
 
 /** [result]: `played`, `error` ([error]), `skipped` (the platform won't in this state, [error] says why). */

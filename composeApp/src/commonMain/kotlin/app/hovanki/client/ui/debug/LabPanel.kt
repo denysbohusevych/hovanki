@@ -557,6 +557,8 @@ private val HapticKind.label: String
         HapticKind.NOTIFY_NO_SOUND -> "notification, no sound"
         HapticKind.VIBRATOR -> "vibration motor"
         HapticKind.LIVE_ACTIVITY_ALERT -> "Live Activity alert, silent sound (switch mode.live_activity on first)"
+        HapticKind.LIVE_ACTIVITY_ALERT_DOUBLE -> "Live Activity, two alerts 300 ms apart"
+        HapticKind.NOTIFY_SILENT_RINGTONE -> "notification, silent ringtone (the ringtone's vibration)"
     }
 
 @Composable

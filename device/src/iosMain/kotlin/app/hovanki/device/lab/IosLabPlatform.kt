@@ -15,6 +15,7 @@ import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.value
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -74,6 +75,8 @@ class IosLabHaptics(private val liveActivity: LiveActivityHost = NoopLiveActivit
         HapticKind.NOTIFY_SILENT_SOUND,
         HapticKind.NOTIFY_NO_SOUND,
         HapticKind.LIVE_ACTIVITY_ALERT,
+        HapticKind.LIVE_ACTIVITY_ALERT_DOUBLE,
+        HapticKind.NOTIFY_SILENT_RINGTONE,
     )
 
     private val events = MutableSharedFlow<Pair<HapticKind, String>>(extraBufferCapacity = 16)
@@ -102,17 +105,31 @@ class IosLabHaptics(private val liveActivity: LiveActivityHost = NoopLiveActivit
             HapticResult("played", if (active) null else "not active: UIKit may drop it")
         }
 
-        HapticKind.NOTIFY_SILENT_SOUND -> notify(withSound = true)
+        HapticKind.NOTIFY_SILENT_SOUND ->
+            notify(kind, "vibration test: silent sound", UNNotificationSound.soundNamed(SILENT_SOUND))
 
-        HapticKind.NOTIFY_NO_SOUND -> notify(withSound = false)
+        HapticKind.NOTIFY_NO_SOUND -> notify(kind, "vibration test: no sound", null)
+
+        HapticKind.NOTIFY_SILENT_RINGTONE ->
+            notify(kind, "vibration test: silent ringtone", UNNotificationSound.ringtoneSoundNamed(SILENT_SOUND))
 
         HapticKind.VIBRATOR -> HapticResult("skipped", "not on iOS")
 
-        HapticKind.LIVE_ACTIVITY_ALERT -> when {
-            !liveActivity.isAvailable -> HapticResult("skipped", "no live activity host: add HovankiLive in Xcode")
-            liveActivity.alert("Hovanki lab", "vibration test: live activity", silent = true) -> HapticResult("played")
-            else -> HapticResult("skipped", "no live activity running: switch mode.live_activity on and lock")
+        HapticKind.LIVE_ACTIVITY_ALERT -> liveActivityAlert(times = 1)
+
+        HapticKind.LIVE_ACTIVITY_ALERT_DOUBLE -> liveActivityAlert(times = 2)
+    }
+
+    /** [times] alerts on the running Live Activity, [ALERT_GAP_MILLIS] apart: one beat, or a longer one. */
+    private suspend fun liveActivityAlert(times: Int): HapticResult {
+        if (!liveActivity.isAvailable) return HapticResult("skipped", "no live activity host: add HovankiLive in Xcode")
+        repeat(times) { index ->
+            if (index > 0) delay(ALERT_GAP_MILLIS)
+            if (!liveActivity.alert("Hovanki lab", "vibration test: live activity", silent = true)) {
+                return HapticResult("skipped", "no live activity running: switch mode.live_activity on and lock")
+            }
         }
+        return HapticResult("played")
     }
 
     private fun playCoreHaptics(kind: HapticKind, strength: Double): HapticResult {
@@ -189,18 +206,15 @@ class IosLabHaptics(private val liveActivity: LiveActivityHost = NoopLiveActivit
         UNUserNotificationCenter.currentNotificationCenter().addNotificationRequest(request, null)
     }
 
-    private fun notify(withSound: Boolean): HapticResult {
+    private fun notify(kind: HapticKind, body: String, sound: UNNotificationSound?): HapticResult {
         val content = UNMutableNotificationContent()
         content.setTitle("Hovanki lab")
-        content.setBody(if (withSound) "vibration test: silent sound" else "vibration test: no sound")
-        if (withSound) content.setSound(UNNotificationSound.soundNamed(SILENT_SOUND))
+        content.setBody(body)
+        if (sound != null) content.setSound(sound)
         // A new identifier every time: a replaced notification may not vibrate again.
         val request = UNNotificationRequest.requestWithIdentifier("hovanki.lab.${notifications++}", content, null)
         UNUserNotificationCenter.currentNotificationCenter().addNotificationRequest(request) { error ->
-            if (error != null) {
-                val kind = if (withSound) HapticKind.NOTIFY_SILENT_SOUND else HapticKind.NOTIFY_NO_SOUND
-                events.tryEmit(kind to "notification failed: ${error.localizedDescription}")
-            }
+            if (error != null) events.tryEmit(kind to "notification failed: ${error.localizedDescription}")
         }
         return HapticResult("played")
     }
@@ -221,6 +235,9 @@ class IosLabHaptics(private val liveActivity: LiveActivityHost = NoopLiveActivit
 
     private companion object {
         const val SILENT_SOUND = "hovanki-silent.wav"
+
+        /** Between the two alerts of a double beat. */
+        const val ALERT_GAP_MILLIS = 300L
         const val SHARPNESS = 0.8f
     }
 }
