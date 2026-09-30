@@ -18,6 +18,8 @@ const ACTION = {
   BIG_GAME_CREATE: "создал большую игру", BIG_GAME_UPDATE: "изменил большую игру", BIG_GAME_START: "запустил большую игру",
   BIG_GAME_CANCEL: "отменил большую игру",
   WATCH_GAME: "смотрел игру вживую",
+  LAB_RUN_CREATE: "создал прогон радиолабы", LAB_RUN_CONTROL: "управлял прогоном радиолабы",
+  LAB_RUN_DOWNLOAD: "скачал журналы прогона", LAB_RUN_DELETE: "удалил прогон радиолабы",
 };
 const MODERATOR_MAX_DAYS = 30;
 
@@ -94,7 +96,8 @@ class ApiError extends Error {
   }
 }
 
-async function api(method, path, body) {
+/** The request with the admin header and the session cookie; a failed answer becomes an ApiError. */
+async function send(method, path, body) {
   const response = await fetch(API + path, {
     method,
     credentials: "same-origin",
@@ -102,11 +105,24 @@ async function api(method, path, body) {
     headers: { "X-Hovanki-Admin": "1", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  if (!response.ok) {
+    const text = await response.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      // Not our JSON (a proxy's page): the status says enough.
+    }
+    throw new ApiError(response.status, json);
+  }
+  return response;
+}
+
+async function api(method, path, body) {
+  const response = await send(method, path, body);
   if (response.status === 204) return null;
   const text = await response.text();
-  const json = text ? JSON.parse(text) : null;
-  if (!response.ok) throw new ApiError(response.status, json);
-  return json;
+  return text ? JSON.parse(text) : null;
 }
 
 const get = (path) => api("GET", path);
@@ -138,6 +154,7 @@ function errorText(e) {
   if (reason === "EMAIL_NOT_VERIFIED") return "Сначала подтвердите email в приложении.";
   if (reason === "SESSION_EXPIRED") return "Время вышло: войдите снова.";
   if (reason === "TOO_MANY_REQUESTS") return "Слишком много попыток, подождите.";
+  if (reason === "LAB_RUN_CLOSED") return "Прогон закрыт: он завершён или старше суток.";
   if (e.body?.code === "INVALID_CODE") return "Неверный код.";
   if (e.status === 404 && e.body?.message === "The admin is off") return "Админка выключена на этом сервере.";
   if (e.status === 403) return `Нельзя: ${e.body?.message ?? "нет прав"}.`;
@@ -312,7 +329,7 @@ function qrSvg(rows) {
 
 const PAGES = [
   ["reports", "Жалобы"], ["users", "Пользователи"], ["games", "Игры"], ["features", "Возможности"], ["stats", "Цифры"],
-  ["big", "Большие игры", true], ["staff", "Сотрудники", true], ["audit", "Журнал", true],
+  ["big", "Большие игры", true], ["lab", "Радиолаба", true], ["staff", "Сотрудники", true], ["audit", "Журнал", true],
 ];
 
 function frame(page, openReports) {
@@ -337,6 +354,7 @@ function frame(page, openReports) {
 
 async function route() {
   stopLive();
+  stopLab();
   if (!me) {
     try {
       me = await get("/me");
@@ -350,7 +368,7 @@ async function route() {
       return;
     }
   }
-  const [page, id] = location.hash.replace(/^#\/?/, "").split("/");
+  const [page, id, sub] = location.hash.replace(/^#\/?/, "").split("/");
   try {
     if (page === "users" && id) await userView(decodeURIComponent(id));
     else if (page === "users") await usersView();
@@ -362,6 +380,9 @@ async function route() {
     else if (page === "audit" && isAdmin()) await auditView();
     else if (page === "big" && isAdmin() && id) await bigGameEditor(decodeURIComponent(id));
     else if (page === "big" && isAdmin()) await bigGamesView();
+    else if (page === "lab" && isAdmin() && id && sub === "report") await labReportView(decodeURIComponent(id));
+    else if (page === "lab" && isAdmin() && id) await labRunView(decodeURIComponent(id));
+    else if (page === "lab" && isAdmin()) await labRunsView();
     else await reportsView(id === "all");
   } catch {
     // run() showed it.
@@ -834,6 +855,7 @@ const FEATURES = {
   ACTIVITY: { title: "Датчик бега", about: "телефон сообщает, бежит ли игрок" },
   POCKET_STEALTH: { title: "Карман прячет", about: "телефон в кармане читается ищущим на ступень холоднее" },
   LIVE_SOCKET: { title: "Живой канал (WebSocket)", about: "приложения синхронизируются через сокет, события приходят сразу; выключили — опрос, как раньше" },
+  RADIO_LAB: { title: "Радиолаба", about: "телефоны debug-сборки входят в прогон по коду и шлют журналы радио на сервер; отчёт — во вкладке «Радиолаба»" },
 };
 
 /** A feature this page doesn't know (a newer server) goes by its enum name. */
@@ -1201,6 +1223,513 @@ async function bigGameEditor(id) {
   showEstimate();
   if (corners.length > 2) map.fit();
   if (!game) fields.title.focus();
+}
+
+// The radio lab (docs/adr/0017-radar-techniques-and-big-run.md §5, docs/radar-run.md step 1): admins only, whether the
+// RADIO_LAB feature is on or off (old reports stay readable). Test phones of the debug build join a run by its code or
+// QR, follow its plan by the server's clock and upload their lab logs. Here: the list and a new run, the run's console
+// (every button with a reason), its devices and the live view from the chunks received so far, refreshed every 2
+// seconds, and the report. Labels, phone models and numbers only: no coordinates, no players.
+
+const LAB_POLL_MS = 2000;
+const LAB_STATUS = { CREATED: "ждёт старта", RUNNING: "идёт", PAUSED: "пауза", FINISHED: "завершён" };
+const LAB_BLUETOOTH = { ON: "BT вкл", OFF: "BT выкл", DENIED: "BT запрещён", OFF_BY_PLAYER: "BT выкл вручную", UNSUPPORTED: "нет BT" };
+let labTimers = [];
+// Grows with every stopLab(): an answer that arrives for an older page is dropped.
+let labGeneration = 0;
+
+function stopLab() {
+  for (const timer of labTimers) clearInterval(timer);
+  labTimers = [];
+  labGeneration++;
+}
+
+const labPath = (id, action) => `/lab/runs/${encodeURIComponent(id)}${action ? `/${action}` : ""}`;
+const labHash = (id, sub) => `#/lab/${encodeURIComponent(id)}${sub ? `/${sub}` : ""}`;
+
+function labStatusTag(status) {
+  const kind = status === "RUNNING" ? "ok" : status === "PAUSED" ? "mute" : "";
+  return el("span", { class: `tag ${kind}` }, LAB_STATUS[status] ?? status);
+}
+
+/** 1536000 → «1,5 МБ». */
+function labBytes(bytes) {
+  if (bytes == null) return "—";
+  if (bytes < 1024) return `${fmt.number(bytes)} Б`;
+  if (bytes < 1024 * 1024) return `${fmt.number(bytes / 1024, 1)} КБ`;
+  return `${fmt.number(bytes / 1024 / 1024, 1)} МБ`;
+}
+
+/** Milliseconds as «1:05»; null as «—». */
+function labClock(ms) {
+  if (ms == null) return "—";
+  const seconds = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** How long ago [ms] of the server's clock was; [offset] = the server's clock − this computer's. */
+function labAgo(ms, offset) {
+  if (ms == null) return "—";
+  const seconds = Math.max(0, Math.round((Date.now() + offset - ms) / 1000));
+  return seconds < 120 ? `${seconds} с назад` : fmt.ago(ms - offset);
+}
+
+/** «Радио · radio v2 · метки A, mac · 8 шагов · 12:00 по таймеру». */
+function labScenarioLine(scenario) {
+  return [
+    scenario.title, `${scenario.id} v${scenario.version}`, `метки ${(scenario.labels ?? []).join(", ")}`,
+    fmt.plural(scenario.steps, "шаг", "шага", "шагов"),
+    scenario.totalSeconds == null ? "есть шаги до кнопки" : `${labClock(scenario.totalSeconds * 1000)} по таймеру`,
+  ].join(" · ");
+}
+
+/** What the phone said it can do, in one line. */
+function labCapabilities(c = {}) {
+  const parts = [c.platform ?? "OTHER", LAB_BLUETOOTH[c.bluetooth] ?? c.bluetooth ?? "нет BT"];
+  if (c.uwb) parts.push("UWB");
+  if (c.advertisingSets != null) parts.push(`наборов рекламы: ${c.advertisingSets}`);
+  const flag = (value, name) => {
+    if (value != null) parts.push(`${name}: ${value ? "да" : "нет"}`);
+  };
+  flag(c.leCoded, "LE Coded");
+  flag(c.wifiAware, "Wi-Fi Aware");
+  flag(c.locationPermission, "геолокация");
+  flag(c.notifications, "уведомления");
+  return parts.join(" · ");
+}
+
+/** The run is gone (deleted) or the answer failed: a card instead of the page. */
+function labGone(e) {
+  const back = el("a", { href: "#/lab" }, "← Все прогоны");
+  if (e instanceof ApiError && e.status === 404) {
+    frame("lab");
+    show(back, el("div", { class: "card narrow" }, el("h1", {}, "Прогона нет"), el("p", {}, "Его удалили, или ссылка неверна.")));
+  } else {
+    run(() => Promise.reject(e)).catch(() => {});
+  }
+}
+
+async function labRunsView() {
+  const page = await run(() => get("/lab/runs"));
+  frame("lab");
+  const runs = page.runs ?? [];
+  const scenarios = page.scenarios ?? [];
+  const scenarioOf = (labRun) => scenarios.find((s) => s.id === labRun.scenarioId);
+
+  const title = el("input", { name: "title", required: true, maxLength: 100, placeholder: "Например: двор, айфон в кармане" });
+  const scenario = el("select", { name: "scenario" },
+    scenarios.map((s) => el("option", { value: s.id }, `${s.title} (${s.id} v${s.version})`)));
+  const about = el("p", { class: "small muted" });
+  const showAbout = () => {
+    const chosen = scenarios.find((s) => s.id === scenario.value);
+    about.textContent = chosen ? labScenarioLine(chosen) : "";
+  };
+  scenario.addEventListener("change", showAbout);
+  const reason = el("input", { name: "reason", required: true, maxLength: 500 });
+  const form = el("form", {
+    class: "card",
+    async onsubmit(event) {
+      event.preventDefault();
+      const created = await run(() => post("/lab/runs", {
+        title: title.value.trim(), scenarioId: scenario.value, reason: reason.value.trim(),
+      }), "Прогон создан.");
+      go(labHash(created.id));
+    },
+  },
+  el("h2", { class: "first" }, "Новый прогон"),
+  el("label", {}, "Название", title),
+  el("label", {}, "Сценарий", el("br"), scenario),
+  about,
+  el("label", {}, "Причина (попадёт в журнал)", reason),
+  el("p", {}, el("button", { type: "submit", disabled: !scenarios.length }, "Создать")));
+
+  show(el("h1", {}, "Радиолаба"),
+    el("p", { class: "muted small" },
+      "Прогон — один замер радио на тестовых телефонах debug-сборки: они входят по коду или QR, идут по плану по часам " +
+      "сервера и шлют журналы. Без игроков и координат. Телефоны войдут, только пока включена возможность «Радиолаба»; " +
+      "журналы хранятся 90 дней после прогона, отчёты — дольше."),
+    runs.length ? el("table", {},
+      el("tr", {}, ["Прогон", "Код", "Сценарий", "Статус", "Телефоны", "Журналы", "Создал", "Отчёт"].map((t) => el("th", {}, t))),
+      runs.map((r) => el("tr", {},
+        el("td", {}, el("a", { href: labHash(r.id) }, r.title)),
+        el("td", { class: "mono" }, r.code),
+        el("td", {}, scenarioOf(r)?.title ?? r.scenarioId, el("div", { class: "small muted mono" }, `${r.scenarioId} v${r.scenarioVersion}`)),
+        el("td", {}, labStatusTag(r.status)),
+        el("td", {}, fmt.number(r.devices ?? 0)),
+        el("td", {}, labBytes(r.bytes ?? 0)),
+        el("td", {}, r.createdByName || "—", el("div", { class: "small muted" }, fmt.time(r.createdAtMillis))),
+        el("td", {}, r.reportReady ? el("a", { href: labHash(r.id, "report") }, "✓ открыть") : "—")))) :
+      el("p", { class: "muted" }, "Прогонов ещё не было."),
+    form);
+  showAbout();
+}
+
+/** The time left in the current timed step by the server's clock; null for a button step or a run not going. */
+function labLeftMillis(view, offset) {
+  const { state } = view;
+  const step = view.steps?.[state.stepIndex];
+  if (!step || step.seconds == null || state.stepStartedAtMillis == null) return null;
+  if (state.status === "PAUSED") return state.stepStartedAtMillis + step.seconds * 1000 - (state.pausedAtMillis ?? Date.now() + offset);
+  if (state.status !== "RUNNING") return null;
+  return state.stepStartedAtMillis + step.seconds * 1000 - (Date.now() + offset);
+}
+
+async function labRunView(id) {
+  const generation = labGeneration;
+  let view;
+  try {
+    view = await get(labPath(id));
+  } catch (e) {
+    if (generation === labGeneration) labGone(e);
+    return;
+  }
+  if (generation !== labGeneration) return;
+  frame("lab");
+  let offset = view.state.serverTimeMillis - Date.now();
+  const head = el("div");
+  const consoleBox = el("div", { class: "card" });
+  const devices = el("div");
+  const live = el("div");
+  const status = el("p", { class: "small muted" });
+  const countdown = el("b", { class: "mono" });
+
+  // The whole plan, built once; the current step's row is marked on every render.
+  const steps = view.steps ?? [];
+  const planRows = steps.map((step) => el("tr", {},
+    el("td", {}, step.index + 1), el("td", { class: "mono" }, step.id), el("td", {}, step.title),
+    el("td", {}, step.seconds == null ? "до кнопки" : `${step.seconds} с`)));
+  const plan = el("details", {}, el("summary", {}, `Весь план: ${fmt.plural(steps.length, "шаг", "шага", "шагов")}`),
+    el("table", {}, el("tr", {}, ["№", "Шаг", "Что", "Длится"].map((t) => el("th", {}, t))), planRows));
+
+  function render() {
+    head.replaceChildren(labRunHead(view));
+    consoleBox.replaceChildren(...labConsole(view, countdown, apply));
+    planRows.forEach((row, index) => {
+      row.className = index === view.state.stepIndex && view.state.status !== "FINISHED" ? "current" : "";
+    });
+    devices.replaceChildren(labDevices(view, offset));
+    live.replaceChildren(...labLive(view, offset));
+    tickClock();
+  }
+  function tickClock() {
+    const left = labLeftMillis(view, offset);
+    countdown.textContent = left == null ? "" : labClock(left);
+  }
+  function apply(next) {
+    if (!next || generation !== labGeneration) return;
+    view = next;
+    offset = view.state.serverTimeMillis - Date.now();
+    status.textContent = `Обновлено ${new Date().toLocaleTimeString("ru-RU")}, каждые 2 секунды.`;
+    render();
+  }
+
+  show(el("a", { href: "#/lab" }, "← Все прогоны"), head, consoleBox, plan,
+    el("h2", {}, "Телефоны"), devices,
+    el("h2", {}, "Вживую"),
+    el("p", { class: "muted small" }, "Из журналов, пришедших за последние секунды: кто кого слышит за 10 секунд. " +
+      "Телефоны шлют журналы раз в несколько секунд, так что картинка отстаёт."),
+    live, status);
+  apply(view);
+
+  let busy = false;
+  labTimers.push(setInterval(tickClock, 250));
+  labTimers.push(setInterval(async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      apply(await get(labPath(id)));
+    } catch (e) {
+      if (generation !== labGeneration) return;
+      if (e instanceof ApiError && e.status === 401) {
+        me = null;
+        notice("Сессия закончилась: войдите снова.");
+        route();
+      } else if (e instanceof ApiError && e.status === 404) {
+        stopLab();
+        labGone(e);
+      } else {
+        status.textContent = `Не обновилось: ${e instanceof ApiError ? errorText(e) : e.message}. Попробую снова.`;
+      }
+    } finally {
+      busy = false;
+    }
+  }, LAB_POLL_MS));
+}
+
+/** The run's title, code and QR, and what can be done with it as a whole. */
+function labRunHead(view) {
+  const r = view.run;
+  const id = r.id;
+  const finished = r.status === "FINISHED";
+  return el("div", {},
+    el("div", { class: "row spread" }, el("h1", {}, r.title, " ", labStatusTag(r.status)),
+      el("div", { class: "row" },
+        r.reportReady ? el("a", { class: "button", href: labHash(id, "report") }, "Отчёт")
+          : finished ? el("span", { class: "muted small" }, "Отчёт считается…") : null,
+        el("button", { class: "secondary", onclick: () => labDownload(r) }, "Скачать сырые журналы"),
+        el("button", { class: "danger", onclick: () => labDelete(r) }, "Удалить"))),
+    el("div", { class: "card lab-head" },
+      el("div", {},
+        el("div", { class: "muted small" }, "Код для телефонов"),
+        el("div", { class: "code-big" }, r.code),
+        el("p", { class: "small muted" }, "В приложении: диагностика → «Радиолаба» → «Прогон на сервере»: код или QR и метка " +
+          "телефона. Войти можно сутки после создания, пока прогон не завершён."),
+        el("dl", { class: "grid" },
+          field("Сценарий", `${r.scenarioId} v${r.scenarioVersion}`),
+          field("Метки", (view.labels ?? []).join(", ")),
+          field("Создал", `${r.createdByName || "—"}, ${fmt.time(r.createdAtMillis)}`),
+          field("Начат", fmt.time(r.startedAtMillis)),
+          field("Завершён", fmt.time(r.finishedAtMillis)),
+          field("Журналы", `${labBytes(r.bytes ?? 0)} от ${fmt.plural(r.devices ?? 0, "телефона", "телефонов", "телефонов")}`))),
+      qrSvg(r.qr ?? [])));
+}
+
+/** «Step N of M», the countdown, what every label does now, and the buttons that move the plan. */
+function labConsole(view, countdown, apply) {
+  const { run: r, state } = view;
+  const steps = view.steps ?? [];
+  const step = steps[state.stepIndex];
+  const shown = state.status === "CREATED" ? steps[0] : state.status === "FINISHED" ? null : step;
+  let headline;
+  if (state.status === "CREATED") headline = `Не начат: ${fmt.plural(steps.length, "шаг", "шага", "шагов")}. Телефоны вошли — «Начать».`;
+  else if (state.status === "FINISHED") headline = "Прогон завершён.";
+  else headline = `Шаг ${state.stepIndex + 1} из ${steps.length}: ${step?.title ?? "?"}`;
+  const timing = !step || state.status === "CREATED" || state.status === "FINISHED" ? null
+    : step.seconds == null ? el("p", { class: "muted" }, "Этот шаг идёт до кнопки «Дальше».")
+      : el("p", {}, state.status === "PAUSED" ? "На паузе, осталось " : "Осталось ", countdown, ` из ${labClock(step.seconds * 1000)}`);
+
+  const control = (title, action, text, danger) => el("button", {
+    class: danger ? "danger" : action === "NEXT" ? null : "secondary",
+    async onclick() {
+      const values = await ask(`${title}: ${r.title}`, { text, confirm: title, danger });
+      if (!values) return;
+      apply(await run(() => (action
+        ? post(labPath(r.id, "advance"), { action, reason: values.reason })
+        : post(labPath(r.id, "finish"), { reason: values.reason })), "Готово."));
+    },
+  }, title);
+  const last = state.stepIndex >= steps.length - 1;
+  const going = state.status === "RUNNING" || state.status === "PAUSED";
+  const buttons = el("div", { class: "row" },
+    state.status === "CREATED" ? control("Начать", "NEXT", "Первый шаг начнётся сейчас на всех телефонах.") : null,
+    going ? control("Дальше", "NEXT", last ? "Это последний шаг: прогон закончится." : "Следующий шаг начнётся сейчас.") : null,
+    going ? control("Повторить", "REPEAT", "Этот шаг начнётся заново с полным временем.") : null,
+    state.status === "RUNNING" ? control("Пауза", "PAUSE", "Таймер шага встанет; телефоны остаются в своём шаге.") : null,
+    state.status === "PAUSED" ? control("Продолжить", "RESUME", "Таймер шага пойдёт дальше с того места.") : null,
+    state.status === "FINISHED" ? null : control("Завершить", null,
+      "Прогон закончится, телефоны отправят остаток журналов, сервер посчитает отчёт. Войти в него больше нельзя.", true));
+
+  const hints = shown?.hints ?? {};
+  const labels = view.labels ?? [];
+  return [
+    el("h2", { class: "first" }, headline, state.status === "CREATED" || state.status === "FINISHED" ? null
+      : el("span", { class: "mono muted small" }, ` ${step?.id ?? ""}`)),
+    timing,
+    shown ? el("div", {},
+      el("div", { class: "small muted" }, state.status === "CREATED" ? "Первый шаг, что делает каждый:" : "Что делает каждый:"),
+      el("table", {}, labels.map((label) => el("tr", {},
+        el("td", { class: "mono" }, label), el("td", {}, hints[label] || "—"))))) : null,
+    buttons,
+    el("p", { class: "small muted" }, `Ревизия ${state.revision}: растёт с каждой кнопкой, телефоны сверяют по ней шаг.`),
+  ];
+}
+
+function labDevices(view, offset) {
+  const list = view.devices ?? [];
+  if (!list.length) return el("p", { class: "muted" }, "Ещё никто не вошёл.");
+  return el("table", {},
+    el("tr", {}, ["Метка", "Телефон", "Сборка", "Вошёл", "Последний кусок", "seq", "Объём", "Событий", "Возможности"]
+      .map((t) => el("th", {}, t))),
+    list.map((d) => el("tr", {},
+      el("td", { class: "mono" }, d.label),
+      el("td", {}, d.model ?? "—", el("div", { class: "small muted" }, d.os ?? "")),
+      el("td", { class: "mono" }, d.build ?? "—", d.commit ? el("div", { class: "small muted" }, d.commit) : null),
+      el("td", {}, fmt.time(d.joinedAtMillis)),
+      el("td", {}, labAgo(d.lastChunkAtMillis, offset)),
+      el("td", { class: "mono" }, d.lastSeq ?? "—"),
+      el("td", {}, labBytes(d.bytes ?? 0)),
+      el("td", {}, fmt.number(d.events ?? 0)),
+      el("td", { class: "small" }, labCapabilities(d.capabilities)))));
+}
+
+/** The live view: every phone's last state, then who hears whom over the last 10 seconds. */
+function labLive(view, offset) {
+  const live = view.live ?? {};
+  const liveDevices = live.devices ?? [];
+  const pairs = [...(live.pairs ?? [])];
+  // Pairs of the phones in the run that nobody heard at all, so a silent direction shows as one.
+  const labels = [...new Set(liveDevices.map((d) => d.label))];
+  for (const from of labels) {
+    for (const to of labels) {
+      if (from !== to && !pairs.some((p) => p.from === from && p.to === to)) {
+        pairs.push({ from, to, channel: "—", heardInLast10s: 0 });
+      }
+    }
+  }
+  pairs.sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to) || a.channel.localeCompare(b.channel));
+  const heardClass = (n) => (n >= 5 ? "heard ok" : n >= 1 ? "heard weak" : "heard none");
+  return [
+    liveDevices.length ? el("table", {},
+      el("tr", {}, ["Метка", "Последнее событие", "Часы", "Приложение", "Bluetooth", "Батарея", "Шаг"].map((t) => el("th", {}, t))),
+      liveDevices.map((d) => el("tr", {},
+        el("td", { class: "mono" }, d.label),
+        el("td", {}, labAgo(d.lastEventAtMillis, offset)),
+        el("td", {}, d.clockOffsetMillis == null ? "—" : `${d.clockOffsetMillis > 0 ? "+" : ""}${fmt.number(d.clockOffsetMillis)} мс`),
+        el("td", {}, d.appState ?? "—"),
+        el("td", {}, d.bluetooth ?? "—"),
+        el("td", {}, d.batteryLevel == null ? "—" : `${Math.round(d.batteryLevel * 100)} %`),
+        el("td", {}, d.stepIndex == null ? "—" : d.stepIndex < 0 ? "до старта" : d.stepIndex + 1))))
+      : el("p", { class: "muted" }, "Журналов ещё не пришло."),
+    pairs.length ? el("table", { class: "pairs" },
+      el("tr", {}, ["Кого слышно → кто слышит", "Канал", "За 10 с", "RSSI, медиана"].map((t) => el("th", {}, t))),
+      pairs.map((p) => el("tr", {},
+        el("td", { class: "mono" }, `${p.from} → ${p.to}`),
+        el("td", { class: "mono" }, p.channel),
+        el("td", { class: heardClass(p.heardInLast10s) }, fmt.number(p.heardInLast10s)),
+        el("td", {}, p.medianRssi == null ? "—" : `${p.medianRssi} дБм`)))) : null,
+  ];
+}
+
+/** Asks for the reason, then downloads the zip of every phone's log (the audit log records it). */
+async function labDownload(r) {
+  const values = await ask(`Скачать журналы: ${r.title}`, {
+    text: "Сырые журналы каждого телефона (JSONL в zip): RSSI, токены радара, события приложения. Без координат. " +
+      "Причина попадёт в журнал.",
+    confirm: "Скачать",
+  });
+  if (!values) return;
+  const blob = await run(async () => (await send("POST", labPath(r.id, "raw"), { reason: values.reason })).blob(),
+    "Журналы скачаны.");
+  const url = URL.createObjectURL(blob);
+  const link = el("a", { href: url, download: `hovanki-lab-${r.code}.zip` });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+async function labDelete(r) {
+  const values = await ask(`Удалить прогон: ${r.title}`, {
+    text: "Прогон, его телефоны, журналы и отчёт удалятся насовсем. Идущий прогон телефоны потеряют.",
+    confirm: "Удалить", danger: true,
+  });
+  if (!values) return;
+  await run(() => post(labPath(r.id, "delete"), { reason: values.reason }), "Прогон удалён.");
+  go("#/lab");
+}
+
+// The report
+
+async function labReportView(id) {
+  let report;
+  try {
+    report = await get(labPath(id, "report"));
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) {
+      frame("lab");
+      show(el("a", { href: labHash(id) }, "← К прогону"), el("div", { class: "card narrow" }, el("h1", {}, "Отчёта нет"),
+        el("p", {}, "Сервер считает его, когда прогон завершён; обычно это секунды. Или прогон удалён.")));
+    } else {
+      run(() => Promise.reject(e)).catch(() => {});
+    }
+    return;
+  }
+  const view = await get(labPath(id)).catch(() => null);
+  frame("lab");
+  const empty = (list) => (list?.length ? null : el("p", { class: "muted" }, "Нет данных."));
+  const table = (headers, rows) => el("table", {}, el("tr", {}, headers.map((t) => el("th", {}, t))), rows);
+  const seconds = (ms) => `${fmt.number(ms / 1000, 1)} с`;
+  const percent = (level) => (level == null ? "—" : `${Math.round(level * 100)} %`);
+  const sender = (from) => (from.startsWith("?") ? [el("span", { class: "mono" }, from), " ", el("span", { class: "tag mute" }, "неизвестный")]
+    : el("span", { class: "mono" }, from));
+  const cover = (perSecond) => (perSecond >= 2 ? "cover-ok" : perSecond >= 0.5 ? "cover-weak" : "cover-none");
+
+  const devices = report.devices ?? [];
+  const steps = report.steps ?? [];
+  const carry = report.carry ?? [];
+  show(el("a", { href: labHash(id) }, "← К прогону"),
+    el("div", { class: "report" },
+      el("h1", {}, `Отчёт: ${view?.run.title ?? report.runId}`),
+      el("p", { class: "muted small" }, `Посчитан ${fmt.time(report.computedAtMillis)} из журналов телефонов` +
+        `${report.scenarioId ? `, сценарий ${report.scenarioId}` : ""}. Время — по часам сервера. ` +
+        "«В секунду»: зелёный — от 2, жёлтый — от 0,5, красный — меньше."),
+
+      el("h2", {}, "Телефоны"),
+      empty(devices) ?? table(["Метка", "Телефон", "Сборка", "Схема", "Событий", "Сдвиг часов", "Токен радара"],
+        devices.map((d) => {
+          const offsets = [...(d.clockOffsetsMillis ?? [])].sort((a, b) => a - b);
+          const median = offsets.length ? offsets[Math.floor(offsets.length / 2)] : null;
+          return el("tr", {},
+            el("td", { class: "mono" }, d.label, d.deviceId ? el("div", { class: "small muted" }, d.deviceId) : null),
+            el("td", {}, d.model ?? "—", el("div", { class: "small muted" }, d.os ?? "")),
+            el("td", { class: "mono" }, d.build ?? "—", d.commit ? el("div", { class: "small muted" }, d.commit) : null),
+            el("td", {}, d.schema ?? "—"),
+            el("td", {}, fmt.number(d.events)),
+            el("td", {}, median == null ? "—" : `${fmt.number(median)} мс`,
+              offsets.length ? el("div", { class: "small muted" },
+                `${fmt.plural(offsets.length, "замер", "замера", "замеров")}, ${fmt.number(offsets[0])}…${fmt.number(offsets.at(-1))}`) : null),
+            el("td", { class: "mono" }, d.radarToken ?? "—"));
+        })),
+
+      el("h2", {}, "Проблемы"),
+      report.problems?.length ? el("ul", {}, report.problems.map((p) => el("li", {}, p))) : el("p", { class: "muted" }, "Нет."),
+
+      el("h2", {}, "Кто кого слышал, по шагам"),
+      empty(steps),
+      steps.map((step) => el("div", {},
+        el("h3", {}, step.index < 0 ? "До первого шага" : `Шаг ${step.index + 1}: ${step.title}`, " ",
+          el("span", { class: "mono muted small" }, step.id), " ",
+          el("span", { class: "muted small" }, `${seconds(step.endMillis - step.startMillis)}, с ${fmt.time(step.startMillis)}`)),
+        step.directions?.length ? table(
+          ["Кого слышно → кто слышит", "Канал", "Приёмов", "В секунду", "RSSI медиана", "p80", "мин…макс", "Дольше всего тишина", "Приложение слушателя"],
+          step.directions.map((d) => el("tr", {},
+            el("td", {}, sender(d.from), " → ", el("span", { class: "mono" }, d.to)),
+            el("td", { class: "mono" }, d.channel),
+            el("td", {}, fmt.number(d.readings)),
+            el("td", { class: cover(d.perSecond) }, fmt.number(d.perSecond, 2)),
+            el("td", {}, `${d.medianRssi} дБм`),
+            el("td", {}, d.p80Rssi),
+            el("td", {}, `${d.minRssi}…${d.maxRssi}`),
+            el("td", {}, seconds(d.longestGapMillis)),
+            el("td", { class: "small" }, d.during || "—")))) : el("p", { class: "muted" }, "Никто никого не слышал."))),
+
+      el("h2", {}, "Карман"),
+      el("p", { class: "muted small" }, "Секунды: строка — где телефон был на самом деле (по отметкам), столбец — что сказал датчик кармана."),
+      empty(carry),
+      [...new Set(carry.map((c) => c.label))].map((label) => {
+        const rows = carry.filter((c) => c.label === label);
+        const truths = [...new Set(rows.map((c) => c.truth))];
+        const said = [...new Set(rows.map((c) => c.said))];
+        return el("div", {}, el("h3", { class: "mono" }, label),
+          table(["Было \\ сказал", ...said], truths.map((truth) => el("tr", {},
+            el("td", { class: "mono" }, truth),
+            said.map((s) => {
+              const cell = rows.find((c) => c.truth === truth && c.said === s);
+              return el("td", { class: truth === s ? "cover-ok" : null }, cell ? fmt.number(cell.seconds) : "—");
+            })))));
+      }),
+
+      el("h2", {}, "Маски (iOS overflow)"),
+      empty(report.masks) ?? table(["Метка", "Кадров", "Совпали с пробой", "Расшифрован токен"],
+        report.masks.map((m) => el("tr", {}, el("td", { class: "mono" }, m.label), el("td", {}, fmt.number(m.frames)),
+          el("td", {}, fmt.number(m.matched)), el("td", {}, fmt.number(m.decoded))))),
+
+      el("h2", {}, "Вибрация"),
+      empty(report.haptics) ?? table(["Метка", "Способ", "Сыграно", "Ошибки", "Пропущено", "Движок остановлен"],
+        report.haptics.map((h) => el("tr", {}, el("td", { class: "mono" }, h.label), el("td", { class: "mono" }, h.kind),
+          el("td", {}, fmt.number(h.played)), el("td", {}, fmt.number(h.errors)), el("td", {}, fmt.number(h.skipped)),
+          el("td", {}, fmt.number(h.engineStopped))))),
+
+      el("h2", {}, "Батарея"),
+      empty(report.battery) ?? table(["Метка", "В начале", "В конце", "Замеров"],
+        report.battery.map((b) => el("tr", {}, el("td", { class: "mono" }, b.label), el("td", {}, percent(b.firstLevel)),
+          el("td", {}, percent(b.lastLevel)), el("td", {}, fmt.number(b.samples))))),
+
+      el("h2", {}, "Тики"),
+      el("p", { class: "muted small" }, "Тик — раз в секунду, пока приложение живо; пропуск — тишина дольше 2,5 с: приложение спало."),
+      empty(report.ticks) ?? table(["Метка", "Тиков", "Пропусков", "Самая долгая тишина"],
+        report.ticks.map((t) => el("tr", {}, el("td", { class: "mono" }, t.label), el("td", {}, fmt.number(t.ticks)),
+          el("td", { class: t.gaps ? "cover-weak" : null }, fmt.number(t.gaps)), el("td", {}, seconds(t.longestGapMillis)))))));
 }
 
 /** Shows [hash]'s page: through hashchange, or right away when it is the current one. */

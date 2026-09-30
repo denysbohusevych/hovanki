@@ -203,6 +203,7 @@ private val USAGE = """
       e2e beacon  --join <game code> --server https://... --helper <beacon binary> [--name MacBook] [--at <lat,lon>]
                   (macOS: start it with e2e/mac-beacon/run.sh --join <game code>)
       e2e beacon-lab --server https://... --helper <beacon binary> [--label mac] [--advertise <token> | --ibeacon <token>]
-                  [--sniff on] [--out e2e/build/lab] (macOS: e2e/mac-beacon/run.sh --lab ...)
+                  [--sniff on] [--auto on | --run <code>] [--out e2e/build/lab]
+                  (macOS: e2e/mac-beacon/run.sh --lab ...)
       e2e lab merge <lab log .jsonl> [...] [--out e2e/build/lab/merged]
 """.trimIndent()

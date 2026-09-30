@@ -1,14 +1,14 @@
 package app.hovanki.client.session
 
-import app.hovanki.client.device.DeviceInfo
 import app.hovanki.client.location.LocationProvider
-import app.hovanki.client.radio.ProximityRadio
-import app.hovanki.client.radio.RadioSighting
 import app.hovanki.client.tracking.AlertKind
 import app.hovanki.client.tracking.BackgroundTracker
-import app.hovanki.client.tracking.CarryMonitor
 import app.hovanki.client.tracking.HiderAlert
-import app.hovanki.client.tracking.PocketPulse
+import app.hovanki.device.CarryMonitor
+import app.hovanki.device.DeviceInfo
+import app.hovanki.device.PocketPulse
+import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.LocationSample

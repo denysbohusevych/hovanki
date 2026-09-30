@@ -21,7 +21,9 @@
 | `shared/` | KMP (JVM, Android, iOS): DTO протокола, `ApiRoutes`, TOTP, гео, расписание зоны, правила GPS |
 | `server/` | Spring Boot сервер: игры в памяти, аккаунты, друзья, группы, жалобы, история игр, расписание больших игр и флаги возможностей в PostgreSQL; админка |
 | `clientCore/` | KMP (JVM, Android, iOS): клиентская логика без UI — API сервера, синхронизация, `ServerClock`, игровая сессия с чатом, аккаунт, друзья и группы |
-| `composeApp/` | KMP-библиотека клиента: Compose UI, DI, платформенные сервисы (геолокация, фон, Keystore/Keychain, радио Bluetooth, пульс и датчики) |
+| `radar/` | KMP (JVM, Android, iOS): радар между телефонами — Bluetooth LE на Android и iOS, свой эфир радиолаборатории |
+| `device/` | KMP (JVM, Android, iOS): сам телефон — карман, движение, вибрация пульса, `DeviceInfo`, пробы радиолаборатории |
+| `composeApp/` | KMP-библиотека клиента: Compose UI, DI, платформенные сервисы (геолокация, фон, Keystore/Keychain; радио, пульс и датчики — в `radar/` и `device/`) |
 | `androidApp/` | Android-приложение: точка входа (`Application`, `MainActivity`) |
 | `e2e/` | End-to-end тесты: headless-боты на клиентском коде играют партии против настоящего сервера; оркестратор приложения на эмуляторах и симуляторах (Maestro) |
 | `iosApp/` | Xcode-проект: SwiftUI-оболочка вокруг Compose UI |
@@ -99,6 +101,7 @@ open iosApp/iosApp.xcodeproj
 | `./gradlew check` | Все тесты и проверки, кроме e2e-сценариев (то же, что в CI на Linux) |
 | `./gradlew :shared:jvmTest` | Быстрые тесты общего кода |
 | `./gradlew :clientCore:jvmTest` | Тесты клиентской логики (API, синхронизация, `ServerClock`) на JVM |
+| `./gradlew :radar:jvmTest :device:jvmTest` | Тесты радара и телефона (классификатор движения, признаки кармана, границы модулей) на JVM |
 | `./gradlew :server:test` | Тесты сервера |
 | `./gradlew :e2e:test` | End-to-end сценарии: боты играют целые партии против сервера (~6 мин), отчёты — `e2e/build/reports/e2e/`. Только явно: в `check` и CI на push не входят, идут ночью |
 | `./gradlew :e2e:test -Pe2e.slow=true` | То же вместе с долгими сценариями (тег `slow`: партия с правилами по умолчанию, большая игра на 300 ботов), как ночью; `--tests '*BigGameLoadTest' -Pe2e.bigGamePlayers=1600` — нагрузочный тест большой игры на 1 600 ботов |
@@ -106,7 +109,7 @@ open iosApp/iosApp.xcodeproj
 | `e2e/run-devices.sh --android 2 --bots 3` | Приложение на двух эмуляторах вместе с ботами, UI через Maestro (`--ios 1` — симулятор на Mac); отчёт — `e2e/build/reports/devices/`. Подробности — [docs/e2e.md](docs/e2e.md) |
 | `./gradlew :e2e:route --args="--to 50.4481,30.5402 --adb emulator-5554"` | Провести эмулятор (`--simctl <udid>` — симулятор) по маршруту пешком |
 | `./gradlew :e2e:lab --args="merge A.jsonl mac.jsonl --out e2e/build/lab/merged"` | Свести журналы лаборатории радио с нескольких устройств на одну шкалу (`docs/radio-lab.md`) |
-| `./gradlew :shared:iosSimulatorArm64Test` | Тесты общего кода на iOS-симуляторе (только macOS); то же для `:clientCore` |
+| `./gradlew :shared:iosSimulatorArm64Test` | Тесты общего кода на iOS-симуляторе (только macOS); то же для `:device` и `:clientCore` |
 | `./gradlew spotlessApply` | Отформатировать код (ktlint); `spotlessCheck` — проверка в CI |
 | `./gradlew :server:bootJar` | Jar сервера для Docker: `server/build/libs/hovanki-server.jar` |
 

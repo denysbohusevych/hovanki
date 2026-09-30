@@ -49,6 +49,12 @@ enum class RateLimit {
 
     /** Asking the server's clock ([app.hovanki.shared.protocol.ApiRoutes.TIME]) per client IP. */
     TIME_PER_IP,
+
+    /** Joining a radio lab run ([app.hovanki.shared.protocol.ApiRoutes.LAB_JOIN]) per client IP, whatever the code. */
+    LAB_JOIN_PER_IP,
+
+    /** Uploads of a lab device's log ([app.hovanki.shared.protocol.ApiRoutes.LAB_EVENTS]) per device. */
+    LAB_EVENTS_PER_DEVICE,
 }
 
 /** `hovanki.rate-limits.*`. Tests and the `e2e` profile turn them off ([enabled]); one test context turns them on. */
@@ -71,6 +77,8 @@ data class RateLimitProperties(
     val watch: Limit = Limit(30, Duration.ofHours(1)),
     val settingsPreview: Limit = Limit(120, Duration.ofMinutes(10)),
     val timePerIp: Limit = Limit(120, Duration.ofMinutes(1)),
+    val labJoinPerIp: Limit = Limit(20, Duration.ofHours(1)),
+    val labEventsPerDevice: Limit = Limit(60, Duration.ofMinutes(1)),
 ) {
     /** At most [count] events per key within any [window]. */
     data class Limit(val count: Int, val window: Duration)
@@ -90,5 +98,7 @@ data class RateLimitProperties(
         RateLimit.WATCH -> watch
         RateLimit.SETTINGS_PREVIEW -> settingsPreview
         RateLimit.TIME_PER_IP -> timePerIp
+        RateLimit.LAB_JOIN_PER_IP -> labJoinPerIp
+        RateLimit.LAB_EVENTS_PER_DEVICE -> labEventsPerDevice
     }
 }

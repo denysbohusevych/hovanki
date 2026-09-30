@@ -1,7 +1,7 @@
 package app.hovanki.e2e.beacon
 
-import app.hovanki.client.lab.LabRunScripts
 import app.hovanki.client.lab.LabRunToken
+import app.hovanki.shared.lab.LabRunScripts
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -48,9 +48,10 @@ class MacRunFollowerTest {
         assertFalse(follower.inRun)
         assertEquals("advertise cafe0001", commands.last(), "idle again")
         for ((index, step) in script.steps.withIndex()) {
+            val mac = script.setupOf("mac", index)
             val expected = when {
-                step.mac.iBeacon -> "ibeacon cafe0002"
-                step.mac.advertise -> "advertise cafe0001"
+                mac.seeker -> "ibeacon cafe0002"
+                mac.hider -> "advertise cafe0001"
                 else -> "stop"
             }
             val tick = ((script.startOf(index) + 1_000 + 8_000) / 200).toInt()

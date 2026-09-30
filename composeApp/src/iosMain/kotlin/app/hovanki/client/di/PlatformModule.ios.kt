@@ -2,39 +2,43 @@ package app.hovanki.client.di
 
 import app.hovanki.client.BuildInfo
 import app.hovanki.client.automation.LaunchOptionsHolder
-import app.hovanki.client.device.DeviceInfo
-import app.hovanki.client.device.IosDeviceInfo
 import app.hovanki.client.iosBuildInfo
-import app.hovanki.client.lab.IosLabAir
 import app.hovanki.client.lab.IosLabFiles
-import app.hovanki.client.lab.IosLabHaptics
-import app.hovanki.client.lab.IosLabProbes
-import app.hovanki.client.lab.IosLabScreen
-import app.hovanki.client.lab.LabAir
 import app.hovanki.client.lab.LabFiles
-import app.hovanki.client.lab.LabHaptics
-import app.hovanki.client.lab.LabProbes
-import app.hovanki.client.lab.LabScreen
 import app.hovanki.client.location.IosLocationProvider
 import app.hovanki.client.location.LocationProvider
-import app.hovanki.client.radio.IosProximityRadio
-import app.hovanki.client.radio.NoopPrecisionRadio
-import app.hovanki.client.radio.PrecisionRadio
-import app.hovanki.client.radio.ProximityRadio
+import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.alert_seeker_near_text
+import app.hovanki.client.resources.alert_seeker_near_title
 import app.hovanki.client.share.IosShareSheet
 import app.hovanki.client.share.ShareSheet
 import app.hovanki.client.storage.KeychainSecureStore
 import app.hovanki.client.storage.SecureStore
-import app.hovanki.client.tracking.ActivityMonitor
 import app.hovanki.client.tracking.BackgroundTracker
-import app.hovanki.client.tracking.CarryMonitor
-import app.hovanki.client.tracking.IosActivityMonitor
 import app.hovanki.client.tracking.IosBackgroundTracker
-import app.hovanki.client.tracking.IosCarryMonitor
-import app.hovanki.client.tracking.IosPocketPulse
-import app.hovanki.client.tracking.PocketPulse
+import app.hovanki.device.ActivityMonitor
+import app.hovanki.device.CarryMonitor
+import app.hovanki.device.DeviceInfo
+import app.hovanki.device.IosActivityMonitor
+import app.hovanki.device.IosCarryMonitor
+import app.hovanki.device.IosDeviceInfo
+import app.hovanki.device.IosPocketPulse
+import app.hovanki.device.PocketPulse
+import app.hovanki.device.lab.IosLabHaptics
+import app.hovanki.device.lab.IosLabProbes
+import app.hovanki.device.lab.IosLabScreen
+import app.hovanki.device.lab.LabHaptics
+import app.hovanki.device.lab.LabProbes
+import app.hovanki.device.lab.LabScreen
+import app.hovanki.radar.IosProximityRadio
+import app.hovanki.radar.NoopPrecisionRadio
+import app.hovanki.radar.PrecisionRadio
+import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.lab.IosLabAir
+import app.hovanki.radar.lab.LabAir
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.darwin.Darwin
+import org.jetbrains.compose.resources.getString
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
@@ -53,7 +57,12 @@ actual val platformModule: Module = module {
     single<PrecisionRadio> { NoopPrecisionRadio() }
     single<DeviceInfo> { IosDeviceInfo() }
     single<ActivityMonitor> { IosActivityMonitor() }
-    single<PocketPulse> { IosPocketPulse() }
+    single<PocketPulse> {
+        // `:device` has no string resources: the notification's texts come from the app's, read when it is posted.
+        IosPocketPulse {
+            getString(Res.string.alert_seeker_near_title) to getString(Res.string.alert_seeker_near_text)
+        }
+    }
     single<CarryMonitor> { IosCarryMonitor() }
     // The radio lab (docs/radio-lab.md), reached from the debug build's diagnostics only.
     single<LabProbes> { IosLabProbes() }

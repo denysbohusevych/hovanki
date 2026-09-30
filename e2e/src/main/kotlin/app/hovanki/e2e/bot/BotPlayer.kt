@@ -21,8 +21,6 @@ import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.Transport
 import app.hovanki.client.network.WebSocketGameConnection
 import app.hovanki.client.network.createHttpClient
-import app.hovanki.client.radio.NoopProximityRadio
-import app.hovanki.client.radio.ProximityRadio
 import app.hovanki.client.session.CatchCode
 import app.hovanki.client.session.ChatLine
 import app.hovanki.client.session.DraftZone
@@ -43,6 +41,8 @@ import app.hovanki.client.spectator.SpectatorState
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.scenario.Timeline
+import app.hovanki.radar.NoopProximityRadio
+import app.hovanki.radar.ProximityRadio
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.Audience
 import app.hovanki.shared.protocol.BigGameCard

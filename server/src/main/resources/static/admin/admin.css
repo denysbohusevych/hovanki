@@ -116,6 +116,21 @@ input.place { width: 230px; }
 .estimate b { font-size: 20px; margin-left: 8px; }
 .estimate p { margin: 0; }
 
+/* The radio lab (docs/adr/0017-radar-techniques-and-big-run.md §5): the run's code, the console and the report. */
+.card h2.first { margin-top: 0; }
+.lab-head { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 16px; align-items: start; }
+.lab-head .qr { margin: 0 auto; }
+.code-big { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 44px; font-weight: 800;
+  letter-spacing: 8px; line-height: 1.1; margin: 4px 0 8px; }
+tr.current td { background: #efffc2; }
+details { margin: 0 0 12px; }
+summary { cursor: pointer; color: var(--ink2); margin-bottom: 8px; }
+table.pairs { margin-top: 12px; }
+.report h3 { font-size: 15px; margin: 18px 0 6px; }
+td.cover-ok, td.heard.ok { background: #efffc2; color: var(--lime-ink); font-weight: 600; }
+td.cover-weak, td.heard.weak { background: #fff3c4; color: #6b4e00; font-weight: 600; }
+td.cover-none, td.heard.none { background: #ffe3f1; color: var(--pink-ink); font-weight: 600; }
+
 dialog { border: 0; border-radius: var(--radius); padding: 20px; width: min(440px, 92vw); }
 dialog::backdrop { background: rgba(14, 14, 18, .45); }
 dialog h3 { margin: 0 0 8px; }
@@ -123,6 +138,7 @@ dialog h3 { margin: 0 0 8px; }
 
 @media (max-width: 900px) {
   .map-layout { grid-template-columns: minmax(0, 1fr); }
+  .lab-head { grid-template-columns: minmax(0, 1fr); }
   canvas.map { height: 420px; }
 }
 

@@ -650,6 +650,7 @@
   <string name="error_playing_this_game">You play in this game, so you can’t watch it.</string>
   <string name="building_open_tag">open</string>
   <string name="error_zone_too_far">The zone can’t go that far from where the game was made.</string>
+  <string name="error_lab_run_closed">This radio lab run is over.</string>
   <string name="settings_tab_zone">Zone</string>
   <string name="settings_tab_time">Time</string>
   <string name="settings_tab_more">More</string>

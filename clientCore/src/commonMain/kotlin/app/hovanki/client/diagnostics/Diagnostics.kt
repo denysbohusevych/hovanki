@@ -3,7 +3,7 @@
 package app.hovanki.client.diagnostics
 
 import app.hovanki.client.network.Transport
-import app.hovanki.client.radio.SightingVia
+import app.hovanki.radar.SightingVia
 import app.hovanki.shared.protocol.DeviceReport
 import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.rules.RadarSmoother

@@ -217,4 +217,10 @@ enum class ErrorReason {
      * (docs/adr/0014-settings-lobby-redesign-open-buildings.md).
      */
     ZONE_TOO_FAR,
+
+    /**
+     * The radio lab's run is over: finished, or older than the join window
+     * (docs/adr/0017-radar-techniques-and-big-run.md §5); a phone neither joins it nor uploads to it any more.
+     */
+    LAB_RUN_CLOSED,
 }

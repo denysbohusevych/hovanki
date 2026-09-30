@@ -1,7 +1,9 @@
 package app.hovanki.client.lab
 
-import app.hovanki.client.radio.RadioApi
-import app.hovanki.client.radio.SightingVia
+import app.hovanki.radar.RadioApi
+import app.hovanki.radar.SightingVia
+import app.hovanki.shared.lab.LabFields
+import app.hovanki.shared.lab.LabSchema
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -130,8 +132,8 @@ class LabLogTest {
         assertEquals("hovanki-lab-droid-20260921T141320Z.jsonl", export.fileName)
         assertEquals("hovanki-lab-droid-20260921T141320Z.txt", export.summaryName)
         assertEquals(1, export.jsonl.lines().count { it.isNotBlank() })
-        assertEquals("2026-09-21 14:13:20.000", LabLog.formatUtc(now))
-        assertEquals("2026-09-21 14:13:20.050", LabLog.formatUtc(now + 50))
+        assertEquals("2026-09-21 14:13:20.000", LabSchema.formatUtc(now))
+        assertEquals("2026-09-21 14:13:20.050", LabSchema.formatUtc(now + 50))
     }
 
     @Test

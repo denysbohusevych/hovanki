@@ -235,6 +235,45 @@ object ApiRoutes {
     /** GET: a vector tile of the players' map for the admin's map (the page loads nothing from other hosts). */
     const val ADMIN_TILE = "$ADMIN/tiles/{z}/{x}/{y}"
 
+    // The radio lab's runs (docs/adr/0017-radar-techniques-and-big-run.md §5): debug builds only, and only while the
+    // server has [ServerFeature.RADIO_LAB] on (404 otherwise). The phone routes take the device token of the join.
+    const val LAB_RUNS = "/api/v1/lab/runs"
+
+    /** POST [LabJoinRequest], no token: [LabJoinResponse]. */
+    const val LAB_JOIN = "$LAB_RUNS/join"
+
+    /** GET with the device token: [LabRunStateView]. */
+    const val LAB_STATE = "$LAB_RUNS/{runId}/state"
+
+    /** POST [LabAdvanceRequest] with the device token: [LabRunStateView]. */
+    const val LAB_ADVANCE = "$LAB_RUNS/{runId}/advance"
+
+    /** POST the log's lines as JSONL ([LabUpload]) with the device token: [LabEventsResponse]. */
+    const val LAB_EVENTS = "$LAB_RUNS/{runId}/events"
+
+    // The radio lab in the admin: admins only, whether the flag is on or off (old reports stay readable).
+
+    /** GET: [AdminLabRuns]; POST [AdminLabRunRequest]: a new run ([AdminLabRun]). */
+    const val ADMIN_LAB_RUNS = "$ADMIN/lab/runs"
+
+    /** GET: [AdminLabRunView], the console and the live view. */
+    const val ADMIN_LAB_RUN = "$ADMIN_LAB_RUNS/{runId}"
+
+    /** POST [AdminLabAdvanceRequest]: [AdminLabRunView]. */
+    const val ADMIN_LAB_RUN_ADVANCE = "$ADMIN_LAB_RUN/advance"
+
+    /** POST [AdminReasonRequest]: the run ends and its report is computed ([AdminLabRunView]). */
+    const val ADMIN_LAB_RUN_FINISH = "$ADMIN_LAB_RUN/finish"
+
+    /** GET: the run's report (`app.hovanki.shared.lab.LabReport`); 404 until it is computed. */
+    const val ADMIN_LAB_RUN_REPORT = "$ADMIN_LAB_RUN/report"
+
+    /** POST [AdminReasonRequest]: every device's log as a zip (`application/zip`); audited. */
+    const val ADMIN_LAB_RUN_RAW = "$ADMIN_LAB_RUN/raw"
+
+    /** POST [AdminReasonRequest], 204: the run goes with everything of it. */
+    const val ADMIN_LAB_RUN_DELETE = "$ADMIN_LAB_RUN/delete"
+
     /** Every admin request carries `X-Hovanki-Admin: 1`: another site can't send it without CORS (CSRF). */
     const val ADMIN_HEADER = "X-Hovanki-Admin"
 
@@ -365,6 +404,18 @@ object ApiRoutes {
     fun groupRename(groupId: GroupId): String = GROUP_RENAME.fill("groupId" to groupId.value)
 
     fun groupDelete(groupId: GroupId): String = GROUP_DELETE.fill("groupId" to groupId.value)
+
+    fun labState(runId: LabRunId): String = LAB_STATE.fill("runId" to runId.value)
+
+    fun labAdvance(runId: LabRunId): String = LAB_ADVANCE.fill("runId" to runId.value)
+
+    fun labEvents(runId: LabRunId): String = LAB_EVENTS.fill("runId" to runId.value)
+
+    /** [ADMIN_LAB_RUN] and the actions under it: `adminLabRun(id)`, `adminLabRun(id, "finish")`. */
+    fun adminLabRun(runId: LabRunId, action: String? = null): String {
+        val run = ADMIN_LAB_RUN.fill("runId" to runId.value)
+        return if (action == null) run else "$run/$action"
+    }
 
     /** Replaces each `{name}` of the template with its value. */
     private fun String.fill(vararg values: Pair<String, String>): String =

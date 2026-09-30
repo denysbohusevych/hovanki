@@ -1,8 +1,8 @@
 package app.hovanki.e2e.beacon
 
-import app.hovanki.client.radio.ProximityRadio
-import app.hovanki.client.radio.RadioApi
-import app.hovanki.client.radio.RadioSighting
+import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.RadioApi
+import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.protocol.BluetoothState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow

@@ -1,6 +1,6 @@
 package app.hovanki.e2e.beacon
 
-import app.hovanki.client.radio.SightingVia
+import app.hovanki.radar.SightingVia
 
 /** A line the Bluetooth helper (`e2e/mac-beacon/beacon.swift`) prints. */
 sealed interface HelperLine {

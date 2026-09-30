@@ -4,6 +4,7 @@ import app.hovanki.client.network.createHttpClient
 import app.hovanki.e2e.bot.BotAccount
 import app.hovanki.e2e.observer.EmailPurpose
 import app.hovanki.e2e.observer.Observer
+import app.hovanki.shared.lab.LabReport
 import app.hovanki.shared.protocol.AdminBigGame
 import app.hovanki.shared.protocol.AdminBigGameRequest
 import app.hovanki.shared.protocol.AdminBigGames
@@ -12,6 +13,11 @@ import app.hovanki.shared.protocol.AdminEnrollment
 import app.hovanki.shared.protocol.AdminFeature
 import app.hovanki.shared.protocol.AdminFeatureRequest
 import app.hovanki.shared.protocol.AdminFeatures
+import app.hovanki.shared.protocol.AdminLabAdvanceRequest
+import app.hovanki.shared.protocol.AdminLabRun
+import app.hovanki.shared.protocol.AdminLabRunRequest
+import app.hovanki.shared.protocol.AdminLabRunView
+import app.hovanki.shared.protocol.AdminLabRuns
 import app.hovanki.shared.protocol.AdminLoginRequest
 import app.hovanki.shared.protocol.AdminLoginResponse
 import app.hovanki.shared.protocol.AdminLoginStep
@@ -26,6 +32,8 @@ import app.hovanki.shared.protocol.AdminZoneEstimateRequest
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.BigGameId
+import app.hovanki.shared.protocol.LabRunAction
+import app.hovanki.shared.protocol.LabRunId
 import app.hovanki.shared.protocol.ReportAction
 import app.hovanki.shared.protocol.ResolveReportRequest
 import app.hovanki.shared.protocol.SanctionRequest
@@ -120,6 +128,33 @@ class StaffConsole(serverUrl: String, private val observer: Observer) : AutoClos
 
     suspend fun estimate(zone: ZonePolygon): AdminZoneEstimate =
         call(ApiRoutes.ADMIN_ZONE_ESTIMATE, AdminZoneEstimateRequest(zone))
+
+    // The radio lab's runs (docs/adr/0017-radar-techniques-and-big-run.md §5), admins.
+
+    suspend fun labRuns(): AdminLabRuns = get(ApiRoutes.ADMIN_LAB_RUNS)
+
+    suspend fun createLabRun(title: String, scenarioId: String, reason: String): AdminLabRun =
+        call(ApiRoutes.ADMIN_LAB_RUNS, AdminLabRunRequest(title, scenarioId, reason))
+
+    /** The run's console: its state, plan, devices and the live view. */
+    suspend fun labRun(id: LabRunId): AdminLabRunView = get(ApiRoutes.adminLabRun(id))
+
+    suspend fun advanceLabRun(id: LabRunId, action: LabRunAction, reason: String): AdminLabRunView =
+        call(ApiRoutes.adminLabRun(id, "advance"), AdminLabAdvanceRequest(action, reason))
+
+    suspend fun finishLabRun(id: LabRunId, reason: String): AdminLabRunView =
+        call(ApiRoutes.adminLabRun(id, "finish"), AdminReasonRequest(reason))
+
+    /** The run's report; [AdminRejected] 404 until the server has computed it. */
+    suspend fun labReport(id: LabRunId): LabReport = get(ApiRoutes.adminLabRun(id, "report"))
+
+    /** The raw logs as the page downloads them: a zip with one JSONL file per device. */
+    suspend fun downloadLabRaw(id: LabRunId, reason: String): ByteArray =
+        call(ApiRoutes.adminLabRun(id, "raw"), AdminReasonRequest(reason))
+
+    suspend fun deleteLabRun(id: LabRunId, reason: String) {
+        call<Unit>(ApiRoutes.adminLabRun(id, "delete"), AdminReasonRequest(reason))
+    }
 
     /**
      * The code of the authenticator app. Each time step logs in once: a second login within the same 30 seconds waits

@@ -1,12 +1,24 @@
 package app.hovanki.client.lab
 
 import app.hovanki.client.diagnostics.DiagnosticsBench
-import app.hovanki.client.radio.ProximityRadio
-import app.hovanki.client.radio.RadioApi
-import app.hovanki.client.radio.SightingVia
-import app.hovanki.client.tracking.ActivityClassifier
 import app.hovanki.client.tracking.BackgroundTracker
-import app.hovanki.client.tracking.CarryMonitor
+import app.hovanki.device.ActivityClassifier
+import app.hovanki.device.CarryMonitor
+import app.hovanki.device.lab.Gravity
+import app.hovanki.device.lab.HapticKind
+import app.hovanki.device.lab.LabHaptics
+import app.hovanki.device.lab.LabProbes
+import app.hovanki.device.lab.LabScreen
+import app.hovanki.device.lab.LabSensorReading
+import app.hovanki.device.lab.MotionFeatures
+import app.hovanki.device.lab.MotionWindow
+import app.hovanki.device.lab.Orientation
+import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.RadioApi
+import app.hovanki.radar.SightingVia
+import app.hovanki.radar.lab.AirFrame
+import app.hovanki.radar.lab.LabAir
+import app.hovanki.shared.lab.ProbeMode
 import app.hovanki.shared.rules.HeartbeatRules
 import app.hovanki.shared.rules.OverflowArea
 import app.hovanki.shared.rules.OverflowCode
@@ -40,18 +52,6 @@ data class LabAbout(val model: String?, val os: String?, val build: String?, val
             build?.let { "build: $it" },
             commit?.let { "commit: $it" },
         )
-}
-
-/** What the overflow probe advertises (docs/radio-lab.md §5). */
-sealed interface ProbeMode {
-    /** [OverflowProbe.PATTERN]. */
-    data object Pattern : ProbeMode
-
-    /** Only bit [bit]. */
-    data class Bit(val bit: Int) : ProbeMode
-
-    /** A token, Manchester-coded as in ADR 0016 §2.1 ([OverflowCode]). */
-    data object Token : ProbeMode
 }
 
 /** The pulse the lab beats from its own loudest band: by haptics, by a notification, or off. */
@@ -156,6 +156,9 @@ class LabController(
         },
     )
 
+    /** Who this device is: for the log's header, and for a run on the server when the phone joins it. */
+    val device: LabAbout get() = about()
+
     val canProbe: Boolean get() = air.canProbe
     val canListen: Boolean get() = air.canListen
     val canTurnScreenOff: Boolean get() = screen.canTurnOffByProximity
@@ -183,7 +186,14 @@ class LabController(
         jobs += scope.launch { probes.battery().collect { log.battery(it.level, it.state, it.lowPower) } }
         jobs += scope.launch { radio.state.collect { log.bt(it.name.lowercase()) } }
         jobs += scope.launch { carryMonitor.carry().collect { log.carry(it.name.lowercase()) } }
-        jobs += scope.launch { haptics.engineEvents().collect { (kind, event) -> log.haptic(kind.key, event) } }
+        jobs += scope.launch {
+            // «engine_stopped: audio_session_interrupt (1)»: the result and the reason, so the report counts the stops.
+            haptics.engineEvents().collect { (kind, event) ->
+                val result = event.substringBefore(':').trim()
+                val reason = event.substringAfter(':', "").trim().ifEmpty { null }
+                log.haptic(kind.key, result, reason = reason)
+            }
+        }
         jobs += scope.launch {
             inAGame.first { it }
             log.note("a game started: the lab stops")
@@ -265,6 +275,20 @@ class LabController(
                 }
             }
         }
+    }
+
+    /**
+     * The probe advertises [token] from now on in [ProbeMode.Token] (a run on the server gives every device its own); a
+     * change pending by [rotateProbeToken] is called off.
+     */
+    fun setProbeToken(token: String) {
+        rotateJob?.cancel()
+        rotateJob = null
+        mutableRotateAt.value = null
+        if (token == mutableProbeToken.value) return
+        mutableProbeToken.value = token
+        log.note("probe token now $token")
+        if (mutableProbe.value == ProbeMode.Token) probeBits.value = bitsOf(ProbeMode.Token)
     }
 
     /** The probe's token changes in [delayMillis] (H5: does the mask survive a change while locked?). */

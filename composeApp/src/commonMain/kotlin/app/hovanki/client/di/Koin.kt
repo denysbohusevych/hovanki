@@ -6,17 +6,20 @@ import app.hovanki.client.automation.LaunchOptions
 import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.bigGames.BigGameManager
 import app.hovanki.client.defaultServerUrl
-import app.hovanki.client.device.DeviceInfo
 import app.hovanki.client.diagnostics.Diagnostics
 import app.hovanki.client.diagnostics.DiagnosticsBench
 import app.hovanki.client.history.HistoryManager
+import app.hovanki.client.lab.HttpLabApi
 import app.hovanki.client.lab.LabAbout
+import app.hovanki.client.lab.LabApi
 import app.hovanki.client.lab.LabClockSync
 import app.hovanki.client.lab.LabController
 import app.hovanki.client.lab.LabLog
-import app.hovanki.client.lab.LabProbes
 import app.hovanki.client.lab.LabRadioTrace
+import app.hovanki.client.lab.LabRunFollower
 import app.hovanki.client.lab.LabRunner
+import app.hovanki.client.lab.LabUploader
+import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.network.AccountApi
 import app.hovanki.client.network.AdaptiveGameConnection
 import app.hovanki.client.network.BigGameApi
@@ -36,7 +39,6 @@ import app.hovanki.client.network.SocialApi
 import app.hovanki.client.network.SpectatorApi
 import app.hovanki.client.network.WebSocketGameConnection
 import app.hovanki.client.network.createHttpClient
-import app.hovanki.client.radio.RadioTrace
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
 import app.hovanki.client.social.SocialManager
@@ -58,6 +60,11 @@ import app.hovanki.client.ui.results.ResultsViewModel
 import app.hovanki.client.ui.spectator.SpectatorViewModel
 import app.hovanki.client.ui.verify.VerifyEmailViewModel
 import app.hovanki.client.ui.welcome.WelcomeViewModel
+import app.hovanki.device.DeviceInfo
+import app.hovanki.device.lab.LabProbes
+import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.RadioTrace
+import app.hovanki.shared.protocol.LabCapabilities
 import app.hovanki.shared.rules.AccountRules
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.map
@@ -139,6 +146,30 @@ val commonModule: Module = module {
         )
     }
     single { LabRunner(get(), MainScope(), appState = get<LabProbes>()::appState) }
+    // The lab's runs on the server (docs/adr/0017-radar-techniques-and-big-run.md §5): join by the admin's code, follow
+    // the plan, upload the log. The screen exists in debug builds only; the server answers 404 while RADIO_LAB is off.
+    single<LabApi> { HttpLabApi(get(), get()) }
+    single { LabUploader(get(), get(), MainScope()) }
+    single {
+        val deviceInfo = get<DeviceInfo>()
+        val radio = get<ProximityRadio>()
+        val locationProvider = get<LocationProvider>()
+        LabRunFollower(
+            get(),
+            get(),
+            get(),
+            MainScope(),
+            appState = get<LabProbes>()::appState,
+            capabilities = {
+                LabCapabilities(
+                    platform = deviceInfo.platform,
+                    bluetooth = radio.state.value,
+                    uwb = deviceInfo.hasUwb,
+                    locationPermission = locationProvider.hasPermission(),
+                )
+            },
+        )
+    }
     single { AccountManager(get(), get(), get()) }
     single { SocialManager(get(), get()) }
     single { HistoryManager(get(), get()) }
@@ -228,7 +259,7 @@ private fun logInAtStart(account: AccountManager, login: String, password: Strin
 /**
  * Platform services: [app.hovanki.client.BuildInfo], HTTP engine, [app.hovanki.client.storage.SecureStore],
  * [app.hovanki.client.location.LocationProvider], background tracking, the radar by Bluetooth
- * ([app.hovanki.client.radio.ProximityRadio]), what the phone is ([app.hovanki.client.device.DeviceInfo]) and its
- * motion sensors ([app.hovanki.client.tracking.ActivityMonitor]).
+ * ([app.hovanki.radar.ProximityRadio]), what the phone is ([app.hovanki.device.DeviceInfo]) and its
+ * motion sensors ([app.hovanki.device.ActivityMonitor]).
  */
 expect val platformModule: Module

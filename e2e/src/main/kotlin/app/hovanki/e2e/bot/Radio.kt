@@ -1,10 +1,10 @@
 package app.hovanki.e2e.bot
 
-import app.hovanki.client.device.DeviceInfo
-import app.hovanki.client.radio.ProximityRadio
-import app.hovanki.client.radio.RadioSighting
-import app.hovanki.client.tracking.CarryMonitor
-import app.hovanki.client.tracking.PocketPulse
+import app.hovanki.device.CarryMonitor
+import app.hovanki.device.DeviceInfo
+import app.hovanki.device.PocketPulse
+import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.Carry
