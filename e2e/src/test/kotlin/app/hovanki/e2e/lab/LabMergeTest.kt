@@ -9,7 +9,9 @@ import app.hovanki.radar.RadioApi
 import app.hovanki.radar.SightingVia
 import app.hovanki.shared.lab.LabMerge
 import app.hovanki.shared.lab.LabPlaces
+import app.hovanki.shared.lab.LabReport
 import app.hovanki.shared.protocol.Activity
+import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.OverflowArea
 import app.hovanki.shared.rules.OverflowProbe
 import java.nio.file.Files
@@ -176,6 +178,26 @@ class LabMergeTest {
         )
         assertTrue("core_haptics,error" in out.resolve("haptics.csv").readText())
         assertEquals(2, LabCli.run(listOf("merge")))
+    }
+
+    @Test
+    fun aFolderOfLogsGivesTheReport() {
+        val (phone, mac) = logs()
+        val folder = Files.createTempDirectory("lab-report").toFile()
+        folder.resolve("hovanki-lab-A-1.jsonl").writeText(phone.log.export().jsonl)
+        // The Mac's log in two files: one device.
+        val macLines = mac.log.export().jsonl.lines().filter { it.isNotBlank() }
+        folder.resolve("hovanki-lab-mac-1.jsonl").writeText(macLines.take(3).joinToString("\n", postfix = "\n"))
+        folder.resolve("hovanki-lab-mac-2.jsonl").writeText(macLines.drop(3).joinToString("\n", postfix = "\n"))
+        folder.resolve("notes.txt").writeText("not a log")
+
+        val out = folder.resolve("out/report.json")
+        assertEquals(0, LabCli.run(listOf("report", folder.path, "--script", "radio", "--out", out.path)))
+        val report = protocolJson.decodeFromString(LabReport.serializer(), out.readText())
+        assertEquals("radio", report.scenarioId)
+        assertEquals(listOf("A", "mac"), report.devices.map { it.label })
+        assertTrue(report.cards.isNotEmpty())
+        assertEquals(2, LabCli.run(listOf("report", folder.path, "--script", "nope")))
     }
 
     private fun ByteArray.toHex() = joinToString("") { "%02x".format(it) }
