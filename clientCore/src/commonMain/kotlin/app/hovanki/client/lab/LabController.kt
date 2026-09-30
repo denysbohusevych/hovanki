@@ -269,7 +269,12 @@ class LabController(
         jobs += scope.launch { sensorLoop() }
         jobs += scope.launch { probes.battery().collect { log.battery(it.level, it.state, it.lowPower) } }
         jobs += scope.launch { radio.state.collect { log.bt(it.name.lowercase()) } }
-        jobs += scope.launch { carryMonitor.carry().collect { log.carry(it.name.lowercase()) } }
+        jobs += scope.launch {
+            carryMonitor.carry().collect {
+                lastCarry = it.name.lowercase()
+                log.carry(lastCarry!!)
+            }
+        }
         jobs += scope.launch {
             // «engine_stopped: audio_session_interrupt (1)»: the result and the reason, so the report counts the stops.
             haptics.engineEvents().collect { (kind, event) ->
@@ -735,10 +740,20 @@ class LabController(
         )
     }
 
+    /**
+     * Empties the log (a run starts). The carry monitor writes only its changes, so its last state goes in again after
+     * the header: else the report reads the seconds before its next change as «said nothing».
+     */
     fun clear() {
         log.clear()
-        if (mutableRunning.value) writeSession()
+        if (mutableRunning.value) {
+            writeSession()
+            lastCarry?.let { log.carry(it) }
+        }
     }
+
+    /** The carry monitor's last state (`in_hand`…), for [clear]. */
+    private var lastCarry: String? = null
 
     private fun writeSession() {
         val about = about()
