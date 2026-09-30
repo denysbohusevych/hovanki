@@ -178,20 +178,28 @@ class LabRunRepository(private val jdbc: JdbcClient) {
             .list()
             .filterNotNull()
 
-    /** A device's UWB discovery token; a new one replaces the old. */
-    fun setUwbToken(deviceId: String, token: String) {
+    /**
+     * A device's UWB discovery token; a new one replaces the old, and the other devices of the same label in the run
+     * (a phone that rejoined) lose theirs: one token per label, whoever posted last.
+     */
+    fun setUwbToken(deviceId: String, runId: String, label: String, token: String) {
+        jdbc.sql("UPDATE lab_devices SET uwb_token = NULL WHERE run_id = :runId AND label = :label AND id <> :id")
+            .param("runId", runId)
+            .param("label", label)
+            .param("id", deviceId)
+            .update()
         jdbc.sql("UPDATE lab_devices SET uwb_token = :token WHERE id = :id")
             .param("id", deviceId)
             .param("token", token)
             .update()
     }
 
-    /** Label → UWB token of the run's devices that posted one; of a label joined twice, the newest device's. */
+    /** Label → UWB token of the run's devices that posted one (one per label, see [setUwbToken]). */
     fun uwbTokensOf(runId: String): Map<String, String> = jdbc.sql(
         """
         SELECT label, uwb_token FROM lab_devices
         WHERE run_id = :runId AND uwb_token IS NOT NULL
-        ORDER BY joined_at, label, id
+        ORDER BY label, id
         """.trimIndent(),
     )
         .param("runId", runId)

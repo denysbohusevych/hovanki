@@ -198,7 +198,7 @@ class LabRunService(
         val now = clock.instant()
         return locked({ repository.lockRun(device.runId) }, now) { locked ->
             if (!joinOpen(locked.run, now)) throw closed()
-            repository.setUwbToken(device.deviceId, trimmed)
+            repository.setUwbToken(device.deviceId, device.runId, device.label, trimmed)
             phoneView(locked.run, now)
         }
     }
