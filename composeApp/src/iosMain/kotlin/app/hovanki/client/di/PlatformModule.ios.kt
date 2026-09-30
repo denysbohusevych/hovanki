@@ -6,6 +6,7 @@ import app.hovanki.client.iosBuildInfo
 import app.hovanki.client.lab.BridgedLiveActivityHost
 import app.hovanki.client.lab.IosLabFiles
 import app.hovanki.client.lab.LabFiles
+import app.hovanki.client.lab.LabRangeTrace
 import app.hovanki.client.location.IosLocationProvider
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.resources.Res
@@ -42,6 +43,9 @@ import app.hovanki.radar.ProximityRadio
 import app.hovanki.radar.host.IosAirHost
 import app.hovanki.radar.lab.HostLabAir
 import app.hovanki.radar.lab.LabAir
+import app.hovanki.radar.link.GattLink
+import app.hovanki.radar.link.IosGattLink
+import app.hovanki.radar.uwb.IosPrecisionRadio
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.darwin.Darwin
 import org.jetbrains.compose.resources.getString
@@ -59,7 +63,7 @@ actual val platformModule: Module = module {
     single<BackgroundTracker> { IosBackgroundTracker() }
     single<ShareSheet> { IosShareSheet() }
     // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md): the game's channels on the iPhone's host (ADR 0017
-    // §2.2), traced into the radio lab's log; the precision radar by UWB is not implemented yet.
+    // §2.2), traced into the radio lab's log; the game's precision radar by UWB stays a no-op (the lab has its own).
     single<AirHost> { IosAirHost() }
     single<ProximityRadio> { HostProximityRadio(get(), trace = get()) }
     single<PrecisionRadio> { NoopPrecisionRadio() }
@@ -82,4 +86,7 @@ actual val platformModule: Module = module {
     // installs at start (`LiveActivityBridge.kt`), unavailable until the owner adds the widget extension in Xcode.
     single<LiveActivityHost> { BridgedLiveActivityHost() }
     single<BackgroundModes> { IosBackgroundModes(get()) }
+    // The radio lab's GATT link and its own UWB radio (docs/radar-run.md §5.2, §5.3); the game uses neither.
+    single<GattLink> { IosGattLink() }
+    single<PrecisionRadio>(LAB_PRECISION) { IosPrecisionRadio(LabRangeTrace(get())) }
 }

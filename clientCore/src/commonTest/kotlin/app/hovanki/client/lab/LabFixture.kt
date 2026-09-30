@@ -6,6 +6,10 @@ import app.hovanki.client.session.FakeBackgroundTracker
 import app.hovanki.client.session.FakeCarryMonitor
 import app.hovanki.client.session.FakeLocationProvider
 import app.hovanki.client.session.FakeRadio
+import app.hovanki.device.BackgroundModes
+import app.hovanki.device.ModeEvent
+import app.hovanki.device.ModeIds
+import app.hovanki.device.ModeResult
 import app.hovanki.device.lab.HapticKind
 import app.hovanki.device.lab.HapticResult
 import app.hovanki.device.lab.LabBattery
@@ -15,10 +19,17 @@ import app.hovanki.device.lab.LabScreen
 import app.hovanki.device.lab.LabSensorReading
 import app.hovanki.device.lab.NoopLabProbes
 import app.hovanki.device.lab.NoopLabScreen
+import app.hovanki.radar.PeerRange
+import app.hovanki.radar.PrecisionRadio
+import app.hovanki.radar.RadioApi
 import app.hovanki.radar.lab.LabAir
 import app.hovanki.radar.lab.LabFrame
 import app.hovanki.radar.lab.ProbeEvent
+import app.hovanki.radar.link.GattLink
+import app.hovanki.radar.link.LinkReading
+import app.hovanki.radar.link.LinkTrace
 import app.hovanki.shared.lab.LabFields
+import app.hovanki.shared.protocol.UwbPeer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -26,6 +37,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.currentTime
 import kotlinx.serialization.json.Json
@@ -48,13 +61,17 @@ internal class FakeAir : LabAir {
     }
 }
 
-internal class FakeHaptics : LabHaptics {
-    override val kinds = listOf(HapticKind.CORE_HAPTICS, HapticKind.NOTIFY_NO_SOUND)
+internal class FakeHaptics(
+    override val kinds: List<HapticKind> = listOf(HapticKind.CORE_HAPTICS, HapticKind.NOTIFY_NO_SOUND),
+) : LabHaptics {
     val played = mutableListOf<HapticKind>()
+
+    /** Kinds that answer `error` (still counted in [played]). */
+    val failing = mutableSetOf<HapticKind>()
 
     override suspend fun play(kind: HapticKind, strength: Double): HapticResult {
         played += kind
-        return HapticResult("played")
+        return if (kind in failing) HapticResult("error", "engine stopped") else HapticResult("played")
     }
 
     /** What [LabController.signal] told the tester by a notification. */
@@ -68,6 +85,62 @@ internal class FakeHaptics : LabHaptics {
     val engine = MutableSharedFlow<Pair<HapticKind, String>>(extraBufferCapacity = 4)
 
     override fun engineEvents(): Flow<Pair<HapticKind, String>> = engine
+}
+
+/** An iPhone's modes without the Live Activity: [on] what is switched on, [events] what they say. */
+internal class FakeModes : BackgroundModes {
+    override val available = setOf(ModeIds.AUDIO, ModeIds.NOTIFICATION_WAKE)
+    val on = mutableSetOf<String>()
+    val events = MutableSharedFlow<ModeEvent>(extraBufferCapacity = 16)
+    var stoppedAll = 0
+
+    override fun set(id: String, on: Boolean): ModeResult {
+        if (on) this.on += id else this.on -= id
+        return ModeResult(true)
+    }
+
+    override fun events(): Flow<ModeEvent> = events
+
+    override fun stopAll() {
+        stoppedAll++
+        on.clear()
+    }
+}
+
+/** A GATT link by hand: [readings] as the platform would emit them, [trace] and [token] of the running link. */
+internal class FakeLink : GattLink {
+    override val isSupported = true
+    val readings = MutableSharedFlow<LinkReading>(extraBufferCapacity = 16)
+    var token: StateFlow<String?>? = null
+    var trace: LinkTrace? = null
+    var running = false
+
+    override fun run(token: StateFlow<String?>, trace: LinkTrace): Flow<LinkReading> = readings
+        .onStart {
+            this@FakeLink.token = token
+            this@FakeLink.trace = trace
+            running = true
+        }.onCompletion { running = false }
+
+    fun reading(peer: String, token: String?, rssi: Int?) =
+        readings.tryEmit(LinkReading(peer, token, rssi, 0L, RadioApi.UNKNOWN))
+}
+
+/** An iPhone's UWB by hand: its [token] after [prepare], the [peers] of the running [range], [ranges] emitted. */
+internal class FakePrecision(override val isSupported: Boolean = true) : PrecisionRadio {
+    override val token = MutableStateFlow<String?>(null)
+    val ranges = MutableSharedFlow<PeerRange>(extraBufferCapacity = 16)
+    var peers: StateFlow<List<UwbPeer>>? = null
+    var prepared = 0
+
+    override fun prepare() {
+        prepared++
+        if (token.value == null) token.value = "uwb-token-1"
+    }
+
+    override fun range(peers: StateFlow<List<UwbPeer>>): Flow<PeerRange> = ranges
+        .onStart { this@FakePrecision.peers = peers }
+        .onCompletion { this@FakePrecision.peers = null }
 }
 
 /** The phone's sensors by hand: [readings] as the platform would emit them, [state] the app's state now. */
@@ -105,13 +178,16 @@ internal class FakeFiles : LabFiles {
 /**
  * The lab on fake parts, time from the test's scheduler: the server's clock is 700 ms ahead of the device's; with
  * [clockWorks] false the server never answers the clock's questions; [labAir]: the lab's air on its log instead of
- * [FakeAir]; [probes] and [screen]: the phone's sensors and screen (none by default).
+ * [FakeAir]; [probes] and [screen]: the phone's sensors and screen (none by default); [hapticKinds]: what the fake
+ * haptics can play; [precisionSupported]: the fake UWB radio has the chip.
  */
 internal class Lab(
     scope: TestScope,
     clockWorks: Boolean = true,
     probes: LabProbes = NoopLabProbes(),
     screen: LabScreen = NoopLabScreen(),
+    hapticKinds: List<HapticKind>? = null,
+    precisionSupported: Boolean = false,
     labAir: ((LabLog) -> LabAir)? = null,
 ) {
     val log = LabLog(isEnabled = true, { 1_790_000_000_000L + scope.currentTime }, { scope.currentTime })
@@ -120,7 +196,10 @@ internal class Lab(
     val tracker = FakeBackgroundTracker()
     val carry = FakeCarryMonitor()
     val air = FakeAir()
-    val haptics = FakeHaptics()
+    val haptics = hapticKinds?.let(::FakeHaptics) ?: FakeHaptics()
+    val modes = FakeModes()
+    val link = FakeLink()
+    val precision = FakePrecision(precisionSupported)
     val files = FakeFiles()
     var serverAsks = 0
     val inAGame = MutableStateFlow(false)
@@ -157,6 +236,9 @@ internal class Lab(
         inAGame = inAGame,
         monotonicMillis = { scope.currentTime },
         random = Random(2),
+        modes = modes,
+        link = link,
+        precision = precision,
     )
 
     fun events(): List<JsonObject> = log.lines().map { Json.parseToJsonElement(it).jsonObject }

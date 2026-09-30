@@ -5,6 +5,7 @@ import app.hovanki.radar.AirSecond
 import app.hovanki.radar.Decoded
 import app.hovanki.radar.RadarTrace
 import app.hovanki.radar.RadioApi
+import app.hovanki.radar.RangeTrace
 
 /*
  * What the radio lab needs from the app (docs/radio-lab.md §5) besides the phone's parts: sharing the files, and the
@@ -49,4 +50,13 @@ class LabRadioTrace(private val log: LabLog) : RadarTrace {
             else -> tech
         }
     }
+}
+
+/**
+ * The precision radio tells the lab's log every step of its ranging sessions ([RangeTrace]): the `range` events with
+ * an action other than `reading` (`session_start`, `config`, `suspended`, `removed`, `invalidated`…). The platform
+ * module gives it to the lab's own precision radio (iOS: `IosPrecisionRadio`); the game's never traces.
+ */
+class LabRangeTrace(private val log: LabLog) : RangeTrace {
+    override fun range(action: String, peer: String?, error: String?) = log.range(action, peer, error = error)
 }

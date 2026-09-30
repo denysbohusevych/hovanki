@@ -187,9 +187,9 @@ class LabLog(
     }
 
     /**
-     * A request to the lab's server routes: [action] `join`, `state`, `upload` or `advance`, whether it went through
-     * ([ok]), the upload's events ([seqFrom]..[seqTo]) and [bytes] on the wire, how long it took ([millis]), the
-     * [error] and how many events wait for an upload ([pending]).
+     * A request to the lab's server routes: [action] `join`, `state`, `upload`, `advance` or `uwb` (the UWB token
+     * posted), whether it went through ([ok]), the upload's events ([seqFrom]..[seqTo]) and [bytes] on the wire, how
+     * long it took ([millis]), the [error] and how many events wait for an upload ([pending]).
      */
     fun net(
         action: String,
@@ -471,7 +471,9 @@ class LabLog(
         put("reason", reason)
     }
 
-    /** [kind]: `core_haptics`, `impact`, `notify_silent_sound`, `notify_no_sound`, `vibrator`. */
+    /**
+     * [kind]: `core_haptics`, `core_haptics_audio`, `impact`, `notify_silent_sound`, `notify_no_sound`, `vibrator`.
+     */
     fun haptic(kind: String, result: String, error: String? = null, reason: String? = null, group: Int? = null) =
         event("haptic") {
             put("kind", kind)
@@ -480,6 +482,53 @@ class LabLog(
             put("reason", reason)
             put("group", group)
         }
+
+    /**
+     * A step of the GATT link (`gatt.link`, docs/radar-run.md §5.2): [action] the link's trace
+     * ([app.hovanki.radar.link.LinkTrace]: `connect`, `connected`, `wrote`, `notified`, `disconnected`…) or `reading`
+     * (a token or an RSSI read over the link), with the peer ([peer], the OS's id; hashed here as in [rx]), the peer's
+     * [token], the [rssi] (dBm, only the side that connected reads it) and the [error].
+     */
+    fun link(action: String, peer: String? = null, token: String? = null, rssi: Int? = null, error: String? = null) =
+        event("link") {
+            put("action", action)
+            put("peer", peer?.let(::peerId))
+            put("token", token)
+            put("rssi", rssi)
+            put("error", error)
+        }
+
+    /**
+     * UWB ranging (`uwb.ni`, docs/radar-run.md §5.3): [action] `reading` with the distance [meters] (2 decimals) and
+     * the direction [degrees] (whole, clockwise from where the phone points; none when iOS doesn't know it) to [peer]
+     * (the run's label: it is no OS id), or a step of the session ([app.hovanki.radar.RangeTrace]: `session_start`,
+     * `config`, `running`, `suspended`, `removed`, `invalidated`…) with its [error]. The discovery tokens are never
+     * written.
+     */
+    fun range(
+        action: String,
+        peer: String? = null,
+        meters: Double? = null,
+        degrees: Double? = null,
+        error: String? = null,
+    ) = event("range") {
+        put("action", action)
+        put("peer", peer)
+        put("m", meters?.takeIf { it.isFinite() }?.let { round(it, 2) })
+        put("deg", degrees?.takeIf { it.isFinite() }?.roundToLong())
+        put("error", error)
+    }
+
+    /**
+     * A background mode (`mode.audio`, `mode.notification_wake`, `mode.live_activity`, docs/radar-run.md §5.1, §5.3):
+     * [event] `on`, `off`, `failed` or `unavailable` as the lab switched it, or what the mode said while on
+     * (`interruption_began`, `route_change`, `notification_sent`, `live_activity_started`…), with the [reason].
+     */
+    fun mode(mode: String, event: String, reason: String? = null) = event("mode") {
+        put("mode", mode)
+        put("event", event)
+        put("reason", reason)
+    }
 
     fun battery(level: Double?, state: String?, lowPower: Boolean?) = event("battery") {
         put("level", level?.let { round(it, 3) })

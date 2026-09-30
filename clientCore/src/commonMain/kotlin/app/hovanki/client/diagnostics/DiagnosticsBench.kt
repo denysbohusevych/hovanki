@@ -50,9 +50,16 @@ class DiagnosticsBench(
     private var radioJob: Job? = null
     private var gpsJob: Job? = null
 
+    private val mutableRadioToken = MutableStateFlow<String?>(null)
+
+    /**
+     * The token the radio on the bench advertises; null: off. As a flow for the radio lab's GATT link, which writes
+     * the same token to its peers (`gatt.link`, `LabController.setTechniques`).
+     */
+    val advertisedToken: StateFlow<String?> = mutableRadioToken.asStateFlow()
+
     /** The token the radio on the bench advertises; null: off. */
-    var radioToken: String? = null
-        private set
+    val radioToken: String? get() = mutableRadioToken.value
 
     /** The channels the radio on the bench runs ([startRadio]); empty: the game's. */
     var radioTechniques: Set<String> = emptySet()
@@ -67,7 +74,7 @@ class DiagnosticsBench(
         stopRadio()
         radio.refresh()
         mutableRadio.value = BenchRadio(asSeeker)
-        radioToken = token
+        mutableRadioToken.value = token
         radioTechniques = techniques
         diagnostics.onRadio(token, asSeeker)
         val channels = if (techniques.isEmpty()) "" else ", channels ${techniques.sorted().joinToString(",")}"
@@ -100,7 +107,7 @@ class DiagnosticsBench(
     fun stopRadio() {
         radioJob?.cancel()
         radioJob = null
-        radioToken = null
+        mutableRadioToken.value = null
         radioTechniques = emptySet()
         if (mutableRadio.value != null) {
             diagnostics.onRadio(null, asSeeker = false)

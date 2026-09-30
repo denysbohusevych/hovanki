@@ -738,7 +738,7 @@ object LabRunScripts {
         val live = GAME + MODE_LIVE_ACTIVITY + PULSE_LIVE_ACTIVITY
         val wake = CARRIED + MODE_NOTIFICATION_WAKE
         val test = "Unlock, start the vibration test (Lab → Vibration test: the lab's own test, not this step), " +
-            "lock within 15 s and pocket the phone; after «Vibration test over» unlock and mark felt 1–4."
+            "lock within 15 s and pocket the phone; after «Vibration test over» unlock and mark what you felt in every group."
 
         fun both(id: String, title: String, seconds: Int, hint: String, iPhone: DeviceStep) =
             bigStep(id, title, seconds, hint, near, iPhone, iPhone, beacon)
@@ -760,7 +760,7 @@ object LabRunScripts {
                 "b3_${id}_test",
                 "Vibration: $what, the vibration test",
                 75,
-                "The vibration test by $what in the pocket; mark felt 1–4 afterwards.",
+                "The vibration test by $what in the pocket; mark what you felt in every group afterwards.",
                 at(hider(techniques), LabPlaces.POCKET_FRONT, LabPlaces.STAND, test),
             ),
         )
@@ -780,11 +780,11 @@ object LabRunScripts {
                     "b3_haptics_table_test",
                     "Vibration: the test on the table",
                     75,
-                    "The vibration test with the phones locked on the table; mark felt 1–4 afterwards.",
+                    "The vibration test with the phones locked on the table; mark what you felt in every group afterwards.",
                     onTable(
                         hider(haptics),
                         "Start the vibration test (the lab's own test, not this step), lock within 15 s, leave " +
-                            "the phone on the table; after «Vibration test over» unlock and mark felt 1–4.",
+                            "the phone on the table; after «Vibration test over» unlock and mark what you felt in every group.",
                     ),
                 ),
             )

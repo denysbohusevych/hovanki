@@ -2,7 +2,7 @@
 
 План для сессий, которые будут реализовывать [ADR 0017](adr/0017-radar-techniques-and-big-run.md): что делать по шагам, в каких файлах, чем проверять и какие правила легко нарушить. Зачем всё это и что именно проверяем — в самом ADR (§2.3 — каталог техник, §6 — программа прогона). Этот документ — «как».
 
-Статус: шаги 1 (2026-09-29), 2, 3, 4 и 7 (2026-09-30) сделаны, шаг 5 впереди, шаг 6 отложен. Каждый шаг ниже — отдельная сессия и отдельный PR. Сделанный шаг отмечается здесь ✅, а в ADR 0017 появляется раздел «Отличия реализации».
+Статус: шаги 1 (2026-09-29), 2, 3, 4, 5 и 7 (2026-09-30) сделаны (шаг 5 — вслепую, прогон на телефонах впереди), шаг 6 отложен. Каждый шаг ниже — отдельная сессия и отдельный PR. Сделанный шаг отмечается здесь ✅, а в ADR 0017 появляется раздел «Отличия реализации».
 
 ## 0. Правила для каждой сессии
 
@@ -167,37 +167,54 @@
 
 **Владельцу** (на телефонах, когда дойдёт до прогона): в лаборатории нажать «Touched with …» и метку другого телефона сразу после касания — телефоны стукаются друг о друга спина к спине одним ударом, три касания на пару в начале и одно в конце (§3 ADR: повторяемость и дрейф); кнопку можно нажать на одном из двух телефонов (отметки пары в пределах 2 с — одно касание). Расстояния между парами — как раньше: кнопки «Distance» в «Marks» или шаги сценария с `distances`. Отчёт откроется в админке после прогона, карточки — первым разделом.
 
-## 5. Шаг 5 — два iPhone в карманах
+## 5. Шаг 5 — два iPhone в карманах ✅ (2026-09-30, вслепую)
 
-Самый вслепую написанный шаг: мелкими PR, сборка на Маке между ними. Порядок — от дешёвого к дорогому.
+Самый вслепую написанный шаг: код есть весь, но iOS-часть ни разу не собиралась на Маке, а Android-часть — только в CI (в облаке нет Android SDK). Прогон на телефонах — впереди (§5.4). Решения и отличия от плана — «Отличия реализации», «Шаг 5» в [ADR 0017](adr/0017-radar-techniques-and-big-run.md#шаг-5-2026-09-30).
 
-### 5.1 Вибрация и режимы
+Как это включается: шаг сценария называет техники по id в `PhoneSetup.techniques` (сценарий `big_run` уже называет их, §7), а `LabController.setTechniques` раздаёт их: каналы — радио стенда (как раньше), `mode.*` — `BackgroundModes`, `gatt.link` — `GattLink`, `uwb.ni` — `PrecisionRadio` с остальными устройствами прогона, `pulse.*` — чем бьёт пульс лаборатории. Незнакомый id по-прежнему пишется в `note` и пропускается; то, чего у телефона нет (режим, UWB), пишется один раз и пропускается. В игре ничего не меняется: она не включает ни режимов, ни связи, а её `PrecisionRadio` остаётся `NoopPrecisionRadio`.
 
-- `mode.audio`: `AVAudioSession` категории `playback` с `mixWithOthers`, беззвучный звук по кругу; в `Info.plist` Debug — фоновый режим `audio` (через `debug-info-plist.sh`, как локальная сеть: в release его быть не должно). `pulse.core_haptics.audio` — `CHHapticEngine`, созданный с этой сессией.
-- `mode.notification_wake`: уведомление раз в N с, отметка времени; отчёт смотрит, появились ли маски и ranging после него.
-- События `audio` (прерывания, смены маршрута).
+### 5.1 Вибрация и режимы ✅
 
-### 5.2 GATT (`gatt.link`)
+- `mode.audio`: `AVAudioSession` категории `playback` с `mixWithOthers`, беззвучный WAV по кругу (`AVAudioPlayer`, громкость 0); выключение — `setActive(false)` с `notifyOthersOnDeactivation`. Прерывания (звонок, Siri, будильник; после конца плеер запускается снова), смены маршрута и сброс медиасервисов — события `mode`. `pulse.core_haptics.audio` — второй `CHHapticEngine`, созданный на этой общей сессии (`HapticKind.CORE_HAPTICS_AUDIO`); без `mode.audio` он играет на сессии по умолчанию.
+- `mode.notification_wake`: локальное уведомление раз в 20 с («wake N», без звука), но не циклом в приложении — в фоне цикл спит вместе с ним, — а заранее поставленными в очередь триггерами на 10 минут вперёд (30 штук); цикл только доливает очередь и пишет `notification_sent`, когда уведомлению пора. Отчёт смотрит, появились ли маски и ranging в пределах 10 с после каждого.
+- Тест вибрации: групп столько, сколько `LabHaptics.kinds`, на iPhone теперь пять (1 Core Haptics, 2 Core Haptics на аудиосессии, 3 impact, 4 уведомление с беззвучным звуком, 5 без звука).
+- Пульс: `pulse.core_haptics`, `pulse.core_haptics.audio`, `pulse.live_activity` (Core Haptics при включённой Live Activity), `pulse.impact`, `pulse.notify_silent_sound`, `pulse.notify` выбирают, чем бьёт `PhoneSetup.pulse`; несколько сразу — цепочка «первое, что сработало» (ADR 0017 §2.3): бьёт первый, который есть у телефона, а после первой ошибки — следующий.
 
-- Сервис GATT с характеристикой жетона на каждом телефоне; подключение к назначенному в шаге партнёру, пока экраны горят; подписка на notify, запись раз в несколько секунд, `readRSSI` раз в 2–8 с. Всё в CoreBluetooth и `android.bluetooth` — есть в Objective-C, Kotlin/Native видит.
-- Журнал `link`: подключение, отключение с ошибкой, смена идентификатора, переподключение в фоне.
+**Как сделано:** `:device` — `BackgroundModes` (`ModeIds`, `ModeResult`, `ModeEvent`, `NoopBackgroundModes`) и `LiveActivityHost` в корне пакета, `IosBackgroundModes` и общие для лаборатории куски (`IosLabSupport.kt`: запрос уведомлений, беззвучный WAV) в `iosMain`, `HapticKind.CORE_HAPTICS_AUDIO` в `IosLabHaptics`; Android — `NoopBackgroundModes` (приложение там и так держит foreground service). Фоновые режимы `audio` и `nearby-interaction` и `NSSupportsLiveActivities` добавляет в Info.plist только Debug-сборки `debug-info-plist.sh`. Журнал — событие `mode` {`mode`, `event`, `reason`}: `on`, `off`, `failed`, `unavailable` от лаборатории и события самих режимов; отдельного вида `audio` нет (§4 ADR 0017 его называл).
+
+### 5.2 GATT (`gatt.link`) ✅
+
+- Каждый телефон с `gatt.link` держит один сервис (`RadarService.LINK_UUID`) с одной характеристикой жетона (`LINK_TOKEN_UUID`: чтение, запись, notify; значение — 4 байта жетона, который вещает радио стенда), рекламирует сервис (заблокированный iPhone — только битом overflow: это и меряем), сканирует его и подключается к каждому найденному (не больше `MAX_LINKS` = 5; подключаются обе стороны пары), читает жетон, подписывается на notify, пишет свой жетон раз в 5 с (запись будит приложение партнёра), читает RSSI раз в 3 с, переподключается после разрыва. Без сопряжения и шифрования.
+- Журнал `link`: каждый шаг связи (`connect`, `connected`, `services`, `subscribed`, `wrote`, `notified`, `disconnected` с ошибкой ОС, `reconnect`, `forget`, `identifier_changed`, `central_*` серверной стороны…) и `reading` — жетон или RSSI через связь (`peer` хешируется, как в `rx`).
+
+**Как сделано:** `:radar`, пакет `link/` (импортирует только корень и `:shared`, `ModuleBoundariesTest`): `GattLink`, `LinkReading`, `LinkTrace`, `GattLinkRules`, `LinkTechnique`, `NoopGattLink`, чистые `LinkOperations`/`LinkPeers`; Android — `AndroidGattLink` (`BluetoothGattServer` + `BluetoothLeScanner` + `connectGatt(TRANSPORT_LE)`, свой `AdvertiseCallback` рядом с рекламой игры, операции по одной на соединение с тайм-аутом); iOS — `IosGattLink` (второй `CBPeripheralManager` и свой `CBCentralManager` рядом с менеджерами игры, делегат на каждого партнёра, повторный `connect` после разрыва: iOS держит запрос без тайм-аута — так и переподключаются в фоне). RSSI читает только подключившаяся сторона. `identifier_changed` — когда новый id прочитал жетон молчащего старого. Лаборатория пишет в связь тот же жетон, что вещает радио стенда (`DiagnosticsBench.advertisedToken`), и показывает в карточке прогона «link: N peers».
 
 ### 5.3 UWB (`uwb.ni`) — в два захода
 
-**Заход 1, без нового таргета.** `NISession` с `NINearbyPeerConfiguration`; токены (`NIDiscoveryToken`, архив `NSKeyedArchiver`) обмениваются через сервер прогона (поле в `state`). Nearby Interaction есть в Objective-C, мост не нужен. В `Info.plist` — `NSNearbyInteractionUsageDescription`. Проверяем на экране и в режиме `mode.proximity_screen` (экран погашен датчиком, приложение активно — значит, для iOS это не фон). Если в кармане с погашенным датчиком экраном UWB работает, Live Activity для прогона может и не понадобиться.
+**Заход 1 ✅** (без нового таргета). `IosPrecisionRadio` (`:radar`, пакет `uwb/`): Nearby Interaction, одна «домашняя» `NISession` на iPhone, её токен (`NIDiscoveryToken`, `NSKeyedArchiver` с secure coding, base64) телефон отдаёт в прогон (`POST /api/v1/lab/runs/{runId}/uwb`, V12: `lab_devices.uwb_token`), состояние прогона перечисляет токены всех устройств по меткам (`LabRunStateView.uwbTokens`). `LabRunFollower` при входе в прогон готовит радио (`prepare()`), отдаёт токен и каждый новый (после инвалидации сессии он меняется), каждый ответ сервера передаёт `LabController.setUwbPeers`; шаг с `uwb.ni` ранжирует со всеми метками, кроме своей. Сессия одна — значит, партнёр один: первый по метке, остальные пишутся в `range` как `config` с ошибкой (для двух iPhone шага 5 этого хватает). Журнал `range`: `reading` {`peer` — метка, `m`, `deg`} и шаги сессии (`session_start`, `config`, `running`, `suspended`, `suspension_ended`, `removed`, `invalidated`, `rerun`, `stop`); токены в журнал не пишутся. `LabCapabilities.uwb` при входе — есть ли чип (`NISession.deviceCapabilities`). Проверяем на экране и с `screenOff` (экран погашен датчиком, приложение активно).
 
-**Заход 2, с Live Activity** — для настоящей блокировки. Здесь нужны:
+**Заход 2 ✅ со стороны Kotlin, Swift-файлы готовы — таргет добавляет владелец.** `mode.live_activity` (и `pulse.live_activity`) запускает Live Activity, когда приложение уходит с экрана (`UIApplicationWillResignActiveNotification`: позже iOS её не даст), раз в минуту обновляет время, выключение — `end()`. ActivityKit есть только в Swift, поэтому: `LiveActivityHost` в `:device` → `BridgedLiveActivityHost` в `composeApp/iosMain` (`LiveActivityBridge.kt`) → Swift-класс `HovankiLiveActivityHost`, который `ContentView.swift` ищет по имени (`NSClassFromString`) и отдаёт в Kotlin. Без него приложение собирается и работает, а `mode.live_activity` пишется как `unavailable`. Файлы: `iosApp/iosApp/LiveActivity/` (атрибуты — в оба таргета, хост — в приложение), `iosApp/HovankiLive/` (виджет расширения).
 
-- **Таргет Widget Extension.** Live Activity на экране блокировки рисует WidgetKit, а он живёт только в расширении — отдельном маленьком приложении, которое система запускает сама. Из основного приложения его не нарисовать. Таргет создаёт владелец в Xcode руками (File → New → Target → Widget Extension, галочка «Include Live Activity», имя `HovankiLive`, bundle id — `$(BUNDLE_ID).live`): это пара минут, а правка `project.pbxproj` вслепую — риск сломать проект. Код расширения (вид Live Activity) пишет сессия.
-- **Мост на Swift.** ActivityKit есть только в Swift, Kotlin/Native его не видит. В `:device` — интерфейс `LiveActivityHost` (`start`, `update`, `end`); реализация — Swift-класс в `iosApp`, который `iOSApp.swift` отдаёт в Kotlin при запуске (как `mainViewController()`, только в другую сторону).
-- **`Info.plist`:** `NSSupportsLiveActivities = YES`; фоновый режим `nearby-interaction`.
-- Порядок в коде: Live Activity запускается, **пока приложение ещё на экране** (в `willResignActive`), иначе iOS её не даст.
+**Не проверено (всё):** ни одна строка iOS-части не собиралась (`IosBackgroundModes`, аудиосессия у `CHHapticEngine`, `IosGattLink`, `IosPrecisionRadio`, Swift-файлы, `debug-info-plist.sh`), Android-часть `gatt.link` собирается только в CI и не запускалась. Живёт ли `mode.audio` на блокировке, будит ли запись GATT заблокированный iPhone, работает ли UWB с Live Activity, когда оба заблокированы, — это и есть вопросы прогона. Проверено на JVM: `LabTechniquesTest` (режим по id и его события, связь пишет `link`, UWB с партнёром пишет `range`, пульс выбирает свой способ и переходит к следующему), `LabRunFollowerTest` (токен UWB уходит на сервер, токены прогона — в контроллер), `GattLinkTest`/`LinkOperationsTest`/`LinkPeersTest`, `UwbTechniqueTest`, `BackgroundModesTest`, серверный `LabApiTest` (токен одного устройства виден другому по метке), весь `:e2e:test --tests '*LabRunTest*'`.
 
 ### 5.4 Что делает владелец в Xcode
 
-1. Создать таргет виджета (выше), выбрать тот же Team, что у приложения.
-2. В Signing & Capabilities приложения: Background Modes → «Uses Nearby Interaction» (и «Audio» — только если шаг 5.1 не справится через `debug-info-plist.sh`).
-3. Собрать на оба iPhone, прислать ошибки.
+Точные шаги — в [iosApp/README.md](../iosApp/README.md#радиолаба-live-activity-и-фоновые-режимы), раздел «Радиолаба: Live Activity и фоновые режимы». Коротко:
+
+1. Убрать наши файлы расширения в сторону (`mv iosApp/HovankiLive /tmp/HovankiLive-ours`), File → New → Target → Widget Extension `HovankiLive` с «Include Live Activity», тот же Team, bundle id — id приложения плюс `.live` (вписать руками), iOS 16.2.
+2. Удалить Swift-файлы шаблона, вернуть наши (`cp /tmp/HovankiLive-ours/*.swift iosApp/HovankiLive/`), добавить `iosApp/iosApp/LiveActivity/`: `HovankiLiveAttributes.swift` — в оба таргета, `HovankiLiveActivityHost.swift` — только в приложение.
+3. Background Modes не трогать: `audio` и `nearby-interaction` добавляет скрипт Debug-сборки (проверить в собранном `Hovanki.app/Info.plist`).
+4. Собрать схему `iosApp` на оба iPhone, ошибки компиляции прислать целиком. **`project.pbxproj` с расширением не коммитить** (TestFlight подписывает всё одним профилем).
+
+**Что смотреть первым при ошибке:**
+
+- Не собирается `:device` для iOS на `CHHapticEngine(audioSession = …)` — строка с приведением `AVAudioSession.sharedInstance() as objcnames.classes.AVAudioSession` в `device/src/iosMain/.../lab/IosLabPlatform.kt` (`newEngine`): инициализатор объявлен с forward declaration, приведение только переименовывает тип. Если компилятор не пускает — прислать ошибку; временно можно вернуть `CHHapticEngine(andReturnError = …)` для этого вида.
+- Live Activity не появляется и в журнале `mode.live_activity` — `unavailable`: `ContentView.swift`, `NSClassFromString("HovankiLiveActivityHost")` вернул `nil` — хост не в таргете приложения или у класса нет `@objc(HovankiLiveActivityHost)`. `refused` — Настройки → Hovanki → Live Activities.
+- `gatt.link` на iPhone: в приложении два `CBPeripheralManager` (игры и связи) и два `CBCentralManager`. Если в журнале `advertise_failed` или реклама игры пропадает, когда включается связь, — это они мешают друг другу; прислать `adv` и `link` за эту минуту.
+- `range` с `config` и ошибкой `the peer's token did not unarchive` — токен партнёра не разархивировался (`NSKeyedUnarchiver` с secure coding): проверить, что оба iPhone на одной сборке.
+- `range` `invalidated` с кодом `-5884` — пользователь не разрешил Nearby Interaction (вопрос появляется при первом `run`): Настройки → Конфиденциальность → Nearby Interaction → Hovanki.
+
+**Какие прогоны пробовать первыми:** E3 (вибрация из фона) и E6 (ranging на заблокированном) из [radio-lab.md §11](radio-lab.md#11-выход-1-пошагово-iphone--мак) — с новыми группами теста вибрации; затем в `big_run` блоки 3 (вибрация и режимы: `b3_audio_*`, `b3_live_activity_*`, `b3_notification_wake`) и 4 (два кармана: `b4_gatt_*`, `b4_uwb_*`, `b4_both_*`) — «Пауза» на пульте между ними, чтобы посмотреть живой вид.
 
 ## 6. Шаг 6 — Wi-Fi Aware — отложен (2026-09-30)
 
@@ -223,7 +240,7 @@
 
 **Проверено:** `:shared:jvmTest`, `:server:test`, `:e2e:unitTest`, `:e2e:test --tests '*LabRunTest*'` (e2e-прогон по-прежнему идёт по `E2E`), `spotlessApply`.
 
-**Не проверено:** сам прогон — ни один шаг не пройден на телефонах; длительности шагов (35 с на точку дорожки, 33 с на касание) — догадки, «Повторить» и «Пауза» на пульте для того и есть. Техники шага 5 (`mode.audio`, `mode.notification_wake`, `pulse.core_haptics.audio`, `gatt.link`, `uwb.ni`, `mode.live_activity`, `pulse.live_activity`) названы, но не написаны: телефон пишет `unknown techniques …: left out` и идёт с остальными, пока их нет (так же он пропускает `pulse.core_haptics` — это пульс лаборатории, `PhoneSetup.pulse`, id только называет его для отчёта). С шагом 5 они включатся в тех же шагах без правки сценария, если id останутся теми же и `LabController.setTechniques` будет искать их не только в `RadarCatalog` (сейчас — только там; режимы и пульсы шагу 5 нужно будет туда подключить, например через `DeviceCatalog`).
+**Не проверено:** сам прогон — ни один шаг не пройден на телефонах; длительности шагов (35 с на точку дорожки, 33 с на касание) — догадки, «Повторить» и «Пауза» на пульте для того и есть. Техники шага 5 (`mode.audio`, `mode.notification_wake`, `pulse.core_haptics.audio`, `gatt.link`, `uwb.ni`, `mode.live_activity`, `pulse.live_activity`) названы, но не написаны: телефон пишет `unknown techniques …: left out` и идёт с остальными, пока их нет (так же он пропускает `pulse.core_haptics` — это пульс лаборатории, `PhoneSetup.pulse`, id только называет его для отчёта). С шагом 5 они включатся в тех же шагах без правки сценария, если id останутся теми же и `LabController.setTechniques` будет искать их не только в `RadarCatalog` (сейчас — только там; режимы и пульсы шагу 5 нужно будет туда подключить, например через `DeviceCatalog`). *Сделано в шаге 5 (§5): `setTechniques` знает эти id сам (`LabController.LAB_TECHNIQUES`), без `DeviceCatalog`.*
 
 ## 8. Как добавить технику
 

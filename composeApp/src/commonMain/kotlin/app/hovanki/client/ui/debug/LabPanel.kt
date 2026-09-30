@@ -184,6 +184,9 @@ private fun JoinServerRun(viewModel: LabViewModel, inGame: Boolean, error: Strin
 private fun FollowedRun(viewModel: LabViewModel, run: LabFollowState, error: String?) {
     val pending by viewModel.uploadPending.collectAsStateWithLifecycle()
     val uploadError by viewModel.uploadError.collectAsStateWithLifecycle()
+    val linkPeers by viewModel.linkPeers.collectAsStateWithLifecycle()
+    val lastRange by viewModel.lastRange.collectAsStateWithLifecycle()
+    val labTechniques by viewModel.labTechniques.collectAsStateWithLifecycle()
     val now = viewModel.serverNow()
     val status = run.plan.status
     Line("${run.script.title} · ${run.code} · as ${run.label}")
@@ -212,6 +215,9 @@ private fun FollowedRun(viewModel: LabViewModel, run: LabFollowState, error: Str
                 },
             )
         }
+    }
+    if ("gatt.link" in labTechniques || "uwb.ni" in labTechniques) {
+        Line("link: $linkPeers peers · range: ${lastRange ?: "none yet"}")
     }
     Line("upload: $pending pending")
     uploadError?.let { SecondaryText("⚠ upload: $it") }

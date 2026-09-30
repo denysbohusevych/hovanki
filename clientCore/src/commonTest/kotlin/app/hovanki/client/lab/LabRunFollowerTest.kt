@@ -35,8 +35,9 @@ class LabRunFollowerTest {
         clockWorks: Boolean = true,
         /** The server's clock ahead of the device's. */
         serverAhead: Long = 700,
+        precisionSupported: Boolean = false,
     ) {
-        val lab = Lab(scope, clockWorks)
+        val lab = Lab(scope, clockWorks, precisionSupported = precisionSupported)
         val api = FakeLabApi(
             serverNow = { lab.log.deviceNow() + serverAhead },
             script = script,
@@ -50,6 +51,46 @@ class LabRunFollowerTest {
         fun ofKind(kind: String): List<JsonObject> = lab.events().filter { it.text(LabFields.K) == kind }
 
         fun marks(): List<String> = ofKind("mark").mapNotNull { it.text("label") }
+    }
+
+    @Test
+    fun aPhoneWithUwbPostsItsTokenAndGetsTheRunsTokens() = runTest {
+        val rig = Rig(this, precisionSupported = true)
+        rig.api.uwbTokens["B"] = "token-b"
+        rig.follower.join(FakeLabApi.CODE, "A")
+        runCurrent()
+        assertEquals(1, rig.lab.precision.prepared, "the radio made ready at the join")
+        assertEquals("uwb-token-1", rig.api.uwbTokens["A"])
+        assertEquals(mapOf("A" to "uwb-token-1", "B" to "token-b"), rig.lab.controller.uwbPeers.value)
+
+        // A new token (the session started over) goes up again; another device's comes with the next poll.
+        rig.lab.precision.token.value = "uwb-token-2"
+        runCurrent()
+        assertEquals("uwb-token-2", rig.api.uwbTokens["A"])
+        rig.api.uwbTokens["C"] = "token-c"
+        advanceTimeBy(LabRunFollower.POLL_MILLIS + 1)
+        assertEquals("token-c", rig.lab.controller.uwbPeers.value["C"])
+        assertEquals(
+            listOf(true, true),
+            rig.ofKind("net").filter {
+                it.text("action") == "uwb"
+            }.map { it.text("ok").toBoolean() },
+        )
+
+        rig.follower.leave()
+        assertEquals(emptyMap(), rig.lab.controller.uwbPeers.value)
+    }
+
+    @Test
+    fun aPhoneWithoutUwbPostsNoToken() = runTest {
+        val rig = Rig(this)
+        rig.api.uwbTokens["B"] = "token-b"
+        rig.follower.join(FakeLabApi.CODE, "A")
+        runCurrent()
+        assertEquals(0, rig.lab.precision.prepared)
+        assertEquals(setOf("B"), rig.api.uwbTokens.keys)
+        assertEquals(mapOf("B" to "token-b"), rig.lab.controller.uwbPeers.value, "it still knows the others'")
+        rig.follower.leave()
     }
 
     @Test

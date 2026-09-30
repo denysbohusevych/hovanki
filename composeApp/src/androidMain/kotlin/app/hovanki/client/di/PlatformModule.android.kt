@@ -38,6 +38,8 @@ import app.hovanki.radar.ProximityRadio
 import app.hovanki.radar.host.AndroidAirHost
 import app.hovanki.radar.lab.HostLabAir
 import app.hovanki.radar.lab.LabAir
+import app.hovanki.radar.link.AndroidGattLink
+import app.hovanki.radar.link.GattLink
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
 import org.koin.android.ext.koin.androidContext
@@ -53,7 +55,7 @@ actual val platformModule: Module = module {
     single<ShareSheet> { AndroidShareSheet(androidContext()) }
     // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md): the game's channels on the phone's one host of the
     // air (docs/adr/0017-radar-techniques-and-big-run.md, section 2.2); the precision radar by UWB is not implemented
-    // yet.
+    // on Android yet.
     single<AirHost> { AndroidAirHost(androidContext()) }
     single<ProximityRadio> { HostProximityRadio(get(), trace = get()) }
     single<PrecisionRadio> { NoopPrecisionRadio() }
@@ -70,4 +72,7 @@ actual val platformModule: Module = module {
     // The background modes are iPhone's (docs/radar-run.md §5.1, §5.3): the foreground service keeps an Android alive.
     single<BackgroundModes> { NoopBackgroundModes() }
     single<LiveActivityHost> { NoopLiveActivityHost() }
+    // The radio lab's GATT link and its own UWB radio (docs/radar-run.md §5.2, §5.3); the game uses neither.
+    single<GattLink> { AndroidGattLink(androidContext()) }
+    single<PrecisionRadio>(LAB_PRECISION) { NoopPrecisionRadio() }
 }
