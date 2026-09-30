@@ -25,7 +25,10 @@ interface LabProbes {
      */
     fun lifecycle(): Flow<String>
 
-    /** Motion about ten times a second, the proximity sensor and the light as the platform gives them. */
+    /**
+     * Motion about 50 times a second (a knock of the touch calibration is short), the proximity sensor and the light
+     * as the platform gives them.
+     */
     fun sensors(): Flow<LabSensorReading>
 
     /** The battery now, then on changes and at least once a minute. */

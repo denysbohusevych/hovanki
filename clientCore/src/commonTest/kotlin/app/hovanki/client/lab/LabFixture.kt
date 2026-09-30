@@ -8,7 +8,11 @@ import app.hovanki.client.session.FakeLocationProvider
 import app.hovanki.client.session.FakeRadio
 import app.hovanki.device.lab.HapticKind
 import app.hovanki.device.lab.HapticResult
+import app.hovanki.device.lab.LabBattery
 import app.hovanki.device.lab.LabHaptics
+import app.hovanki.device.lab.LabProbes
+import app.hovanki.device.lab.LabScreen
+import app.hovanki.device.lab.LabSensorReading
 import app.hovanki.device.lab.NoopLabProbes
 import app.hovanki.device.lab.NoopLabScreen
 import app.hovanki.radar.lab.LabAir
@@ -20,6 +24,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.currentTime
@@ -65,6 +70,30 @@ internal class FakeHaptics : LabHaptics {
     override fun engineEvents(): Flow<Pair<HapticKind, String>> = engine
 }
 
+/** The phone's sensors by hand: [readings] as the platform would emit them, [state] the app's state now. */
+internal class FakeProbes(var state: String = "screen_on") : LabProbes {
+    val readings = MutableSharedFlow<LabSensorReading>(extraBufferCapacity = 256)
+    val life = MutableSharedFlow<String>(extraBufferCapacity = 16)
+
+    override fun appState(): String = state
+
+    override fun lifecycle(): Flow<String> = life
+
+    override fun sensors(): Flow<LabSensorReading> = readings
+
+    override fun battery(): Flow<LabBattery> = emptyFlow()
+}
+
+/** A screen the proximity sensor can turn off. */
+internal class FakeScreen : LabScreen {
+    override val canTurnOffByProximity = true
+    var turnedOff = false
+
+    override fun setOffByProximity(on: Boolean) {
+        turnedOff = on
+    }
+}
+
 internal class FakeFiles : LabFiles {
     val shared = mutableListOf<List<LabFile>>()
 
@@ -76,9 +105,15 @@ internal class FakeFiles : LabFiles {
 /**
  * The lab on fake parts, time from the test's scheduler: the server's clock is 700 ms ahead of the device's; with
  * [clockWorks] false the server never answers the clock's questions; [labAir]: the lab's air on its log instead of
- * [FakeAir].
+ * [FakeAir]; [probes] and [screen]: the phone's sensors and screen (none by default).
  */
-internal class Lab(scope: TestScope, clockWorks: Boolean = true, labAir: ((LabLog) -> LabAir)? = null) {
+internal class Lab(
+    scope: TestScope,
+    clockWorks: Boolean = true,
+    probes: LabProbes = NoopLabProbes(),
+    screen: LabScreen = NoopLabScreen(),
+    labAir: ((LabLog) -> LabAir)? = null,
+) {
     val log = LabLog(isEnabled = true, { 1_790_000_000_000L + scope.currentTime }, { scope.currentTime })
     val radio = FakeRadio()
     val location = FakeLocationProvider()
@@ -100,9 +135,9 @@ internal class Lab(scope: TestScope, clockWorks: Boolean = true, labAir: ((LabLo
     val controller = LabController(
         log = log,
         bench = bench,
-        probes = NoopLabProbes(),
+        probes = probes,
         air = labAir?.invoke(log) ?: air,
-        screen = NoopLabScreen(),
+        screen = screen,
         haptics = haptics,
         files = files,
         radio = radio,

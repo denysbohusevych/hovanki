@@ -166,8 +166,9 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
             appendLine("|---|---|---|---|---|---|---|---|---|---|")
             for (direction in directions) {
                 val gap = round1(direction.longestGapMillis / 1000.0)
+                val channel = direction.channel + direction.tech?.let { " $it" }.orEmpty()
                 appendLine(
-                    "| ${direction.from} → ${direction.to} | ${direction.channel} | ${direction.readings} | " +
+                    "| ${direction.from} → ${direction.to} | $channel | ${direction.readings} | " +
                         "${round1(direction.perSecond)} | ${direction.medianRssi} | ${direction.p80Rssi} | " +
                         "${direction.minRssi} | ${direction.maxRssi} | $gap | ${direction.during.ifEmpty { "-" }} |",
                 )
@@ -182,23 +183,28 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
             }
         }
         appendLine()
-        appendLine("## The pocket: the marks' truth against the carry monitor, seconds")
+        appendLine("## The pocket: the marks' truth against the carry classifiers, seconds")
         appendLine()
-        for ((dev, matrix) in carryMatrices()) {
-            appendLine("**$dev**")
-            appendLine()
-            val states = CARRY_STATES
-            appendLine("| truth \\ said | ${states.joinToString(" | ")} |")
-            appendLine("|---|${states.joinToString("") { "---|" }}")
-            for (truth in TRUTHS) {
-                val row = matrix[truth].orEmpty()
-                appendLine("| $truth | ${states.joinToString(" | ") { (row[it] ?: 0).toString() }} |")
+        for ((tech, matrices) in carryMatricesByTech()) {
+            for ((dev, matrix) in matrices) {
+                appendLine("**$dev** ($tech)")
+                appendLine()
+                val states = CARRY_STATES
+                appendLine("| truth \\ said | ${states.joinToString(" | ")} |")
+                appendLine("|---|${states.joinToString("") { "---|" }}")
+                for (truth in TRUTHS) {
+                    val row = matrix[truth].orEmpty()
+                    appendLine("| $truth | ${states.joinToString(" | ") { (row[it] ?: 0).toString() }} |")
+                }
+                appendLine()
             }
-            appendLine()
         }
     }
 
-    /** Who heard whom in `[start, end)`: [from] (by [sender]) → [to] (the listener) over [channel] (`api/via`). */
+    /**
+     * Who heard whom in `[start, end)`: [from] (by [sender]) → [to] (the listener) over [channel] (`api/via`) by the
+     * radar's channel [tech] (the `rx` event's `tech`; null in logs before the channels).
+     */
     data class Direction(
         val from: String,
         val to: String,
@@ -213,27 +219,31 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
         val longestGapMillis: Long,
         /** What the listener's app went through in that gap. */
         val during: String,
+        val tech: String? = null,
     )
 
     /**
-     * Every direction heard in `[start, end)`, sorted by sender, listener and channel: how often, how loud, the
-     * longest gap. [sender]: who a token is ([LabMerge.sender] by default).
+     * Every direction heard in `[start, end)`, sorted by sender, listener, channel and technique: how often, how loud,
+     * the longest gap. [sender]: who a token is ([LabMerge.sender] by default).
      */
     fun directions(start: Long, end: Long, sender: (String?) -> String = ::sender): List<Direction> {
         val seconds = (end - start) / 1000.0
         val readings = events.filter { it.k == "rx" && it.t >= start && it.t < end && it.int("rssi") != null }
         val grouped = readings.groupBy {
-            Triple(sender(it.string("token")), it.dev, "${it.string("api")}/${it.string("via")}")
+            val channel = "${it.string("api")}/${it.string("via")}"
+            DirectionKey(sender(it.string("token")), it.dev, channel, it.string("tech"))
         }
-        val sorted = grouped.entries.sortedWith(compareBy({ it.key.first }, { it.key.second }, { it.key.third }))
+        val sorted = grouped.entries.sortedWith(
+            compareBy({ it.key.from }, { it.key.to }, { it.key.channel }, { it.key.tech }),
+        )
         return sorted.map { (key, list) ->
             val rssi = list.mapNotNull { it.int("rssi") }.sorted()
             val times = listOf(start) + list.map { it.t } + end
             val (gapStart, gapEnd) = times.zipWithNext { a, b -> a to b }.maxBy { (a, b) -> b - a }
             Direction(
-                from = key.first,
-                to = key.second,
-                channel = key.third,
+                from = key.from,
+                to = key.to,
+                channel = key.channel,
                 readings = list.size,
                 perSecond = list.size / seconds.coerceAtLeast(0.001),
                 medianRssi = percentile(rssi, 50)!!,
@@ -241,10 +251,13 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
                 minRssi = rssi.first(),
                 maxRssi = rssi.last(),
                 longestGapMillis = gapEnd - gapStart,
-                during = lifeDuring(key.second, gapStart, gapEnd),
+                during = lifeDuring(key.to, gapStart, gapEnd),
+                tech = key.tech,
             )
         }
     }
+
+    private data class DirectionKey(val from: String, val to: String, val channel: String, val tech: String?)
 
     /** What the listener's app went through in a gap: its life events and the ticks it missed (it was suspended). */
     private fun lifeDuring(dev: String, from: Long, to: Long): String {
@@ -280,7 +293,11 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
         return result.filter { it.end > it.start }
     }
 
-    /** A second of a device: the truth from its last mark with a place, and what its sensors said by then. */
+    /**
+     * A second of a device: the truth from its last mark with a place, and what its sensors said by then: [carry] the
+     * carry monitor (`carry.v1`, the `carry` events), [carryV2] the classifier in the shadow (`carry.v2`, the `shadow`
+     * events with that `tech`).
+     */
     data class CarrySecond(
         val t: Long,
         val dev: String,
@@ -295,6 +312,7 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
         val raw: Double?,
         val lux: Double?,
         val app: String?,
+        val carryV2: String? = null,
     )
 
     fun carrySeconds(): List<CarrySecond> = carrySecondSequence().toList()
@@ -305,11 +323,12 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
      */
     private fun carrySecondSequence(): Sequence<CarrySecond> = sequence {
         for ((dev, own) in events.groupBy { it.dev }) {
-            if (own.none { it.k == "carry" || it.k == "motion" }) continue
+            if (own.none { it.k == "carry" || it.k == "motion" || it.isCarryV2() }) continue
             if (own.first().t !in PLAUSIBLE_MILLIS || own.last().t !in PLAUSIBLE_MILLIS) continue
             var place: String? = null
             var action: String? = null
             var carry: String? = null
+            var carryV2: String? = null
             var motion: LabEvent? = null
             var prox: LabEvent? = null
             var lux: Double? = null
@@ -328,6 +347,8 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
                         }
 
                         "carry" -> carry = event.string("state")
+
+                        "shadow" -> if (event.isCarryV2()) carryV2 = event.string("state")
 
                         "motion" -> motion = event
 
@@ -351,6 +372,7 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
                         raw = prox?.double("raw"),
                         lux = lux,
                         app = app,
+                        carryV2 = carryV2,
                     ),
                 )
                 second += 1000
@@ -358,25 +380,38 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
         }
     }
 
-    /** Device → truth → what the carry monitor said → seconds; only the seconds with a truth. */
-    fun carryMatrices(): Map<String, Map<String, Map<String, Int>>> {
-        val matrices = LinkedHashMap<String, MutableMap<String, MutableMap<String, Int>>>()
-        for (s in carrySecondSequence()) {
-            if (s.truth == NO_TRUTH) continue
-            val row = matrices.getOrPut(s.dev) { LinkedHashMap() }.getOrPut(s.truth) { LinkedHashMap() }
-            val said = s.carry ?: "none"
+    /**
+     * Device → truth → what the carry classifier [tech] said → seconds; only the seconds with a truth. [CARRY_V1]: the
+     * carry monitor, every device with its events or motion; [CARRY_V2]: the classifier in the shadow, only the devices
+     * that ran it.
+     */
+    fun carryMatrices(tech: String = CARRY_V1): Map<String, Map<String, Map<String, Int>>> =
+        carryMatricesByTech().getValue(tech)
+
+    /** [carryMatrices] of both classifiers in one pass: [CARRY_V1] and [CARRY_V2]. */
+    fun carryMatricesByTech(): Map<String, Map<String, Map<String, Map<String, Int>>>> {
+        val v1 = LinkedHashMap<String, MutableMap<String, MutableMap<String, Int>>>()
+        val v2 = LinkedHashMap<String, MutableMap<String, MutableMap<String, Int>>>()
+        val runsV2 = events.filter { it.isCarryV2() }.mapTo(HashSet()) { it.dev }
+        fun count(into: MutableMap<String, MutableMap<String, MutableMap<String, Int>>>, s: CarrySecond, said: String) {
+            val row = into.getOrPut(s.dev) { LinkedHashMap() }.getOrPut(s.truth) { LinkedHashMap() }
             row[said] = (row[said] ?: 0) + 1
         }
-        return matrices
+        for (s in carrySecondSequence()) {
+            if (s.truth == NO_TRUTH) continue
+            count(v1, s, s.carry ?: "none")
+            if (s.dev in runsV2) count(v2, s, s.carryV2 ?: "none")
+        }
+        return mapOf(CARRY_V1 to v1, CARRY_V2 to v2)
     }
 
     fun carryCsv(): String = buildString {
-        appendLine("t_utc,dev,place,action,truth,carry,std,orient,activity,near,raw_cm,lux,app")
+        appendLine("t_utc,dev,place,action,truth,carry,std,orient,activity,near,raw_cm,lux,app,carry_v2")
         for (s in carrySeconds()) {
             appendLine(
                 listOf(
                     LabSchema.formatUtc(s.t), s.dev, s.place, s.action, s.truth, s.carry, s.std, s.orient, s.activity,
-                    s.near, s.raw, s.lux, s.app,
+                    s.near, s.raw, s.lux, s.app, s.carryV2,
                 ).joinToString(",") { it?.toString().orEmpty() },
             )
         }
@@ -462,6 +497,17 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
 
         /** The tokens a mask carries, decoded again from [maskBits]. */
         fun maskDecoded(event: LabEvent): List<String> = OverflowCode.decode(maskBits(event))
+
+        /** The carry monitor of the game (`carry` events). */
+        const val CARRY_V1 = "carry.v1"
+
+        /** The carry classifier in the shadow (`shadow` events with this `tech`, docs/radio-lab.md §7.3). */
+        const val CARRY_V2 = "carry.v2"
+
+        private fun LabEvent.isCarryV2(): Boolean = k == "shadow" && string("tech") == CARRY_V2
+
+        /** The radar's channel of a reading: its `tech`, or `api/via` in logs before the channels. */
+        fun techOf(rx: LabEvent): String = rx.string("tech") ?: "${rx.string("api")}/${rx.string("via")}"
 
         /** The schemas this merge reads: 2 is 1 plus `run`, `seq` and the kinds `step` and `net`. */
         val SCHEMAS = 1..LabSchema.VERSION

@@ -3,16 +3,19 @@ package app.hovanki.client.lab
 import app.hovanki.client.diagnostics.DiagnosticsBench
 import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.device.ActivityClassifier
+import app.hovanki.device.CarryClassifier
+import app.hovanki.device.CarryInputs
 import app.hovanki.device.CarryMonitor
-import app.hovanki.device.lab.Gravity
+import app.hovanki.device.Gravity
+import app.hovanki.device.Orientation
 import app.hovanki.device.lab.HapticKind
+import app.hovanki.device.lab.ImpactDetector
 import app.hovanki.device.lab.LabHaptics
 import app.hovanki.device.lab.LabProbes
 import app.hovanki.device.lab.LabScreen
 import app.hovanki.device.lab.LabSensorReading
 import app.hovanki.device.lab.MotionFeatures
 import app.hovanki.device.lab.MotionWindow
-import app.hovanki.device.lab.Orientation
 import app.hovanki.radar.ProximityRadio
 import app.hovanki.radar.RadarCatalog
 import app.hovanki.radar.RadioApi
@@ -21,6 +24,7 @@ import app.hovanki.radar.channel.overflow.OverflowChannel
 import app.hovanki.radar.lab.LabAir
 import app.hovanki.radar.lab.LabFrame
 import app.hovanki.shared.lab.ProbeMode
+import app.hovanki.shared.lab.RunStep
 import app.hovanki.shared.rules.HeartbeatRules
 import app.hovanki.shared.rules.OverflowArea
 import app.hovanki.shared.rules.OverflowCode
@@ -65,8 +69,9 @@ enum class LabPulse { OFF, HAPTICS, NOTIFICATION }
  * ([start]): a tick a second, the clock measured against the server's, the app's life, the sensors, the battery, the
  * Bluetooth state and the game's carry monitor. The switches: «as in a game» ([setInGame]: GPS in the background as in
  * a round), the bench's radio, the overflow probe ([setProbe]), listening to everything ([setListening]), the screen
- * off by the proximity sensor, the vibration test, the pulse, marks and scenarios. Nothing of it changes the game.
- * Main thread.
+ * off by the proximity sensor, the vibration test, the pulse, marks and scenarios. Besides, the knocks the
+ * accelerometer feels (`impact`, for the touch calibration, [touched]) and, once a second, `carry.v2` in the shadow of
+ * the game's carry monitor ([CarryClassifier]). Nothing of it changes the game. Main thread.
  */
 class LabController(
     val log: LabLog,
@@ -188,7 +193,12 @@ class LabController(
         writeSession()
         jobs += scope.launch { tickLoop() }
         jobs += scope.launch { clockLoop() }
-        jobs += scope.launch { probes.lifecycle().collect { log.life(it) } }
+        jobs += scope.launch {
+            probes.lifecycle().collect {
+                log.life(it)
+                screenOnOf(it)?.let { on -> lifeScreenOn = on }
+            }
+        }
         jobs += scope.launch { sensorLoop() }
         jobs += scope.launch { probes.battery().collect { log.battery(it.level, it.state, it.lowPower) } }
         jobs += scope.launch { radio.state.collect { log.bt(it.name.lowercase()) } }
@@ -223,6 +233,7 @@ class LabController(
         log.note("lab stopped")
         jobs.forEach { it.cancel() }
         jobs.clear()
+        resetSensors()
         log.isRecording = false
         mutableRunning.value = false
     }
@@ -457,6 +468,21 @@ class LabController(
     fun mark(label: String, place: String? = null, action: String? = null, distance: Double? = null) =
         log.mark(label, by = "tester", place = place, action = action, distance = distance)
 
+    /**
+     * «Touched with [otherLabel]»: the tester knocked this phone back to back with that one just now, the truth of the
+     * touch calibration (docs/adr/0017-radar-techniques-and-big-run.md §3): a mark `touch <pair>` (the pair's key,
+     * [RunStep.pairKey], of this device's label and [otherLabel]) with the action `touch`. The report finds the touch
+     * itself from both phones' `impact` events and the RSSI; this mark tells it which ones were real. False: no mark
+     * (no label, or this device's own).
+     */
+    fun touched(otherLabel: String): Boolean {
+        val other = otherLabel.trim()
+        val own = log.label.value
+        if (other.isEmpty() || other == own) return false
+        log.mark("$TOUCH_ACTION ${RunStep.pairKey(own, other)}", by = "user", action = TOUCH_ACTION)
+        return true
+    }
+
     /** Measures the clock, writes the header again and hands the log and its summary to the system «Share». */
     suspend fun export() {
         measureClock()
@@ -492,6 +518,7 @@ class LabController(
             log.tick(ticks++)
             scenarios.tick()
             motionSecond()
+            carrySecond()
             delay(TICK_MILLIS)
         }
     }
@@ -510,8 +537,18 @@ class LabController(
 
     private val motionWindow = MotionWindow()
     private val activity = ActivityClassifier()
+    private val impacts = ImpactDetector()
+    private var carryV2 = CarryClassifier()
     private var gravity: Gravity? = null
     private var lastMotionAt: Long? = null
+
+    /** When the last motion reading came, by [monotonicMillis]: the sensors' own clock can't tell how old it is. */
+    private var lastMotionMono: Long? = null
+    private var near: Boolean? = null
+    private var lux: Double? = null
+
+    /** The screen by the last life event (`screen_on`, `did_enter_background`…), where the app's state says nothing. */
+    private var lifeScreenOn: Boolean? = null
 
     private suspend fun sensorLoop() {
         probes.sensors().collect { reading ->
@@ -521,16 +558,22 @@ class LabController(
                     activity.add(reading.atMillis, reading.magnitudeG * STANDARD_GRAVITY)
                     reading.gravity?.let { gravity = it }
                     lastMotionAt = reading.atMillis
+                    lastMotionMono = monotonicMillis()
+                    // Told at least [ImpactDetector.PEAK_MILLIS] after the knock: how long ago on the sensors' clock.
+                    impacts.add(reading.atMillis, reading.magnitudeG)?.let { impact ->
+                        log.impact(impact.peakG, reading.atMillis - impact.atMillis)
+                    }
                 }
 
-                is LabSensorReading.Proximity -> log.prox(
-                    reading.near,
-                    reading.rawCm,
-                    reading.maxCm,
-                    reading.monitoring,
-                )
+                is LabSensorReading.Proximity -> {
+                    near = reading.near
+                    log.prox(reading.near, reading.rawCm, reading.maxCm, reading.monitoring)
+                }
 
-                is LabSensorReading.Light -> log.light(reading.lux)
+                is LabSensorReading.Light -> {
+                    lux = reading.lux
+                    log.light(reading.lux)
+                }
             }
         }
     }
@@ -540,6 +583,46 @@ class LabController(
         if (lastMotionAt == null) return
         val gravity = gravity
         log.motion(MotionFeatures(motionWindow.std(), gravity, gravity?.let(Orientation::of), activity.classify()))
+    }
+
+    /**
+     * Once a second: `carry.v2` in the shadow ([CarryClassifier]) from this second's screen (the app's state, else the
+     * last life event), the lab's «screen off by proximity» switch, the last proximity and light, and the motion as
+     * `motion` has it (none when the sensors said nothing for [MOTION_STALE_MILLIS]: the classifier keeps its state).
+     * Nothing when the lab knows neither the screen nor the motion.
+     */
+    private fun carrySecond() {
+        val screenOn = screenOnOf(probes.appState()) ?: lifeScreenOn
+        val motionMono = lastMotionMono
+        val fresh = motionMono != null && monotonicMillis() - motionMono <= MOTION_STALE_MILLIS
+        if (screenOn == null && !fresh) return
+        val gravity = gravity.takeIf { fresh }
+        val verdict = carryV2.add(
+            CarryInputs(
+                atMillis = monotonicMillis(),
+                screenOn = screenOn,
+                screenOffByProximity = mutableScreenOff.value,
+                near = near,
+                lux = lux,
+                orientation = gravity?.let(Orientation::of),
+                std = if (fresh) motionWindow.std() else null,
+                activity = if (fresh) activity.classify() else null,
+            ),
+        )
+        log.shadow(CARRY_V2, verdict.carry.name.lowercase(), verdict.reason)
+    }
+
+    /** Everything the sensors said, forgotten when the lab stops: a new start doesn't read old knocks or motion. */
+    private fun resetSensors() {
+        motionWindow.clear()
+        impacts.clear()
+        gravity = null
+        lastMotionAt = null
+        lastMotionMono = null
+        near = null
+        lux = null
+        lifeScreenOn = null
+        carryV2 = CarryClassifier()
     }
 
     private suspend fun pulseLoop(kind: HapticKind) {
@@ -618,6 +701,26 @@ class LabController(
         const val NOTIFICATION_GAP_MILLIS = 4_000L
         const val PULSE_IDLE_MILLIS = 500L
         private const val STANDARD_GRAVITY = 9.81
+
+        /** The mark's action of «touched with …» ([touched]) and the first word of its label. */
+        const val TOUCH_ACTION = "touch"
+
+        /** The classifier the lab runs in the shadow of the game's carry monitor (`shadow` events' `tech`). */
+        const val CARRY_V2 = "carry.v2"
+
+        /** Motion readings older than this are none: the platform stopped the sensors (the app in the background). */
+        const val MOTION_STALE_MILLIS = 3_000L
+
+        /**
+         * The screen by the app's state or a life event: lit on `screen_on` (Android) and `active` (iOS: the app in
+         * front; the proximity sensor may still have turned it off, the lab's switch says); dark on `screen_off`,
+         * `inactive`, `background`, `did_enter_background`, `will_resign`; null: says nothing of the screen.
+         */
+        internal fun screenOnOf(state: String): Boolean? = when (state) {
+            "screen_on", "active", "did_become_active" -> true
+            "screen_off", "inactive", "background", "did_enter_background", "will_resign" -> false
+            else -> null
+        }
 
         /** The overflow channel's id: the probe's `adv` and a mask's reading carry it. */
         private val PROBE_TECH = OverflowChannel.id

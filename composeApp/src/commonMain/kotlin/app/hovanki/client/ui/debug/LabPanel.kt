@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
@@ -580,6 +581,7 @@ private fun MarksCard(viewModel: LabViewModel) {
     val lastMark by viewModel.lastMark.collectAsStateWithLifecycle()
     Section("Marks") {
         Line("Last mark: ${lastMark ?: "none yet"}")
+        TouchRow(viewModel)
         SecondaryText("Distance")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             LabPlaces.DISTANCES.forEach { meters ->
@@ -614,6 +616,43 @@ private fun MarksCard(viewModel: LabViewModel) {
             height = 40.dp,
             style = PopStyle.Outline,
         )
+    }
+}
+
+/**
+ * «Touched with …» (docs/adr/0017-radar-techniques-and-big-run.md §3, the touch calibration): knock this phone back to
+ * back with another one, then press that one's label at once. In a server run a button per other device of the run;
+ * outside one, the other device's label typed.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TouchRow(viewModel: LabViewModel) {
+    val follow by viewModel.follow.collectAsStateWithLifecycle()
+    val own by viewModel.label.collectAsStateWithLifecycle()
+    val others = viewModel.touchLabels(follow)
+    SecondaryText("Touched with … (back to back, one knock, then press at once)")
+    if (others != null) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            others.forEach { other -> ChoiceButton(other, false) { viewModel.touched(other) } }
+        }
+    } else {
+        var other by remember { mutableStateOf("") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            PopTextField(
+                value = other,
+                onValueChange = { other = it.trim().take(LABEL_MAX_LENGTH) },
+                singleLine = true,
+                label = { Text("Other label") },
+                modifier = Modifier.weight(1f),
+            )
+            PopButton(
+                text = "Touched",
+                onClick = { viewModel.touched(other) },
+                enabled = other.isNotBlank() && other != own,
+                height = 44.dp,
+                style = PopStyle.Outline,
+            )
+        }
     }
 }
 

@@ -450,6 +450,27 @@ class LabLog(
         put("reason", reason)
     }
 
+    /**
+     * A knock the accelerometer felt ([app.hovanki.device.lab.ImpactDetector]): `peak`, |magnitude − 1| in g, and
+     * `ago`, how long before this event it was. The sensors run on their own clock (since the boot), not the device's:
+     * the lab measures [agoMillis] on theirs, against the newest reading, and the report puts the knock at `t − ago`
+     * (docs/adr/0017-radar-techniques-and-big-run.md §3, the touch calibration).
+     */
+    fun impact(peakG: Double, agoMillis: Long) = event("impact") {
+        put("peak", round(peakG, 2))
+        put("ago", agoMillis.coerceAtLeast(0))
+    }
+
+    /**
+     * A technique's answer in the shadow of the game's ([tech]: `carry.v2`): the [state] it would say
+     * (`in_pocket`, `in_hand`, `unknown`) and why ([reason]); nothing of it reaches the game.
+     */
+    fun shadow(tech: String, state: String, reason: String? = null) = event("shadow") {
+        put("tech", tech)
+        put("state", state)
+        put("reason", reason)
+    }
+
     /** [kind]: `core_haptics`, `impact`, `notify_silent_sound`, `notify_no_sound`, `vibrator`. */
     fun haptic(kind: String, result: String, error: String? = null, reason: String? = null, group: Int? = null) =
         event("haptic") {
