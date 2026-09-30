@@ -38,6 +38,7 @@ import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopTextField
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.theme.Palette
+import app.hovanki.device.ModeIds
 import app.hovanki.device.lab.HapticKind
 import app.hovanki.shared.lab.LabJoinCode
 import app.hovanki.shared.lab.LabPlaces
@@ -570,6 +571,17 @@ private fun ScreenAndPulseCard(viewModel: LabViewModel) {
                 onCheckedChange = viewModel::setScreenOff,
             )
         }
+        // The modes of step 5 by hand (docs/radar-run.md §5.1, §5.3): a run's step names them; here for a locked
+        // vibration test with the audio session or the Live Activity on.
+        val labTechniques by viewModel.labTechniques.collectAsStateWithLifecycle()
+        MODE_SWITCHES.forEach { (id, text) ->
+            BenchSwitch(
+                text = text,
+                checked = id in labTechniques,
+                enabled = id in viewModel.availableModes,
+                onCheckedChange = { on -> viewModel.setLabTechnique(id, on) },
+            )
+        }
         SecondaryText("Pulse by the lab's loudest band:")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             LabPulse.entries.forEach { option ->
@@ -580,6 +592,13 @@ private fun ScreenAndPulseCard(viewModel: LabViewModel) {
         }
     }
 }
+
+/** The background modes the screen switches, in the words of the tester. */
+private val MODE_SWITCHES: List<Pair<String, String>> = listOf(
+    ModeIds.AUDIO to "Audio session (mode.audio): Core Haptics while locked?",
+    ModeIds.NOTIFICATION_WAKE to "Notification wake (mode.notification_wake), every 20 s",
+    ModeIds.LIVE_ACTIVITY to "Live Activity (mode.live_activity): needs the HovankiLive target",
+)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

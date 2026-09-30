@@ -343,6 +343,18 @@ class LabController(
         }
     }
 
+    /** The modes this phone has ([BackgroundModes.available]), for the screen's switches. */
+    val availableModes: Set<String> get() = modes.available
+
+    /**
+     * One lab technique on or off from the screen ([LAB_TECHNIQUES]), keeping the rest: the vibration test with the
+     * audio session or the Live Activity on, without a run's step.
+     */
+    fun setLabTechnique(id: String, on: Boolean) {
+        val current = mutableTechniques.value + mutableLabTechniques.value
+        setTechniques(if (on) current + id else current - id)
+    }
+
     /**
      * The techniques this phone runs from now on, by id (docs/adr/0017-radar-techniques-and-big-run.md §2.3; a step of
      * a run names them). The radar's channels (`RadarCatalog`) go to the bench's radio (empty: the game's; a radio on
