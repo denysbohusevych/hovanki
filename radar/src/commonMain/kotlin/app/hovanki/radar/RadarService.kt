@@ -16,6 +16,15 @@ object RadarService {
 
     /** The measured power of the seekers' iBeacon: -59 dBm a metre away, a typical phone. */
     const val MEASURED_POWER = -59
+
+    /**
+     * The radio lab's GATT link (`gatt.link`, docs/adr/0017-radar-techniques-and-big-run.md, section 2.3): the service
+     * every phone running it hosts and advertises. Next to [UUID], never the same: the game's scans don't hear it.
+     */
+    const val LINK_UUID = "7A0B8D2E-4C1F-4E6A-9B3D-2F5E8C1A7D11"
+
+    /** The link service's one characteristic: read, write, notify; its value is the radar token's 4 bytes. */
+    const val LINK_TOKEN_UUID = "7A0B8D2E-4C1F-4E6A-9B3D-2F5E8C1A7D12"
 }
 
 /**

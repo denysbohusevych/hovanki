@@ -62,6 +62,12 @@ interface LabScreen {
 
 enum class HapticKind {
     CORE_HAPTICS,
+
+    /**
+     * Core Haptics on an engine made with the app's audio session (`pulse.core_haptics.audio`): with `mode.audio` on,
+     * the session keeps playing on the lock, so the engine may not be stopped for its interruption.
+     */
+    CORE_HAPTICS_AUDIO,
     IMPACT,
     NOTIFY_SILENT_SOUND,
     NOTIFY_NO_SOUND,

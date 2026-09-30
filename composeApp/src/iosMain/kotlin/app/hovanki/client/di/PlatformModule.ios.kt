@@ -3,6 +3,7 @@ package app.hovanki.client.di
 import app.hovanki.client.BuildInfo
 import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.iosBuildInfo
+import app.hovanki.client.lab.BridgedLiveActivityHost
 import app.hovanki.client.lab.IosLabFiles
 import app.hovanki.client.lab.LabFiles
 import app.hovanki.client.location.IosLocationProvider
@@ -17,12 +18,15 @@ import app.hovanki.client.storage.SecureStore
 import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.client.tracking.IosBackgroundTracker
 import app.hovanki.device.ActivityMonitor
+import app.hovanki.device.BackgroundModes
 import app.hovanki.device.CarryMonitor
 import app.hovanki.device.DeviceInfo
 import app.hovanki.device.IosActivityMonitor
+import app.hovanki.device.IosBackgroundModes
 import app.hovanki.device.IosCarryMonitor
 import app.hovanki.device.IosDeviceInfo
 import app.hovanki.device.IosPocketPulse
+import app.hovanki.device.LiveActivityHost
 import app.hovanki.device.PocketPulse
 import app.hovanki.device.lab.IosLabHaptics
 import app.hovanki.device.lab.IosLabProbes
@@ -74,4 +78,8 @@ actual val platformModule: Module = module {
     single<LabScreen> { IosLabScreen() }
     single<LabHaptics> { IosLabHaptics() }
     single<LabFiles> { IosLabFiles() }
+    // The lab's background modes (docs/radar-run.md §5.1, §5.3): the Live Activity through the Swift host the app
+    // installs at start (`LiveActivityBridge.kt`), unavailable until the owner adds the widget extension in Xcode.
+    single<LiveActivityHost> { BridgedLiveActivityHost() }
+    single<BackgroundModes> { IosBackgroundModes(get()) }
 }

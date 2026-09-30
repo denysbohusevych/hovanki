@@ -32,6 +32,7 @@ import app.hovanki.shared.protocol.LabRunId
 import app.hovanki.shared.protocol.LabRunStateView
 import app.hovanki.shared.protocol.LabRunStatus
 import app.hovanki.shared.protocol.LabUpload
+import app.hovanki.shared.protocol.LabUwbTokenRequest
 import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.qr.QrCode
 import app.hovanki.shared.totp.toHex
@@ -123,9 +124,7 @@ class LabRunService(
         val now = clock.instant()
         return locked({ repository.lockRunByCode(code) }, now) { locked ->
             val run = locked.run
-            if (run.plan.status == LabRunStatus.FINISHED || !now.isBefore(run.createdAt + properties.joinWindow)) {
-                throw closed()
-            }
+            if (!joinOpen(run, now)) throw closed()
             val script = locked.script ?: throw noScript()
             if (label !in script.labels) {
                 throw GameException(ErrorCode.BAD_REQUEST, "No such label in this run: ${script.labels}")
@@ -158,7 +157,7 @@ class LabRunService(
                 scenarioId = script.id,
                 scenarioVersion = script.version,
                 labels = script.labels,
-                state = view(run, now),
+                state = phoneView(run, now),
             )
         }
     }
@@ -167,7 +166,7 @@ class LabRunService(
     fun state(device: LabDeviceRef): LabRunStateView {
         requireEnabled()
         val now = clock.instant()
-        return locked({ repository.lockRun(device.runId) }, now) { view(it.run, now) }
+        return locked({ repository.lockRun(device.runId) }, now) { phoneView(it.run, now) }
     }
 
     /** A control action from a phone: the same as the admin's, without the audit log (the phones are the lab's). */
@@ -177,7 +176,30 @@ class LabRunService(
         return locked({ repository.lockRun(device.runId) }, now) { locked ->
             val script = locked.script ?: throw noScript()
             locked.save(LabRunPlan.apply(script, locked.run.plan, action, now.toEpochMilli()))
-            view(locked.run, now)
+            phoneView(locked.run, now)
+        }
+    }
+
+    /**
+     * Stores [device]'s UWB discovery token (`uwb.ni`, docs/radar-run.md step 5.3) for the run's other phones: base64
+     * of at most [LabUwbTokenRequest.MAX_LENGTH] characters, while the run takes joins; a new one replaces the old
+     * (a new Nearby Interaction session has a new token). The answer lists every device's
+     * ([LabRunStateView.uwbTokens]).
+     */
+    fun setUwbToken(device: LabDeviceRef, token: String): LabRunStateView {
+        requireEnabled()
+        val trimmed = token.trim()
+        if (trimmed.isEmpty() || trimmed.length > LabUwbTokenRequest.MAX_LENGTH || !isBase64(trimmed)) {
+            throw GameException(
+                ErrorCode.BAD_REQUEST,
+                "A UWB token is base64 of 1..${LabUwbTokenRequest.MAX_LENGTH} characters",
+            )
+        }
+        val now = clock.instant()
+        return locked({ repository.lockRun(device.runId) }, now) { locked ->
+            if (!joinOpen(locked.run, now)) throw closed()
+            repository.setUwbToken(device.deviceId, trimmed)
+            phoneView(locked.run, now)
         }
     }
 
@@ -419,6 +441,9 @@ class LabRunService(
         return checkNotNull(result)
     }
 
+    private fun joinOpen(run: LabRunRecord, now: Instant): Boolean =
+        run.plan.status != LabRunStatus.FINISHED && now.isBefore(run.createdAt + properties.joinWindow)
+
     private fun uploadOpen(run: LabRunRecord, now: Instant): Boolean {
         if (run.plan.status != LabRunStatus.FINISHED) return now.isBefore(run.createdAt + properties.joinWindow)
         return now.isBefore((run.finishedAt ?: run.createdAt) + properties.uploadGrace)
@@ -428,6 +453,10 @@ class LabRunService(
 
     private fun view(run: LabRunRecord, now: Instant): LabRunStateView =
         LabRunPlan.toView(run.plan, LabRunId(run.id), now.toEpochMilli())
+
+    /** What a phone of the run gets: the plan's state and the run's UWB tokens (the admin needs none of them). */
+    private fun phoneView(run: LabRunRecord, now: Instant): LabRunStateView =
+        view(run, now).copy(uwbTokens = repository.uwbTokensOf(run.id))
 
     private fun adminView(run: LabRunRecord, now: Instant): AdminLabRunView {
         val script = scriptOf(run)
@@ -526,6 +555,10 @@ class LabRunService(
 
     private fun randomBytes(size: Int) = ByteArray(size).also(random::nextBytes)
 
+    /** Standard base64 with its padding, as `NSData.base64EncodedStringWithOptions(0)` writes it. */
+    private fun isBase64(text: String): Boolean =
+        BASE64.matches(text) && runCatching { Base64.getDecoder().decode(text) }.isSuccess
+
     private companion object {
         const val TOKEN_BYTES = 32
         const val RADAR_TOKEN_BYTES = 4
@@ -534,6 +567,7 @@ class LabRunService(
         const val LIST_SIZE = 100
         const val TITLE_MAX_LENGTH = 100
         const val TEXT_MAX_LENGTH = 120
+        val BASE64 = Regex("[A-Za-z0-9+/]+={0,2}")
 
         fun describe(run: LabRunRecord) = "lab run ${run.id} «${run.title}»"
 

@@ -544,6 +544,7 @@ private fun VibrationTest(viewModel: LabViewModel, inGame: Boolean, hapticTest: 
 private val HapticKind.label: String
     get() = when (this) {
         HapticKind.CORE_HAPTICS -> "Core Haptics"
+        HapticKind.CORE_HAPTICS_AUDIO -> "Core Haptics, audio session"
         HapticKind.IMPACT -> "impact"
         HapticKind.NOTIFY_SILENT_SOUND -> "notification, silent sound"
         HapticKind.NOTIFY_NO_SOUND -> "notification, no sound"

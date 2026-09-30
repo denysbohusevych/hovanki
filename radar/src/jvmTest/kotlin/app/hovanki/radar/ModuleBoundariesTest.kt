@@ -8,9 +8,10 @@ import kotlin.test.fail
 /**
  * The borders of `:radar` (docs/adr/0017-radar-techniques-and-big-run.md, section 1), read from the sources of every
  * main source set. The root package `app.hovanki.radar` is common ground: anyone may import it. A channel's package
- * `app.hovanki.radar.channel.<x>` imports nothing else of this module (`:shared` and libraries are fine); the other
- * packages (`host`, `lab`) and the root may import the channels (the catalog lists them, the hosts and the lab run
- * them) but not each other. Nothing here imports the phone itself (`:device`), the game's client (`:clientCore`,
+ * `app.hovanki.radar.channel.<x>` and the GATT link's `app.hovanki.radar.link` (its platform implementations
+ * included) import nothing else of this module (`:shared` and libraries are fine); the other packages (`host`, `lab`)
+ * and the root may import the channels and the link (the catalog lists them, the hosts and the lab run them) but not
+ * each other. Nothing here imports the phone itself (`:device`), the game's client (`:clientCore`,
  * `:composeApp`) or Compose. `:device` has the same test.
  */
 class ModuleBoundariesTest {
@@ -27,11 +28,12 @@ class ModuleBoundariesTest {
     fun thereAreSourcesToCheck() {
         assertTrue(sources.any { it.name == "ProximityRadio.kt" }, "$sources")
         assertTrue(sources.any { areaOf(packageOf(it) + ".File")?.startsWith("$CHANNEL.") == true }, "$sources")
+        assertTrue(sources.any { areaOf(packageOf(it) + ".File") == LINK }, "$sources")
     }
 
     @Test
-    fun channelsImportOnlyTheRoot() {
-        val crossings = sources.filter { areaOf(packageOf(it) + ".File")?.startsWith("$CHANNEL.") == true }
+    fun channelsAndTheLinkImportOnlyTheRoot() {
+        val crossings = sources.filter { isLeaf(areaOf(packageOf(it) + ".File")) }
             .flatMap { file ->
                 val own = areaOf(packageOf(file) + ".File")
                 importsOf(file)
@@ -43,12 +45,12 @@ class ModuleBoundariesTest {
 
     @Test
     fun techniquesDoNotImportEachOther() {
-        val crossings = sources.filter { areaOf(packageOf(it) + ".File")?.startsWith("$CHANNEL.") != true }
+        val crossings = sources.filter { !isLeaf(areaOf(packageOf(it) + ".File")) }
             .flatMap { file ->
                 val own = areaOf(packageOf(file) + ".File")
                 importsOf(file)
                     .filter { import ->
-                        areaOf(import)?.let { it != own && !it.startsWith("$CHANNEL.") } == true
+                        areaOf(import)?.let { it != own && !isLeaf(it) } == true
                     }
                     .map { "${file.path}: $it" }
             }
@@ -64,6 +66,9 @@ class ModuleBoundariesTest {
         }
         assertTrue(found.isEmpty(), found.joinToString("\n"))
     }
+
+    /** A channel's package or the link's: they import only the root, and the others may import them. */
+    private fun isLeaf(area: String?): Boolean = area != null && (area.startsWith("$CHANNEL.") || area == LINK)
 
     private fun packageOf(file: File): String =
         file.readLines().firstOrNull { it.startsWith("package ") }?.removePrefix("package ")?.trim().orEmpty()
@@ -89,6 +94,7 @@ class ModuleBoundariesTest {
         const val MODULE = "radar"
         const val ROOT = "app.hovanki.radar"
         const val CHANNEL = "channel"
+        const val LINK = "link"
         val FORBIDDEN = listOf("app.hovanki.device", "app.hovanki.client", "androidx.compose")
     }
 }

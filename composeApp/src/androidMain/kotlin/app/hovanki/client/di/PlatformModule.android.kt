@@ -17,8 +17,12 @@ import app.hovanki.device.AndroidActivityMonitor
 import app.hovanki.device.AndroidCarryMonitor
 import app.hovanki.device.AndroidDeviceInfo
 import app.hovanki.device.AndroidPocketPulse
+import app.hovanki.device.BackgroundModes
 import app.hovanki.device.CarryMonitor
 import app.hovanki.device.DeviceInfo
+import app.hovanki.device.LiveActivityHost
+import app.hovanki.device.NoopBackgroundModes
+import app.hovanki.device.NoopLiveActivityHost
 import app.hovanki.device.PocketPulse
 import app.hovanki.device.lab.AndroidLabHaptics
 import app.hovanki.device.lab.AndroidLabProbes
@@ -63,4 +67,7 @@ actual val platformModule: Module = module {
     single<LabScreen> { AndroidLabScreen(androidContext()) }
     single<LabHaptics> { AndroidLabHaptics(androidContext()) }
     single<LabFiles> { AndroidLabFiles(androidContext()) }
+    // The background modes are iPhone's (docs/radar-run.md §5.1, §5.3): the foreground service keeps an Android alive.
+    single<BackgroundModes> { NoopBackgroundModes() }
+    single<LiveActivityHost> { NoopLiveActivityHost() }
 }
