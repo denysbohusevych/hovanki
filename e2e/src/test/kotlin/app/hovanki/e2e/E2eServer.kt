@@ -102,16 +102,22 @@ fun scenarioOnOwnServer(
     DedicatedServer(properties).use { server -> runScenario(name, server.url, timeout) { block(server) } }
 }
 
+/**
+ * Spring contexts start one at a time: two starting at once in one JVM (the shared server's lazy start next to a
+ * [DedicatedServer]) race in Logback's property map (a ConcurrentModificationException in LoggingApplicationListener).
+ */
+private val serverStart = Any()
+
 /** The app with the `e2e` profile on [database] and [port] (0: a free one), [properties] on top. */
 private fun startServer(
     database: TestPostgres,
     port: Int,
     properties: Map<String, String> = emptyMap(),
-): ConfigurableApplicationContext {
+): ConfigurableApplicationContext = synchronized(serverStart) {
     // As command line arguments: they win over application.yaml, unlike the builder's default properties.
     val settings = database.springProperties() + properties +
         mapOf("server.port" to port.toString(), "spring.main.banner-mode" to "off")
-    return SpringApplicationBuilder(HovankiServerApplication::class.java)
+    SpringApplicationBuilder(HovankiServerApplication::class.java)
         .profiles("e2e")
         .run(*settings.map { (key, value) -> "--$key=$value" }.toTypedArray())
 }
