@@ -986,7 +986,7 @@ class LabController(
         val PULSE_KINDS: List<Pair<String, HapticKind>> = listOf(
             "pulse.core_haptics" to HapticKind.CORE_HAPTICS,
             "pulse.core_haptics.audio" to HapticKind.CORE_HAPTICS_AUDIO,
-            PULSE_LIVE to HapticKind.CORE_HAPTICS,
+            PULSE_LIVE to HapticKind.LIVE_ACTIVITY_ALERT,
             "pulse.impact" to HapticKind.IMPACT,
             "pulse.notify_silent_sound" to HapticKind.NOTIFY_SILENT_SOUND,
             "pulse.notify" to HapticKind.NOTIFY_NO_SOUND,

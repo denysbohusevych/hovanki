@@ -13,6 +13,9 @@ interface LiveActivityBridgeHost {
 
     fun update(text: String)
 
+    /** An update with an alert; [sound]: a sound file's name (the app's bundle or `Library/Sounds`), null: the default. */
+    fun alert(title: String, text: String, sound: String?): Boolean
+
     fun end()
 }
 
@@ -39,7 +42,15 @@ class BridgedLiveActivityHost : LiveActivityHost {
         LiveActivityBridge.host?.update(text)
     }
 
+    override fun alert(title: String, text: String, silent: Boolean): Boolean =
+        LiveActivityBridge.host?.alert(title, text, if (silent) SILENT_SOUND else null) ?: false
+
     override fun end() {
         LiveActivityBridge.host?.end()
+    }
+
+    private companion object {
+        /** The lab's half second of silence, written by `IosLabHaptics` into `Library/Sounds`. */
+        const val SILENT_SOUND = "hovanki-silent.wav"
     }
 }

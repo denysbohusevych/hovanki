@@ -56,6 +56,42 @@ final class HovankiLiveActivityHost: NSObject, LiveActivityBridgeHost {
         }
     }
 
+    /// An update that alerts: on the lock screen iOS shows it like a notification and plays `sound` — and the sound's
+    /// haptic, which is the one vibration a locked iPhone gives an app whose Core Haptics engine is stopped. `sound` is
+    /// a file's name in the app's bundle or in `Library/Sounds` (the lab's half second of silence: vibration only),
+    /// nil the default sound. False without a running activity.
+    func alert(title: String, text: String, sound: String?) -> Bool {
+        guard #available(iOS 16.2, *), let activity = current as? Activity<HovankiLiveAttributes> else { return false }
+        let content = ActivityContent(
+            state: HovankiLiveAttributes.ContentState(text: text, updatedAt: Date()),
+            staleDate: nil
+        )
+        let alertSound: AlertConfiguration.AlertSound
+        if let sound, Self.soundExists(sound) {
+            alertSound = .named(sound)
+        } else {
+            if let sound { NSLog("HovankiLive: sound \(sound) not found, the default plays") }
+            alertSound = .default
+        }
+        let configuration = AlertConfiguration(
+            title: LocalizedStringResource(stringLiteral: title),
+            body: LocalizedStringResource(stringLiteral: text),
+            sound: alertSound
+        )
+        Task {
+            await activity.update(content, alertConfiguration: configuration)
+        }
+        return true
+    }
+
+    /// Where iOS looks for a named sound: the app's bundle, then `Library/Sounds`.
+    private static func soundExists(_ name: String) -> Bool {
+        if Bundle.main.url(forResource: name, withExtension: nil) != nil { return true }
+        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
+        guard let file = library?.appendingPathComponent("Sounds").appendingPathComponent(name) else { return false }
+        return FileManager.default.fileExists(atPath: file.path)
+    }
+
     func end() {
         guard #available(iOS 16.2, *) else { return }
         endAll()
