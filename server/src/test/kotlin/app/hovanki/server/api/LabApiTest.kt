@@ -26,6 +26,7 @@ import app.hovanki.shared.protocol.LabRunId
 import app.hovanki.shared.protocol.LabRunStateView
 import app.hovanki.shared.protocol.LabRunStatus
 import app.hovanki.shared.protocol.LabUpload
+import app.hovanki.shared.protocol.LabUwbTokenRequest
 import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.UserRole
@@ -45,6 +46,7 @@ import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import java.io.ByteArrayOutputStream
 import java.time.Duration
+import java.util.Base64
 import java.util.zip.GZIPOutputStream
 import java.util.zip.ZipInputStream
 import kotlin.test.BeforeTest
@@ -124,7 +126,7 @@ class LabApiTest(
         assertEquals(1, audits("LAB_RUN_CREATE", run.id, "field test"))
         val list = admin.get(ApiRoutes.ADMIN_LAB_RUNS, staff).ok<AdminLabRuns>()
         assertEquals(run.id, list.runs.first { it.id == run.id }.id)
-        assertEquals(setOf("radio", "e2e"), list.scenarios.map { it.id }.toSet())
+        assertEquals(setOf("radio", "e2e", "big_run"), list.scenarios.map { it.id }.toSet())
         assertEquals(listOf("A", "B", "droid"), list.scenarios.first { it.id == "e2e" }.labels)
 
         // A wrong code, no code, a label the plan doesn't have.
@@ -340,6 +342,53 @@ class LabApiTest(
         assertEquals(1, audits("LAB_RUN_DELETE", run.id, "done with it"))
     }
 
+    @Test
+    fun iPhonesSwapTheirUwbTokensThroughTheRun() {
+        val staff = admin.staff(UserRole.ADMIN)
+        val run = createRun(staff)
+        val a = joined(run.code, "A")
+        val b = joined(run.code, "B")
+        assertEquals(emptyMap(), a.state.uwbTokens)
+        val tokenA = Base64.getEncoder().encodeToString(ByteArray(300) { it.toByte() })
+        val tokenB = Base64.getEncoder().encodeToString(ByteArray(7) { 1 })
+
+        // A posts its token: the answer and every other phone's state list it by label.
+        assertEquals(mapOf("A" to tokenA), uwb(a, tokenA).ok<LabRunStateView>().uwbTokens)
+        assertEquals(mapOf("A" to tokenA), state(b).uwbTokens)
+        assertEquals(mapOf("A" to tokenA, "B" to tokenB), uwb(b, tokenB).ok<LabRunStateView>().uwbTokens)
+        val both = mapOf("A" to tokenA, "B" to tokenB)
+        assertEquals(both, advance(a, LabRunAction.NEXT).ok<LabRunStateView>().uwbTokens)
+        // A new session has a new token; A restarted is a new device, whose token wins over the old one's.
+        assertEquals(tokenA, uwb(b, tokenA).ok<LabRunStateView>().uwbTokens["B"])
+        val again = joined(run.code, "A")
+        assertEquals(mapOf("A" to tokenA, "B" to tokenA), again.state.uwbTokens)
+        assertEquals(tokenB, uwb(again, tokenB).ok<LabRunStateView>().uwbTokens["A"])
+        // The admin's console needs none of them.
+        val console = admin.get(ApiRoutes.adminLabRun(run.id), staff).ok<AdminLabRunView>()
+        assertEquals(emptyMap(), console.state.uwbTokens)
+
+        // Base64 of 512 characters at most.
+        uwb(a, "").error(400, ErrorCode.BAD_REQUEST)
+        uwb(a, "not base64!").error(400, ErrorCode.BAD_REQUEST)
+        uwb(a, "A".repeat(LabUwbTokenRequest.MAX_LENGTH + 4)).error(400, ErrorCode.BAD_REQUEST)
+        uwbBody(a, "{}").error(400, ErrorCode.BAD_REQUEST)
+        assertEquals(tokenA, state(b).uwbTokens["B"])
+        // Only on the device's own run.
+        val other = joined(createRun(staff).code, "B")
+        uwb(a, tokenA, runId = other.runId).error(403, ErrorCode.FORBIDDEN)
+        assertEquals(emptyMap(), state(other).uwbTokens)
+
+        // Off: the route doesn't exist.
+        lab(false)
+        uwb(a, tokenA).error(404, ErrorCode.NOT_FOUND)
+        lab(true)
+
+        // Over: no more tokens.
+        admin.post(ApiRoutes.adminLabRun(run.id, "finish"), AdminReasonRequest("done"), staff).ok<AdminLabRunView>()
+        reports.awaitIdle()
+        uwb(a, tokenA).error(409, ErrorCode.WRONG_STATE, ErrorReason.LAB_RUN_CLOSED)
+    }
+
     // Admins
 
     private fun createRun(staff: AdminTestClient.StaffLogin, scenario: String = "e2e"): AdminLabRun =
@@ -408,6 +457,18 @@ class LabApiTest(
         val response = mvc.post(ApiRoutes.labAdvance(phone.runId)) {
             contentType = MediaType.APPLICATION_JSON
             content = LabAdvanceRequest(action).asJson()
+            header(HttpHeaders.AUTHORIZATION, "${ApiRoutes.AUTH_SCHEME} ${phone.token}")
+        }.andReturn().response
+        return TestResponse(response.status, response.getContentAsString(Charsets.UTF_8))
+    }
+
+    private fun uwb(phone: LabJoinResponse, token: String, runId: LabRunId = phone.runId): TestResponse =
+        uwbBody(phone, LabUwbTokenRequest(token).asJson(), runId)
+
+    private fun uwbBody(phone: LabJoinResponse, body: String, runId: LabRunId = phone.runId): TestResponse {
+        val response = mvc.post(ApiRoutes.labUwb(runId)) {
+            contentType = MediaType.APPLICATION_JSON
+            content = body
             header(HttpHeaders.AUTHORIZATION, "${ApiRoutes.AUTH_SCHEME} ${phone.token}")
         }.andReturn().response
         return TestResponse(response.status, response.getContentAsString(Charsets.UTF_8))

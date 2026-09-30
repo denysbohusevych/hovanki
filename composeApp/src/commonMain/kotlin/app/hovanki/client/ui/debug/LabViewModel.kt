@@ -73,6 +73,11 @@ class LabViewModel(
     val uploadPending: StateFlow<Long> = uploader.pending
     val uploadError: StateFlow<String?> = uploader.lastError
 
+    /** The GATT link's connected peers and the last UWB reading (`gatt.link`, `uwb.ni`): the run card's status. */
+    val linkPeers: StateFlow<Int> = lab.linkPeers
+    val lastRange: StateFlow<String?> = lab.lastRange
+    val labTechniques: StateFlow<Set<String>> = lab.labTechniques
+
     val following: Boolean get() = follower.isFollowing
 
     val benchToken: String get() = lab.bench.token
@@ -147,6 +152,21 @@ class LabViewModel(
 
     fun mark(label: String, place: String? = null, action: String? = null, distance: Double? = null) {
         lab.mark(label, place, action, distance)
+        showMark(label)
+    }
+
+    /**
+     * The labels «Touched with …» offers: the run's other devices while this phone follows one; null outside a run
+     * (the tester types the other label).
+     */
+    fun touchLabels(run: LabFollowState?): List<String>? = run?.takeIf { !it.left }?.let { it.script.labels - it.label }
+
+    /** This phone was just knocked back to back with [otherLabel]'s: the touch calibration's truth. */
+    fun touched(otherLabel: String) {
+        if (lab.touched(otherLabel)) showMark("touched with ${otherLabel.trim()}")
+    }
+
+    private fun showMark(label: String) {
         mutableLastMark.value = "$label · ${LabSchema.formatUtc(lab.log.serverNow()).substringAfter(' ').take(8)} UTC"
     }
 

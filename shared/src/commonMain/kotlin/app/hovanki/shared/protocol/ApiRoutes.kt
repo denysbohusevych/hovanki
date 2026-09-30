@@ -251,6 +251,12 @@ object ApiRoutes {
     /** POST the log's lines as JSONL ([LabUpload]) with the device token: [LabEventsResponse]. */
     const val LAB_EVENTS = "$LAB_RUNS/{runId}/events"
 
+    /**
+     * POST [LabUwbTokenRequest] with the device token: this device's UWB discovery token for the run's other phones
+     * (a new one replaces the old); [LabRunStateView] with every device's.
+     */
+    const val LAB_UWB = "$LAB_RUNS/{runId}/uwb"
+
     // The radio lab in the admin: admins only, whether the flag is on or off (old reports stay readable).
 
     /** GET: [AdminLabRuns]; POST [AdminLabRunRequest]: a new run ([AdminLabRun]). */
@@ -410,6 +416,8 @@ object ApiRoutes {
     fun labAdvance(runId: LabRunId): String = LAB_ADVANCE.fill("runId" to runId.value)
 
     fun labEvents(runId: LabRunId): String = LAB_EVENTS.fill("runId" to runId.value)
+
+    fun labUwb(runId: LabRunId): String = LAB_UWB.fill("runId" to runId.value)
 
     /** [ADMIN_LAB_RUN] and the actions under it: `adminLabRun(id)`, `adminLabRun(id, "finish")`. */
     fun adminLabRun(runId: LabRunId, action: String? = null): String {

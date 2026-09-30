@@ -149,6 +149,7 @@ class LabRunner(
         log.mark("run: announce", by = "run", place = LabPlaces.TABLE_UP, action = LabPlaces.LIE)
         // The announcement: the Mac hears the token as a hider's name and joins.
         controller.setProbe(null)
+        controller.setTechniques(emptySet())
         controller.setBenchRadio(asSeeker = false, token = token)
         var current = -1
         while (true) {
@@ -182,9 +183,12 @@ class LabRunner(
         } else {
             // The advertisement changes only while the phone is active; the locked steps keep the lock step's.
             if (previous?.probe != setup.probe) controller.setProbe(setup.probe)
+            // The step's channels before the radio starts: a radio already on starts again with them.
+            controller.setTechniques(setup.techniques)
+            val hider = setup.hider || setup.techniques.isNotEmpty()
             val hiderOn = controller.bench.radioMode.value != null
-            if (setup.hider && !hiderOn) controller.setBenchRadio(asSeeker = false, token = token)
-            if (!setup.hider && hiderOn) controller.setBenchRadio(null)
+            if (hider && !hiderOn) controller.setBenchRadio(asSeeker = false, token = token)
+            if (!hider && hiderOn) controller.setBenchRadio(null)
         }
         if (setup.rotateToken) controller.rotateProbeToken(delayMillis = 0)
         if (setup.phase == RunPhase.LOCK) controller.signal("Lock the phone now")
@@ -209,6 +213,7 @@ class LabRunner(
     private fun finish(stopped: Boolean) {
         controller.setProbe(null)
         controller.setBenchRadio(null)
+        controller.setTechniques(emptySet())
         controller.setInGame(false)
         val state = mutableState.value
         if (state != null && !state.finished) {

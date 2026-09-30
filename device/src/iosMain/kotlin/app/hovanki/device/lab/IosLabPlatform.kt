@@ -2,6 +2,8 @@
 
 package app.hovanki.device.lab
 
+import app.hovanki.device.requestLabNotifications
+import app.hovanki.device.silentWav
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.ObjCObjectVar
@@ -14,7 +16,7 @@ import kotlinx.cinterop.value
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.suspendCancellableCoroutine
+import platform.AVFAudio.AVAudioSession
 import platform.CoreHaptics.CHHapticEngine
 import platform.CoreHaptics.CHHapticEvent
 import platform.CoreHaptics.CHHapticEventParameter
@@ -35,13 +37,10 @@ import platform.UIKit.UIApplicationState
 import platform.UIKit.UIDevice
 import platform.UIKit.UIImpactFeedbackGenerator
 import platform.UIKit.UIImpactFeedbackStyle
-import platform.UserNotifications.UNAuthorizationOptionAlert
-import platform.UserNotifications.UNAuthorizationOptionSound
 import platform.UserNotifications.UNMutableNotificationContent
 import platform.UserNotifications.UNNotificationRequest
 import platform.UserNotifications.UNNotificationSound
 import platform.UserNotifications.UNUserNotificationCenter
-import kotlin.coroutines.resume
 
 /**
  * The screen turned off by the proximity sensor while the app stays active (docs/radio-lab.md, H3): the sensor on, the
@@ -59,20 +58,25 @@ class IosLabScreen : LabScreen {
 /**
  * Every way an iPhone app may vibrate, for the vibration test (docs/radio-lab.md, H2): Core Haptics (an engine the
  * system stops, e.g. when the audio session is interrupted on the lock; it says why, written by name through
- * [HapticStopReason]), the impact generator the game's pulse uses on screen, and two notifications: with a silent
- * sound (a file of silence the lab writes into `Library/Sounds`: a notification with a sound vibrates as the ringer's
- * settings say) and without one. Debug builds only; written without an iOS build.
+ * [HapticStopReason]), Core Haptics on the app's audio session (`pulse.core_haptics.audio`, docs/radar-run.md §5.1:
+ * with `mode.audio` playing silence, the lock may not interrupt it), the impact generator the game's pulse uses on
+ * screen, and two notifications: with a silent sound (a file of silence the lab writes into `Library/Sounds`: a
+ * notification with a sound vibrates as the ringer's settings say) and without one. Debug builds only; written
+ * without an iOS build.
  */
 class IosLabHaptics : LabHaptics {
     override val kinds: List<HapticKind> = listOf(
         HapticKind.CORE_HAPTICS,
+        HapticKind.CORE_HAPTICS_AUDIO,
         HapticKind.IMPACT,
         HapticKind.NOTIFY_SILENT_SOUND,
         HapticKind.NOTIFY_NO_SOUND,
     )
 
     private val events = MutableSharedFlow<Pair<HapticKind, String>>(extraBufferCapacity = 16)
-    private var engine: CHHapticEngine? = null
+
+    /** The running engine of each Core Haptics kind: the plain one and the one on the app's audio session. */
+    private val engines = mutableMapOf<HapticKind, CHHapticEngine>()
     private val impact by lazy { UIImpactFeedbackGenerator(style = UIImpactFeedbackStyle.UIImpactFeedbackStyleHeavy) }
     private var notifications = 0
 
@@ -80,16 +84,11 @@ class IosLabHaptics : LabHaptics {
 
     override suspend fun prepare() {
         writeSilentSound()
-        suspendCancellableCoroutine { continuation ->
-            UNUserNotificationCenter.currentNotificationCenter()
-                .requestAuthorizationWithOptions(UNAuthorizationOptionAlert or UNAuthorizationOptionSound) { _, _ ->
-                    if (continuation.isActive) continuation.resume(Unit)
-                }
-        }
+        requestLabNotifications()
     }
 
     override suspend fun play(kind: HapticKind, strength: Double): HapticResult = when (kind) {
-        HapticKind.CORE_HAPTICS -> playCoreHaptics(strength)
+        HapticKind.CORE_HAPTICS, HapticKind.CORE_HAPTICS_AUDIO -> playCoreHaptics(kind, strength)
 
         HapticKind.IMPACT -> {
             impact.prepare()
@@ -107,28 +106,29 @@ class IosLabHaptics : LabHaptics {
         HapticKind.VIBRATOR -> HapticResult("skipped", "not on iOS")
     }
 
-    private fun playCoreHaptics(strength: Double): HapticResult {
+    private fun playCoreHaptics(kind: HapticKind, strength: Double): HapticResult {
         memScoped {
-            return playCoreHaptics(strength, alloc<ObjCObjectVar<NSError?>>())
+            return playCoreHaptics(kind, strength, alloc<ObjCObjectVar<NSError?>>())
         }
     }
 
-    private fun playCoreHaptics(strength: Double, error: ObjCObjectVar<NSError?>): HapticResult {
-        val running = engine ?: run {
-            val made = CHHapticEngine(andReturnError = error.ptr)
+    private fun playCoreHaptics(kind: HapticKind, strength: Double, error: ObjCObjectVar<NSError?>): HapticResult {
+        val running = engines[kind] ?: run {
+            val made = newEngine(kind, error)
                 ?: return HapticResult("error", error.value?.localizedDescription ?: "no engine")
+            // The same handlers for both engines: the kind in the event tells them apart.
             made.stoppedHandler = { reason ->
-                engine = null
-                events.tryEmit(HapticKind.CORE_HAPTICS to "engine_stopped: ${HapticStopReason.describe(reason)}")
+                engines.remove(kind)
+                events.tryEmit(kind to "engine_stopped: ${HapticStopReason.describe(reason)}")
             }
             made.resetHandler = {
-                engine = null
-                events.tryEmit(HapticKind.CORE_HAPTICS to "engine_reset")
+                engines.remove(kind)
+                events.tryEmit(kind to "engine_reset")
             }
             if (!made.startAndReturnError(error.ptr)) {
                 return HapticResult("error", error.value?.localizedDescription ?: "start failed")
             }
-            engine = made
+            engines[kind] = made
             made
         }
         val event = CHHapticEvent(
@@ -147,11 +147,26 @@ class IosLabHaptics : LabHaptics {
         val player = running.createPlayerWithPattern(pattern, error = error.ptr)
             ?: return HapticResult("error", error.value?.localizedDescription ?: "no player")
         if (!player.startAtTime(0.0, error = error.ptr)) {
-            engine = null
+            engines.remove(kind)
             return HapticResult("error", error.value?.localizedDescription ?: "play failed")
         }
         return HapticResult("played")
     }
+
+    /**
+     * A new engine for [kind]: [HapticKind.CORE_HAPTICS_AUDIO]'s is made on the app's shared audio session, the one
+     * `mode.audio` sets to play in the background (without the mode on it plays on the default session); the plain
+     * one gets a session of its own from Core Haptics, which iOS interrupts on the lock.
+     */
+    private fun newEngine(kind: HapticKind, error: ObjCObjectVar<NSError?>): CHHapticEngine? =
+        if (kind == HapticKind.CORE_HAPTICS_AUDIO) {
+            // The initializer is declared with a forward declaration of AVAudioSession: the cast only renames it.
+            @Suppress("CAST_NEVER_SUCCEEDS", "UNCHECKED_CAST_TO_FORWARD_DECLARATION")
+            val session = AVAudioSession.sharedInstance() as objcnames.classes.AVAudioSession
+            CHHapticEngine(audioSession = session, error = error.ptr)
+        } else {
+            CHHapticEngine(andReturnError = error.ptr)
+        }
 
     override suspend fun notify(text: String) {
         val content = UNMutableNotificationContent()
@@ -199,30 +214,4 @@ class IosLabHaptics : LabHaptics {
         const val SILENT_SOUND = "hovanki-silent.wav"
         const val SHARPNESS = 0.8f
     }
-}
-
-/** A WAV file of [seconds] of silence: mono, 16 bits, 8 kHz. */
-internal fun silentWav(seconds: Double = 0.5): ByteArray {
-    val rate = 8_000
-    val samples = (rate * seconds).toInt()
-    val dataSize = samples * 2
-    val out = ArrayList<Byte>(44 + dataSize)
-    fun text(value: String) = value.forEach { out += it.code.toByte() }
-    fun int32(value: Int) = repeat(4) { out += (value shr (8 * it) and 0xff).toByte() }
-    fun int16(value: Int) = repeat(2) { out += (value shr (8 * it) and 0xff).toByte() }
-    text("RIFF")
-    int32(36 + dataSize)
-    text("WAVE")
-    text("fmt ")
-    int32(16)
-    int16(1) // PCM
-    int16(1) // mono
-    int32(rate)
-    int32(rate * 2) // bytes a second
-    int16(2) // bytes a frame
-    int16(16) // bits a sample
-    text("data")
-    int32(dataSize)
-    repeat(dataSize) { out += 0 }
-    return out.toByteArray()
 }

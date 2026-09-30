@@ -10,8 +10,9 @@ import platform.CoreBluetooth.CBManager
 import platform.CoreBluetooth.CBManagerAuthorizationAllowedAlways
 
 /**
- * iOS asks for Bluetooth by itself the first time the app touches CoreBluetooth (`IosProximityRadio.refresh` in
- * `:radar`); the answer shows in the radio's state, and here as whether the app is allowed right now.
+ * iOS asks for Bluetooth by itself the first time the app touches CoreBluetooth (the radio's `refresh`, which starts
+ * `IosAirHost` in `:radar` watching the adapter); the answer shows in the radio's state, and here as whether the app
+ * is allowed right now.
  */
 @Composable
 actual fun rememberBluetoothPermissionRequester(onResult: (granted: Boolean) -> Unit): () -> Unit {

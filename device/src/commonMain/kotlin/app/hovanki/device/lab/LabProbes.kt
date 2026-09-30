@@ -25,7 +25,10 @@ interface LabProbes {
      */
     fun lifecycle(): Flow<String>
 
-    /** Motion about ten times a second, the proximity sensor and the light as the platform gives them. */
+    /**
+     * Motion about 50 times a second (a knock of the touch calibration is short), the proximity sensor and the light
+     * as the platform gives them.
+     */
     fun sensors(): Flow<LabSensorReading>
 
     /** The battery now, then on changes and at least once a minute. */
@@ -59,6 +62,12 @@ interface LabScreen {
 
 enum class HapticKind {
     CORE_HAPTICS,
+
+    /**
+     * Core Haptics on an engine made with the app's audio session (`pulse.core_haptics.audio`): with `mode.audio` on,
+     * the session keeps playing on the lock, so the engine may not be stopped for its interruption.
+     */
+    CORE_HAPTICS_AUDIO,
     IMPACT,
     NOTIFY_SILENT_SOUND,
     NOTIFY_NO_SOUND,

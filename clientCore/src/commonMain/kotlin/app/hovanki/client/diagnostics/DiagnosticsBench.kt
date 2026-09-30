@@ -50,21 +50,48 @@ class DiagnosticsBench(
     private var radioJob: Job? = null
     private var gpsJob: Job? = null
 
+    private val mutableRadioToken = MutableStateFlow<String?>(null)
+
+    /**
+     * The token the radio on the bench advertises; null: off. As a flow for the radio lab's GATT link, which writes
+     * the same token to its peers (`gatt.link`, `LabController.setTechniques`).
+     */
+    val advertisedToken: StateFlow<String?> = mutableRadioToken.asStateFlow()
+
+    /** The token the radio on the bench advertises; null: off. */
+    val radioToken: String? get() = mutableRadioToken.value
+
+    /** The channels the radio on the bench runs ([startRadio]); empty: the game's. */
+    var radioTechniques: Set<String> = emptySet()
+        private set
+
     /**
      * Advertises [token] (the bench's own unless the radio lab's run gives one) as a hider's service, or as a seeker's
-     * iBeacon ([asSeeker]), and listens.
+     * iBeacon ([asSeeker]), and listens. [techniques]: the radio lab's channels by id instead of the game's
+     * ([ProximityRadio.run]); empty: the game's.
      */
-    fun startRadio(asSeeker: Boolean, token: String = this.token) {
+    fun startRadio(asSeeker: Boolean, token: String = this.token, techniques: Set<String> = emptySet()) {
         stopRadio()
         radio.refresh()
         mutableRadio.value = BenchRadio(asSeeker)
+        mutableRadioToken.value = token
+        radioTechniques = techniques
         diagnostics.onRadio(token, asSeeker)
-        lab.note("bench radio on as ${if (asSeeker) "seeker" else "hider"}, token $token")
+        val channels = if (techniques.isEmpty()) "" else ", channels ${techniques.sorted().joinToString(",")}"
+        lab.note("bench radio on as ${if (asSeeker) "seeker" else "hider"}, token $token$channels")
         val job = scope.launch {
             try {
-                radio.run(MutableStateFlow(token), asSeeker).collect { sighting ->
+                radio.run(MutableStateFlow(token), asSeeker, techniques).collect { sighting ->
                     diagnostics.onSighting(sighting.token, sighting.rssi, sighting.atMillis, via = sighting.via)
-                    lab.rx(sighting.token, sighting.rssi, sighting.api, sighting.via, sighting.peer, sighting.atMillis)
+                    lab.rx(
+                        sighting.token,
+                        sighting.rssi,
+                        sighting.api,
+                        sighting.via,
+                        sighting.peer,
+                        sighting.atMillis,
+                        sighting.tech,
+                    )
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -80,6 +107,8 @@ class DiagnosticsBench(
     fun stopRadio() {
         radioJob?.cancel()
         radioJob = null
+        mutableRadioToken.value = null
+        radioTechniques = emptySet()
         if (mutableRadio.value != null) {
             diagnostics.onRadio(null, asSeeker = false)
             lab.note("bench radio off")

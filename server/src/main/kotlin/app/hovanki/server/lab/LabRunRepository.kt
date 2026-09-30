@@ -51,8 +51,10 @@ data class LabDeviceRecord(
     /** Stored (gzip) bytes of its chunks. */
     val bytes: Long = 0,
     val events: Long = 0,
+    /** Its UWB discovery token (`uwb.ni`), once posted; opaque base64. */
+    val uwbToken: String? = null,
 ) {
-    // Never the radar token in logs.
+    // Never the radar token or the UWB token in logs.
     override fun toString(): String = "LabDevice($id, $label)"
 }
 
@@ -175,6 +177,36 @@ class LabRunRepository(private val jdbc: JdbcClient) {
             .query(devices)
             .list()
             .filterNotNull()
+
+    /**
+     * A device's UWB discovery token; a new one replaces the old, and the other devices of the same label in the run
+     * (a phone that rejoined) lose theirs: one token per label, whoever posted last.
+     */
+    fun setUwbToken(deviceId: String, runId: String, label: String, token: String) {
+        jdbc.sql("UPDATE lab_devices SET uwb_token = NULL WHERE run_id = :runId AND label = :label AND id <> :id")
+            .param("runId", runId)
+            .param("label", label)
+            .param("id", deviceId)
+            .update()
+        jdbc.sql("UPDATE lab_devices SET uwb_token = :token WHERE id = :id")
+            .param("id", deviceId)
+            .param("token", token)
+            .update()
+    }
+
+    /** Label → UWB token of the run's devices that posted one (one per label, see [setUwbToken]). */
+    fun uwbTokensOf(runId: String): Map<String, String> = jdbc.sql(
+        """
+        SELECT label, uwb_token FROM lab_devices
+        WHERE run_id = :runId AND uwb_token IS NOT NULL
+        ORDER BY label, id
+        """.trimIndent(),
+    )
+        .param("runId", runId)
+        .query { rs, _ -> rs.getString("label") to rs.getString("uwb_token") }
+        .list()
+        .filterNotNull()
+        .toMap()
 
     /** What a run's chunks take, gzipped as stored. */
     fun runBytes(runId: String): Long =
@@ -347,6 +379,7 @@ class LabRunRepository(private val jdbc: JdbcClient) {
             lastSeq = rs.getLong("last_seq").takeUnless { rs.wasNull() },
             bytes = rs.getLong("bytes"),
             events = rs.getLong("events"),
+            uwbToken = rs.getString("uwb_token"),
         )
     }
 }
