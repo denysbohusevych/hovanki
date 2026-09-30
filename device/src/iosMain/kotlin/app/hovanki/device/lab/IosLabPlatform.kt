@@ -69,12 +69,13 @@ class IosLabScreen : LabScreen {
  */
 class IosLabHaptics(private val liveActivity: LiveActivityHost = NoopLiveActivityHost()) : LabHaptics {
     override val kinds: List<HapticKind> = listOf(
-        // Only what a locked iPhone feels (docs/radio-lab.md §12, 2026-09-30): Core Haptics, impact and a notification
-        // without a sound never reached the pocket; the engine kinds still play from the screen (`play`).
-        HapticKind.NOTIFY_SILENT_SOUND,
-        HapticKind.LIVE_ACTIVITY_ALERT,
+        // Only what a locked iPhone feels, the best first (docs/radio-lab.md §12, 2026-09-30): two Live Activity
+        // alerts 300 ms apart read clearly in the pocket, one alert is felt, a silent-sound notification is the
+        // fallback when no activity runs; Core Haptics, impact, the soundless notification and the silent ringtone
+        // never reached the pocket (their `play` stays for the screen). The lab's pulse takes the first that plays.
         HapticKind.LIVE_ACTIVITY_ALERT_DOUBLE,
-        HapticKind.NOTIFY_SILENT_RINGTONE,
+        HapticKind.LIVE_ACTIVITY_ALERT,
+        HapticKind.NOTIFY_SILENT_SOUND,
     )
 
     private val events = MutableSharedFlow<Pair<HapticKind, String>>(extraBufferCapacity = 16)

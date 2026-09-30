@@ -381,7 +381,6 @@ object LabRunScripts {
     private const val PULSE_NOTIFY = "pulse.notify_silent_sound"
     private const val PULSE_LIVE_ACTIVITY = "pulse.live_activity"
     private const val PULSE_LIVE_ACTIVITY_DOUBLE = "pulse.live_activity.double"
-    private const val PULSE_RINGTONE = "pulse.notify_ringtone"
     private const val MODE_NOTIFICATION_WAKE = "mode.notification_wake"
     private const val MODE_LIVE_ACTIVITY = "mode.live_activity"
     private const val GATT = "gatt.link"
@@ -404,7 +403,7 @@ object LabRunScripts {
 
     /** Block 7: every candidate at once; of the competing pulses the phone plays the first that works. */
     private val EVERY_CANDIDATE = CARRIED + GATT + UWB_LIVE + MODE_NOTIFICATION_WAKE +
-        PULSE_LIVE_ACTIVITY + PULSE_LIVE_ACTIVITY_DOUBLE + PULSE_NOTIFY + PULSE_RINGTONE
+        PULSE_LIVE_ACTIVITY_DOUBLE + PULSE_LIVE_ACTIVITY + PULSE_NOTIFY
 
     private val quiet = PhoneSetup()
     private val listening = PhoneSetup(listen = true)
@@ -726,8 +725,9 @@ object LabRunScripts {
 
     /**
      * Block 3, 15 min: vibration and modes (H2, H3). The iPhones stand at the table 1 m from droid, whose iBeacon is
-     * «burning» for the lab's pulse. Each way a locked iPhone feels (docs/radio-lab.md §12: Core Haptics, impact and
-     * a soundless notification never reached the pocket, so they are not run): a locked step with the pulse, then a
+     * «burning» for the lab's pulse. Each way a locked iPhone feels, the best first (docs/radio-lab.md §12: two Live
+     * Activity alerts 300 ms apart won; Core Haptics, impact, the soundless notification and the silent ringtone
+     * never reached the pocket, so they are not run): a locked step with the pulse, then a
      * screen step with the lab's vibration test, the pulse off so the test's strikes can be counted. The proximity
      * sensor's dark screen is [PhoneSetup.screenOff] (`mode.proximity_screen`), not an id.
      */
@@ -737,7 +737,6 @@ object LabRunScripts {
         val notify = GAME + PULSE_NOTIFY
         val live = GAME + MODE_LIVE_ACTIVITY + PULSE_LIVE_ACTIVITY
         val liveDouble = GAME + MODE_LIVE_ACTIVITY + PULSE_LIVE_ACTIVITY_DOUBLE
-        val ringtone = GAME + PULSE_RINGTONE
         val wake = CARRIED + MODE_NOTIFICATION_WAKE
         val test = "Unlock, start the vibration test (Lab → Vibration test: the lab's own test, not this step), " +
             "lock within 15 s and pocket the phone; after «Vibration test over» unlock and mark what you felt in every group."
@@ -749,7 +748,7 @@ object LabRunScripts {
             both(
                 "b3_${id}_pulse",
                 "Vibration: $what, the pulse in the pocket",
-                45,
+                60,
                 "A and B locked in the front pocket, 1 m from droid: the pulse should beat by $what.",
                 at(
                     hider(techniques, RunPhase.LOCK, pulse = true),
@@ -761,7 +760,7 @@ object LabRunScripts {
             both(
                 "b3_${id}_test",
                 "Vibration: $what, the vibration test",
-                75,
+                90,
                 "The vibration test by $what in the pocket; mark what you felt in every group afterwards.",
                 at(hider(techniques), LabPlaces.POCKET_FRONT, LabPlaces.STAND, test),
             ),
@@ -777,10 +776,9 @@ object LabRunScripts {
                     at(hider(notify, pulse = true), LabPlaces.HAND, LabPlaces.STAND, "In the hand: feel the pulse."),
                 ),
             )
-            addAll(variant("notify", "a silent-sound notification", notify))
-            addAll(variant("live_activity", "the Live Activity's alert", live))
             addAll(variant("live_double", "two Live Activity alerts", liveDouble))
-            addAll(variant("ringtone", "a silent ringtone notification", ringtone))
+            addAll(variant("live_activity", "the Live Activity's alert", live))
+            addAll(variant("notify", "a silent-sound notification", notify))
             add(
                 both(
                     "b3_proximity",
