@@ -2,6 +2,8 @@
 
 package app.hovanki.device.lab
 
+import app.hovanki.device.LiveActivityHost
+import app.hovanki.device.NoopLiveActivityHost
 import app.hovanki.device.requestLabNotifications
 import app.hovanki.device.silentWav
 import kotlinx.cinterop.BetaInteropApi
@@ -64,13 +66,14 @@ class IosLabScreen : LabScreen {
  * notification with a sound vibrates as the ringer's settings say) and without one. Debug builds only; written
  * without an iOS build.
  */
-class IosLabHaptics : LabHaptics {
+class IosLabHaptics(private val liveActivity: LiveActivityHost = NoopLiveActivityHost()) : LabHaptics {
     override val kinds: List<HapticKind> = listOf(
         HapticKind.CORE_HAPTICS,
         HapticKind.CORE_HAPTICS_AUDIO,
         HapticKind.IMPACT,
         HapticKind.NOTIFY_SILENT_SOUND,
         HapticKind.NOTIFY_NO_SOUND,
+        HapticKind.LIVE_ACTIVITY_ALERT,
     )
 
     private val events = MutableSharedFlow<Pair<HapticKind, String>>(extraBufferCapacity = 16)
@@ -104,6 +107,12 @@ class IosLabHaptics : LabHaptics {
         HapticKind.NOTIFY_NO_SOUND -> notify(withSound = false)
 
         HapticKind.VIBRATOR -> HapticResult("skipped", "not on iOS")
+
+        HapticKind.LIVE_ACTIVITY_ALERT -> when {
+            !liveActivity.isAvailable -> HapticResult("skipped", "no live activity host: add HovankiLive in Xcode")
+            liveActivity.alert("Hovanki lab", "vibration test: live activity", silent = true) -> HapticResult("played")
+            else -> HapticResult("skipped", "no live activity running: switch mode.live_activity on and lock")
+        }
     }
 
     private fun playCoreHaptics(kind: HapticKind, strength: Double): HapticResult {

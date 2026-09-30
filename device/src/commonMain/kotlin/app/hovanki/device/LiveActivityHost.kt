@@ -19,6 +19,15 @@ interface LiveActivityHost {
     /** A new [text] on the running activity; nothing when none runs. */
     fun update(text: String)
 
+    /**
+     * An update with an alert (`Activity.update(_:alertConfiguration:)`): iOS shows it on the lock screen like a
+     * notification and plays its sound, and the sound's haptic is the one vibration a locked iPhone gives an app whose
+     * Core Haptics engine is stopped (`pulse.live_activity`, docs/radar-run.md §5.1). [silent]: the lab's file of
+     * silence (`Library/Sounds/hovanki-silent.wav`) instead of the default sound, so only the vibration is left. False
+     * when no activity runs (start it first) or there is no host.
+     */
+    fun alert(title: String, text: String, silent: Boolean): Boolean
+
     /** Ends the activity and takes it off the lock screen at once. */
     fun end()
 }
@@ -30,6 +39,8 @@ class NoopLiveActivityHost : LiveActivityHost {
     override fun start(title: String, text: String): Boolean = false
 
     override fun update(text: String) = Unit
+
+    override fun alert(title: String, text: String, silent: Boolean): Boolean = false
 
     override fun end() = Unit
 }

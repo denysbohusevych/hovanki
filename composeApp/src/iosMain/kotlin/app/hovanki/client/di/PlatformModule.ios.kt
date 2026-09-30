@@ -80,7 +80,7 @@ actual val platformModule: Module = module {
     single<LabProbes> { IosLabProbes() }
     single<LabAir> { HostLabAir(get(), get()) }
     single<LabScreen> { IosLabScreen() }
-    single<LabHaptics> { IosLabHaptics() }
+    single<LabHaptics> { IosLabHaptics(get()) }
     single<LabFiles> { IosLabFiles() }
     // The lab's background modes (docs/radar-run.md §5.1, §5.3): the Live Activity through the Swift host the app
     // installs at start (`LiveActivityBridge.kt`), unavailable until the owner adds the widget extension in Xcode.

@@ -72,12 +72,19 @@ enum class HapticKind {
     NOTIFY_SILENT_SOUND,
     NOTIFY_NO_SOUND,
     VIBRATOR,
+
+    /**
+     * An alert on the running Live Activity with a silent sound (`pulse.live_activity`): the system plays the sound's
+     * haptic on the lock screen, like a notification's, without a notification. Needs `mode.live_activity` on.
+     */
+    LIVE_ACTIVITY_ALERT,
     ;
 
     val key: String get() = name.lowercase()
 
     /** A notification: at most one every few seconds, or iOS piles them up. */
-    val isNotification: Boolean get() = this == NOTIFY_SILENT_SOUND || this == NOTIFY_NO_SOUND
+    val isNotification: Boolean get() =
+        this == NOTIFY_SILENT_SOUND || this == NOTIFY_NO_SOUND || this == LIVE_ACTIVITY_ALERT
 }
 
 /** [result]: `played`, `error` ([error]), `skipped` (the platform won't in this state, [error] says why). */
