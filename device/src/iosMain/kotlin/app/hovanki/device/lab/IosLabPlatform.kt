@@ -69,11 +69,9 @@ class IosLabScreen : LabScreen {
  */
 class IosLabHaptics(private val liveActivity: LiveActivityHost = NoopLiveActivityHost()) : LabHaptics {
     override val kinds: List<HapticKind> = listOf(
-        HapticKind.CORE_HAPTICS,
-        HapticKind.CORE_HAPTICS_AUDIO,
-        HapticKind.IMPACT,
+        // Only what a locked iPhone feels (docs/radio-lab.md §12, 2026-09-30): Core Haptics, impact and a notification
+        // without a sound never reached the pocket; the engine kinds still play from the screen (`play`).
         HapticKind.NOTIFY_SILENT_SOUND,
-        HapticKind.NOTIFY_NO_SOUND,
         HapticKind.LIVE_ACTIVITY_ALERT,
         HapticKind.LIVE_ACTIVITY_ALERT_DOUBLE,
         HapticKind.NOTIFY_SILENT_RINGTONE,

@@ -376,6 +376,11 @@ class LabRunFollower(
             stepEndsAtMillis = LabRunPlan.stepEndsAt(script, plan),
         )
         mutableState.value = next
+        controller.setLiveStep(
+            next.step?.let { "Step ${plan.stepIndex + 1}/${script.steps.size}: ${it.title}" }
+                ?: if (plan.status == LabRunStatus.FINISHED) "The run is over" else "Waiting for the start",
+            next.stepEndsAtMillis,
+        )
         when {
             plan.status == LabRunStatus.FINISHED -> if (previous.status != LabRunStatus.FINISHED) finished()
             plan.status == LabRunStatus.CREATED || plan.stepIndex !in script.steps.indices -> Unit
@@ -472,6 +477,7 @@ class LabRunFollower(
         advertisedStretch = null
         if (!controller.running.value) return
         controller.setUwbPeers(emptyMap())
+        controller.setLiveStep(null)
         controller.setProbe(null)
         controller.setBenchRadio(null)
         controller.setTechniques(emptySet())

@@ -16,8 +16,13 @@ interface LiveActivityHost {
      */
     fun start(title: String, text: String): Boolean
 
-    /** A new [text] on the running activity; nothing when none runs. */
-    fun update(text: String)
+    /**
+     * A new [text] on the running activity; nothing when none runs. [band]: the radar's band as a colour (0 none, 1
+     * warm, 2 hot, 3 burning), [detail] a second line, [endsAtMillis] the step's end by the phone's clock for a
+     * countdown the widget runs itself (0: none). Every call is an ActivityKit update, which iOS budgets: the caller
+     * sends one when something changed, not on a timer.
+     */
+    fun update(text: String, band: Int = 0, detail: String = "", endsAtMillis: Long = 0)
 
     /**
      * An update with an alert (`Activity.update(_:alertConfiguration:)`): iOS shows it on the lock screen like a
@@ -38,7 +43,7 @@ class NoopLiveActivityHost : LiveActivityHost {
 
     override fun start(title: String, text: String): Boolean = false
 
-    override fun update(text: String) = Unit
+    override fun update(text: String, band: Int, detail: String, endsAtMillis: Long) = Unit
 
     override fun alert(title: String, text: String, silent: Boolean): Boolean = false
 

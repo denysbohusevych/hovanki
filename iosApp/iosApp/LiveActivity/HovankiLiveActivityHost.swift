@@ -45,10 +45,13 @@ final class HovankiLiveActivityHost: NSObject, LiveActivityBridgeHost {
         }
     }
 
-    func update(text: String) {
+    func update(text: String, band: Int32, detail: String, endsAtMillis: Int64) {
         guard #available(iOS 16.2, *), let activity = current as? Activity<HovankiLiveAttributes> else { return }
+        let endsAt = endsAtMillis > 0 ? Date(timeIntervalSince1970: TimeInterval(endsAtMillis) / 1000) : nil
         let content = ActivityContent(
-            state: HovankiLiveAttributes.ContentState(text: text, updatedAt: Date()),
+            state: HovankiLiveAttributes.ContentState(
+                text: text, updatedAt: Date(), band: Int(band), detail: detail, endsAt: endsAt
+            ),
             staleDate: nil
         )
         Task {

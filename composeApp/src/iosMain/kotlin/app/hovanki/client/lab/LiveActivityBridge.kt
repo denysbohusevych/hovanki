@@ -11,7 +11,7 @@ interface LiveActivityBridgeHost {
     /** Starts the activity; false when iOS refuses (Live Activities off, the app not on the screen, iOS < 16.2). */
     fun start(title: String, text: String): Boolean
 
-    fun update(text: String)
+    fun update(text: String, band: Int, detail: String, endsAtMillis: Long)
 
     /** An update with an alert; [sound]: a sound file's name (the app's bundle or `Library/Sounds`), null: the default. */
     fun alert(title: String, text: String, sound: String?): Boolean
@@ -38,8 +38,8 @@ class BridgedLiveActivityHost : LiveActivityHost {
 
     override fun start(title: String, text: String): Boolean = LiveActivityBridge.host?.start(title, text) ?: false
 
-    override fun update(text: String) {
-        LiveActivityBridge.host?.update(text)
+    override fun update(text: String, band: Int, detail: String, endsAtMillis: Long) {
+        LiveActivityBridge.host?.update(text, band, detail, endsAtMillis)
     }
 
     override fun alert(title: String, text: String, silent: Boolean): Boolean =
