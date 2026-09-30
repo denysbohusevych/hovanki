@@ -1709,6 +1709,13 @@ async function labReportView(id) {
             })))));
       }),
 
+      el("h2", {}, "Шум эфира"),
+      el("p", { class: "muted small" }, "Чужие кадры, которых не разобрал ни один канал (`air`, раз в секунду): сколько их, среди них iBeacon любого UUID, масок overflow и кадров с данными Apple."),
+      empty(report.noise) ?? table(["Метка", "Секунд", "Кадров", "iBeacon", "Масок", "Apple", "Пик в секунду"],
+        report.noise.map((n) => el("tr", {}, el("td", { class: "mono" }, n.label), el("td", {}, fmt.number(n.seconds)),
+          el("td", {}, fmt.number(n.frames)), el("td", {}, fmt.number(n.iBeacons)), el("td", {}, fmt.number(n.masks)),
+          el("td", {}, fmt.number(n.apple)), el("td", {}, fmt.number(n.maxFramesPerSecond))))),
+
       el("h2", {}, "Маски (iOS overflow)"),
       empty(report.masks) ?? table(["Метка", "Кадров", "Совпали с пробой", "Расшифрован токен"],
         report.masks.map((m) => el("tr", {}, el("td", { class: "mono" }, m.label), el("td", {}, fmt.number(m.frames)),

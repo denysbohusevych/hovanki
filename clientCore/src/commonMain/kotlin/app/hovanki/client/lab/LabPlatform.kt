@@ -1,7 +1,10 @@
 package app.hovanki.client.lab
 
+import app.hovanki.radar.AirFrame
+import app.hovanki.radar.AirSecond
+import app.hovanki.radar.Decoded
+import app.hovanki.radar.RadarTrace
 import app.hovanki.radar.RadioApi
-import app.hovanki.radar.RadioTrace
 
 /*
  * What the radio lab needs from the app (docs/radio-lab.md §5) besides the phone's parts: sharing the files, and the
@@ -22,11 +25,28 @@ class NoopLabFiles : LabFiles {
     override fun share(files: List<LabFile>) = Unit
 }
 
-/** The game's radios tell the lab's log what they advertise and scan ([RadioTrace]). */
-class LabRadioTrace(private val log: LabLog) : RadioTrace {
-    override fun advertise(action: String, mode: String, token: String?, error: String?) =
-        log.adv(action, mode, token, error = error)
+/**
+ * The radar's host tells the lab's log what it advertises, scans and hears ([RadarTrace]): `adv` (with the channel and
+ * the advertisement's layout; `mode` keeps the older names where a channel had one), `scan`, `frame` and `air`.
+ */
+class LabRadioTrace(private val log: LabLog) : RadarTrace {
+    override fun advertise(action: String, tech: String, token: String?, layout: String?, error: String?) =
+        log.adv(action, modeOf(tech), token, error = error, tech = tech, layout = layout)
 
     override fun scan(action: String, api: RadioApi, filters: String?, error: String?) =
         log.scan(action, api, filters, error)
+
+    override fun frame(frame: AirFrame, decoded: List<Pair<String, Decoded>>) = log.frame(frame, decoded)
+
+    override fun air(second: AirSecond) = log.air(second)
+
+    companion object {
+        /** The `adv` event's `mode` before the channels (schema 2): the older readers of the log know these. */
+        fun modeOf(tech: String): String = when {
+            tech == "ble.name" -> "hider_name"
+            tech.startsWith("ble.service_data") -> "hider_service_data"
+            tech == "ble.ibeacon" -> "ibeacon"
+            else -> tech
+        }
+    }
 }

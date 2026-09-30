@@ -263,6 +263,41 @@ class LabReportBuilderTest {
     }
 
     @Test
+    fun theFramesAndTheAirOfTheChannelsAreRead() {
+        // What the lab writes since the channels (docs/radio-lab.md §4.1): whole frames and the air's seconds.
+        val log = Log("droid", offset = 0)
+        session(log, "Pixel 8", "Android 16")
+        log.event(START + 10, "clock", fields = arrayOf("offset" to 0))
+        log.step(START + 1_000, 0)
+        val frame = """{"t":${START + 1_200},"dt":${START + 1_200},"mono":1200,"dev":"droid","k":"frame",""" +
+            """"app":"active","seq":90,"run":"$RUN","tech":"ble.service_data.scan_response","via":"service_data",""" +
+            """"token":"$A_TOKEN","uuids":["7A0B8D2E-4C1F-4E6A-9B3D-2F5E8C1A7D10"],""" +
+            """"svcdata":{"7A0B8D2E-4C1F-4E6A-9B3D-2F5E8C1A7D10":"aaaa0001"},"mfr":{"004c":"0215"},""" +
+            """"rssi":-60,"peer":"0badf00d","api":"android_le","hex":"0201","ago":12}"""
+        log.rx(START + 1_200, A_TOKEN, -60, api = "android_le", via = "service_data")
+        log.event(
+            START + 2_000,
+            "air",
+            fields = arrayOf("frames" to 12, "ibeacons" to 2, "masks" to 1, "apple" to 9, "bits" to listOf(3, 70)),
+        )
+        log.event(
+            START + 3_000,
+            "air",
+            fields = arrayOf("frames" to 30, "ibeacons" to 0, "masks" to 0, "apple" to 20, "bits" to emptyList<Int>()),
+        )
+        val jsonl = log.jsonl + frame + "\n"
+        val input = LabReportInput("droid", "d", null, jsonl)
+        val report = LabReportBuilder.build(RUN, LabRunScripts.E2E, listOf(input), NOW)
+        assertEquals(emptyList(), report.problems)
+        assertEquals(8, report.devices.single().events, "session, clock, step, mark, rx, two airs, the frame")
+        assertEquals(listOf(LabReportNoise("droid", 2, 42, 2, 1, 29, 30)), report.noise)
+        // A frame is no reading: the directions count the rx alone.
+        assertEquals(1, report.steps.single { it.index == 0 }.directions.single().readings)
+        val merge = LabMerge(listOf("droid" to jsonl))
+        assertTrue("frame tech=ble.service_data.scan_response" in merge.timeline(), merge.timeline())
+    }
+
+    @Test
     fun noLogsNoSteps() {
         val empty = LabReportBuilder.build(RUN, null, emptyList(), NOW)
         assertEquals(emptyList(), empty.steps)

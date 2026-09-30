@@ -30,11 +30,13 @@ import app.hovanki.device.lab.IosLabScreen
 import app.hovanki.device.lab.LabHaptics
 import app.hovanki.device.lab.LabProbes
 import app.hovanki.device.lab.LabScreen
-import app.hovanki.radar.IosProximityRadio
+import app.hovanki.radar.AirHost
+import app.hovanki.radar.HostProximityRadio
 import app.hovanki.radar.NoopPrecisionRadio
 import app.hovanki.radar.PrecisionRadio
 import app.hovanki.radar.ProximityRadio
-import app.hovanki.radar.lab.IosLabAir
+import app.hovanki.radar.host.IosAirHost
+import app.hovanki.radar.lab.HostLabAir
 import app.hovanki.radar.lab.LabAir
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.darwin.Darwin
@@ -52,8 +54,10 @@ actual val platformModule: Module = module {
     }
     single<BackgroundTracker> { IosBackgroundTracker() }
     single<ShareSheet> { IosShareSheet() }
-    // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md); the precision radar by UWB is not implemented yet.
-    single<ProximityRadio> { IosProximityRadio(get()) }
+    // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md): the game's channels on the iPhone's host (ADR 0017
+    // §2.2), traced into the radio lab's log; the precision radar by UWB is not implemented yet.
+    single<AirHost> { IosAirHost() }
+    single<ProximityRadio> { HostProximityRadio(get(), trace = get()) }
     single<PrecisionRadio> { NoopPrecisionRadio() }
     single<DeviceInfo> { IosDeviceInfo() }
     single<ActivityMonitor> { IosActivityMonitor() }
@@ -66,7 +70,7 @@ actual val platformModule: Module = module {
     single<CarryMonitor> { IosCarryMonitor() }
     // The radio lab (docs/radio-lab.md), reached from the debug build's diagnostics only.
     single<LabProbes> { IosLabProbes() }
-    single<LabAir> { IosLabAir() }
+    single<LabAir> { HostLabAir(get(), get()) }
     single<LabScreen> { IosLabScreen() }
     single<LabHaptics> { IosLabHaptics() }
     single<LabFiles> { IosLabFiles() }

@@ -3,12 +3,17 @@
 package app.hovanki.client.lab
 
 import app.hovanki.device.lab.MotionFeatures
+import app.hovanki.radar.AirFrame
+import app.hovanki.radar.AirSecond
+import app.hovanki.radar.Decoded
+import app.hovanki.radar.RadarTrace
 import app.hovanki.radar.RadioApi
 import app.hovanki.radar.SightingVia
 import app.hovanki.shared.lab.LabFields
 import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.protocol.LabUpload
 import app.hovanki.shared.protocol.RadarBand
+import app.hovanki.shared.rules.OverflowArea
 import app.hovanki.shared.rules.RadarSmoother
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -260,15 +265,28 @@ class LabLog(
         put("central_state", central)
     }
 
-    /** [mode]: `hider_name`, `hider_service_data`, `ibeacon`, `overflow_probe`; [payload]: what the advertisement has. */
-    fun adv(action: String, mode: String, token: String? = null, payload: String? = null, error: String? = null) =
-        event("adv") {
-            put("action", action)
-            put("mode", mode)
-            put("token", token)
-            put("payload", payload)
-            put("error", error)
-        }
+    /**
+     * [mode]: `hider_name`, `hider_service_data`, `ibeacon`, `overflow_probe` (and a channel's id where it has no older
+     * name); [payload]: what the advertisement has; [tech]: the channel ([app.hovanki.radar.RadarChannel.id]);
+     * [layout]: the advertisement's bytes in words and, with `dropped`, what was left out ([error] says why).
+     */
+    fun adv(
+        action: String,
+        mode: String,
+        token: String? = null,
+        payload: String? = null,
+        error: String? = null,
+        tech: String? = null,
+        layout: String? = null,
+    ) = event("adv") {
+        put("action", action)
+        put("mode", mode)
+        put("tech", tech)
+        put("token", token)
+        put("payload", payload)
+        put("layout", layout)
+        put("error", error)
+    }
 
     fun scan(action: String, api: RadioApi, filters: String? = null, error: String? = null) = event("scan") {
         put("action", action)
@@ -279,10 +297,18 @@ class LabLog(
 
     /**
      * Every reading, not thinned out: [token] (null when the sender carried none we could read), [rssi], by [api] via
-     * [via], from [peer] (the OS's id; hashed here). [atMillis]: when the platform heard it, device clock. A reading
-     * with a token moves the lab's smoothed band for it ([band] on a change).
+     * [via] of the channel [tech], from [peer] (the OS's id; hashed here). [atMillis]: when the platform heard it,
+     * device clock. A reading with a token moves the lab's smoothed band for it ([band] on a change).
      */
-    fun rx(token: String?, rssi: Int, api: RadioApi, via: SightingVia, peer: String? = null, atMillis: Long? = null) {
+    fun rx(
+        token: String?,
+        rssi: Int,
+        api: RadioApi,
+        via: SightingVia,
+        peer: String? = null,
+        atMillis: Long? = null,
+        tech: String? = null,
+    ) {
         if (!isEnabled || !isRecording) return
         val now = deviceTimeMillis()
         event("rx") {
@@ -290,6 +316,7 @@ class LabLog(
             put("rssi", rssi)
             put("api", api.key)
             put("via", via.key)
+            put("tech", tech?.ifEmpty { null })
             put("peer", peer?.let(::peerId))
             if (atMillis != null && now - atMillis > 0) put("ago", now - atMillis)
         }
@@ -308,6 +335,66 @@ class LabLog(
                 }
             }
         }
+    }
+
+    /**
+     * A frame of the radar's own a channel read ([decoded]: the channel's id and what it read, [RadarTrace.frame]),
+     * whole: `tech` (the first channel), `via`, `token` (and `candidates` when the frame may carry several), what the
+     * platform gave (`name`, `uuids`, `overflow` as the table's bits, `svcdata` and `mfr` in hex by UUID and company
+     * id, `tx`, `conn`), `rssi`, `peer` (hashed), `api`, `hex` (the raw record, Android) and `ago` (how long ago the
+     * platform heard it, as [rx]). The tokens are the lab's own; a frame has no position.
+     */
+    fun frame(frame: AirFrame, decoded: List<Pair<String, Decoded>>) {
+        if (!isEnabled || !isRecording) return
+        val now = deviceTimeMillis()
+        val first = decoded.firstOrNull()
+        event("frame") {
+            put("tech", first?.first)
+            if (decoded.map { it.first }.distinct().size > 1) {
+                put("techs", JsonArray(decoded.map { it.first }.distinct().map(::JsonPrimitive)))
+            }
+            put("via", first?.second?.via?.key)
+            put("token", first?.second?.token)
+            val candidates = first?.second?.candidates.orEmpty()
+            if (candidates.size > 1) put("candidates", JsonArray(candidates.map(::JsonPrimitive)))
+            put("name", frame.name)
+            if (frame.serviceUuids.isNotEmpty()) put("uuids", JsonArray(frame.serviceUuids.map(::JsonPrimitive)))
+            if (frame.overflowUuids.isNotEmpty()) {
+                // The table's bits; a UUID not in the table (none should be) as it came.
+                val bits = frame.overflowUuids.map { uuid -> OverflowArea.bitOf(uuid)?.let(::JsonPrimitive) }
+                put("overflow", JsonArray(bits.zip(frame.overflowUuids) { bit, uuid -> bit ?: JsonPrimitive(uuid) }))
+            }
+            if (frame.serviceData.isNotEmpty()) {
+                put("svcdata", buildJsonObject { for ((uuid, data) in frame.serviceData) put(uuid, hexOf(data)) })
+            }
+            if (frame.manufacturerData.isNotEmpty()) {
+                put(
+                    "mfr",
+                    buildJsonObject {
+                        for ((company, data) in frame.manufacturerData) put(companyKey(company), hexOf(data))
+                    },
+                )
+            }
+            put("tx", frame.txPower)
+            put("conn", frame.connectable)
+            put("rssi", frame.rssi)
+            put("peer", frame.peer?.let(::peerId))
+            put("api", frame.api.key)
+            put("hex", frame.hex())
+            if (now - frame.atMillis > 0) put("ago", now - frame.atMillis)
+        }
+    }
+
+    /**
+     * One second of the frames no channel read ([RadarTrace.air]): `frames` in all, `ibeacons`, overflow `masks`,
+     * `apple` (with Apple's manufacturer data) and every mask's `bits`: the street's noise.
+     */
+    fun air(second: AirSecond) = event("air") {
+        put("frames", second.frames)
+        put("ibeacons", second.iBeacons)
+        put("masks", second.masks)
+        put("apple", second.apple)
+        put("bits", JsonArray(second.maskBits.sorted().map(::JsonPrimitive)))
     }
 
     /** The loudest band the lab hears now: what the lab's pulse beats. */
@@ -517,6 +604,12 @@ class LabLog(
             val start = TimeSource.Monotonic.markNow()
             return { start.elapsedNow().inWholeMilliseconds }
         }
+
+        private fun hexOf(data: ByteArray): String =
+            data.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+
+        /** `004c`: a company id as its 4 hex digits. */
+        private fun companyKey(id: Int): String = id.toString(16).padStart(4, '0')
 
         internal fun round(value: Double, digits: Int): Double {
             var scale = 1.0

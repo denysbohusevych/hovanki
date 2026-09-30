@@ -381,9 +381,12 @@ class LabRunFollower(
         } else {
             // The advertisement changes only while the phone is active; the locked steps keep the lock step's.
             if (controller.probe.value != setup.probe) controller.setProbe(setup.probe)
+            // The step's channels before the radio (re)starts: a radio already on starts again with them.
+            controller.setTechniques(setup.techniques)
             val asSeeker = when {
                 setup.hider -> false
                 setup.seeker -> true
+                setup.techniques.isNotEmpty() -> false
                 else -> null
             }
             val radio = controller.bench.radioMode.value
@@ -431,6 +434,7 @@ class LabRunFollower(
         if (!controller.running.value) return
         controller.setProbe(null)
         controller.setBenchRadio(null)
+        controller.setTechniques(emptySet())
         controller.setListening(false)
         controller.setScreenOff(false)
         controller.setPulse(LabPulse.OFF)

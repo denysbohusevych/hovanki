@@ -53,6 +53,11 @@ sealed interface ProbeMode {
  * starts. [listen]: listen to everything. [screenOff]: the screen off by the proximity sensor. [pulse]: the lab's pulse
  * by haptics. [inGame]: «as in a game», GPS in the background as in a round. [phase]: whether the phone is to be
  * locked. The vibration test is a test of its own, not a step.
+ *
+ * [techniques]: the radar's channels the step runs, by id (docs/adr/0017-radar-techniques-and-big-run.md, section
+ * 2.1: `ble.name`, `ble.service_data.bare`…), instead of the game's; the radio runs as a hider unless [seeker]. Empty:
+ * as the switches say. The ids are not checked here (the catalog is in `:radar`): the phone notes one it doesn't
+ * know and leaves it out. Part of the advertisement: a locked step keeps its lock step's.
  */
 data class PhoneSetup(
     val hider: Boolean = false,
@@ -64,14 +69,16 @@ data class PhoneSetup(
     val pulse: Boolean = false,
     val inGame: Boolean = true,
     val phase: RunPhase = RunPhase.SCREEN,
+    val techniques: Set<String> = emptySet(),
 ) {
     /** The part a locked phone can't change: its advertisement. */
-    internal val advertisement: Triple<Boolean, Boolean, ProbeMode?> get() = Triple(hider, seeker, probe)
+    internal val advertisement: List<Any?> get() = listOf(hider, seeker, probe, techniques)
 
     /** In a few words, for the console: `hider · probe token · listen`. */
     fun describe(): String = listOfNotNull(
         "hider".takeIf { hider },
         "seeker's iBeacon".takeIf { seeker },
+        techniques.takeIf { it.isNotEmpty() }?.sorted()?.joinToString(", ", prefix = "channels "),
         probe?.let {
             when (it) {
                 ProbeMode.Pattern -> "probe 0x5A"

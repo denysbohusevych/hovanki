@@ -63,7 +63,7 @@ import app.hovanki.client.ui.welcome.WelcomeViewModel
 import app.hovanki.device.DeviceInfo
 import app.hovanki.device.lab.LabProbes
 import app.hovanki.radar.ProximityRadio
-import app.hovanki.radar.RadioTrace
+import app.hovanki.radar.RadarTrace
 import app.hovanki.shared.protocol.LabCapabilities
 import app.hovanki.shared.rules.AccountRules
 import kotlinx.coroutines.MainScope
@@ -113,7 +113,7 @@ val commonModule: Module = module {
     single { Diagnostics(isEnabled = get<BuildInfo>().isDebug) }
     // The radio lab (docs/radio-lab.md), debug builds only too: its log records only while the lab runs.
     single { LabLog(isEnabled = get<BuildInfo>().isDebug) }
-    single<RadioTrace> { LabRadioTrace(get()) }
+    single<RadarTrace> { LabRadioTrace(get()) }
     single { DiagnosticsBench(get(), get(), get(), MainScope(), lab = get()) }
     single {
         val log = get<LabLog>()

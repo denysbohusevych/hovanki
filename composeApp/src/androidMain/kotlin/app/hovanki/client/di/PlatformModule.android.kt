@@ -26,11 +26,13 @@ import app.hovanki.device.lab.AndroidLabScreen
 import app.hovanki.device.lab.LabHaptics
 import app.hovanki.device.lab.LabProbes
 import app.hovanki.device.lab.LabScreen
-import app.hovanki.radar.AndroidProximityRadio
+import app.hovanki.radar.AirHost
+import app.hovanki.radar.HostProximityRadio
 import app.hovanki.radar.NoopPrecisionRadio
 import app.hovanki.radar.PrecisionRadio
 import app.hovanki.radar.ProximityRadio
-import app.hovanki.radar.lab.AndroidLabAir
+import app.hovanki.radar.host.AndroidAirHost
+import app.hovanki.radar.lab.HostLabAir
 import app.hovanki.radar.lab.LabAir
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
@@ -45,8 +47,11 @@ actual val platformModule: Module = module {
     single<LocationProvider> { AndroidLocationProvider(androidContext()) }
     single<BackgroundTracker> { AndroidBackgroundTracker(androidContext()) }
     single<ShareSheet> { AndroidShareSheet(androidContext()) }
-    // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md); the precision radar by UWB is not implemented yet.
-    single<ProximityRadio> { AndroidProximityRadio(androidContext(), get()) }
+    // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md): the game's channels on the phone's one host of the
+    // air (docs/adr/0017-radar-techniques-and-big-run.md, section 2.2); the precision radar by UWB is not implemented
+    // yet.
+    single<AirHost> { AndroidAirHost(androidContext()) }
+    single<ProximityRadio> { HostProximityRadio(get(), trace = get()) }
     single<PrecisionRadio> { NoopPrecisionRadio() }
     single<DeviceInfo> { AndroidDeviceInfo(androidContext()) }
     single<ActivityMonitor> { AndroidActivityMonitor(androidContext()) }
@@ -54,7 +59,7 @@ actual val platformModule: Module = module {
     single<CarryMonitor> { AndroidCarryMonitor(androidContext()) }
     // The radio lab (docs/radio-lab.md), reached from the debug build's diagnostics only.
     single<LabProbes> { AndroidLabProbes(androidContext()) }
-    single<LabAir> { AndroidLabAir(androidContext()) }
+    single<LabAir> { HostLabAir(get(), get()) }
     single<LabScreen> { AndroidLabScreen(androidContext()) }
     single<LabHaptics> { AndroidLabHaptics(androidContext()) }
     single<LabFiles> { AndroidLabFiles(androidContext()) }

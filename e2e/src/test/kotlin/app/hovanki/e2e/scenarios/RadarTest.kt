@@ -57,6 +57,7 @@ class RadarTest {
         awaitBand(sam, bob, RadarBand.BURNING)
         val samRadio = sam.radio as FakeRadio
         val bobRadio = bob.radio as FakeRadio
+        check(!bobRadio.isHeard, "Bob's iPhone in the pocket has no token on the air anybody reads")
         check(bobRadio.token !in samRadio.heardTokens, "Sam's phone never heard Bob's iPhone in the pocket")
         check(samRadio.token in bobRadio.heardTokens, "Bob's iPhone heard Sam's beacon")
         check(state().radar.any { setOf(it.a, it.b) == setOf(sam.id, bob.id) }, "the server knows the pair")

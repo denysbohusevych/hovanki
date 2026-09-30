@@ -3,7 +3,7 @@ package app.hovanki.client.lab
 import app.hovanki.device.lab.HapticKind
 import app.hovanki.radar.RadioApi
 import app.hovanki.radar.SightingVia
-import app.hovanki.radar.lab.AirFrame
+import app.hovanki.radar.lab.LabFrame
 import app.hovanki.shared.lab.ProbeMode
 import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.rules.OverflowCode
@@ -84,9 +84,9 @@ class LabControllerTest {
         lab.controller.setListening(true)
         runCurrent()
         val bits = OverflowCode.encode("0a1b2c3d")
-        lab.air.frames.emit(AirFrame.Mask(bits, "00", -60, "peer-1", 1_790_000_000_000L, RadioApi.ANDROID_LE))
+        lab.air.frames.emit(LabFrame.Mask(bits, "00", -60, "peer-1", 1_790_000_000_000L, RadioApi.ANDROID_LE))
         lab.air.frames.emit(
-            AirFrame.Mask(OverflowProbe.PATTERN, null, -70, "peer-2", 1_790_000_000_000L, RadioApi.COREBLUETOOTH),
+            LabFrame.Mask(OverflowProbe.PATTERN, null, -70, "peer-2", 1_790_000_000_000L, RadioApi.COREBLUETOOTH),
         )
         runCurrent()
 

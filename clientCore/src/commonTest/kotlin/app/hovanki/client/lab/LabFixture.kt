@@ -11,8 +11,8 @@ import app.hovanki.device.lab.HapticResult
 import app.hovanki.device.lab.LabHaptics
 import app.hovanki.device.lab.NoopLabProbes
 import app.hovanki.device.lab.NoopLabScreen
-import app.hovanki.radar.lab.AirFrame
 import app.hovanki.radar.lab.LabAir
+import app.hovanki.radar.lab.LabFrame
 import app.hovanki.radar.lab.ProbeEvent
 import app.hovanki.shared.lab.LabFields
 import kotlinx.coroutines.CoroutineScope
@@ -32,10 +32,10 @@ import kotlin.random.Random
 internal class FakeAir : LabAir {
     override val canListen = true
     override val canProbe = true
-    val frames = MutableSharedFlow<AirFrame>(extraBufferCapacity = 16)
+    val frames = MutableSharedFlow<LabFrame>(extraBufferCapacity = 16)
     val advertised = mutableListOf<Set<Int>>()
 
-    override fun listen(): Flow<AirFrame> = frames
+    override fun listen(): Flow<LabFrame> = frames
 
     override fun probe(bits: StateFlow<Set<Int>>): Flow<ProbeEvent> = bits.map {
         advertised += it
@@ -75,9 +75,10 @@ internal class FakeFiles : LabFiles {
 
 /**
  * The lab on fake parts, time from the test's scheduler: the server's clock is 700 ms ahead of the device's; with
- * [clockWorks] false the server never answers the clock's questions.
+ * [clockWorks] false the server never answers the clock's questions; [labAir]: the lab's air on its log instead of
+ * [FakeAir].
  */
-internal class Lab(scope: TestScope, clockWorks: Boolean = true) {
+internal class Lab(scope: TestScope, clockWorks: Boolean = true, labAir: ((LabLog) -> LabAir)? = null) {
     val log = LabLog(isEnabled = true, { 1_790_000_000_000L + scope.currentTime }, { scope.currentTime })
     val radio = FakeRadio()
     val location = FakeLocationProvider()
@@ -100,7 +101,7 @@ internal class Lab(scope: TestScope, clockWorks: Boolean = true) {
         log = log,
         bench = bench,
         probes = NoopLabProbes(),
-        air = air,
+        air = labAir?.invoke(log) ?: air,
         screen = NoopLabScreen(),
         haptics = haptics,
         files = files,

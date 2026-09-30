@@ -98,6 +98,46 @@ class LabRunScriptTest {
     }
 
     @Test
+    fun aStepNamesItsChannelsByAnyId() {
+        val channels = setOf("ble.service_data.bare", "ble.name", "not.in.any.catalog")
+        val script = LabRunScript(
+            "channels",
+            0,
+            "Channels",
+            listOf("A", "B"),
+            listOf(
+                RunStep(
+                    "one",
+                    "One",
+                    5,
+                    mapOf("A" to DeviceStep(PhoneSetup(techniques = channels)), "B" to DeviceStep(PhoneSetup())),
+                ),
+            ),
+        )
+        assertEquals(channels, script.setupOf("A", 0).techniques, "the ids are the phone's to check")
+        assertEquals(emptySet(), script.setupOf("B", 0).techniques, "none: as the switches say")
+        // The console sees them in the step's hints, the only part of a plan on the wire (LabStepView).
+        assertEquals(
+            "channels ble.name, ble.service_data.bare, not.in.any.catalog",
+            script.stepViews().single().hints["A"],
+        )
+        val builtIn = LabRunScripts.ALL.flatMap { it.steps }.flatMap { it.devices.values }
+        assertTrue(builtIn.all { it.setup.techniques.isEmpty() }, "the built-in runs are as they were")
+    }
+
+    @Test
+    fun aLockedStepKeepsItsChannels() {
+        fun step(id: String, setup: PhoneSetup) = RunStep(id, id, 10, mapOf("A" to DeviceStep(setup)))
+        fun script(vararg steps: RunStep) = LabRunScript("s", 1, "S", listOf("A"), steps.toList())
+
+        val lock = PhoneSetup(hider = true, techniques = setOf("ble.overflow"), phase = RunPhase.LOCK)
+        script(step("lock", lock), step("locked", lock.copy(phase = RunPhase.LOCKED)))
+        assertFailsWith<IllegalArgumentException> {
+            script(step("lock", lock), step("locked", lock.copy(techniques = emptySet(), phase = RunPhase.LOCKED)))
+        }
+    }
+
+    @Test
     fun badScriptsAreRefused() {
         val one = RunStep("one", "One", 5, emptyMap())
         assertFailsWith<IllegalArgumentException> { LabRunScript("s", 16, "S", listOf("A"), listOf(one)) }

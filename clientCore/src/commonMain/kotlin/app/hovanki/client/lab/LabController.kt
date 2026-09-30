@@ -14,10 +14,12 @@ import app.hovanki.device.lab.MotionFeatures
 import app.hovanki.device.lab.MotionWindow
 import app.hovanki.device.lab.Orientation
 import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.RadarCatalog
 import app.hovanki.radar.RadioApi
 import app.hovanki.radar.SightingVia
-import app.hovanki.radar.lab.AirFrame
+import app.hovanki.radar.channel.overflow.OverflowChannel
 import app.hovanki.radar.lab.LabAir
+import app.hovanki.radar.lab.LabFrame
 import app.hovanki.shared.lab.ProbeMode
 import app.hovanki.shared.rules.HeartbeatRules
 import app.hovanki.shared.rules.OverflowArea
@@ -106,6 +108,11 @@ class LabController(
 
     /** When the probe's token will change (monotonic); null: no change pending. */
     val rotateAt: StateFlow<Long?> = mutableRotateAt.asStateFlow()
+
+    private val mutableTechniques = MutableStateFlow<Set<String>>(emptySet())
+
+    /** The channels the bench's radio runs ([setTechniques]); empty: the game's. */
+    val techniques: StateFlow<Set<String>> = mutableTechniques.asStateFlow()
 
     private val mutableListening = MutableStateFlow(false)
     val listening: StateFlow<Boolean> = mutableListening.asStateFlow()
@@ -212,6 +219,7 @@ class LabController(
         stopHapticTest()
         setInGame(false)
         bench.stopRadio()
+        setTechniques(emptySet())
         log.note("lab stopped")
         jobs.forEach { it.cancel() }
         jobs.clear()
@@ -240,9 +248,31 @@ class LabController(
         log.note("as in a game ${if (on) "on" else "off"}")
     }
 
-    /** The game's radio on the bench as a hider or a seeker ([token]: the bench's own unless given); null: off. */
+    /**
+     * The game's radio on the bench as a hider or a seeker ([token]: the bench's own unless given), with the channels
+     * of [techniques]; null: off.
+     */
     fun setBenchRadio(asSeeker: Boolean?, token: String? = null) {
-        if (asSeeker == null) bench.stopRadio() else bench.startRadio(asSeeker, token ?: bench.token)
+        if (asSeeker == null) {
+            bench.stopRadio()
+        } else {
+            bench.startRadio(asSeeker, token ?: bench.token, mutableTechniques.value)
+        }
+    }
+
+    /**
+     * The channels the bench's radio runs from now on, by id (`RadarCatalog`; a step of a run names them); empty: the
+     * game's. An id this build doesn't know is noted and left out. A radio on the bench starts again with them.
+     */
+    fun setTechniques(ids: Set<String>) {
+        val known = ids.filterTo(LinkedHashSet()) { RadarCatalog.byId(it) != null }
+        val unknown = ids - known
+        if (unknown.isNotEmpty()) log.note("unknown techniques ${unknown.sorted().joinToString(",")}: left out")
+        if (known == mutableTechniques.value) return
+        mutableTechniques.value = known
+        log.note("techniques ${known.sorted().joinToString(",").ifEmpty { "of the game" }}")
+        val running = bench.radioMode.value ?: return
+        bench.startRadio(running.asSeeker, bench.radioToken ?: bench.token, known)
     }
 
     fun setProbe(mode: ProbeMode?) {
@@ -266,6 +296,8 @@ class LabController(
                             token = probeTokenFor(mutableProbe.value),
                             payload = probeBits.value.sorted().joinToString(","),
                             error = event.error,
+                            tech = PROBE_TECH,
+                            layout = event.layout,
                         )
                     }
                 } catch (e: CancellationException) {
@@ -319,22 +351,24 @@ class LabController(
             try {
                 air.listen().collect { frame ->
                     when (frame) {
-                        is AirFrame.Mask -> {
+                        is LabFrame.Mask -> {
                             val decoded = OverflowCode.decode(frame.bits)
                             log.mask(frame.bits, frame.rssi, frame.api, frame.hex, frame.peer, decoded)
                             // A decoded token is a reading like any other: the lab's band follows it.
                             decoded.singleOrNull()?.let { token ->
-                                log.rx(token, frame.rssi, frame.api, overflowVia(frame), frame.peer, frame.atMillis)
+                                val via = overflowVia(frame)
+                                log.rx(token, frame.rssi, frame.api, via, frame.peer, frame.atMillis, PROBE_TECH)
                             }
                         }
 
-                        is AirFrame.Token -> log.rx(
+                        is LabFrame.Token -> log.rx(
                             frame.token,
                             frame.rssi,
                             frame.api,
                             frame.via,
                             frame.peer,
                             frame.atMillis,
+                            frame.tech,
                         )
                     }
                 }
@@ -562,7 +596,7 @@ class LabController(
 
     private fun probeTokenFor(mode: ProbeMode?): String? = mutableProbeToken.value.takeIf { mode == ProbeMode.Token }
 
-    private fun overflowVia(frame: AirFrame.Mask) = if (frame.hex != null) {
+    private fun overflowVia(frame: LabFrame.Mask) = if (frame.hex != null) {
         SightingVia.OVERFLOW_RAW
     } else {
         SightingVia.OVERFLOW_UUIDS
@@ -584,6 +618,9 @@ class LabController(
         const val NOTIFICATION_GAP_MILLIS = 4_000L
         const val PULSE_IDLE_MILLIS = 500L
         private const val STANDARD_GRAVITY = 9.81
+
+        /** The overflow channel's id: the probe's `adv` and a mask's reading carry it. */
+        private val PROBE_TECH = OverflowChannel.id
 
         /** The bits no probe may set, for the screen's bit picker. */
         val FORBIDDEN_BITS: Set<Int> = setOf(OverflowArea.APPLE_WATCH_BIT)

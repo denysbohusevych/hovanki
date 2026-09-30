@@ -141,7 +141,7 @@ class BotPlayer(
     /** Where the phone is: in the hand or in the pocket (docs/adr/0012-nearby-radar.md, «Карман»). */
     val carry = MutableStateFlow(Carry.IN_HAND)
     val radio: ProximityRadio =
-        radioWorld?.let { FakeRadio(it, platform, { gps.truePosition }, { carry.value }, clock::now) }
+        radioWorld?.let { FakeRadio(it, name, platform, { gps.truePosition }, { carry.value }, clock::now) }
             ?: NoopProximityRadio()
 
     /** The pulse the phone beats with (docs/adr/0012-nearby-radar.md, «Пульс»). */

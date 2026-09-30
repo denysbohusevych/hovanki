@@ -114,6 +114,18 @@ object LabReportBuilder {
                 val gaps = intervals.count { it > LabSchema.TICK_GAP_MILLIS }
                 LabReportTicks(label, events.size, gaps, intervals.maxOrNull() ?: 0L)
             },
+            noise = merge.events.filter { it.k == "air" }.groupBy { it.dev }.map { (label, events) ->
+                val frames = events.map { it.int("frames") ?: 0 }
+                LabReportNoise(
+                    label = label,
+                    seconds = events.size,
+                    frames = frames.sum(),
+                    iBeacons = events.sumOf { it.int("ibeacons") ?: 0 },
+                    masks = events.sumOf { it.int("masks") ?: 0 },
+                    apple = events.sumOf { it.int("apple") ?: 0 },
+                    maxFramesPerSecond = frames.maxOrNull() ?: 0,
+                )
+            },
         )
     }
 

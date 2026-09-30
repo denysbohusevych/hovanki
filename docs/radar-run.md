@@ -2,7 +2,7 @@
 
 План для сессий, которые будут реализовывать [ADR 0017](adr/0017-radar-techniques-and-big-run.md): что делать по шагам, в каких файлах, чем проверять и какие правила легко нарушить. Зачем всё это и что именно проверяем — в самом ADR (§2.3 — каталог техник, §6 — программа прогона). Этот документ — «как».
 
-Статус: шаги 1 (2026-09-29) и 2 (2026-09-30) сделаны, шаги 3–7 впереди. Каждый шаг ниже — отдельная сессия и отдельный PR. Сделанный шаг отмечается здесь ✅, а в ADR 0017 появляется раздел «Отличия реализации».
+Статус: шаги 1 (2026-09-29), 2 и 3 (2026-09-30) сделаны, шаги 4–7 впереди. Каждый шаг ниже — отдельная сессия и отдельный PR. Сделанный шаг отмечается здесь ✅, а в ADR 0017 появляется раздел «Отличия реализации».
 
 ## 0. Правила для каждой сессии
 
@@ -114,18 +114,32 @@
 
 **Не проверено:** сборка Android (в облаке нет SDK — CI), iOS-приложение и тесты на симуляторе (Мак), прогон `RADIO` на телефонах. Проверено: `spotlessCheck`, `:shared:jvmTest`, `:radar:jvmTest`, `:device:jvmTest`, `:clientCore:jvmTest`, `:server:test`, `:e2e:unitTest`, метаданные `commonMain`/`iosMain` у `:radar`, `:device`, `:clientCore`, `:composeApp`, `:e2e:test`.
 
-## 3. Шаг 3 — каналы и хосты
+## 3. Шаг 3 — каналы и хосты ✅ (2026-09-30)
 
 Цель: каждый способ передать жетон — канал; реклама собирается хостом; все показания и кадры несут `tech`.
 
-- Общий код (`:radar/commonMain/channel/`): `RadarChannel` (id, вклад в рекламу, что слушать, разбор кадра), `AirFrame` (общая модель кадра: имя, UUID сервисов, UUID маски, service data, данные производителя, iBeacon, RSSI, `peer`, API), `AdPart`, `ScanInterest`.
+- Общий код (`:radar`, корневой пакет и `channel/<id>/`): `RadarChannel` (id, вклад в рекламу, что слушать, разбор кадра), `AirFrame` (общая модель кадра: имя, UUID сервисов, UUID маски, service data, данные производителя, iBeacon, RSSI, `peer`, API), `AdPart`, `ScanInterest`.
 - `AdBudget` — чистая функция, считающая байты обычной рекламы Android так же, как `BluetoothLeAdvertiser.totalBytes`: 2 байта на поле, 128-битный UUID — 16, флаги только у connectable. Тест: нынешняя реклама прячущегося — 40 байт, не влезает; три раскладки — влезают.
 - Каналы: `ble.service_data` в трёх раскладках (`.scan_response`, `.bare`, `.mfr`), `ble.name`, `ble.ibeacon` (ranging), `ble.ibeacon.region` (вход и выход из региона — сейчас мониторинг включён, но `didEnterRegion` никто не ловит), `ble.overflow` (кодирование, маска в рекламе iPhone, разбор у Android, iPhone на экране и Мака; «замёрзший» жетон).
 - Хосты: `AndroidAirHost`, `IosAirHost` (одна реклама `CBPeripheralManager` из вкладов, в фоне не трогать; один скан с фильтром по всем интересам), `JvmAirHost` — симулятор эфира с правилами ОС (iPhone в фоне: имя и данные выброшены, UUID → биты маски, iBeacon не вещается; Android: 31 байт). `bot/Radio.kt` переходит на него.
 - Журнал: `frame` (свои кадры целиком), `air` (чужие раз в секунду), `adv` с раскладкой байт.
-- Игра по-прежнему видит только `ProximityRadio.run`, но внутри — хост с каналами из каталога. В игре раскладку Android пока не меняем — решит прогон.
+- Игра по-прежнему видит только `ProximityRadio.run`, но внутри — хост с каналами из каталога. Раскладка Android в игре **меняется** на `scan_response` (в плане было «решит прогон»): прежняя не влезает в 31 байт, и честный симулятор её не пропустил бы; прогон сравнивает `scan_response` с `bare` и `mfr` (см. «Как сделано»).
 
 **Готово, когда:** тесты кодеков, бюджета и симулятора зелёные; `RadarTest` и остальные e2e зелёные на симуляторе эфира; владелец собрал iOS.
+
+**Как сделано** (решения и отличия — «Отличия реализации» в [ADR 0017](adr/0017-radar-techniques-and-big-run.md#шаг-3-2026-09-30)):
+
+- Пакеты `:radar`: корень `app.hovanki.radar` (модель, `RadarCatalog`, `AdBudget` с `AdPlan`, `AirTally`, `OsRules`, `AirHost`, `RadarTrace`, `HostProximityRadio`, `ProximityRadio`); `channel.servicedata`, `channel.name`, `channel.ibeacon`, `channel.overflow`; `host` (`AndroidAirHost`, `IosAirHost`, `JvmAirHost` с `SimulatedAir`); `lab` (`LabAir`, `HostLabAir`). Удалены `AndroidProximityRadio`, `IosProximityRadio`, `AndroidLabAir`, `IosLabAir`, `RadioTrace` (вместо неё `RadarTrace`). `ModuleBoundariesTest`: пакет канала импортирует только корень и `:shared`, `host` и `lab` друг друга не знают.
+- Семь каналов в `RadarCatalog`; статус `GAME` у `ble.service_data.scan_response`, `ble.name`, `ble.ibeacon` и `ble.ibeacon.region` (то, что игра вещала и слушала; регион iOS мониторил и раньше), остальные — `LAB`, включая `ble.overflow` (ADR 0016 за `OVERFLOW_RADAR` не реализован). Таблица каналов — в [architecture.md](architecture.md#радар-каналы-и-хосты).
+- Игра: `HostProximityRadio(host)` берёт `RadarCatalog.game`; показание — `RadioSighting` с `tech`. Протокол игры не менялся: `tech` только в `RadioSighting` и в журнале лаборатории.
+- Что сравнивает прогон: шаг плана может задать каналы (`PhoneSetup.techniques`, id из каталога; неизвестный id журнал отмечает и пропускает), так что `scan_response`, `bare` и `mfr` можно вещать по очереди и слушать «слушать всё» (`HostLabAir`: интересы всех каналов и сырые данные Apple). План `radio` не менялся; шаги, где раскладки идут друг против друга, пишет шаг 7.
+- Журнал ([radio-lab.md §4.1](radio-lab.md)): `frame` — свои кадры целиком, `air` — чужие раз в секунду (счёт и биты, без содержимого), `adv` с `tech` и `layout` (байты по пакетам и что отброшено: `dropped`), `rx` с `tech`, в `scan` — `region_enter`/`region_exit`. Схема остаётся 2.
+- Симулятор эфира (`SimulatedAir`, `JvmAirHost` на JVM, правила `OsRules` в `commonMain`) заменил ручные правила «кто кого слышит» в `bot/Radio.kt`; правила ОС перечислены в [e2e.md](e2e.md) («Радио») и в ADR.
+- Проверено на JVM: кодек каждого канала (`commonTest`: круг «жетон → кадр → жетон» и отрицательный случай), `AdBudget` (40 байт прежней раскладки, 18 + 22 у `scan_response`, 22 у `bare`, 24 у `mfr`), `OsRules`, `AirTally`, `HostProximityRadio`, `RadarCatalog`; `SimulatedAir` с `JvmAirHost` (Android-прячущийся на прежней раскладке не слышен никому, на `scan_response` слышен всем; iPhone в фоне на `ble.name` не слышен никому, на `ble.overflow` слышен Android маской и iPhone на экране UUID; маяк ищущего заблокированный iPhone слышит только ranging'ом; регион входит и выходит); `LabLog` (`frame`/`air`/`adv`), `LabController` на поддельном хосте; `RadarTest`, `ProximityCatchTest`, `LabRunTest` и остальное на симуляторе.
+
+**Не проверено:** `AndroidAirHost` (сборка Android — в облаке нет SDK, соберёт CI; на телефоне — ни `ADVERTISE_FAILED_*`, ни два фильтра скана, ни что iPhone склеивает ответ на скан с рекламой) и `IosAirHost` (написан вслепую, компилируются только метаданные `iosMain`; сборка, регион и ranging — на Маке). Ни одна цифра dBm и ни одно правило iOS из симулятора на настоящих телефонах не проверены: симулятор — модель того, что мы про них знаем. Проверено: `spotlessCheck`, `:shared:jvmTest`, `:radar:jvmTest`, `:device:jvmTest`, `:clientCore:jvmTest`, `:server:test`, `:e2e:unitTest`, `:e2e:test`, метаданные `iosMain`/`commonMain` у `:radar`, `:clientCore`, `:composeApp`.
+
+**Владельцу:** собрать iOS на Маке и прислать ошибки `IosAirHost` в ту же сессию.
 
 ## 4. Шаг 4 — чоканье, тени, карточки
 
@@ -187,7 +201,7 @@
 2. **Код** в своём пакете: `:radar/channel/<id>/`, `:radar/link/<id>/`, `:device/mode/<id>/`, `:device/pulse/<id>/` или чистая функция в `:shared`. Чужие техники не импортировать; общее — через интерфейсы модуля.
 3. **Регистрация** в каталоге платформы (`RadarCatalog`, `DeviceCatalog`) со статусом `LAB` и `available()` — что нужно телефону.
 4. **Журнал:** каждое действие и каждый результат — событие с `tech = <id>`; ошибки — текстом ОС, не «failed».
-5. **Симулятор:** если техника меняет эфир — правило в `JvmAirHost`, чтобы боты вели себя честно.
+5. **Симулятор:** если техника меняет эфир — правило в `OsRules` (чистая функция в `commonMain`), которым пользуются `SimulatedAir` и `JvmAirHost`, чтобы боты вели себя честно.
 6. **Отчёт:** карточка техники — функция в `:shared/lab`, которая по событиям прогона считает её критерий.
 7. **Сценарий:** шаги, где она включена одна и вместе с остальными.
 8. **Тесты:** кодек или правило — `commonTest`; карточка — на придуманном журнале.

@@ -20,6 +20,7 @@ data class LabReport(
     val haptics: List<LabReportHaptic> = emptyList(),
     val battery: List<LabReportBattery> = emptyList(),
     val ticks: List<LabReportTicks> = emptyList(),
+    val noise: List<LabReportNoise> = emptyList(),
 )
 
 /** A device of the run, as its log said: [clockOffsetsMillis] every offset to the server's clock it measured. */
@@ -102,3 +103,19 @@ data class LabReportBattery(
  */
 @Serializable
 data class LabReportTicks(val label: String, val ticks: Int, val gaps: Int, val longestGapMillis: Long)
+
+/**
+ * The street's noise [label] heard: the frames no channel of the radar read (the log's `air` events, one a second
+ * while it listened), in [seconds] of them; [iBeacons] of any UUID, overflow [masks], [apple] frames with Apple's
+ * manufacturer data; [maxFramesPerSecond] the busiest second.
+ */
+@Serializable
+data class LabReportNoise(
+    val label: String,
+    val seconds: Int,
+    val frames: Int,
+    val iBeacons: Int,
+    val masks: Int,
+    val apple: Int,
+    val maxFramesPerSecond: Int,
+)

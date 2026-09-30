@@ -7,9 +7,11 @@ import kotlin.test.fail
 
 /**
  * The borders of `:radar` (docs/adr/0017-radar-techniques-and-big-run.md, section 1), read from the sources of every
- * main source set: a technique's package `app.hovanki.radar.<x>` imports no other technique's `app.hovanki.radar.<y>`
- * (the root package `app.hovanki.radar` is common ground: anyone may import it), and nothing here imports the phone
- * itself (`:device`), the game's client (`:clientCore`, `:composeApp`) or Compose. `:device` has the same test.
+ * main source set. The root package `app.hovanki.radar` is common ground: anyone may import it. A channel's package
+ * `app.hovanki.radar.channel.<x>` imports nothing else of this module (`:shared` and libraries are fine); the other
+ * packages (`host`, `lab`) and the root may import the channels (the catalog lists them, the hosts and the lab run
+ * them) but not each other. Nothing here imports the phone itself (`:device`), the game's client (`:clientCore`,
+ * `:composeApp`) or Compose. `:device` has the same test.
  */
 class ModuleBoundariesTest {
     private val sources: List<File> by lazy {
@@ -24,16 +26,32 @@ class ModuleBoundariesTest {
     @Test
     fun thereAreSourcesToCheck() {
         assertTrue(sources.any { it.name == "ProximityRadio.kt" }, "$sources")
+        assertTrue(sources.any { areaOf(packageOf(it) + ".File")?.startsWith("$CHANNEL.") == true }, "$sources")
+    }
+
+    @Test
+    fun channelsImportOnlyTheRoot() {
+        val crossings = sources.filter { areaOf(packageOf(it) + ".File")?.startsWith("$CHANNEL.") == true }
+            .flatMap { file ->
+                val own = areaOf(packageOf(file) + ".File")
+                importsOf(file)
+                    .filter { import -> areaOf(import)?.let { it != own } == true }
+                    .map { "${file.path}: $it" }
+            }
+        assertTrue(crossings.isEmpty(), crossings.joinToString("\n"))
     }
 
     @Test
     fun techniquesDoNotImportEachOther() {
-        val crossings = sources.flatMap { file ->
-            val own = techniqueOf(packageOf(file) + ".File")
-            importsOf(file)
-                .filter { import -> techniqueOf(import)?.let { it != own } == true }
-                .map { "${file.path}: $it" }
-        }
+        val crossings = sources.filter { areaOf(packageOf(it) + ".File")?.startsWith("$CHANNEL.") != true }
+            .flatMap { file ->
+                val own = areaOf(packageOf(file) + ".File")
+                importsOf(file)
+                    .filter { import ->
+                        areaOf(import)?.let { it != own && !it.startsWith("$CHANNEL.") } == true
+                    }
+                    .map { "${file.path}: $it" }
+            }
         assertTrue(crossings.isEmpty(), crossings.joinToString("\n"))
     }
 
@@ -55,19 +73,22 @@ class ModuleBoundariesTest {
         .map { it.removePrefix("import ").substringBefore(" as ").trim() }
 
     /**
-     * The technique's package of an imported name: `lab` for `app.hovanki.radar.lab.AirFrame` (and anything below
-     * `lab`); null for the root package's names (`app.hovanki.radar.RadioApi`, a nested `….RadioApi.Companion`) and
-     * for anything outside this module.
+     * The area of an imported name: `lab` for `app.hovanki.radar.lab.LabFrame` (and anything below `lab`),
+     * `channel.name` for `app.hovanki.radar.channel.name.NameChannel`; null for the root package's names
+     * (`app.hovanki.radar.RadioApi`, a nested `….RadioApi.Companion`) and for anything outside this module.
      */
-    private fun techniqueOf(name: String): String? {
+    private fun areaOf(name: String): String? {
         if (!name.startsWith("$ROOT.")) return null
         val parts = name.removePrefix("$ROOT.").split('.')
-        return parts.first().takeIf { parts.size >= 2 && it.first().isLowerCase() }
+        val first = parts.first().takeIf { parts.size >= 2 && it.first().isLowerCase() } ?: return null
+        if (first != CHANNEL) return first
+        return "$CHANNEL.${parts[1]}".takeIf { parts.size >= 3 && parts[1].first().isLowerCase() } ?: CHANNEL
     }
 
     private companion object {
         const val MODULE = "radar"
         const val ROOT = "app.hovanki.radar"
+        const val CHANNEL = "channel"
         val FORBIDDEN = listOf("app.hovanki.device", "app.hovanki.client", "androidx.compose")
     }
 }
