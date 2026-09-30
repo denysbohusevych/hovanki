@@ -233,7 +233,7 @@ class LabRunScriptTest {
         val used = LabRunScripts.BIG_RUN.steps.flatMap { it.devices.values }.flatMap { it.setup.techniques }.toSet()
         assertEquals(emptySet(), used - KNOWN_TECHNIQUES, "ids outside ADR 0017 §2.3")
         assertTrue("wifi.aware" !in used, "Wi-Fi Aware is deferred (docs/radar-run.md §6)")
-        assertTrue(used.containsAll(listOf("gatt.link", "uwb.ni", "mode.audio", "mode.notification_wake")))
+        assertTrue(used.containsAll(listOf("gatt.link", "uwb.ni", "mode.live_activity", "mode.notification_wake")))
     }
 
     @Test
@@ -278,14 +278,16 @@ class LabRunScriptTest {
             "ble.ibeacon",
             "ble.ibeacon.region",
             "ble.overflow",
-            // The lab's pulse by haptics (`PhoneSetup.pulse`): the id only names it.
+            // The lab's pulse by its kinds (step 5; docs/radio-lab.md §12: only what a locked iPhone feels is run).
             "pulse.core_haptics",
-            // Step 5 of docs/radar-run.md: not in code yet, the phone notes them as unknown and leaves them out.
+            "pulse.core_haptics.audio",
+            "pulse.notify_silent_sound",
+            "pulse.live_activity",
+            "pulse.live_activity.double",
+            "pulse.notify_ringtone",
             "mode.audio",
             "mode.notification_wake",
             "mode.live_activity",
-            "pulse.core_haptics.audio",
-            "pulse.live_activity",
             "gatt.link",
             "uwb.ni",
         )
