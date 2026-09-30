@@ -378,10 +378,10 @@ object LabRunScripts {
     private const val IBEACON = "ble.ibeacon"
     private const val REGION = "ble.ibeacon.region"
     private const val OVERFLOW = "ble.overflow"
-    private const val PULSE_HAPTICS = "pulse.core_haptics"
-    private const val PULSE_HAPTICS_AUDIO = "pulse.core_haptics.audio"
+    private const val PULSE_NOTIFY = "pulse.notify_silent_sound"
     private const val PULSE_LIVE_ACTIVITY = "pulse.live_activity"
-    private const val MODE_AUDIO = "mode.audio"
+    private const val PULSE_LIVE_ACTIVITY_DOUBLE = "pulse.live_activity.double"
+    private const val PULSE_RINGTONE = "pulse.notify_ringtone"
     private const val MODE_NOTIFICATION_WAKE = "mode.notification_wake"
     private const val MODE_LIVE_ACTIVITY = "mode.live_activity"
     private const val GATT = "gatt.link"
@@ -403,8 +403,8 @@ object LabRunScripts {
     private val UWB_LIVE = setOf(UWB, MODE_LIVE_ACTIVITY)
 
     /** Block 7: every candidate at once; of the competing pulses the phone plays the first that works. */
-    private val EVERY_CANDIDATE = CARRIED + GATT + UWB_LIVE + MODE_AUDIO + MODE_NOTIFICATION_WAKE +
-        PULSE_HAPTICS + PULSE_HAPTICS_AUDIO + PULSE_LIVE_ACTIVITY
+    private val EVERY_CANDIDATE = CARRIED + GATT + UWB_LIVE + MODE_NOTIFICATION_WAKE +
+        PULSE_LIVE_ACTIVITY + PULSE_LIVE_ACTIVITY_DOUBLE + PULSE_NOTIFY + PULSE_RINGTONE
 
     private val quiet = PhoneSetup()
     private val listening = PhoneSetup(listen = true)
@@ -726,16 +726,18 @@ object LabRunScripts {
 
     /**
      * Block 3, 15 min: vibration and modes (H2, H3). The iPhones stand at the table 1 m from droid, whose iBeacon is
-     * «burning» for the lab's pulse. Each way to vibrate: a locked step with the pulse, then a screen step with the
-     * lab's vibration test, the pulse off so the test's strikes can be counted. The proximity sensor's dark screen is
-     * [PhoneSetup.screenOff] (`mode.proximity_screen`), not an id.
+     * «burning» for the lab's pulse. Each way a locked iPhone feels (docs/radio-lab.md §12: Core Haptics, impact and
+     * a soundless notification never reached the pocket, so they are not run): a locked step with the pulse, then a
+     * screen step with the lab's vibration test, the pulse off so the test's strikes can be counted. The proximity
+     * sensor's dark screen is [PhoneSetup.screenOff] (`mode.proximity_screen`), not an id.
      */
     private fun vibration(): List<RunStep> {
         val near = apart(1.0, 1.0, 1.0)
         val beacon = onTable(seeker(CARRIED).copy(listen = true), "The seeker's iBeacon on the table, screen on.")
-        val haptics = GAME + PULSE_HAPTICS
-        val audio = GAME + MODE_AUDIO + PULSE_HAPTICS_AUDIO
+        val notify = GAME + PULSE_NOTIFY
         val live = GAME + MODE_LIVE_ACTIVITY + PULSE_LIVE_ACTIVITY
+        val liveDouble = GAME + MODE_LIVE_ACTIVITY + PULSE_LIVE_ACTIVITY_DOUBLE
+        val ringtone = GAME + PULSE_RINGTONE
         val wake = CARRIED + MODE_NOTIFICATION_WAKE
         val test = "Unlock, start the vibration test (Lab → Vibration test: the lab's own test, not this step), " +
             "lock within 15 s and pocket the phone; after «Vibration test over» unlock and mark what you felt in every group."
@@ -747,7 +749,7 @@ object LabRunScripts {
             both(
                 "b3_${id}_pulse",
                 "Vibration: $what, the pulse in the pocket",
-                60,
+                45,
                 "A and B locked in the front pocket, 1 m from droid: the pulse should beat by $what.",
                 at(
                     hider(techniques, RunPhase.LOCK, pulse = true),
@@ -772,23 +774,13 @@ object LabRunScripts {
                     "Vibration: the pulse on screen",
                     60,
                     "A and B in the hand at the table, 1 m from droid and from each other: the pulse beats on screen.",
-                    at(hider(haptics, pulse = true), LabPlaces.HAND, LabPlaces.STAND, "In the hand: feel the pulse."),
+                    at(hider(notify, pulse = true), LabPlaces.HAND, LabPlaces.STAND, "In the hand: feel the pulse."),
                 ),
             )
-            add(
-                both(
-                    "b3_haptics_table_test",
-                    "Vibration: the test on the table",
-                    75,
-                    "The vibration test with the phones locked on the table; mark what you felt in every group afterwards.",
-                    onTable(
-                        hider(haptics),
-                        "Start the vibration test (the lab's own test, not this step), lock within 15 s, leave " +
-                            "the phone on the table; after «Vibration test over» unlock and mark what you felt in every group.",
-                    ),
-                ),
-            )
-            addAll(variant("haptics", "Core Haptics", haptics))
+            addAll(variant("notify", "a silent-sound notification", notify))
+            addAll(variant("live_activity", "the Live Activity's alert", live))
+            addAll(variant("live_double", "two Live Activity alerts", liveDouble))
+            addAll(variant("ringtone", "a silent ringtone notification", ringtone))
             add(
                 both(
                     "b3_proximity",
@@ -797,15 +789,13 @@ object LabRunScripts {
                     "H3: A and B unlocked in the pocket, the screen dark by the proximity sensor: no lock, the " +
                         "name and the pulse go on.",
                     at(
-                        hider(haptics, pulse = true).copy(screenOff = true),
+                        hider(notify, pulse = true).copy(screenOff = true),
                         LabPlaces.POCKET_PROXIMITY,
                         LabPlaces.STAND,
                         "Don't lock: pocket the phone screen to the leg, the sensor darkens it. Does the pulse beat?",
                     ),
                 ),
             )
-            addAll(variant("audio", "Core Haptics with the audio session", audio))
-            addAll(variant("live_activity", "the Live Activity", live))
             add(
                 both(
                     "b3_notification_wake",
