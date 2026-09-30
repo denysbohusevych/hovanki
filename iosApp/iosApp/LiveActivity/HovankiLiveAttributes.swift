@@ -10,6 +10,12 @@ struct HovankiLiveAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         var text: String
         var updatedAt: Date
+        /// The radar's band: 0 none, 1 warm, 2 hot, 3 burning (the card's colour).
+        var band: Int = 0
+        /// A second line: the role and the techniques of the step.
+        var detail: String = ""
+        /// The step's end, for a countdown the widget runs itself; nil: none.
+        var endsAt: Date? = nil
     }
 
     /// Fixed for the activity's life.

@@ -46,6 +46,12 @@ interface BackgroundModes {
     /** The modes' events while collected (a hot flow: nothing is kept for a late collector). */
     fun events(): Flow<ModeEvent>
 
+    /**
+     * What the Live Activity shows while `mode.live_activity` runs ([LiveActivityHost.update]): the lab's step, the
+     * radar's band, a detail line, the step's end for a countdown. Kept and sent on the next change; nothing elsewhere.
+     */
+    fun liveStatus(text: String, band: Int = 0, detail: String = "", endsAtMillis: Long = 0) = Unit
+
     /** Every mode off: the lab's run or test is over. */
     fun stopAll()
 }

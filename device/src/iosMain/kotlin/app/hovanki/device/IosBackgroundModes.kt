@@ -281,19 +281,38 @@ class IosBackgroundModes(private val liveActivity: LiveActivityHost) : Backgroun
         return ModeResult(true)
     }
 
+    private var liveText = "the run is on"
+    private var liveBand = 0
+    private var liveDetail = ""
+    private var liveEndsAtMillis = 0L
+
+    override fun liveStatus(text: String, band: Int, detail: String, endsAtMillis: Long) {
+        if (text == liveText && band == liveBand && detail == liveDetail && endsAtMillis == liveEndsAtMillis) return
+        liveText = text
+        liveBand = band
+        liveDetail = detail
+        liveEndsAtMillis = endsAtMillis
+        if (liveStarted) {
+            liveActivity.update(text, band, detail, endsAtMillis)
+            emit(ModeIds.LIVE_ACTIVITY, "live_activity_updated", "status")
+        }
+    }
+
     private fun startLiveActivity() {
         if (liveStarted) return
-        liveStarted = liveActivity.start("Hovanki lab", "the run is on")
+        liveStarted = liveActivity.start("Hovanki lab", liveText)
         if (!liveStarted) {
             // Live Activities off in the settings, or iOS thinks the app already left the screen.
             emit(ModeIds.LIVE_ACTIVITY, "live_activity_refused", "the host refused: Live Activities off?")
             return
         }
         emit(ModeIds.LIVE_ACTIVITY, "live_activity_started")
+        liveActivity.update(liveText, liveBand, liveDetail, liveEndsAtMillis)
         liveJob = scope.launch {
             while (isActive) {
                 delay(LIVE_UPDATE_MILLIS)
-                liveActivity.update("the run is on, ${clock()}")
+                // The minute's heartbeat keeps the card's time honest; the band and the step come by [liveStatus].
+                liveActivity.update(liveText, liveBand, liveDetail.ifEmpty { clock() }, liveEndsAtMillis)
                 emit(ModeIds.LIVE_ACTIVITY, "live_activity_updated")
             }
         }

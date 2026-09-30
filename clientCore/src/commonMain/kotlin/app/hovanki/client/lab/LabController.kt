@@ -752,12 +752,43 @@ class LabController(
         log.session(about.model, about.os, about.build, about.commit, mode)
     }
 
+    private var liveStep: String? = null
+    private var liveEndsAtServerMillis: Long? = null
+    private var liveLast: List<Any?> = emptyList()
+
+    /**
+     * What the Live Activity shows for the run's step ([LabRunFollower]): [text] like «Step 3/107: the table», and
+     * the step's end by the server's clock for the card's countdown; null: no run.
+     */
+    fun setLiveStep(text: String?, endsAtServerMillis: Long? = null) {
+        liveStep = text
+        liveEndsAtServerMillis = endsAtServerMillis
+        liveSecond()
+    }
+
+    /** Once a second: the card's text, band, detail and countdown, sent to the modes only when something changed. */
+    private fun liveSecond() {
+        val band = log.strongestBand()
+        val text = liveStep ?: "the lab is on"
+        val detail = listOfNotNull(
+            bench.radioMode.value?.let { if (it.asSeeker) "seeker" else "hider" },
+            mutableLabTechniques.value.sorted().joinToString(", ").ifEmpty { null },
+        ).joinToString(" · ")
+        // The step's end by the phone's clock: the widget counts down by it.
+        val endsAt = liveEndsAtServerMillis?.let { it - (log.serverNow() - log.deviceNow()) } ?: 0L
+        val status = listOf(text, band, detail, endsAt)
+        if (status == liveLast) return
+        liveLast = status
+        modes.liveStatus(text, band.ordinal, detail, endsAt)
+    }
+
     private suspend fun tickLoop() {
         while (currentCoroutineContext().isActive) {
             log.tick(ticks++)
             scenarios.tick()
             motionSecond()
             carrySecond()
+            liveSecond()
             delay(TICK_MILLIS)
         }
     }
