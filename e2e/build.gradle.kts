@@ -37,6 +37,8 @@ dependencies {
     testImplementation(testFixtures(projects.server))
     testImplementation(platform(libs.spring.boot.bom))
     testImplementation(libs.spring.boot)
+    // FieldLoadTest reads the server's meters.
+    testImplementation(libs.micrometer.core)
     testImplementation(libs.kotlin.test)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
@@ -158,6 +160,9 @@ val includeSlowScenarios = providers.gradleProperty("e2e.slow").map { it.toBoole
 // `-Pe2e.bigGamePlayers=600`: the size of the big game in BigGameLoadTest (default 300).
 val bigGamePlayers = providers.gradleProperty("e2e.bigGamePlayers").orElse("")
 
+// `-Pe2e.fieldLoadMinutes=10`: how long the game of FieldLoadTest lasts (default 5, real time).
+val fieldLoadMinutes = providers.gradleProperty("e2e.fieldLoadMinutes").orElse("")
+
 // `-Pe2e.transport=socket`: every scenario's bots sync over the live channel (docs/adr/0015-websockets.md, E2eTransport);
 // by default (polling) only LiveSocketTest does.
 val transport = providers.gradleProperty("e2e.transport").orElse("polling")
@@ -168,6 +173,7 @@ tasks.test {
     }
     inputs.property("includeSlowScenarios", includeSlowScenarios)
     jvmArgumentProviders += BigGamePlayers(bigGamePlayers)
+    jvmArgumentProviders += FieldLoadMinutes(fieldLoadMinutes)
     // Another transport is another test run.
     inputs.property("transport", transport)
     jvmArgumentProviders += SyncTransport(transport)
@@ -192,6 +198,12 @@ class ReportDir(@get:OutputDirectory val dir: Provider<Directory>) : CommandLine
 class BigGamePlayers(@get:Input val players: Provider<String>) : CommandLineArgumentProvider {
     override fun asArguments(): List<String> =
         players.get().takeIf { it.isNotEmpty() }?.let { listOf("-Dhovanki.e2e.bigGamePlayers=$it") }.orEmpty()
+}
+
+/** How long the game of FieldLoadTest lasts, when given. */
+class FieldLoadMinutes(@get:Input val minutes: Provider<String>) : CommandLineArgumentProvider {
+    override fun asArguments(): List<String> =
+        minutes.get().takeIf { it.isNotEmpty() }?.let { listOf("-Dhovanki.e2e.fieldLoadMinutes=$it") }.orEmpty()
 }
 
 /** How the bots sync: `polling` (the default) or `socket`. */

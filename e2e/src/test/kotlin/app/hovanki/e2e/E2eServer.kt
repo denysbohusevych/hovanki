@@ -58,6 +58,9 @@ class DedicatedServer(private val properties: Map<String, String> = emptyMap()) 
 
     val url = "http://127.0.0.1:$port"
 
+    /** A bean of the running server (its meters, for a scenario that measures it). */
+    fun <T : Any> bean(type: Class<T>): T = checkNotNull(context) { "The server is stopped" }.getBean(type)
+
     /** Stops the server; the port stays free for [start]. */
     fun stop() {
         context?.close()
