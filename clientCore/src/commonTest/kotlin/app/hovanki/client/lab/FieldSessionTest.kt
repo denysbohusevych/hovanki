@@ -238,7 +238,10 @@ class FieldSessionTest {
     @Test
     fun thePhonesOwnFailuresGoToTheReporterAndTheLogKeepsItsId() = runTest {
         val reported = ArrayList<Throwable>()
-        val phone = phone(errorReporter = { t -> reported += t; "e${reported.size}" })
+        val phone = phone(errorReporter = { t ->
+            reported += t
+            "e${reported.size}"
+        })
         phone.field.giveConsent(1L)
         phone.round()
         runCurrent()

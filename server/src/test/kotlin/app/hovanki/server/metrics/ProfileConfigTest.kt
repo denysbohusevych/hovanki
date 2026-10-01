@@ -46,6 +46,9 @@ class ProfileConfigTest {
         assertContains(exposed, "restarthold")
         assertEquals("60", staging.text("hovanki.game.max-players"))
         assertEquals("ecs", staging.text("logging.structured.format.console"))
+        // The field build's lab screen is for staff: only they join a lab run on staging (production: anybody).
+        assertEquals("true", staging.text("hovanki.lab.join-staff-only"))
+        assertEquals("false", load("application.yaml").text("hovanki.lab.join-staff-only"))
     }
 
     @Test

@@ -6,6 +6,10 @@ hovanki:
   game:
     # An ordinary game takes up to 60 players (production: 30, Game.MAX_PLAYERS).
     max-players: 60
+  lab:
+    # The field build (release code) shows the lab's screen to staff: only staff accounts join a lab run here
+    # (docs/adr/0018-field-test-build.md §4.D). The field log of real games is FIELD_LOG, switched in the admin.
+    join-staff-only: true
 
 management:
   # Everything under /actuator (health, restarthold, prometheus) moves to this port, which deploy/compose.yaml does not
