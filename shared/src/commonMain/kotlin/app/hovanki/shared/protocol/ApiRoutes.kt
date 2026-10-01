@@ -258,6 +258,13 @@ object ApiRoutes {
      */
     const val GAME_FIELD_JOIN = "$GAMES/{gameId}/field/join"
 
+    /**
+     * POST with the player's game token, no body (204): the phone left its game's field log (the log stopped, or the
+     * tester took the consent back); the server's own events of the game stop naming the player
+     * (docs/adr/0018-field-test-build.md §3.3). 404 while the server has [ServerFeature.FIELD_LOG] off.
+     */
+    const val GAME_FIELD_LEAVE = "$GAMES/{gameId}/field/leave"
+
     // The radio lab in the admin: admins only, whether the flag is on or off (old reports stay readable).
 
     /** GET: [AdminLabRuns]; POST [AdminLabRunRequest]: a new run ([AdminLabRun]). */
@@ -419,6 +426,8 @@ object ApiRoutes {
     fun labEvents(runId: LabRunId): String = LAB_EVENTS.fill("runId" to runId.value)
 
     fun gameFieldJoin(gameId: GameId): String = GAME_FIELD_JOIN.fill("gameId" to gameId.value)
+
+    fun gameFieldLeave(gameId: GameId): String = GAME_FIELD_LEAVE.fill("gameId" to gameId.value)
 
     /** [ADMIN_LAB_RUN] and the actions under it: `adminLabRun(id)`, `adminLabRun(id, "finish")`. */
     fun adminLabRun(runId: LabRunId, action: String? = null): String {

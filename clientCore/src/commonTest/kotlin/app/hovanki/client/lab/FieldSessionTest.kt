@@ -253,6 +253,32 @@ class FieldSessionTest {
         runCurrent()
         assertEquals(sent, phone.api.uploads.size)
         assertEquals(1, phone.api.fieldJoins.size)
+        // The server is told: its own events of the game name the player no more.
+        assertEquals(listOf(testSession.gameId to testSession.token), phone.api.fieldLeaves)
+
+        // The consent given again in the same game: the phone joins the game's run again.
+        phone.field.giveConsent(CONSENT)
+        phone.round()
+        runCurrent()
+        assertEquals(2, phone.api.fieldJoins.size)
+        assertEquals(FieldStatus.ON, phone.field.state.value.status)
+    }
+
+    @Test
+    fun aPhoneThatLeftAndCameBackToTheSameGameJoinsItsRunAgain() = runTest {
+        val phone = phone()
+        phone.field.giveConsent(CONSENT)
+        phone.round(GamePhase.LOBBY)
+        runCurrent()
+        // Left the lobby by mistake, and back by the game's code.
+        phone.field.onSessionEnded()
+        runCurrent()
+        assertEquals(FieldStatus.LEFT, phone.field.state.value.status)
+        assertEquals(1, phone.api.fieldLeaves.size)
+        phone.round(GamePhase.LOBBY)
+        runCurrent()
+        assertEquals(2, phone.api.fieldJoins.size)
+        assertEquals(FieldStatus.ON, phone.field.state.value.status)
     }
 
     @Test
@@ -505,10 +531,30 @@ class FieldSessionTest {
         assertEquals(1, events().count { it.kind == TouchKinds.TOUCH && it.string(TouchFields.SRC) == "impact" })
         assertTrue(events().any { it.kind == FieldKinds.TICK })
 
-        // On the results, again; a game without the radar has none.
+        // On the results, again; the round's ticks stop, so a quiet results screen sends nothing.
         field.onSnapshot(testSession, snapshot(GamePhase.FINISHED))
         assertTrue(field.touchCard.value)
         assertEquals(token, field.touchRadioToken(snapshot(GamePhase.FINISHED)))
+        advanceTimeBy(15_000)
+        runCurrent()
+        val ticks = events().count { it.kind == FieldKinds.TICK }
+        val uploads = api.uploads.size
+        advanceTimeBy(60_000)
+        runCurrent()
+        assertEquals(ticks, events().count { it.kind == FieldKinds.TICK }, "no tick on the results")
+        assertEquals(uploads, api.uploads.size, "quiet results send nothing")
+
+        // «Not now»: no card, no touch radio, no jolts on this screen.
+        field.dismissTouch()
+        assertFalse(field.touchCard.value)
+        assertNull(field.touchRadioToken(snapshot(GamePhase.FINISHED)))
+        impacts.emit(Impact(DEVICE + currentTime, 2.5))
+        runCurrent()
+        field.onSnapshot(testSession, snapshot(GamePhase.FINISHED))
+        assertFalse(field.touchCard.value, "dismissed until the phase changes")
+        assertTrue(events().none { it.kind == TouchKinds.TOUCH && it.double(TouchFields.G) == 2.5 })
+
+        // A game without the radar has none.
         field.onSnapshot(testSession, snapshot(GamePhase.FINISHED, radar = false))
         assertFalse(field.touchCard.value)
         field.onSessionEnded()

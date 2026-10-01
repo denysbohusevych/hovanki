@@ -26,6 +26,7 @@ import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.lab.MarkFields
 import app.hovanki.shared.lab.ServerFields
 import app.hovanki.shared.lab.ServerKinds
+import app.hovanki.shared.lab.SrvFields
 import app.hovanki.shared.protocol.AccountSession
 import app.hovanki.shared.protocol.AdminLabRun
 import app.hovanki.shared.protocol.AdminLabRunRequest
@@ -144,6 +145,7 @@ class FieldApiTest(
         fieldJoin(host).error(404, ErrorCode.NOT_FOUND)
         fieldJoinRaw(host.gameId.value, token = null, body = "{}").error(404, ErrorCode.NOT_FOUND)
         fieldJoinRaw(host.gameId.value, token = "nonsense", body = null).error(404, ErrorCode.NOT_FOUND)
+        fieldLeave(host).error(404, ErrorCode.NOT_FOUND)
 
         switch(ServerFeature.FIELD_LOG, true)
         val phone = fieldJoin(host).ok<FieldJoinResponse>()
@@ -363,12 +365,19 @@ class FieldApiTest(
         assertNull(labRuns.findGameRun(host.gameId.value))
 
         val phone = fieldJoin(guest).ok<FieldJoinResponse>()
+        fieldJoin(host).ok<FieldJoinResponse>()
         clock.advance(Duration.ofSeconds(settings.hidingSeconds.toLong()))
         // The seeker's fixes, and a claim GPS refuses: the hider has sent none, the seeker's is too poor.
         val sync = SyncRequest(samples = listOf(LocationSample(park, 500.0, clock.millis())))
         post(ApiRoutes.sync(host.gameId), sync.asJson(), host.token).expect(200)
         post(ApiRoutes.catches(host.gameId), ClaimCatchRequest(guest.playerId).asJson(), host.token)
             .error(422, ErrorCode.NO_LOCATION)
+        // The guest's phone leaves the log (the tester took the consent back): the server names them no more.
+        fieldLeave(guest).expect(204)
+        post(ApiRoutes.catches(host.gameId), ClaimCatchRequest(guest.playerId).asJson(), host.token)
+            .error(422, ErrorCode.NO_LOCATION)
+        // The first tick of a log just on only starts the window; the second writes it.
+        fieldSampler.sample()
         fieldSampler.sample()
         fieldEventWriter.awaitIdle()
 
@@ -380,8 +389,14 @@ class FieldApiTest(
         val kinds = lines.map { it["k"].toString().trim('"') }
         assertEquals(listOf("session", "clock", ServerKinds.PHASE, ServerKinds.PHASE), kinds.take(4), "$kinds")
         assertTrue(ServerKinds.FIXES in kinds && FieldKinds.SRV in kinds, "$kinds")
-        val claim = lines.single { it["k"].toString() == "\"${ServerKinds.CLAIM}\"" }
-        assertEquals("\"NO_LOCATION\"", claim[ServerFields.OUTCOME].toString())
+        val srv = lines.filter { it["k"].toString() == "\"${FieldKinds.SRV}\"" }
+        assertTrue(srv.all { it[SrvFields.WINDOW] != null }, "every srv says a window counted whole: $srv")
+        val claims = lines.filter { it["k"].toString() == "\"${ServerKinds.CLAIM}\"" }
+        assertEquals(listOf("\"NO_LOCATION\"", "\"NO_LOCATION\""), claims.map { it[ServerFields.OUTCOME].toString() })
+        assertEquals(
+            listOf("\"${guest.playerId.value}\"", "\"${ServerFields.OTHER}\""),
+            claims.map { it[ServerFields.HIDER].toString() },
+        )
         assertEquals((0L until lines.size).toList(), lines.map { it["seq"].toString().toLong() })
         assertTrue(lines.all { it["run"].toString() == "\"${phone.runId.value}\"" })
         assertTrue(lines.none(LabSchema::hasCoordinates), "no position in the server's events")
@@ -433,6 +448,13 @@ class FieldApiTest(
             consentAtMillis = consentAt,
         )
         return fieldJoinRaw(session.gameId.value, session.token, request.asJson())
+    }
+
+    private fun fieldLeave(session: PlayerSession): TestResponse {
+        val response = mvc.post(ApiRoutes.gameFieldLeave(session.gameId)) {
+            header(HttpHeaders.AUTHORIZATION, "${ApiRoutes.AUTH_SCHEME} ${session.token}")
+        }.andReturn().response
+        return TestResponse(response.status, response.getContentAsString(Charsets.UTF_8))
     }
 
     private fun fieldJoinRaw(gameId: String, token: String?, body: String?): TestResponse {

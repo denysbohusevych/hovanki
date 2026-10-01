@@ -123,6 +123,45 @@ class FieldEventWriterTest {
     }
 
     @Test
+    fun aGoneGamesLastEventsAreWrittenThenItIsForgottenAndItsLateEventsDropped() {
+        val writer = writer()
+        store.runs[game.value] = "run1"
+        // The round's last events, handed over just before the janitor forgets the game: no flush between.
+        writer.add(game, events(ServerKinds.PHASE, ServerKinds.CATCH))
+        writer.forget { false }
+        writer.drain()
+        assertEquals(
+            listOf("session", "clock", ServerKinds.PHASE, ServerKinds.CATCH),
+            store.lines.map { it.text(LabFields.K) },
+        )
+        // A request that held the game as it went hands its events over afterwards; the srv goes to live games only.
+        writer.add(game, events(ServerKinds.FIXES, at = 9_000))
+        writer.srv(9_500, buildJsonObject { put("games", 0) })
+        writer.awaitIdle()
+        assertEquals(4, store.lines.size, "nothing more for a forgotten game")
+        assertEquals(1, store.devices.size, "never a second server log in its run")
+        assertEquals(1.0, meters.counter(FieldEventWriter.UNLOGGED_COUNTER).count())
+    }
+
+    @Test
+    fun allTheGamesWaitingTogetherStayWithinTheirShare() {
+        val writer = FieldEventWriter(store, meters, 100, flushMillis = 1_000, start = false, maxWaitingTotal = 5)
+        store.runs["a"] = "runA"
+        store.runs["b"] = "runB"
+        store.failing = true
+        // The database is away: two games' events wait, five in all.
+        writer.add(GameId("a"), events(ServerKinds.FIXES, ServerKinds.FIXES, ServerKinds.FIXES))
+        writer.srv(1_000, buildJsonObject { put("games", 2) })
+        writer.add(GameId("b"), events(ServerKinds.FIXES, ServerKinds.FIXES, ServerKinds.FIXES))
+        writer.drain()
+        val lost = dropped() + meters.counter(FieldEventWriter.UNLOGGED_COUNTER).count()
+        assertEquals(2.0, lost, "beyond the share, dropped and counted")
+        store.failing = false
+        writer.awaitIdle()
+        assertEquals(5, store.lines.count { it.text(LabFields.K) != "session" && it.text(LabFields.K) != "clock" })
+    }
+
+    @Test
     fun aClosedRunTakesNothingMoreAndAGoneGameIsForgotten() {
         val writer = writer()
         store.runs[game.value] = "run1"

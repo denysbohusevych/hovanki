@@ -139,6 +139,12 @@ class FieldRunService(
         }
         val (run, record) = checkNotNull(device)
         owned += run.id
+        // The game's own events name the player from now on (until [leave]); a game gone meanwhile names nobody.
+        try {
+            games.withGame(caller, gameId) { game, _ -> game.fieldJoined(caller.playerId) }
+        } catch (e: GameException) {
+            log.debug("Field log: game {} is gone after the join", gameId.value)
+        }
         return FieldJoinResponse(
             runId = LabRunId(run.id),
             deviceId = record.id,
@@ -153,6 +159,16 @@ class FieldRunService(
             frameEveryMillis = properties.frameEvery.toMillis(),
             gpsEveryMillis = properties.gpsEvery.toMillis(),
         )
+    }
+
+    /**
+     * [caller]'s phone left the field log of game [gameId] (its log stopped, or the tester took the consent back): the
+     * game's own events stop naming the player (docs/adr/0018-field-test-build.md §3.3). Their device stays in the run
+     * with what it uploaded. 404 while the field log is off, or the game is gone.
+     */
+    fun leave(caller: PlayerRef, gameId: GameId) {
+        requireEnabled()
+        games.withGame(caller, gameId) { game, _ -> game.fieldLeft(caller.playerId) }
     }
 
     /**

@@ -11,7 +11,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -45,7 +44,8 @@ data class TouchNeighbour(val id: PlayerId, val name: String)
  * and, with [again], the results screen's («once more, for the drift»). The tester picks a neighbour, they touch the
  * phones back to back for a second, and both press «We touched»: the truth the touch detector is checked against.
  * Shown only while [FieldSession.touchCard] is on (the field build, the log running, a game with the radar); nothing in
- * other builds. A tester who has no use for it dismisses it until the screen is left.
+ * other builds. A tester who has no use for it dismisses it ([FieldSession.dismissTouch]) until the game's phase changes:
+ * the touch's radio and the accelerometer stop with it.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -54,8 +54,7 @@ fun TouchCard(neighbours: List<TouchNeighbour>, modifier: Modifier = Modifier, a
     if (!session.isFieldBuild) return
     val show by session.touchCard.collectAsStateWithLifecycle()
     val count by session.touchCount.collectAsStateWithLifecycle()
-    var dismissed by rememberSaveable { mutableStateOf(false) }
-    if (!show || dismissed || neighbours.isEmpty()) return
+    if (!show || neighbours.isEmpty()) return
 
     var picked by remember { mutableStateOf<PlayerId?>(null) }
     // Somebody left: the pick goes with them.
@@ -89,7 +88,7 @@ fun TouchCard(neighbours: List<TouchNeighbour>, modifier: Modifier = Modifier, a
             )
             PopButton(
                 text = stringResource(Res.string.field_touch_dismiss),
-                onClick = { dismissed = true },
+                onClick = { session.dismissTouch() },
                 height = 44.dp,
                 style = PopStyle.Outline,
             )

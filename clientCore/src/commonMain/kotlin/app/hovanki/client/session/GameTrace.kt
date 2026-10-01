@@ -5,6 +5,8 @@ import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.PlayerSession
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * What happens in the game on this phone, for whoever writes it down: the field log
@@ -53,6 +55,12 @@ interface GameTrace {
      * outside the round, as in every build but the field one. What the radio hears then comes to [onSighting] only.
      */
     fun touchRadioToken(snapshot: GameSnapshot): String? = null
+
+    /**
+     * Whether the touch's radio is still wanted, as it changes between snapshots (the card dismissed, the log stopped):
+     * a touch radio [touchRadioToken] started runs only while this says so.
+     */
+    val touchRadioWanted: Flow<Boolean> get() = flowOf(true)
 
     /** Nobody writes anything down. */
     object None : GameTrace

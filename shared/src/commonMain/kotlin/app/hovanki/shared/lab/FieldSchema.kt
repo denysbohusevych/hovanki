@@ -229,7 +229,9 @@ object RxFields {
 /**
  * The kinds the server writes into a game's field run as the device [FieldKinds.SERVER_DEVICE] (ADR 0018 §3.3,
  * docs/field-test.md step 3), besides [FieldKinds.SRV] and the log's header (`session`, `clock`). Players by their id
- * in the game, never a nickname; no coordinates, only distances in meters. The shadow's answers
+ * in the game, never a nickname, and only of the players whose phones are in the run with their tester's consent (the
+ * others are [ServerFields.OTHER], and nothing of their distances, bands, fixes or reveals is written); no coordinates,
+ * only distances in meters. The shadow's answers
  * ([ServerFields.SHADOW_ACCEPT], [ServerFields.SHADOW_BAND]) are what a rule would have said, never what the game did.
  */
 object ServerKinds {
@@ -319,4 +321,10 @@ object ServerFields {
     const val SHADOW_BAND = "shadow_band"
     const val STEALTH = "stealth"
     const val VOTE = "vote"
+
+    /**
+     * In place of a player's id: a player whose phone is not in the game's run with the tester's consent (never joined,
+     * left, or took the consent back). Nothing about where they were goes with it: no distance, no band.
+     */
+    const val OTHER = "other"
 }

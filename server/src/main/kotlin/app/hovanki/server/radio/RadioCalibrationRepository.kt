@@ -43,16 +43,19 @@ class RadioCalibrationRepository(private val jdbc: JdbcClient) {
     }
 
     /**
-     * What each pair of models heard at the catches (`CATCH`: a metre apart), every way the phones were held together:
-     * the radio lab's report turns it into the `calib.model` offsets ([ModelOffsets.fromCatches]).
+     * What each pair of models heard at the catches (`CATCH`: a metre apart) with neither phone in a pocket: the radio
+     * lab's report turns it into the `calib.model` offsets ([ModelOffsets.fromCatches]), which say what the models do,
+     * not the body's damping (a hider's pocketed phone at the catch, the usual case, is a dozen dB quieter).
      */
     fun catches(): List<CalibrationSample> = jdbc.sql(
         """
         SELECT hearer_model, heard_model, rssi_dbm, SUM(readings) AS readings FROM radio_calibration
-        WHERE anchor = :anchor GROUP BY hearer_model, heard_model, rssi_dbm
+        WHERE anchor = :anchor AND hearer_carry <> :pocket AND heard_carry <> :pocket
+        GROUP BY hearer_model, heard_model, rssi_dbm
         """.trimIndent(),
     )
         .param("anchor", CalibrationAnchor.CATCH.name)
+        .param("pocket", Carry.IN_POCKET.name)
         .query { rs, _ ->
             CalibrationSample(
                 hearerModel = rs.getString("hearer_model"),

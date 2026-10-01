@@ -1,6 +1,7 @@
 package app.hovanki.client.session
 
 import app.hovanki.client.diagnostics.Diagnostics
+import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.ConnectionEvent
 import app.hovanki.client.network.FakeGameApi
 import app.hovanki.client.network.GameConnection
@@ -36,12 +37,17 @@ import app.hovanki.shared.protocol.RadarState
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.rules.CheckpointPayload
 import app.hovanki.shared.rules.RadarToken
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -303,6 +309,49 @@ class RadioSessionTest {
             RadarToken.at(secret, assertNotNull(manager.state.value.snapshot).serverTimeMillis),
             radio.tokens?.value,
         )
+    }
+
+    @Test
+    fun theTouchRadioStopsAsSoonAsTheFieldLogNoLongerAsksOrTheGameIsGone() = runTest {
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        var gone = false
+        val wanted = MutableStateFlow(true)
+        val trace = object : GameTrace {
+            override fun touchRadioToken(snapshot: GameSnapshot): String? = "f00dcafe"
+
+            override val touchRadioWanted: Flow<Boolean> get() = wanted
+        }
+        var phase = GamePhase.LOBBY
+        val api = snapshots({
+            if (gone) throw ApiException(404, null)
+            phase
+        })
+        val manager = manager(api, trace = trace)
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        phase = GamePhase.FINISHED
+        manager.state.first { it.snapshot?.phase == GamePhase.FINISHED }
+        runCurrent()
+        assertEquals(1, radio.collectors, "the results' touch card")
+
+        // Dismissed between two snapshots: the radio stops at once; asked again, it is back.
+        wanted.value = false
+        runCurrent()
+        assertEquals(0, radio.collectors)
+        wanted.value = true
+        runCurrent()
+        assertEquals(1, radio.collectors)
+
+        // The server deleted the finished game: no snapshot comes again, the radio stops with the game.
+        gone = true
+        // The connection polls on its own dispatcher, in real time.
+        withContext(Dispatchers.Default) {
+            withTimeout(10_000) {
+                while (radio.collectors != 0) delay(10)
+            }
+        }
+        assertEquals(0, radio.collectors)
+        assertEquals(GamePhase.FINISHED, manager.state.value.snapshot?.phase, "the results stay")
     }
 
     @Test

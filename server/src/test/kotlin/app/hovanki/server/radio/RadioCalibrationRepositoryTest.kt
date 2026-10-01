@@ -36,8 +36,11 @@ class RadioCalibrationRepositoryTest(@Autowired private val repository: RadioCal
         repository.add(
             listOf(
                 catch,
-                // Held otherwise: the same models, counted together.
-                catch.copy(heardCarry = Carry.IN_POCKET, readings = 10),
+                // Held otherwise out of a pocket: the same models, counted together.
+                catch.copy(heardCarry = Carry.UNKNOWN, readings = 10),
+                // A pocket damps the reading: not the models' doing, left out.
+                catch.copy(heardCarry = Carry.IN_POCKET, rssiDbm = -78, readings = 50),
+                catch.copy(hearerCarry = Carry.IN_POCKET, rssiDbm = -78, readings = 50),
                 // Not a catch: left out.
                 catch.copy(anchor = CalibrationAnchor.ALL, rssiDbm = -90, readings = 100),
             ),

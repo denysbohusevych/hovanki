@@ -270,6 +270,12 @@ class Game(
     /** The field events since the last [takeFieldEvents]. */
     private var fieldEvents = FieldEvents()
 
+    /**
+     * The players whose phones are in the game's field run with their tester's consent ([fieldJoined], [fieldLeft]):
+     * the field events name only them. Of the others nothing is written that could say where they were.
+     */
+    private val fieldConsenting = HashSet<PlayerId>()
+
     /** The hiders the seekers see live now, for the field log: why, and since when. */
     private val fieldReveals = HashMap<PlayerId, Pair<VisibilityReason, Long>>()
 
@@ -589,6 +595,8 @@ class Game(
         val player = player(playerId)
         lastActivityMillis = nowMillis
         pokes.addEveryone()
+        // Out of the game, out of its field log: the phone's log stops with it.
+        fieldConsenting -= playerId
         when (phase) {
             GamePhase.LOBBY -> {
                 players.remove(playerId)
@@ -690,7 +698,7 @@ class Game(
         val inRound = phase == GamePhase.HIDING || phase == GamePhase.SEEKING
         // The server's verdict on each fix, for the field log: how many of this sync were taken, and why not the rest.
         // From the round on: the lobby's fixes judge nothing.
-        val logged = fieldLog && samples.isNotEmpty() && phase != GamePhase.LOBBY
+        val logged = fieldLog && samples.isNotEmpty() && phase != GamePhase.LOBBY && playerId in fieldConsenting
         val verdicts = if (logged) HashMap<LocationTrack.Result, Int>() else null
         val sorted = samples.sortedBy { it.timestampMillis }
         for (sample in sorted) {
@@ -813,14 +821,20 @@ class Game(
         return adjust
     }
 
-    /** A radar pair's band, or its shadow's with the pocket stealth, moved: for the field log, by the players' ids. */
-    private fun fieldBandEvent(change: Radar.BandChange, atMillis: Long) = fieldEvent(atMillis, ServerKinds.BAND) {
-        put(ServerFields.OBSERVER, change.observer.value)
-        put(ServerFields.HEARD, change.heard.value)
-        put(ServerFields.BAND, change.after.name)
-        put(ServerFields.FROM, change.before.name)
-        put(ServerFields.SHADOW_BAND, change.shadowAfter.name)
-        put(ServerFields.STEALTH, settings.features.pocketStealth)
+    /**
+     * A radar pair's band, or its shadow's with the pocket stealth, moved: for the field log, by the players' ids. Only
+     * a pair of two consenting players: a band says how close the other one was.
+     */
+    private fun fieldBandEvent(change: Radar.BandChange, atMillis: Long) {
+        if (change.observer !in fieldConsenting || change.heard !in fieldConsenting) return
+        fieldEvent(atMillis, ServerKinds.BAND) {
+            put(ServerFields.OBSERVER, change.observer.value)
+            put(ServerFields.HEARD, change.heard.value)
+            put(ServerFields.BAND, change.after.name)
+            put(ServerFields.FROM, change.before.name)
+            put(ServerFields.SHADOW_BAND, change.shadowAfter.name)
+            put(ServerFields.STEALTH, settings.features.pocketStealth)
+        }
     }
 
     /** GPS says [a] and [b] were at least [FAR_APART_METERS] apart around [atMillis], for sure. */
@@ -887,8 +901,10 @@ class Game(
         outcome: String,
         shadow: ProximityShadow?,
     ) {
-        // The distances GPS gives, as the rule computes them: numbers in meters, never where anybody was.
-        val seekerFixes = players[seekerId]?.track?.recentUsableFixes(nowMillis).orEmpty()
+        // The distances GPS gives, as the rule computes them: numbers in meters, never where anybody was. Only between
+        // two consenting players: with anybody else, the claim's outcome alone.
+        val both = seekerId in fieldConsenting && hiderId in fieldConsenting
+        val seekerFixes = players[seekerId]?.track?.recentUsableFixes(nowMillis).orEmpty().takeIf { both }.orEmpty()
         val hiderFixes = players[hiderId]?.track?.recentUsableFixes(nowMillis).orEmpty()
         val closest = seekerFixes.takeIf { it.isNotEmpty() }
             ?.let { CatchRules.closestPossibleDistanceMeters(it, hiderFixes) }
@@ -896,13 +912,13 @@ class Game(
             ?.let { CatchRules.estimatedDistanceMeters(it, hiderFixes) }
         fieldEvent(nowMillis, ServerKinds.CLAIM) {
             catchId?.let { put(ServerFields.CATCH, it.value) }
-            put(ServerFields.SEEKER, seekerId.value)
+            put(ServerFields.SEEKER, fieldName(seekerId))
             // The hider's id comes from the request: only a player's is written.
-            put(ServerFields.HIDER, if (hiderId in players) hiderId.value else "?")
+            put(ServerFields.HIDER, if (hiderId in players) fieldName(hiderId) else "?")
             put(ServerFields.OUTCOME, outcome)
             closest?.let { put(ServerFields.DISTANCE, it.roundTo(1)) }
             estimate?.let { put(ServerFields.ESTIMATE, it.roundTo(1)) }
-            if (shadow != null) {
+            if (shadow != null && both) {
                 put(ServerFields.PROXIMITY, shadow.ruleOn)
                 put(ServerFields.RADAR, shadow.bothRadar)
                 put(ServerFields.SHADOW_ACCEPT, shadow.wouldAccept)
@@ -1003,8 +1019,8 @@ class Game(
         fieldEvent(nowMillis, ServerKinds.DISPUTE) {
             put(ServerFields.CATCH, catchId.value)
             put(ServerFields.EVENT, "open")
-            put(ServerFields.SEEKER, claim.seekerId.value)
-            put(ServerFields.HIDER, claim.hiderId.value)
+            put(ServerFields.SEEKER, fieldName(claim.seekerId))
+            put(ServerFields.HIDER, fieldName(claim.hiderId))
         }
         if (eligibleVoters(claim).isEmpty()) resolveDispute(claim, nowMillis)
     }
@@ -1019,7 +1035,7 @@ class Game(
         fieldEvent(nowMillis, ServerKinds.DISPUTE) {
             put(ServerFields.CATCH, catchId.value)
             put(ServerFields.EVENT, "vote")
-            put(ServerFields.PLAYER, voter.value)
+            put(ServerFields.PLAYER, fieldName(voter))
             put(ServerFields.VOTE, confirm)
         }
         if (claim.votes.keys.containsAll(eligible)) resolveDispute(claim, nowMillis)
@@ -1166,6 +1182,23 @@ class Game(
      */
     fun takeFieldEvents(): FieldEvents? = fieldEvents.takeUnless { it.isEmpty }?.also { fieldEvents = FieldEvents() }
 
+    /**
+     * [playerId]'s phone joined the game's field run with the tester's consent (docs/adr/0018-field-test-build.md §3.3):
+     * the field events name the player from now on.
+     */
+    fun fieldJoined(playerId: PlayerId) {
+        if (playerId in players) fieldConsenting += playerId
+    }
+
+    /** [playerId]'s phone left the game's field run (the log stopped, the consent taken back): no more of them. */
+    fun fieldLeft(playerId: PlayerId) {
+        fieldConsenting -= playerId
+    }
+
+    /** How the field log names [playerId]: by the id with the consent, else [ServerFields.OTHER]. */
+    private fun fieldName(playerId: PlayerId): String =
+        if (playerId in fieldConsenting) playerId.value else ServerFields.OTHER
+
     /** A field event at [atMillis], only in a field game. */
     private inline fun fieldEvent(atMillis: Long, kind: String, crossinline fields: JsonObjectBuilder.() -> Unit) {
         if (fieldLog) fieldEvents.add(atMillis, kind) { fields() }
@@ -1192,11 +1225,14 @@ class Game(
             }
             // The end of the round ends every reveal then, not when somebody asks.
             val at = if (reason == null) minOf(nowMillis, finishedAtMillis ?: nowMillis) else nowMillis
-            fieldEvent(at, ServerKinds.REVEAL) {
-                put(ServerFields.PLAYER, player.id.value)
-                put(ServerFields.EVENT, event)
-                put(ServerFields.REASON, reason?.name ?: shown?.first?.name)
-                shown?.let { put(ServerFields.SECONDS, (at - it.second) / 1000.0) }
+            // Followed for everybody, written only for the consenting.
+            if (player.id in fieldConsenting) {
+                fieldEvent(at, ServerKinds.REVEAL) {
+                    put(ServerFields.PLAYER, player.id.value)
+                    put(ServerFields.EVENT, event)
+                    put(ServerFields.REASON, reason?.name ?: shown?.first?.name)
+                    shown?.let { put(ServerFields.SECONDS, (at - it.second) / 1000.0) }
+                }
             }
             if (reason == null) fieldReveals.remove(player.id) else fieldReveals[player.id] = reason to at
         }
@@ -2306,8 +2342,8 @@ class Game(
     private fun fieldCatchEvent(claim: CatchClaim, atMillis: Long, how: String) =
         fieldEvent(atMillis, ServerKinds.CATCH) {
             put(ServerFields.CATCH, claim.id.value)
-            put(ServerFields.SEEKER, claim.seekerId.value)
-            put(ServerFields.HIDER, claim.hiderId.value)
+            put(ServerFields.SEEKER, fieldName(claim.seekerId))
+            put(ServerFields.HIDER, fieldName(claim.hiderId))
             put(ServerFields.OUTCOME, if (claim.status == CatchStatus.CONFIRMED) "confirmed" else "rejected")
             put(ServerFields.REASON, how)
         }

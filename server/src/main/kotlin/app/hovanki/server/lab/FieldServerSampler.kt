@@ -22,7 +22,8 @@ import kotlin.math.roundToInt
  * every [FieldProperties.srvEvery], while the field log is on ([ServerFeature.FIELD_LOG]). The latencies of
  * `GameService.sync` in the window (from [ServerMetrics]), the 5xx and 429 answers since the last `srv` (Spring's
  * `http.server.requests`), the games, players and sockets in memory, the heap and the process's CPU. Off, it keeps
- * nothing: the syncs' times are not even collected.
+ * nothing: the syncs' times are not even collected. The first tick after it is on (switched on, the server started)
+ * only starts the window: every `srv` says a window that was counted whole ([SrvFields.WINDOW]).
  */
 @Component
 class FieldServerSampler(
@@ -49,7 +50,11 @@ class FieldServerSampler(
             return
         }
         val now = clock.millis()
-        writer.srv(now, numbers(now))
+        // Just on (switched on, or the server started): the window starts now, its numbers come with the next tick.
+        // Taken at once, it would say 0 syncs of a time nobody counted.
+        val starting = lastMillis == null
+        val numbers = numbers(now)
+        if (!starting) writer.srv(now, numbers)
     }
 
     /** The numbers of the window that ends [nowMillis]; starts the next one. */
@@ -82,7 +87,8 @@ class FieldServerSampler(
             put(SrvFields.HEAP_MB, memory.used / MB)
             if (memory.max > 0) put(SrvFields.HEAP_MAX_MB, memory.max / MB)
             cpu?.let { put(SrvFields.CPU, (it * 1000).roundToInt() / 1000.0) }
-            put(SrvFields.DROPPED, writer.takeDropped())
+            // The first window's are kept for the second's: nothing is written of the first.
+            if (windowStart != null) put(SrvFields.DROPPED, writer.takeDropped())
         }
     }
 

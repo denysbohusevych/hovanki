@@ -46,6 +46,12 @@ interface LabApi {
      */
     suspend fun fieldJoin(gameId: GameId, playerToken: String, request: FieldJoinRequest): FieldJoinResponse
 
+    /**
+     * This phone left the field log of its game [gameId] (the log stopped, or the tester took the consent back): the
+     * server's own events of the game stop naming the player. 404 while the server has FIELD_LOG off.
+     */
+    suspend fun fieldLeave(gameId: GameId, playerToken: String) = Unit
+
     suspend fun state(runId: LabRunId, token: String): LabRunStateView
 
     suspend fun advance(runId: LabRunId, token: String, action: LabRunAction): LabRunStateView
@@ -69,6 +75,9 @@ class HttpLabApi(client: HttpClient, serverUrl: ServerUrl) : LabApi {
 
     override suspend fun fieldJoin(gameId: GameId, playerToken: String, request: FieldJoinRequest): FieldJoinResponse =
         http.post(ApiRoutes.gameFieldJoin(gameId), playerToken, request)
+
+    override suspend fun fieldLeave(gameId: GameId, playerToken: String): Unit =
+        http.post(ApiRoutes.gameFieldLeave(gameId), playerToken)
 
     override suspend fun state(runId: LabRunId, token: String): LabRunStateView =
         http.get(ApiRoutes.labState(runId), token)

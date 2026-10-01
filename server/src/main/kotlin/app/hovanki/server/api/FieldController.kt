@@ -10,9 +10,11 @@ import app.hovanki.shared.protocol.FieldJoinResponse
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.protocolJson
 import jakarta.servlet.http.HttpServletRequest
+import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.context.request.NativeWebRequest
 
@@ -41,5 +43,16 @@ class FieldController(private val fields: FieldRunService, private val registry:
             throw GameException(ErrorCode.BAD_REQUEST, "Malformed request body")
         }
         return fields.join(player, GameId(gameId), request, http.remoteAddr)
+    }
+
+    /** The phone left its game's field log: the game's own events stop naming the player. */
+    @PostMapping(ApiRoutes.GAME_FIELD_LEAVE)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun leave(@PathVariable gameId: String, webRequest: NativeWebRequest) {
+        fields.requireEnabled()
+        val token = webRequest.bearerToken() ?: throw GameException(ErrorCode.UNAUTHORIZED, "Missing bearer token")
+        val player = registry.resolveToken(token)
+            ?: throw GameException(ErrorCode.UNAUTHORIZED, "Unknown or expired token")
+        fields.leave(player, GameId(gameId))
     }
 }

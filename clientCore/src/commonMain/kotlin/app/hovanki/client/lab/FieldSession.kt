@@ -37,6 +37,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -90,7 +91,7 @@ enum class FieldStatus {
  * token of the log's own ([touchRadioToken]) and the accelerometer's jolts are written as the touch's candidates.
  * It writes what the game tells it — GPS fixes with their coordinates (at most one per `gpsEveryMillis`), the radio's
  * readings (thinned), every sync (how long, by which transport, the refusals' codes, the phase changing), errors —
- * and the clock, the app's life and the battery ([probes]); from the round on also a tick a second and the pocket's
+ * and the clock, the app's life and the battery ([probes]); during the round also a tick a second and the pocket's
  * classifiers in the shadow ([CarryShadow]: `carry.v1` from [carryMonitor], `carry.v2`) and the sensors thinned
  * ([FieldProbeThinning]: `carry`, `motion`, `prox`, `light`). The UI adds
  * the screens and taps ([ui]), the permissions ([permissions]), the exceptions it caught ([exception], with the Sentry
@@ -173,6 +174,15 @@ class FieldSession(
     private var roundStarted = false
     private var impactJob: Job? = null
 
+    /** The phase the tester dismissed the touch card in ([dismissTouch]): no card until the phase changes. */
+    private var touchDismissedIn: GamePhase? = null
+
+    /** The round's own listeners (the ticks, the sensors, the pocket's shadow): they stop when the round is over. */
+    private val roundJobs = ArrayList<Job>()
+
+    /** The game's session the phone joined the run with: told when it leaves ([LabApi.fieldLeave]). */
+    private var joinedSession: PlayerSession? = null
+
     private var uploader: LabUploader? = null
     private var thinning: FieldThinning? = null
     private var probeThinning = FieldProbeThinning()
@@ -249,15 +259,23 @@ class FieldSession(
         join(session, consent)
     }
 
-    /** The round started: the ticks and the pocket's classifiers in the shadow, until the phone leaves the game. */
+    /**
+     * The round started: the ticks, the sensors and the pocket's classifiers in the shadow, until the round is over (the
+     * results write no tick: the uploads go on only when something happens) or the phone leaves the game.
+     */
     private fun updateRound(snapshot: GameSnapshot) {
+        if (snapshot.phase == GamePhase.FINISHED) {
+            roundJobs.forEach { it.cancel() }
+            roundJobs.clear()
+            return
+        }
         if (!isActive || roundStarted) return
         if (snapshot.phase != GamePhase.HIDING && snapshot.phase != GamePhase.SEEKING) return
         roundStarted = true
-        jobs += scope.launch { tickLoop() }
+        roundJobs += scope.launch { tickLoop() }
         // One listener of each feeds both the log's own events (thinned) and the pocket's classifiers in the shadow.
         val shadow = CarryShadow(log)
-        jobs += scope.launch {
+        roundJobs += scope.launch {
             quietly {
                 probes.sensors().collect {
                     onSensor(it)
@@ -265,7 +283,7 @@ class FieldSession(
                 }
             }
         }
-        jobs += scope.launch {
+        roundJobs += scope.launch {
             quietly {
                 carryMonitor.carry().collect {
                     if (probeThinning.allowCarry(it.name.lowercase())) log.carry(it.name.lowercase())
@@ -273,7 +291,7 @@ class FieldSession(
                 }
             }
         }
-        jobs += scope.launch {
+        roundJobs += scope.launch {
             quietly {
                 activityMonitor.activity().collect {
                     val name = it.name.lowercase()
@@ -281,7 +299,7 @@ class FieldSession(
                 }
             }
         }
-        jobs += scope.launch { quietly { shadow.seconds(probes::appState) } }
+        roundJobs += scope.launch { quietly { shadow.seconds(probes::appState) } }
     }
 
     /**
@@ -291,7 +309,8 @@ class FieldSession(
      */
     private fun updateTouch(snapshot: GameSnapshot?) {
         val show = snapshot != null && isActive && snapshot.settings.features.hasRadar &&
-            (snapshot.phase == GamePhase.LOBBY || snapshot.phase == GamePhase.FINISHED)
+            (snapshot.phase == GamePhase.LOBBY || snapshot.phase == GamePhase.FINISHED) &&
+            snapshot.phase != touchDismissedIn
         mutableTouchCard.value = show
         if (show && impactJob == null) {
             impactJob = scope.launch { quietly { impacts.impacts().collect { log.touchImpact(it.g, it.atMillis) } } }
@@ -302,6 +321,18 @@ class FieldSession(
     }
 
     override fun touchRadioToken(snapshot: GameSnapshot): String? = touchToken.takeIf { mutableTouchCard.value }
+
+    override val touchRadioWanted: Flow<Boolean> get() = mutableTouchCard
+
+    /**
+     * «Not now» on the touch card: no card, no touch radio and no jolts until the game's phase changes (the lobby's
+     * dismissal leaves the results' card).
+     */
+    fun dismissTouch() {
+        val phase = snapshotPhase ?: return
+        touchDismissedIn = phase
+        updateTouch(lastSnapshot)
+    }
 
     /**
      * «We touched» with [partner] (both players press it): the truth the touch detector is checked against, sent at
@@ -460,7 +491,14 @@ class FieldSession(
         val state = mutableState.value
         jobs.forEach { it.cancel() }
         jobs.clear()
+        roundJobs.forEach { it.cancel() }
+        roundJobs.clear()
         roundStarted = false
+        touchDismissedIn = null
+        // The server's own events stop naming this player (only once the phone may have joined).
+        joinedSession?.takeIf { state.status == FieldStatus.ON || state.status == FieldStatus.JOINING }
+            ?.let(::tellLeft)
+        joinedSession = null
         touchToken = null
         impactJob?.cancel()
         impactJob = null
@@ -496,10 +534,12 @@ class FieldSession(
                     uploader?.stop()
                     log.clear()
                 }
-                mutableState.value = state.copy(status = FieldStatus.LEFT)
+                // No game any more: the same game's run is joined again should the phone come back to it (rejoined by
+                // its code, the consent given again).
+                mutableState.value = state.copy(status = FieldStatus.LEFT, gameId = null)
             }
 
-            FieldStatus.JOINING -> mutableState.value = state.copy(status = FieldStatus.LEFT)
+            FieldStatus.JOINING -> mutableState.value = state.copy(status = FieldStatus.LEFT, gameId = null)
 
             else -> if (!sendRest && state.status == FieldStatus.LEFT) log.clear()
         }
@@ -521,6 +561,7 @@ class FieldSession(
 
     private fun join(session: PlayerSession, consent: Long) {
         mutableState.value = FieldState(FieldStatus.JOINING, gameId = session.gameId)
+        joinedSession = session
         scope.launch {
             // The last game's log goes up before this one clears it.
             flushing?.join()
@@ -534,11 +575,19 @@ class FieldSession(
                 failed(session.gameId, e)
                 return@launch
             }
-            // The phone left the game while the answer was on its way.
+            // The phone left the game while the answer was on its way: the server is told again, after its join.
             val now = mutableState.value
-            if (now.status != FieldStatus.JOINING || now.gameId != session.gameId) return@launch
+            if (now.status != FieldStatus.JOINING || now.gameId != session.gameId) {
+                tellLeft(session)
+                return@launch
+            }
             start(session.gameId, response)
         }
+    }
+
+    /** The server's events of the game stop naming this player; best effort (offline: the game's end stops them). */
+    private fun tellLeft(session: PlayerSession) {
+        scope.launch { quietly { api.fieldLeave(session.gameId, session.token) } }
     }
 
     private fun failed(gameId: GameId, e: Exception) {

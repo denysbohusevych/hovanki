@@ -50,20 +50,24 @@ class GameFieldLogTest {
     )
     private val seeker = PlayerId("seeker")
     private val hider = PlayerId("hider")
-    private val other = PlayerId("other")
+    private val other = PlayerId("p3")
     private var now = 1_700_000_000_000L
     private var secretsGiven = 0
 
     /** Everything the game collected for the field log, in order. */
     private val collected = ArrayList<FieldEvent>()
 
-    private fun game(settings: GameSettings = this.settings, fieldLog: Boolean = true): Game =
-        Game(GameId("g"), "ABC234", seeker, settings, now).apply {
-            this.fieldLog = fieldLog
-            addPlayer(seeker, "Seeker", now)
-            addPlayer(hider, "Hider", now)
-            addPlayer(other, "Other", now)
-        }
+    private fun game(
+        settings: GameSettings = this.settings,
+        fieldLog: Boolean = true,
+        consenting: Set<PlayerId> = setOf(seeker, hider, other),
+    ): Game = Game(GameId("g"), "ABC234", seeker, settings, now).apply {
+        this.fieldLog = fieldLog
+        addPlayer(seeker, "Seeker", now)
+        addPlayer(hider, "Hider", now)
+        addPlayer(other, "Other", now)
+        consenting.forEach(::fieldJoined)
+    }
 
     private fun newSecret(): String = "%040x".format(++secretsGiven)
 
@@ -291,6 +295,57 @@ class GameFieldLogTest {
         assertEquals("FINISHED", events(ServerKinds.PHASE).last().text(ServerFields.PHASE))
         val ended = events(ServerKinds.REVEAL).last { it.text(ServerFields.PLAYER) == other.value }
         assertEquals("end", ended.text(ServerFields.EVENT))
+    }
+
+    @Test
+    fun onlyTheConsentingPlayersAreNamedAndNothingSaysWhereTheOthersWere() {
+        // Other's phone never joined the run; the hider's leaves it in the middle of the round.
+        val game = game(consenting = setOf(seeker, hider))
+        game.begin()
+        game.device(seeker)
+        game.device(hider)
+        game.device(other)
+        game.report(seeker, center)
+        game.report(other, center.moveBy(10.0, 0.0))
+        game.hears(seeker, other, -50)
+        assertNull(game.claim("c1", target = other))
+        // Other's fixes, bands and reveals: none; the claim on Other without an id, a distance or the shadow.
+        assertTrue(events(ServerKinds.FIXES).none { it.text(ServerFields.PLAYER) == other.value })
+        assertEquals(emptyList(), events(ServerKinds.BAND))
+        val claim = events(ServerKinds.CLAIM).single()
+        assertEquals(
+            seeker.value to ServerFields.OTHER,
+            claim.text(ServerFields.SEEKER) to claim.text(ServerFields.HIDER),
+        )
+        assertEquals("open", claim.text(ServerFields.OUTCOME))
+        for (key in listOf(ServerFields.DISTANCE, ServerFields.ESTIMATE, ServerFields.SHADOW_ACCEPT)) {
+            assertNull(claim.text(key), "$claim has $key")
+        }
+        game.tick(60)
+        assertTrue(events(ServerKinds.REVEAL).none { it.text(ServerFields.PLAYER) == other.value })
+        assertTrue(
+            collected.none { event ->
+                event.fields.values.any { (it as? JsonPrimitive)?.content == other.value }
+            },
+        )
+
+        // The hider is named while their phone is in the run, and no more once it left.
+        game.report(hider, center.moveBy(20.0, 0.0))
+        assertEquals(hider.value, events(ServerKinds.FIXES).last().text(ServerFields.PLAYER))
+        game.fieldLeft(hider)
+        val before = collected.size
+        game.report(hider, center.moveBy(20.0, 0.0))
+        game.hears(seeker, hider, -50)
+        game.tick(60)
+        assertTrue(
+            collected.drop(before).none { event ->
+                event.fields.values.any {
+                    (it as? JsonPrimitive)?.content ==
+                        hider.value
+                }
+            },
+            "${collected.drop(before)}",
+        )
     }
 
     private fun FieldEvent.phaseChange() = text(ServerFields.PHASE) to text(ServerFields.FROM)

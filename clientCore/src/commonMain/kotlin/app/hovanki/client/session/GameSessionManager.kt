@@ -91,6 +91,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.getAndUpdate
@@ -597,7 +599,11 @@ class GameSessionManager(
                 resuming -> endSession(SessionError.SavedGameGone)
 
                 // The results stay until the player leaves; the server has deleted the game, the chat is over.
-                mutableState.value.snapshot?.phase == GamePhase.FINISHED -> connectionJob = null
+                mutableState.value.snapshot?.phase == GamePhase.FINISHED -> {
+                    connectionJob = null
+                    // No snapshot comes again to stop it: the touch's radio of the results goes with the game.
+                    stopRadio()
+                }
 
                 else -> endSession(SessionError.SessionLost)
             }
@@ -786,7 +792,10 @@ class GameSessionManager(
         )
         radioJob = scope.launch {
             try {
-                radio.run(radarToken, asSeeker = false, options).collect { trace.onSighting(it) }
+                // Only while the field log still asks for it: dismissed or stopped between snapshots, it stops at once.
+                trace.touchRadioWanted.distinctUntilChanged().collectLatest { wanted ->
+                    if (wanted) radio.run(radarToken, asSeeker = false, options).collect { trace.onSighting(it) }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

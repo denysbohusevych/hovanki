@@ -32,9 +32,10 @@ import kotlin.concurrent.thread
  * never waits: the events go into a bounded queue, and a full queue drops them and counts them
  * ([DROPPED_COUNTER], and [SrvFields.DROPPED] in the next `srv`). One thread of its own takes them in order and puts
  * them into the database every [flushMillis] ([FieldLogStore]): a game's events wait in memory until its run exists
- * (the first phone opens it, [FieldRunService.join]), at most [MAX_WAITING] of them. A game gone from memory is
- * forgotten ([forget]) after its last events are written. A database that is down costs the events that were waiting
- * when there were too many, never a request.
+ * (the first phone opens it, [FieldRunService.join]), at most [MAX_WAITING] of them, and at most [maxWaitingTotal] of
+ * all the games together. A game gone from memory is forgotten ([forget]) after its last events are written, and what
+ * still comes for it afterwards (a request that held the game as it went) is dropped: never a second log in its run.
+ * A database that is down costs the events that were waiting when there were too many, never a request.
  */
 class FieldEventWriter(
     private val store: FieldLogStore,
@@ -42,6 +43,7 @@ class FieldEventWriter(
     queueSize: Int,
     private val flushMillis: Long,
     start: Boolean = true,
+    private val maxWaitingTotal: Int = MAX_WAITING_TOTAL,
 ) : DisposableBean {
     private val log = LoggerFactory.getLogger(javaClass)
     private val queue = LinkedBlockingQueue<Item>(queueSize)
@@ -55,6 +57,9 @@ class FieldEventWriter(
 
     /** The worker's own: never touched by another thread. */
     private val games = LinkedHashMap<String, GameLog>()
+
+    /** The games forgotten lately ([forget]), the oldest first: their late events are dropped. The worker's own. */
+    private val forgotten = LinkedHashSet<String>()
 
     /** The flushes go by the process's own clock: the injected one may stand still in tests. */
     private var lastFlushNanos = System.nanoTime()
@@ -116,6 +121,10 @@ class FieldEventWriter(
     private fun handle(item: Item) {
         when (item) {
             is Item.Events -> {
+                if (item.gameId in forgotten) {
+                    unloggedCounter.increment(item.events.size.toDouble())
+                    return
+                }
                 val game = games.getOrPut(item.gameId) { GameLog(item.gameId) }
                 game.keep(item.events)
             }
@@ -136,7 +145,9 @@ class FieldEventWriter(
                     runCatching { flush(game) }
                     if (game.pending.isNotEmpty()) dropped(game.pending.size.toLong())
                     games.remove(game.gameId)
+                    forgotten += game.gameId
                 }
+                while (forgotten.size > MAX_FORGOTTEN) forgotten.remove(forgotten.first())
             }
 
             is Item.Flush -> {
@@ -267,13 +278,17 @@ class FieldEventWriter(
         val pending = ArrayList<FieldEvent>()
 
         /**
-         * Keeps [events] until they are written: with a run, up to [MAX_WAITING], the rest is dropped and counted;
-         * without one yet (nobody logs the game, or not yet), the first [MAX_BEFORE_RUN] (the round's start), the rest
-         * only counted as [UNLOGGED_COUNTER]: a game nobody logs is no loss.
+         * Keeps [events] until they are written: with a run, up to [MAX_WAITING] (and [maxWaitingTotal] of all the
+         * games), the rest is dropped and counted; without one yet (nobody logs the game, or not yet), the first
+         * [MAX_BEFORE_RUN] (the round's start), the rest only counted as [UNLOGGED_COUNTER]: a game nobody logs is no
+         * loss.
          */
         fun keep(events: List<FieldEvent>) {
             val limit = if (runId == null) MAX_BEFORE_RUN else MAX_WAITING
-            val room = (limit - pending.size).coerceAtLeast(0)
+            // All the games' waiting events together stay within the heap's share too: a database away for a while
+            // costs the events, never the server's memory.
+            val total = games.values.sumOf { it.pending.size }
+            val room = minOf(limit - pending.size, maxWaitingTotal - total).coerceAtLeast(0)
             if (events.size > room) {
                 val lost = (events.size - room).toLong()
                 if (runId == null) unloggedCounter.increment(lost.toDouble()) else dropped(lost)
@@ -307,6 +322,12 @@ class FieldEventWriter(
 
         /** A game's events waiting for its run, at most: its first phone joins with the round's start. */
         const val MAX_BEFORE_RUN = 2_000
+
+        /** All the games' events waiting, at most (about half a kilobyte each). */
+        const val MAX_WAITING_TOTAL = 50_000
+
+        /** How many forgotten games are remembered, to drop their late events. */
+        const val MAX_FORGOTTEN = 10_000
         private const val SHUTDOWN_MILLIS = 10_000L
     }
 }

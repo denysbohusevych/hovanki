@@ -53,6 +53,9 @@ internal class FakeLabApi(
     /** The field log's joins: the game, the player's token and what the phone said. */
     val fieldJoins = mutableListOf<Triple<GameId, String, FieldJoinRequest>>()
 
+    /** The field log's leaves: the game and the player's token. */
+    val fieldLeaves = mutableListOf<Pair<GameId, String>>()
+
     /** Every field join from now on is refused with this (404: the server has FIELD_LOG off). */
     var fieldRefusal: Exception? = null
 
@@ -77,6 +80,10 @@ internal class FakeLabApi(
             labels = script.labels,
             state = view(),
         )
+    }
+
+    override suspend fun fieldLeave(gameId: GameId, playerToken: String) {
+        fieldLeaves += gameId to playerToken
     }
 
     override suspend fun fieldJoin(gameId: GameId, playerToken: String, request: FieldJoinRequest): FieldJoinResponse {
