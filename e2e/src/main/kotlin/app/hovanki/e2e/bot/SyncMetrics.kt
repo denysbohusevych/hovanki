@@ -15,11 +15,13 @@ class SyncMetrics {
     private val failures = ConcurrentLinkedQueue<String>()
     private val serverFailures = ConcurrentLinkedQueue<String>()
     private val requests = AtomicInteger()
+    private val uploads = AtomicInteger()
 
     fun record(exchange: Exchange) {
         requests.incrementAndGet()
         val status = exchange.status
         val request = "${exchange.method} ${exchange.path}"
+        if (exchange.method == "POST" && exchange.path.endsWith("/events")) uploads.incrementAndGet()
         when {
             status == null -> failures += "$request -> I/O error"
             exchange.isResponseLost -> failures += "$request -> $status, response lost"
@@ -33,6 +35,9 @@ class SyncMetrics {
     }
 
     val requestCount: Int get() = requests.get()
+
+    /** The field log's and the lab's uploads of events (`POST …/events`), sent so far. */
+    val uploadCount: Int get() = uploads.get()
 
     val syncCount: Int get() = syncMillis.size
 
