@@ -1,5 +1,6 @@
 package app.hovanki.server.api
 
+import app.hovanki.server.account.AccountService
 import app.hovanki.server.game.GameException
 import app.hovanki.server.lab.LabBatchBounds
 import app.hovanki.server.lab.LabDeviceRef
@@ -34,18 +35,21 @@ import org.springframework.web.method.support.ModelAndViewContainer
  * [app.hovanki.shared.protocol.ServerFeature.RADIO_LAB] on (404 otherwise); the rules are in [LabRunService].
  */
 @RestController
-class LabController(private val labs: LabRunService) {
+class LabController(private val labs: LabRunService, private val accounts: AccountService) {
     /**
-     * The body is read only after the flag's check: while the lab is off, nothing says the route exists. [user]: the
-     * account token the phone sends along, if any: a test server lets only staff join (`hovanki.lab.join-staff-only`).
+     * The token and the body are read only after the flag's check: while the lab is off, nothing says the route
+     * exists. The account token the phone sends along counts only on a test server that lets only staff join
+     * (`hovanki.lab.join-staff-only`); elsewhere it is not looked at, so a stale one (a development database made
+     * anew) never stops a lab phone.
      */
     @PostMapping(ApiRoutes.LAB_JOIN)
     fun join(
-        user: AuthenticatedUser?,
         @RequestBody(required = false) body: String?,
         http: HttpServletRequest,
+        webRequest: NativeWebRequest,
     ): LabJoinResponse {
         labs.requireEnabled()
+        val user = if (labs.joinStaffOnly) webRequest.bearerToken()?.let(accounts::authenticate) else null
         val request = try {
             protocolJson.decodeFromString(LabJoinRequest.serializer(), body.orEmpty())
         } catch (e: IllegalArgumentException) {

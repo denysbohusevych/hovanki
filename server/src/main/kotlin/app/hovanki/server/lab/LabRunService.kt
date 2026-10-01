@@ -143,8 +143,11 @@ class LabRunService(
     /** The device of a bearer token; null: no such device (or its run was deleted). */
     fun device(token: String): LabDeviceRef? = repository.findDeviceRefByTokenHash(AccountKeys.tokenHash(token))
 
+    /** Only staff join a run here ([LabProperties.joinStaffOnly]): only then the phone's account token is looked at. */
+    val joinStaffOnly: Boolean get() = properties.joinStaffOnly
+
     /**
-     * [user]: the account token the phone sent along, if any; a server that lets only staff join
+     * [user]: the account of the token the phone sent along, if any; a server that lets only staff join
      * ([LabProperties.joinStaffOnly], a test server whose release-code builds have the lab for staff) refuses anybody
      * else.
      */
