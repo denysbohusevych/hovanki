@@ -364,6 +364,12 @@ class FieldApiTest(
         upload(phone, listOf(gps(phone, 2))).ok<LabEventsResponse>()
         clock.advance(Duration.ofMinutes(31))
         upload(phone, listOf(gps(phone, 3))).error(409, ErrorCode.WRONG_STATE, ErrorReason.LAB_RUN_CLOSED)
+        // An organizer's mark too: the run is closed for everybody.
+        admin.post(
+            ApiRoutes.adminFieldGame(phone.runId, "marks"),
+            AdminFieldMarkRequest("too late", "a test"),
+            admin.staff(UserRole.ADMIN),
+        ).error(409, ErrorCode.WRONG_STATE, ErrorReason.LAB_RUN_CLOSED)
     }
 
     @Test

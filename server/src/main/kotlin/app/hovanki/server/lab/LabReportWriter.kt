@@ -116,6 +116,10 @@ class LabReportWriter(
             lastAsked[runId] = clock.instant()
             compute(runId)
         }
+        // A run asked for longer ago than that computes at once next time anyway: nothing to remember of it (the games'
+        // runs come and go, this map would grow with every one).
+        val now = clock.instant()
+        lastAsked.entries.removeIf { (runId, last) -> runId !in due && !now.isBefore(last + field.reportEvery) }
     }
 
     /** A game's run gone (deleted): nothing of it is kept here. */

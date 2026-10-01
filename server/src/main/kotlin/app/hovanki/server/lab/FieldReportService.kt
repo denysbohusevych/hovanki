@@ -61,14 +61,22 @@ class FieldReportService(
     /** Computes [run]'s report, live while it runs, whole once it is finished, and stores it. */
     fun store(run: LabRunRecord): FieldReport {
         require(run.kind == LabRunKind.GAME) { "Not a game's run: $run" }
-        val report = if (run.plan.status == LabRunStatus.FINISHED) {
+        val report = try {
+            val report = if (run.plan.status == LabRunStatus.FINISHED) {
+                live.remove(run.id)
+                compute(run)
+            } else {
+                liveReport(run)
+            }
+            val body = protocolJson.encodeToString(FieldReport.serializer(), report)
+            repository.upsertReport(run.id, FieldReport.VERSION, clock.instant(), body)
+            report
+        } catch (e: Throwable) {
+            // A builder that failed halfway (or ran out of memory, or whose run was deleted meanwhile, so the report
+            // has no run to go to) is no state to go on from: the next live report starts over from the first chunk.
             live.remove(run.id)
-            compute(run)
-        } else {
-            liveReport(run)
+            throw e
         }
-        val body = protocolJson.encodeToString(FieldReport.serializer(), report)
-        repository.upsertReport(run.id, FieldReport.VERSION, clock.instant(), body)
         log.info(
             "Field run {}: {} report of {} players, {} windows",
             run.id,
