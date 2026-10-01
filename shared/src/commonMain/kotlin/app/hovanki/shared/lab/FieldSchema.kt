@@ -169,7 +169,11 @@ object SurveyFields {
     const val CARRY = "carry"
 }
 
-/** `srv` (ADR 0018 §2): the server's numbers in the window. */
+/**
+ * `srv` (ADR 0018 §2): the server's numbers in the window since the last `srv` ([WINDOW]). The sync latencies are of
+ * `GameService.sync` (the wait for the game's lock and the work, no network), ms: of every sync, and per transport
+ * ([POLL_P50]…); missing when there was none.
+ */
 object SrvFields {
     const val SYNC_P50 = "sync_p50"
     const val SYNC_P95 = "sync_p95"
@@ -179,7 +183,23 @@ object SrvFields {
     const val GAMES = "games"
     const val PLAYERS = "players"
     const val HEAP_MB = "heap_mb"
+
+    /** The process's share of the CPUs, 0..1. */
     const val CPU = "cpu"
+
+    /** The window, ms. */
+    const val WINDOW = "window"
+
+    /** Syncs in the window. */
+    const val SYNCS = "syncs"
+    const val POLL_P50 = "poll_p50"
+    const val POLL_P95 = "poll_p95"
+    const val SOCKET_P50 = "socket_p50"
+    const val SOCKET_P95 = "socket_p95"
+    const val HEAP_MAX_MB = "heap_max_mb"
+
+    /** The server's events of all games dropped since the last `srv`: their queue was full. */
+    const val DROPPED = "dropped"
 }
 
 /** `rx` in the field log: one event per peer and window. */
@@ -198,4 +218,99 @@ object RxFields {
     /** The field: how many readings, and the loudest. */
     const val COUNT = "n"
     const val MAX = "max"
+}
+
+/**
+ * The kinds the server writes into a game's field run as the device [FieldKinds.SERVER_DEVICE] (ADR 0018 §3.3,
+ * docs/field-test.md step 3), besides [FieldKinds.SRV] and the log's header (`session`, `clock`). Players by their id
+ * in the game, never a nickname; no coordinates, only distances in meters. The shadow's answers
+ * ([ServerFields.SHADOW_ACCEPT], [ServerFields.SHADOW_BAND]) are what a rule would have said, never what the game did.
+ */
+object ServerKinds {
+    /** The game's phase changed: [ServerFields.PHASE], [ServerFields.FROM]. */
+    const val PHASE = "phase"
+
+    /**
+     * A seeker's claim: [ServerFields.CATCH] (when one was opened), [ServerFields.SEEKER], [ServerFields.HIDER],
+     * [ServerFields.OUTCOME] (`open`, or the refusal: `TOO_FAR`, `NO_LOCATION`, `NOT_NEARBY`, `WRONG_STATE`…),
+     * [ServerFields.DISTANCE] (the closest GPS allows, m), [ServerFields.ESTIMATE] (the likeliest, m), and the
+     * proximity rule in the shadow: [ServerFields.PROXIMITY] (the rule is on in this game), [ServerFields.RADAR] (both
+     * phones have the radar on), [ServerFields.SHADOW_ACCEPT], [ServerFields.BURNING_SECONDS],
+     * [ServerFields.BURNING_AGO_SECONDS].
+     */
+    const val CLAIM = "claim"
+
+    /**
+     * A claim closed: [ServerFields.CATCH], seeker and hider, [ServerFields.OUTCOME] `confirmed` / `rejected`,
+     * [ServerFields.REASON] (`code`, `timeout`, `attempts`, `dispute`, `end`).
+     */
+    const val CATCH = "catch"
+
+    /**
+     * A claim disputed by its hider ([ServerFields.EVENT] `open`), or a vote in it ([ServerFields.EVENT] `vote`,
+     * [ServerFields.PLAYER], [ServerFields.VOTE]).
+     */
+    const val DISPUTE = "dispute"
+
+    /**
+     * The seekers see a hider live ([ServerFields.EVENT] `start`, [ServerFields.REASON]: the `VisibilityReason`), for
+     * another reason (`change`), or no longer (`end`); [ServerFields.SECONDS]: how long the reveal before lasted.
+     */
+    const val REVEAL = "reveal"
+
+    /**
+     * The server's verdict on a phone's fixes of one sync: [ServerFields.PLAYER], [ServerFields.ACCEPTED], and the
+     * refused ones by [ServerFields.REFUSED_PREFIX] + `LocationTrack.Result` (`refused_MOCK`, `refused_IMPLAUSIBLE`…);
+     * [ServerFields.FIX_FROM] and [ServerFields.FIX_TO]: the fixes' own times, to match the phone's `gps`.
+     */
+    const val FIXES = "fixes"
+
+    /** A glow started or ended ([ServerFields.EVENT] `start` / `end`, [ServerFields.INDEX]), at its own time. */
+    const val GLOW = "glow"
+
+    /**
+     * A radar pair's band moved, or the shadow's: [ServerFields.OBSERVER] heard [ServerFields.HEARD] (players' ids,
+     * the reading's direction), [ServerFields.BAND] and [ServerFields.FROM] the pair's band, [ServerFields.SHADOW_BAND]
+     * what it would be with the pocket stealth (`POCKET_STEALTH`), [ServerFields.STEALTH]: the stealth is on in the
+     * game (then both are the same).
+     */
+    const val BAND = "band"
+}
+
+/** The fields of [ServerKinds]. */
+object ServerFields {
+    const val PHASE = "phase"
+    const val FROM = "from"
+    const val CATCH = "catch"
+    const val SEEKER = "seeker"
+    const val HIDER = "hider"
+    const val PLAYER = "player"
+    const val OUTCOME = "outcome"
+
+    /** Meters. */
+    const val DISTANCE = "dist_m"
+    const val ESTIMATE = "est_m"
+    const val PROXIMITY = "proximity"
+    const val RADAR = "radar"
+    const val SHADOW_ACCEPT = "shadow_accept"
+
+    /** How long the pair has been «burning» without a break, s (the louder direction); 0: it isn't. */
+    const val BURNING_SECONDS = "burning_s"
+
+    /** How long ago the pair was last steadily «burning» (the dwell), s; missing: never. */
+    const val BURNING_AGO_SECONDS = "burning_ago_s"
+    const val EVENT = "event"
+    const val REASON = "reason"
+    const val SECONDS = "seconds"
+    const val ACCEPTED = "accepted"
+    const val REFUSED_PREFIX = "refused_"
+    const val FIX_FROM = "fix_from"
+    const val FIX_TO = "fix_to"
+    const val INDEX = "index"
+    const val OBSERVER = "observer"
+    const val HEARD = "heard"
+    const val BAND = "band"
+    const val SHADOW_BAND = "shadow_band"
+    const val STEALTH = "stealth"
+    const val VOTE = "vote"
 }

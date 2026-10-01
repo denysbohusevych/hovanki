@@ -5,6 +5,7 @@ import app.hovanki.server.api.AuthenticatedUser
 import app.hovanki.server.buildings.BuildingLoader
 import app.hovanki.server.features.FeatureFlags
 import app.hovanki.server.history.HistoryWriter
+import app.hovanki.server.lab.FieldEventWriter
 import app.hovanki.server.map.StreetZoneLoader
 import app.hovanki.server.map.TerrainLoader
 import app.hovanki.server.metrics.ServerMetrics
@@ -43,6 +44,7 @@ import app.hovanki.shared.protocol.QuestReviewRequest
 import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.ScanCheckpointRequest
 import app.hovanki.shared.protocol.SendChatRequest
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsPreviewRequest
 import app.hovanki.shared.protocol.SettingsPreviewResponse
@@ -99,6 +101,7 @@ class GameService(
     private val deadlines: GameDeadlines,
     private val limits: GameLimitsProperties,
     private val metrics: ServerMetrics,
+    private val fieldLogWriter: FieldEventWriter,
 ) {
     /**
      * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
@@ -656,9 +659,13 @@ class GameService(
         var finished: GameRecord? = null
         var pokes: Pokes? = null
         var due: Long? = null
+        var fieldEvents: FieldEvents? = null
+        // The switch is read from memory: the field log costs a game nothing while it is off.
+        val fieldLog = features.isEnabled(ServerFeature.FIELD_LOG)
         try {
             return synchronized(game) {
                 val now = clock.millis()
+                game.fieldLog = fieldLog
                 game.advance(now)
                 try {
                     block(now)
@@ -666,12 +673,15 @@ class GameService(
                     finished = game.takeFinishedRecord()
                     pokes = game.takePokes()
                     due = game.nextDueMillis(now)
+                    fieldEvents = game.takeFieldEvents()
                 }
             }
         } finally {
             finished?.let(history::save)
             pokes?.let { pokeSink.poke(game.id, it, except) }
             due?.let { deadlines.schedule(game.id, it) }
+            // A refused command's events too (a claim GPS refused): written off this thread, never waited for.
+            fieldEvents?.let { fieldLogWriter.add(game.id, it) }
         }
     }
 

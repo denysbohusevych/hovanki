@@ -30,3 +30,5 @@ hovanki:
   # The bots keep the field log of their games (FieldLogTest): an e2e server may have it, like the test server.
   field:
     allowed: true
+    # The server's numbers (srv) twice as often as on staging: the scenarios' rounds are short.
+    srv-every: 5s

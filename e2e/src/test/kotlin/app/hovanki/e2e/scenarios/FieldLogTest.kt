@@ -16,6 +16,9 @@ import app.hovanki.shared.lab.LabFields
 import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.lab.MarkFields
 import app.hovanki.shared.lab.RxFields
+import app.hovanki.shared.lab.ServerFields
+import app.hovanki.shared.lab.ServerKinds
+import app.hovanki.shared.lab.SrvFields
 import app.hovanki.shared.protocol.AdminLabRun
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.LabRunKind
@@ -78,17 +81,24 @@ class FieldLogTest {
             // Sam comes close to Anna: the radio hears her. Anna marks that something is wrong.
             sam.walksToAndArrives(anna.gps.truePosition.offset(eastMeters = 2.0), speed = Route.RUNNING)
             check(anna.marksSomethingWrong("radar silent"), "Anna's phone logs her mark")
+            // Sam claims Anna: the server's own events tell the claim, with the proximity rule in the shadow.
+            sam.claimCatch(anna)
 
             // Every 10 s the phones upload: all six reach the server.
+            // The server writes its own events into the run as one more device, `server`.
             val view = eventually("every phone's log reached the server", within = 40.seconds) {
                 console.labRun(run.id).takeIf { view ->
-                    view.devices.size == everybody.size && view.devices.all { it.events > 0 } &&
-                        view.devices.any { device -> device.label == anna.id.value && device.events > 20 }
+                    val phones = view.devices.filter { it.label != FieldKinds.SERVER_DEVICE }
+                    phones.size == everybody.size && phones.all { it.events > 0 } &&
+                        phones.any { device -> device.label == anna.id.value && device.events > 20 } &&
+                        view.devices.any { it.label == FieldKinds.SERVER_DEVICE && it.events > 0 }
                 }
             }
+            val phones = view.devices.filter { it.label != FieldKinds.SERVER_DEVICE }
             check(view.run.kind == LabRunKind.GAME && view.run.status == LabRunStatus.RUNNING, "the game's run is on")
-            check(view.devices.map { it.label }.toSet() == everybody.map { it.id.value }.toSet(), "labelled by player")
-            check(view.devices.all { it.consentAtMillis != null }, "every phone's tester agreed")
+            check(phones.map { it.label }.toSet() == everybody.map { it.id.value }.toSet(), "labelled by player")
+            check(phones.all { it.consentAtMillis != null }, "every phone's tester agreed")
+            check(view.devices.single { it.label == FieldKinds.SERVER_DEVICE }.consentAtMillis == null, "nobody's")
 
             // Anna's mark is in her raw log, as soon as her next upload is.
             val logs = eventually("Anna's mark is in the raw logs", within = 30.seconds) {
@@ -97,7 +107,47 @@ class FieldLogTest {
                 }
             }
             checkLogs(logs, sam, anna)
+
+            // The server's log: the round's phases, Sam's claim with the shadow's answer, and its numbers (srv).
+            val server = eventually("the server's events are in the raw logs", within = 30.seconds) {
+                serverLog(console, run).takeIf { events ->
+                    events.any { it.kind == ServerKinds.CLAIM } && events.any { it.kind == FieldKinds.SRV }
+                }
+            }
+            checkServerLog(server, sam, anna)
         }
+    }
+
+    /** The server's own log in the game's run, from the admin's zip. */
+    private suspend fun Scenario.serverLog(console: StaffConsole, run: AdminLabRun): List<JsonObject> =
+        zipEntries(console.downloadLabRaw(run.id, reason = "the e2e field log"))
+            .filterKeys { it.startsWith("hovanki-lab-${FieldKinds.SERVER_DEVICE}-") }
+            .values.flatMap { it.decodeToString().lines() }
+            .filter { it.isNotBlank() }
+            .map { Json.parseToJsonElement(it).jsonObject }
+
+    /**
+     * The server's log of the game: a header, the phases of the round, the seeker's claim on the hider with the
+     * distance GPS gives and the proximity rule's answer in the shadow, the numbers of the server; players by id, no
+     * position anywhere, its `seq` without a gap.
+     */
+    private fun Scenario.checkServerLog(events: List<JsonObject>, seeker: BotPlayer, hider: BotPlayer) {
+        val kinds = events.map { it.kind }
+        check(kinds.take(2) == listOf(FieldKinds.SESSION, "clock"), "the server's log starts with its header ($kinds)")
+        val phases = events.filter { it.kind == ServerKinds.PHASE }.map { it.text(ServerFields.PHASE) }
+        check(phases.take(2) == listOf(GamePhase.HIDING.name, GamePhase.SEEKING.name), "the round's phases ($phases)")
+        val claim = events.first { it.kind == ServerKinds.CLAIM }
+        check(
+            claim.text(ServerFields.SEEKER) == seeker.id.value && claim.text(ServerFields.HIDER) == hider.id.value,
+            "the claim by the players' ids ($claim)",
+        )
+        check(claim.text(ServerFields.SHADOW_ACCEPT) != null, "the proximity rule answered in the shadow ($claim)")
+        check(events.any { it.kind == ServerKinds.FIXES }, "the server's verdicts on the fixes")
+        val srv = events.first { it.kind == FieldKinds.SRV }
+        check(srv.text(SrvFields.GAMES) != null && srv.text(SrvFields.HEAP_MB) != null, "the server's numbers ($srv)")
+        check(events.none(LabSchema::hasCoordinates), "no position in the server's events")
+        val seqs = events.map { it.text(LabFields.SEQ)?.toLong() }
+        check(seqs == seqs.indices.map { it.toLong() }, "the server's seq without a gap")
     }
 
     @Test

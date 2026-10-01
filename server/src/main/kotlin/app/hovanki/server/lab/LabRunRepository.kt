@@ -112,6 +112,11 @@ class LabRunRepository(private val jdbc: JdbcClient) {
         jdbc.sql("SELECT * FROM lab_runs WHERE game_id = :gameId FOR UPDATE").param("gameId", gameId).query(runs)
             .optional().orElse(null)
 
+    /** The field run of game [gameId], unlocked; null: none yet. */
+    fun findGameRun(gameId: String): LabRunRecord? =
+        jdbc.sql("SELECT * FROM lab_runs WHERE game_id = :gameId").param("gameId", gameId).query(runs).optional()
+            .orElse(null)
+
     /** The field runs not finished yet: their games may be gone from the server. */
     fun openGameRuns(): List<LabRunRecord> =
         jdbc.sql("SELECT * FROM lab_runs WHERE kind = 'GAME' AND finished_at IS NULL").query(runs).list()

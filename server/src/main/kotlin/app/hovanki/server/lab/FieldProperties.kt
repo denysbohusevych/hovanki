@@ -39,4 +39,12 @@ data class FieldProperties(
     val rxEvery: Duration = Duration.ofMillis(FieldUpload.RX_EVERY_MILLIS),
     val frameEvery: Duration = Duration.ofMillis(FieldUpload.FRAME_EVERY_MILLIS),
     val gpsEvery: Duration = Duration.ofMillis(FieldUpload.GPS_EVERY_MILLIS),
+    /**
+     * The server's own events in a game's run (ADR 0018 §3.3, [FieldEventWriter]): how often they go to the database,
+     * and how many may wait for it in all; more are dropped and counted (`hovanki.field.events.dropped`).
+     */
+    val serverFlush: Duration = Duration.ofSeconds(5),
+    val serverQueue: Int = 20_000,
+    /** How often the server writes its numbers (`srv`) into every field run of a game in memory (ADR 0018 §2). */
+    val srvEvery: Duration = Duration.ofSeconds(10),
 )
