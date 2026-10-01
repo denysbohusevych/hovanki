@@ -1,0 +1,381 @@
+name: iOS TestFlight
+
+# Archives the iOS Release build, checks it and uploads it to TestFlight. Called by preview.yml (every push to main:
+# the tester build, it talks to the staging server and never goes to the App Store) and release.yml (version tags: the
+# App Store build, it talks to the production server). See docs/ci-cd.md, «iOS: TestFlight» and «Номера сборок».
+# Without the signing secrets it still builds (unsigned) and checks, and skips the upload.
+on:
+  workflow_call:
+    inputs:
+      channel:
+        description: preview (the tester build, staging) or release (the App Store build, production)
+        required: true
+        type: string
+      server-url:
+        description: >-
+          Address of the game server baked into the app. Empty: the hovanki.serverUrl of gradle.properties,
+          the production server
+        required: false
+        default: ""
+        type: string
+      forbidden-url:
+        description: >-
+          An address that must not be in the app, e.g. the staging server in the App Store build. Empty: with a
+          server-url, the production address of gradle.properties
+        required: false
+        default: ""
+        type: string
+      build-number-offset:
+        description: >-
+          Added to the run number of the calling workflow to get the build number (CFBundleVersion). The App Store
+          build starts above every tester build of the same version, see docs/ci-cd.md, «Номера сборок»
+        required: false
+        default: 0
+        type: number
+      version-from-tag:
+        description: When the run is a tag push, the version of the app (CFBundleShortVersionString) is the tag without the v
+        required: false
+        default: false
+        type: boolean
+      publish:
+        description: Upload the build to TestFlight (needs the secrets below); false only builds and checks
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      IOS_DISTRIBUTION_CERTIFICATE_BASE64:
+        required: false
+      IOS_DISTRIBUTION_CERTIFICATE_PASSWORD:
+        required: false
+      IOS_PROVISIONING_PROFILE_BASE64:
+        required: false
+      APP_STORE_CONNECT_ISSUER_ID:
+        required: false
+      APP_STORE_CONNECT_KEY_ID:
+        required: false
+      APP_STORE_CONNECT_KEY_BASE64:
+        required: false
+      # Only the preview channel reads it: the App Store build has no Sentry.
+      SENTRY_DSN:
+        required: false
+
+permissions: {}
+
+jobs:
+  ios:
+    name: Archive and upload
+    runs-on: macos-26
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      PUBLISH: ${{ inputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v6
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: konan-${{ runner.os }}-
+
+      # The Kotlin framework is built by the «Compile Kotlin Framework» phase of the Xcode project, which runs
+      # ./gradlew itself: -P flags of this job never reach it, and an environment variable named like the property
+      # (ORG_GRADLE_PROJECT_hovanki.serverUrl) has a dot that the shells of Xcode's script phase don't carry on
+      # reliably. The gradle.properties of the Gradle user home is read by every Gradle run of this job, Xcode's too,
+      # and wins over the project's gradle.properties. The runner is fresh, nothing is left behind.
+      - name: Build settings of the app
+        env:
+          SERVER_URL: ${{ inputs.server-url }}
+          FORBIDDEN_URL: ${{ inputs.forbidden-url }}
+          BUILD_NUMBER_OFFSET: ${{ inputs.build-number-offset }}
+          VERSION_FROM_TAG: ${{ inputs.version-from-tag }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        run: |
+          fail=0
+          production="$(sed -n 's/^hovanki\.serverUrl=//p' gradle.properties | tr -d '[:space:]')"
+          [ -n "$production" ] || { echo "::error::hovanki.serverUrl is missing in gradle.properties"; fail=1; }
+          props="${GRADLE_USER_HOME:-$HOME/.gradle}/gradle.properties"
+          mkdir -p "$(dirname "$props")"
+          {
+            echo "# Written by ios-testflight.yml for this build only"
+            echo "hovanki.channel=$CHANNEL"
+          } >> "$props"
+          server="$production"
+          if [ -n "$SERVER_URL" ]; then
+            server="$SERVER_URL"
+            echo "hovanki.serverUrl=$SERVER_URL" >> "$props"
+            # The other address the app must not talk to; the production one unless the caller says otherwise.
+            [ -n "$FORBIDDEN_URL" ] || FORBIDDEN_URL="$production"
+          elif [ "$CHANNEL" = preview ]; then
+            echo "::warning title=Preview talks to production::The repository variable STAGING_SERVER_URL is not set, so the iOS tester build keeps the production address of gradle.properties. Setup: docs/ci-cd.md, «Переменные и секреты»."
+            {
+              echo "### iOS preview build goes to the production server"
+              echo "The repository variable \`STAGING_SERVER_URL\` is not set (Settings → Secrets and variables → Actions → Variables)."
+              echo "The build keeps \`hovanki.serverUrl\` of \`gradle.properties\`: $production."
+              echo "Do not hand it to field testers; see docs/ci-cd.md, «Переменные и секреты»."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # Sentry is for the tester build only; an empty DSN means no Sentry.
+          if [ "$CHANNEL" = preview ]; then
+            echo "hovanki.sentryDsn=$SENTRY_DSN" >> "$props"
+          fi
+
+          # Build number: the run number of the calling workflow, plus the offset of the App Store build.
+          build_number=$((GITHUB_RUN_NUMBER + BUILD_NUMBER_OFFSET))
+          # The version number: the tag of a release, else Config.xcconfig keeps its MARKETING_VERSION.
+          config_version="$(sed -n 's/^MARKETING_VERSION *= *//p' iosApp/Configuration/Config.xcconfig | tr -d '[:space:]')"
+          marketing_version=""
+          if [ "$VERSION_FROM_TAG" = true ] && [ "$GITHUB_REF_TYPE" = tag ]; then
+            marketing_version="${GITHUB_REF_NAME#v}"
+            # v1.2.3-rc.1 is the build of 1.2.3: an iOS version has numbers only.
+            marketing_version="${marketing_version%%[-+]*}"
+            version_pattern='^[0-9]+(\.[0-9]+){0,2}$'
+            if ! [[ "$marketing_version" =~ $version_pattern ]]; then
+              echo "::error::The tag $GITHUB_REF_NAME is not a version: iOS needs v<major>.<minor>.<patch>"
+              fail=1
+            fi
+            if [ "$marketing_version" = "$config_version" ]; then
+              echo "::warning title=Preview builds use this version too::MARKETING_VERSION in iosApp/Configuration/Config.xcconfig is $config_version, the version of this tag. Tester builds uploaded after this one are refused by App Store Connect (their build numbers are lower): raise MARKETING_VERSION in Config.xcconfig to the next version now. See docs/ci-cd.md, «Номера сборок»."
+            fi
+          fi
+          [ "$fail" = 0 ] || exit 1
+
+          {
+            echo "BUILD_NUMBER=$build_number"
+            echo "MARKETING_VERSION=$marketing_version"
+            echo "EXPECTED_SERVER_URL=$server"
+            echo "FORBIDDEN_SERVER_URL=$FORBIDDEN_URL"
+          } >> "$GITHUB_ENV"
+          {
+            echo "### iOS $CHANNEL build"
+            echo "- Server: $server"
+            echo "- Version: ${marketing_version:-$config_version (Config.xcconfig)}, build $build_number"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check the signing secrets
+        id: signing
+        env:
+          IOS_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          IOS_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_BASE64 }}
+        run: |
+          missing=()
+          for name in IOS_DISTRIBUTION_CERTIFICATE_BASE64 IOS_DISTRIBUTION_CERTIFICATE_PASSWORD \
+            IOS_PROVISIONING_PROFILE_BASE64 APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_KEY_ID \
+            APP_STORE_CONNECT_KEY_BASE64; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if ((${#missing[@]})); then
+            echo "::notice title=TestFlight upload skipped::Missing repository secrets: ${missing[*]}. The app is built unsigned and checked, nothing is uploaded. Setup: docs/ci-cd.md, section «iOS: TestFlight»."
+            {
+              echo "### iOS: TestFlight upload skipped"
+              echo "The Release build was archived without signing and checked; nothing was uploaded. Add these"
+              echo "repository secrets (Settings → Secrets and variables → Actions), see docs/ci-cd.md, «iOS: TestFlight»:"
+              for name in "${missing[@]}"; do echo "- \`$name\`"; done
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Manual signing: an Apple Distribution certificate in a temporary keychain and an App Store provisioning
+      # profile for the app's bundle id. The Team ID comes from the profile.
+      - name: Install certificate and provisioning profile
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -base64 24)"
+          echo "$CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/distribution.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/distribution.p12" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain" >/dev/null
+          # Add to the search list, keeping the login keychain (paths without spaces).
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/distribution.p12"
+
+          profile="$RUNNER_TEMP/distribution.mobileprovision"
+          echo "$PROFILE_BASE64" | base64 --decode > "$profile"
+          security cms -D -i "$profile" > "$RUNNER_TEMP/profile.plist"
+          field() { plutil -extract "$1" raw -o - "$RUNNER_TEMP/profile.plist"; }
+          uuid="$(field UUID)"
+          name="$(field Name)"
+          team="$(field TeamIdentifier.0)"
+          app_id="$(field Entitlements.application-identifier)"
+          if plutil -extract ProvisionedDevices xml1 -o - "$RUNNER_TEMP/profile.plist" >/dev/null 2>&1; then
+            echo "::error::Profile '$name' lists devices: it is a Development or Ad Hoc profile, TestFlight needs an App Store Connect profile."
+            exit 1
+          fi
+          bundle_id="$(xcodebuild -project iosApp/iosApp.xcodeproj -target iosApp -configuration Release -showBuildSettings \
+            | awk -F ' = ' '$1 ~ /^ *PRODUCT_BUNDLE_IDENTIFIER$/ { print $2; exit }')"
+          if [ "$app_id" != "$team.$bundle_id" ]; then
+            echo "::error::Profile '$name' is for $app_id, the app is $team.$bundle_id (BUNDLE_ID in iosApp/Configuration/Config.xcconfig)."
+            exit 1
+          fi
+          for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            cp "$profile" "$dir/$uuid.mobileprovision"
+          done
+          echo "Signing $bundle_id with profile '$name' of team $team"
+          {
+            echo "KEYCHAIN=$keychain"
+            echo "TEAM_ID=$team"
+            echo "BUNDLE_ID=$bundle_id"
+            echo "PROFILE_UUID=$uuid"
+            echo "PROFILE_NAME=$name"
+          } >> "$GITHUB_ENV"
+
+      # Release configuration: release Kotlin framework (no LaunchOptions), no ATS exceptions (debug-info-plist.sh
+      # adds them to Debug builds only).
+      - name: Archive the Release build
+        run: |
+          if [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
+            signing=(CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=Apple Distribution" "DEVELOPMENT_TEAM=$TEAM_ID"
+              "PROVISIONING_PROFILE_SPECIFIER=$PROFILE_NAME" "OTHER_CODE_SIGN_FLAGS=--keychain $KEYCHAIN")
+          else
+            signing=(CODE_SIGNING_ALLOWED=NO)
+          fi
+          version=("CURRENT_PROJECT_VERSION=$BUILD_NUMBER")
+          if [ -n "$MARKETING_VERSION" ]; then
+            version+=("MARKETING_VERSION=$MARKETING_VERSION")
+          fi
+          xcodebuild archive -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Hovanki.xcarchive" \
+            "${version[@]}" "${signing[@]}"
+
+      - name: Check the app
+        run: |
+          app="$RUNNER_TEMP/Hovanki.xcarchive/Products/Applications/Hovanki.app"
+          plist="$app/Info.plist"
+          value() { plutil -extract "$1" raw -o - "$plist"; }
+          echo "Bundle: $(value CFBundleIdentifier) $(value CFBundleShortVersionString) ($(value CFBundleVersion))"
+          fail=0
+          [ "$(value CFBundleVersion)" = "$BUILD_NUMBER" ] || { echo "::error::CFBundleVersion is not the build number $BUILD_NUMBER"; fail=1; }
+          if [ -n "$MARKETING_VERSION" ] && [ "$(value CFBundleShortVersionString)" != "$MARKETING_VERSION" ]; then
+            echo "::error::CFBundleShortVersionString is not $MARKETING_VERSION"; fail=1
+          fi
+          for key in NSAppTransportSecurity NSLocalNetworkUsageDescription; do
+            if plutil -extract "$key" xml1 -o - "$plist" >/dev/null 2>&1; then
+              echo "::error::$key is in the Release Info.plist: development exceptions must not ship"; fail=1
+            fi
+          done
+          [ -f "$app/PrivacyInfo.xcprivacy" ] || { echo "::error::PrivacyInfo.xcprivacy is missing"; fail=1; }
+          # English is Info.plist itself (Xcode writes no en.lproj for it), so CFBundleLocalizations lists it: without
+          # that, iOS would pick Russian permission texts for a phone set to English, then Russian.
+          echo "Localizations: $(plutil -extract CFBundleLocalizations json -o - "$plist")"
+          echo "en: $(value NSLocationWhenInUseUsageDescription)"
+          for lang in ru uk; do
+            strings="$app/$lang.lproj/InfoPlist.strings"
+            if [ -f "$strings" ]; then
+              echo "$lang: $(plutil -extract NSLocationWhenInUseUsageDescription raw -o - "$strings")"
+            else
+              echo "::error::$lang.lproj/InfoPlist.strings is missing (localized permission texts)"; fail=1
+            fi
+          done
+          ls "$app"
+          exit $fail
+
+      # A tester build that quietly talks to production (or an App Store build that talks to staging) is the one
+      # mistake this workflow must not let through. The Kotlin framework is static, so the address is in the app's own
+      # executable; Kotlin/Native keeps string constants as UTF-16, the check looks for both encodings. Found neither
+      # address: a warning (the way strings are stored may have changed), not a failure.
+      - name: Check the server address
+        run: |
+          app="$RUNNER_TEMP/Hovanki.xcarchive/Products/Applications/Hovanki.app"
+          executable="$app/$(plutil -extract CFBundleExecutable raw -o - "$app/Info.plist")"
+          python3 - "$EXPECTED_SERVER_URL" "$FORBIDDEN_SERVER_URL" "$executable" "$app/Frameworks" <<'PY'
+          import os
+          import sys
+
+          expected, forbidden, *roots = sys.argv[1:]
+          chunks = []
+          for root in roots:
+              if os.path.isfile(root):
+                  paths = [root]
+              else:
+                  paths = [os.path.join(d, f) for d, _, files in os.walk(root) for f in files]
+              for path in paths:
+                  with open(path, "rb") as handle:
+                      chunks.append(handle.read())
+          data = b"".join(chunks)
+
+
+          def has(url):
+              url = url.strip().rstrip("/")
+              return bool(url) and (url.encode() in data or url.encode("utf-16-le") in data)
+
+
+          if has(expected):
+              print("The app talks to " + expected)
+          elif forbidden and has(forbidden):
+              print("::error::The app talks to " + forbidden + ", not to " + expected + ": check the gradle.properties written by the step «Build settings of the app»")
+              sys.exit(1)
+          else:
+              print("::warning::Neither " + expected + " nor " + (forbidden or "another address") + " is found in the app, check the build log of the Kotlin framework")
+          PY
+
+      - name: Upload to TestFlight
+        if: steps.signing.outputs.signed == 'true' && env.PUBLISH == 'true'
+        env:
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_BASE64 }}
+        run: |
+          key="$RUNNER_TEMP/AuthKey_$KEY_ID.p8"
+          echo "$KEY_BASE64" | base64 --decode > "$key"
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict><key>$BUNDLE_ID</key><string>$PROFILE_UUID</string></dict>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Hovanki.xcarchive" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" -allowProvisioningUpdates \
+            -authenticationKeyPath "$key" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID"
+          {
+            echo "### iOS: build $BUILD_NUMBER uploaded to TestFlight"
+            if [ "$CHANNEL" = release ]; then
+              echo "The App Store build (production server). App Store Connect processes it for 5–30 minutes; then it can be"
+              echo "chosen for the App Store version and submitted for review."
+            else
+              echo "The tester build (server $EXPECTED_SERVER_URL): never submit it to the App Store. App Store Connect"
+              echo "processes it for 5–30 minutes; then internal testers get it in the TestFlight app, external testers"
+              echo "when the build is added to their group."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove signing material
+        if: always()
+        run: |
+          [ -z "${KEYCHAIN:-}" ] || security delete-keychain "$KEYCHAIN" || true
+          rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP/distribution.mobileprovision" "$RUNNER_TEMP/profile.plist"
+          [ -z "${PROFILE_UUID:-}" ] || rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
