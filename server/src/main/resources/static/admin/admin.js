@@ -5,6 +5,7 @@
 // - every request carries the X-Hovanki-Admin header (CSRF) and the session cookie, which scripts can't read.
 
 import { ZoneMap, areaSquareMeters } from "./map.js";
+import { createFieldTab } from "./field.js";
 
 const API = "/api/v1/admin";
 const ROLE = { PLAYER: "игрок", MODERATOR: "модератор", ADMIN: "админ" };
@@ -20,7 +21,7 @@ const ACTION = {
   WATCH_GAME: "смотрел игру вживую",
   LAB_RUN_CREATE: "создал прогон радиолабы", LAB_RUN_CONTROL: "управлял прогоном радиолабы",
   LAB_RUN_DOWNLOAD: "скачал журналы прогона", LAB_RUN_DELETE: "удалил прогон радиолабы",
-  FIELD_EXPORT: "выгрузил отчёт полевой игры",
+  FIELD_EXPORT: "выгрузил отчёт полевой игры", FIELD_MARK: "поставил отметку в полевой игре",
 };
 const MODERATOR_MAX_DAYS = 30;
 
@@ -43,7 +44,7 @@ function el(tag, attrs = {}, ...children) {
 }
 
 function append(node, children) {
-  for (const child of children.flat()) {
+  for (const child of children.flat(Infinity)) {
     if (child === null || child === undefined || child === false) continue;
     node.append(child instanceof Node ? child : document.createTextNode(String(child)));
   }
@@ -128,6 +129,7 @@ async function api(method, path, body) {
 
 const get = (path) => api("GET", path);
 const post = (path, body = {}) => api("POST", path, body);
+const del = (path, body) => api("DELETE", path, body);
 
 /** Runs an action; errors become a notice, a lost session goes back to the login. */
 async function run(action, done) {
@@ -330,7 +332,8 @@ function qrSvg(rows) {
 
 const PAGES = [
   ["reports", "Жалобы"], ["users", "Пользователи"], ["games", "Игры"], ["features", "Возможности"], ["stats", "Цифры"],
-  ["big", "Большие игры", true], ["lab", "Радиолаба", true], ["staff", "Сотрудники", true], ["audit", "Журнал", true],
+  ["big", "Большие игры", true], ["lab", "Радиолаба", true], ["field", "Полевые тесты", true], ["staff", "Сотрудники", true],
+  ["audit", "Журнал", true],
 ];
 
 function frame(page, openReports) {
@@ -353,9 +356,19 @@ function frame(page, openReports) {
   who.hidden = false;
 }
 
+// The field tests' tab (field.js): the helpers it needs, handed over.
+const fieldTab = createFieldTab({
+  el, get, post, del, send, run, ask, fmt, frame, show, go, notice, ApiError, errorText,
+  sessionLost() {
+    me = null;
+    route();
+  },
+});
+
 async function route() {
   stopLive();
   stopLab();
+  fieldTab.stop();
   if (!me) {
     try {
       me = await get("/me");
@@ -384,6 +397,9 @@ async function route() {
     else if (page === "lab" && isAdmin() && id && sub === "report") await labReportView(decodeURIComponent(id));
     else if (page === "lab" && isAdmin() && id) await labRunView(decodeURIComponent(id));
     else if (page === "lab" && isAdmin()) await labRunsView();
+    else if (page === "field" && isAdmin() && id && sub === "report") await fieldTab.reportView(decodeURIComponent(id));
+    else if (page === "field" && isAdmin() && id) await fieldTab.gameView(decodeURIComponent(id));
+    else if (page === "field" && isAdmin()) await fieldTab.listView();
     else await reportsView(id === "all");
   } catch {
     // run() showed it.
@@ -1354,15 +1370,13 @@ async function labRunsView() {
       el("tr", {}, ["Прогон", "Код", "Сценарий", "Статус", "Телефоны", "Журналы", "Создал", "Отчёт"].map((t) => el("th", {}, t))),
       runs.map((r) => el("tr", {},
         el("td", {}, el("a", { href: labHash(r.id) }, r.title)),
-        // A game's field log (docs/adr/0018-field-test-build.md §3) has no code: its phones join with the game.
-        el("td", { class: "mono" }, r.kind === "GAME" ? "игра" : r.code),
+        el("td", { class: "mono" }, r.code),
         el("td", {}, scenarioOf(r)?.title ?? r.scenarioId, el("div", { class: "small muted mono" }, `${r.scenarioId} v${r.scenarioVersion}`)),
         el("td", {}, labStatusTag(r.status)),
         el("td", {}, fmt.number(r.devices ?? 0)),
         el("td", {}, labBytes(r.bytes ?? 0)),
         el("td", {}, r.createdByName || "—", el("div", { class: "small muted" }, fmt.time(r.createdAtMillis))),
-        // A game's report is a FieldReport, not the lab's: the field tab (step 6) shows it.
-        el("td", {}, r.reportReady && r.kind !== "GAME" ? el("a", { href: labHash(r.id, "report") }, "✓ открыть") : "—")))) :
+        el("td", {}, r.reportReady ? el("a", { href: labHash(r.id, "report") }, "✓ открыть") : "—")))) :
       el("p", { class: "muted" }, "Прогонов ещё не было."),
     form);
   showAbout();
@@ -1388,6 +1402,11 @@ async function labRunView(id) {
     return;
   }
   if (generation !== labGeneration) return;
+  // A game's field log is no lab run: its own tab shows it (an old link lands here).
+  if (view.run.kind === "GAME") {
+    go(`#/field/${encodeURIComponent(id)}`);
+    return;
+  }
   frame("lab");
   let offset = view.state.serverTimeMillis - Date.now();
   const head = el("div");
@@ -1402,10 +1421,8 @@ async function labRunView(id) {
   const planRows = steps.map((step) => el("tr", {},
     el("td", {}, step.index + 1), el("td", { class: "mono" }, step.id), el("td", {}, step.title),
     el("td", {}, step.seconds == null ? "до кнопки" : `${step.seconds} с`)));
-  // A game's field log (docs/adr/0018-field-test-build.md §3) has no plan.
-  const plan = view.run.kind === "GAME" ? null
-    : el("details", {}, el("summary", {}, `Весь план: ${fmt.plural(steps.length, "шаг", "шага", "шагов")}`),
-      el("table", {}, el("tr", {}, ["№", "Шаг", "Что", "Длится"].map((t) => el("th", {}, t))), planRows));
+  const plan = el("details", {}, el("summary", {}, `Весь план: ${fmt.plural(steps.length, "шаг", "шага", "шагов")}`),
+    el("table", {}, el("tr", {}, ["№", "Шаг", "Что", "Длится"].map((t) => el("th", {}, t))), planRows));
 
   function render() {
     head.replaceChildren(labRunHead(view));
@@ -1470,11 +1487,11 @@ function labRunHead(view) {
   return el("div", {},
     el("div", { class: "row spread" }, el("h1", {}, r.title, " ", labStatusTag(r.status)),
       el("div", { class: "row" },
-        r.reportReady && r.kind !== "GAME" ? el("a", { class: "button", href: labHash(id, "report") }, "Отчёт")
+        r.reportReady ? el("a", { class: "button", href: labHash(id, "report") }, "Отчёт")
           : finished ? el("span", { class: "muted small" }, "Отчёт считается…") : null,
         el("button", { class: "secondary", onclick: () => labDownload(r) }, "Скачать сырые журналы"),
         el("button", { class: "danger", onclick: () => labDelete(r) }, "Удалить"))),
-    r.kind === "GAME" ? labGameHead(r) : el("div", { class: "card lab-head" },
+    el("div", { class: "card lab-head" },
       el("div", {},
         el("div", { class: "muted small" }, "Код для телефонов"),
         el("div", { class: "code-big" }, r.code),
@@ -1490,29 +1507,9 @@ function labRunHead(view) {
       qrSvg(r.qr ?? [])));
 }
 
-/**
- * A game's field log (docs/adr/0018-field-test-build.md §3): no code, no QR and no plan; its phones join with the
- * game, and it ends when the game is gone from the server.
- */
-function labGameHead(r) {
-  return el("div", { class: "card" },
-    el("div", { class: "muted small" }, "Полевой журнал игры"),
-    el("p", { class: "small muted" }, "Телефоны полевой сборки, чьи тестеры согласились, входят сами со стартом раунда. " +
-      "Прогон закончится, когда игры не станет на сервере; ещё полчаса телефоны досылают журналы. Метка телефона — id игрока."),
-    el("dl", { class: "grid" },
-      field("Игра", el("span", { class: "mono" }, r.gameId ?? "—")),
-      field("Начат", fmt.time(r.startedAtMillis)),
-      field("Завершён", fmt.time(r.finishedAtMillis)),
-      field("Журналы", `${labBytes(r.bytes ?? 0)} от ${fmt.plural(r.devices ?? 0, "телефона", "телефонов", "телефонов")}`)));
-}
-
 /** «Step N of M», the countdown, what every label does now, and the buttons that move the plan. */
 function labConsole(view, countdown, apply) {
   const { run: r, state } = view;
-  // A game's field log has no plan to move: it ends with its game.
-  if (r.kind === "GAME") {
-    return [el("h2", { class: "first" }, state.status === "FINISHED" ? "Игры больше нет: журнал закрыт." : "Игра идёт: журнал пишется.")];
-  }
   const steps = view.steps ?? [];
   const step = steps[state.stepIndex];
   const shown = state.status === "CREATED" ? steps[0] : state.status === "FINISHED" ? null : step;
@@ -1647,6 +1644,12 @@ async function labDelete(r) {
 // The report
 
 async function labReportView(id) {
+  const view = await get(labPath(id)).catch(() => null);
+  // A game's report is a FieldReport, which the field tab shows (an old link lands here).
+  if (view?.run.kind === "GAME") {
+    go(`#/field/${encodeURIComponent(id)}/report`);
+    return;
+  }
   let report;
   try {
     report = await get(labPath(id, "report"));
@@ -1660,7 +1663,6 @@ async function labReportView(id) {
     }
     return;
   }
-  const view = await get(labPath(id)).catch(() => null);
   frame("lab");
   const empty = (list) => (list?.length ? null : el("p", { class: "muted" }, "Нет данных."));
   const table = (headers, rows) => el("table", {}, el("tr", {}, headers.map((t) => el("th", {}, t))), rows);

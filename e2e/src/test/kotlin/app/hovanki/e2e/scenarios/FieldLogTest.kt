@@ -248,7 +248,7 @@ class FieldLogTest {
                     phone.takeIf { it.fieldState.status == FieldStatus.REFUSED }
                 }
             }
-            check(console.labRuns().runs.none { it.kind == LabRunKind.GAME }, "no game's run on the server")
+            check(console.fieldGames().runs.isEmpty(), "no game's run on the server")
             // The game itself goes on as ever.
             awaitPhase(GamePhase.SEEKING, within = 20.seconds)
             check(anna.fieldState.status == FieldStatus.REFUSED, "and the phone doesn't ask again in this game")
@@ -265,7 +265,7 @@ class FieldLogTest {
     }
 
     private suspend fun Scenario.gameRun(console: StaffConsole): AdminLabRun = eventually("the game's run") {
-        console.labRuns().runs.firstOrNull { it.gameId == gameId.value }
+        console.fieldGames().runs.firstOrNull { it.gameId == gameId.value }
     }
 
     /** Every player's raw log, from the admin's zip (one file per device, named by the player's id). */

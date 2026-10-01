@@ -18,6 +18,8 @@ import app.hovanki.shared.lab.LabRunScript
 import app.hovanki.shared.lab.LabRunScripts
 import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.protocol.AdminAction
+import app.hovanki.shared.protocol.AdminFieldGameView
+import app.hovanki.shared.protocol.AdminFieldGames
 import app.hovanki.shared.protocol.AdminLabAdvanceRequest
 import app.hovanki.shared.protocol.AdminLabDevice
 import app.hovanki.shared.protocol.AdminLabRun
@@ -319,13 +321,49 @@ class LabRunService(
     fun list(staff: Staff): AdminLabRuns {
         requireAdmin(staff)
         val now = clock.millis()
-        val runs = repository.listRuns(LIST_SIZE).map { row ->
+        val runs = repository.listRuns(LIST_SIZE, LabRunKind.LAB).map { row ->
             // The timed steps that ended since anybody looked, as the next look will save them.
             val script = scriptOf(row.run)
             val plan = script?.let { LabRunPlan.advanceByTime(it, row.run.plan, now) } ?: row.run.plan
             admin(row.run.copy(plan = plan), row.devices, row.bytes, row.reportReady)
         }
         return AdminLabRuns(runs, LabRunScripts.ALL.map { it.summary() })
+    }
+
+    /** The field runs of games, newest first (docs/adr/0018-field-test-build.md §6): their own list, not the lab's. */
+    fun fieldGames(staff: Staff): AdminFieldGames {
+        requireAdmin(staff)
+        return AdminFieldGames(
+            repository.listRuns(LIST_SIZE, LabRunKind.GAME).map { admin(it.run, it.devices, it.bytes, it.reportReady) },
+        )
+    }
+
+    /** A game's run with its phones and the live view; 404: no such field run (a lab run is not one). */
+    fun fieldGame(staff: Staff, id: LabRunId): AdminFieldGameView {
+        requireAdmin(staff)
+        val run = repository.findRun(id.value)?.takeIf { it.kind == LabRunKind.GAME } ?: throw noSuchRun()
+        val now = clock.millis()
+        val devices = repository.devicesOf(run.id)
+        return AdminFieldGameView(
+            run = admin(run, devices.size, devices.sumOf { it.bytes }, repository.reportExists(run.id)),
+            devices = devices.map(::adminDevice),
+            live = live.view(run.id, devices, now),
+            serverTimeMillis = now,
+        )
+    }
+
+    /** The stored report's JSON of a game's run (`FieldReport`); 404: no such field run, or no report yet. */
+    fun fieldReport(staff: Staff, id: LabRunId): String {
+        requireAdmin(staff)
+        repository.findRun(id.value)?.takeIf { it.kind == LabRunKind.GAME } ?: throw noSuchRun()
+        return repository.findReport(id.value) ?: throw GameException(ErrorCode.NOT_FOUND, "No report yet")
+    }
+
+    /** Deletes a game's field run with its devices, logs and report; 404 for a lab run (that is [delete]). */
+    fun deleteFieldGame(staff: Staff, id: LabRunId, reason: String) {
+        requireAdmin(staff)
+        repository.findRun(id.value)?.takeIf { it.kind == LabRunKind.GAME } ?: throw noSuchRun()
+        delete(staff, id, reason)
     }
 
     fun create(staff: Staff, request: AdminLabRunRequest): AdminLabRun {
@@ -516,26 +554,26 @@ class LabRunService(
             state = view(run, now),
             labels = script?.labels ?: devices.map { it.label }.distinct(),
             steps = script?.stepViews().orEmpty(),
-            devices = devices.map { device ->
-                AdminLabDevice(
-                    id = device.id,
-                    label = device.label,
-                    model = device.model,
-                    os = device.os,
-                    build = device.build,
-                    commit = device.commit,
-                    capabilities = device.capabilities,
-                    joinedAtMillis = device.joinedAt.toEpochMilli(),
-                    lastChunkAtMillis = device.lastChunkAt?.toEpochMilli(),
-                    lastSeq = device.lastSeq,
-                    bytes = device.bytes,
-                    events = device.events,
-                    consentAtMillis = device.consentAt?.toEpochMilli(),
-                )
-            },
+            devices = devices.map(::adminDevice),
             live = live.view(run.id, devices, now.toEpochMilli()),
         )
     }
+
+    private fun adminDevice(device: LabDeviceRecord) = AdminLabDevice(
+        id = device.id,
+        label = device.label,
+        model = device.model,
+        os = device.os,
+        build = device.build,
+        commit = device.commit,
+        capabilities = device.capabilities,
+        joinedAtMillis = device.joinedAt.toEpochMilli(),
+        lastChunkAtMillis = device.lastChunkAt?.toEpochMilli(),
+        lastSeq = device.lastSeq,
+        bytes = device.bytes,
+        events = device.events,
+        consentAtMillis = device.consentAt?.toEpochMilli(),
+    )
 
     private fun admin(run: LabRunRecord, devices: Int, bytes: Long, reportReady: Boolean): AdminLabRun {
         // A game's run has no code to join by: no QR, no code.

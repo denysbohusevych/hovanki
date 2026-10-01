@@ -290,8 +290,20 @@ object ApiRoutes {
 
     // The field log's games in the admin (docs/adr/0018-field-test-build.md §6): admins only, every export audited.
 
-    /** A game's field run ([LabRunId] of `LabRunKind.GAME`): the exports under it. */
+    /** GET: [AdminFieldGames], the field runs of games (newest first); the lab's list has the lab's runs only. */
+    const val ADMIN_FIELD_GAMES = "$ADMIN/field/games"
+
+    /**
+     * A game's field run ([LabRunId] of `LabRunKind.GAME`): GET [AdminFieldGameView] (its run, phones and live view);
+     * DELETE [AdminReasonRequest], 204: the run goes with its logs and report. The exports are under it.
+     */
     const val ADMIN_FIELD_GAME = "$ADMIN/field/games/{runId}"
+
+    /** GET: the game's stored report (`app.hovanki.shared.lab.FieldReport`, players P1…Pn); 404 until it is computed. */
+    const val ADMIN_FIELD_GAME_REPORT = "$ADMIN_FIELD_GAME/report"
+
+    /** POST [AdminFieldMarkRequest], 204: an organizer's mark in the game's log, at the server's time now. */
+    const val ADMIN_FIELD_GAME_MARKS = "$ADMIN_FIELD_GAME/marks"
 
     /** POST [AdminReasonRequest]: the game's report as Markdown (`text/markdown`), players P1…Pn, no coordinates. */
     const val ADMIN_FIELD_GAME_REPORT_MD = "$ADMIN_FIELD_GAME/report.md"

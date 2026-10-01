@@ -1,12 +1,15 @@
 package app.hovanki.server.lab
 
+import app.hovanki.shared.lab.FieldKinds
 import app.hovanki.shared.lab.LabFields
 import app.hovanki.shared.lab.RxFields
+import app.hovanki.shared.lab.SyncFields
 import app.hovanki.shared.protocol.LabLiveDevice
 import app.hovanki.shared.protocol.LabLivePair
 import app.hovanki.shared.protocol.LabLiveView
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
@@ -65,6 +68,9 @@ class LabLive(private val properties: LabProperties) {
         var bluetooth: String? = null
         var battery: Double? = null
         var step: Int? = null
+        var syncMillis: Long? = null
+        var syncOk: Boolean? = null
+        var syncTransport: String? = null
     }
 
     /** [count] readings of [rssi] (their median when a summary). */
@@ -104,6 +110,13 @@ class LabLive(private val properties: LabProperties) {
                     "battery" -> event.double("level")?.let { device.battery = it }
 
                     "step" -> event.int("index")?.let { device.step = it }
+
+                    // A field log's: the phone's last sync, to see who is behind (docs/field-test.md step 6).
+                    FieldKinds.SYNC -> {
+                        device.syncOk = event.bool(SyncFields.OK)
+                        device.syncMillis = event.long(SyncFields.MILLIS)
+                        device.syncTransport = event.string(SyncFields.TRANSPORT)
+                    }
 
                     "rx" -> {
                         if (!pairs) continue
@@ -151,6 +164,9 @@ class LabLive(private val properties: LabProperties) {
                     bluetooth = live?.bluetooth,
                     batteryLevel = live?.battery,
                     stepIndex = live?.step,
+                    syncMillis = live?.syncMillis,
+                    syncOk = live?.syncOk,
+                    syncTransport = live?.syncTransport,
                 )
             }
             return LabLiveView(nowMillis, deviceViews, pairs)
@@ -200,5 +216,7 @@ class LabLive(private val properties: LabProperties) {
         private fun JsonObject.int(key: String): Int? = primitive(key)?.intOrNull
 
         private fun JsonObject.double(key: String): Double? = primitive(key)?.doubleOrNull
+
+        private fun JsonObject.bool(key: String): Boolean? = primitive(key)?.booleanOrNull
     }
 }

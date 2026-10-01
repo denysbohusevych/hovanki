@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.post
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 /** The /admin page itself (docs/adr/0008-admin.md): served with a strict content security policy. */
 @SpringBootTest
@@ -36,6 +37,21 @@ class AdminPageTest(@Autowired private val mvc: MockMvc) {
         assertEquals("no-referrer", page.getHeader("Referrer-Policy"))
         mvc.get("/admin/admin.js").andExpect { status { isOk() } }
         mvc.get("/admin/map.js").andExpect { status { isOk() } }
+        mvc.get("/admin/field.js").andExpect { status { isOk() } }
+    }
+
+    /** The page puts server data in as text (docs/adr/0008-admin.md): no script builds HTML or names another host. */
+    @Test
+    fun theScriptsNeverBuildHtmlOrReachOtherHosts() {
+        val forbidden =
+            listOf(".innerHTML", ".outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function")
+        val otherHost = Regex("[\"'`]https?://(?!www\\.w3\\.org/)")
+        for (name in listOf("admin.js", "map.js", "field.js")) {
+            val source = checkNotNull(javaClass.getResourceAsStream("/static/admin/$name")) { name }
+                .readBytes().toString(Charsets.UTF_8)
+            for (word in forbidden) assertFalse(word in source, "$name uses $word")
+            assertFalse(otherHost.containsMatchIn(source), "$name names another host")
+        }
     }
 }
 

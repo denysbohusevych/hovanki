@@ -250,6 +250,10 @@ data class LabLiveDevice(
     val bluetooth: String? = null,
     val batteryLevel: Double? = null,
     val stepIndex: Int? = null,
+    /** A field log's phone: its last `sync` (docs/adr/0018-field-test-build.md §6): ms it took, did it go. */
+    val syncMillis: Long? = null,
+    val syncOk: Boolean? = null,
+    val syncTransport: String? = null,
 )
 
 /** [from]: the label heard (by its radar token), [to]: the listener; [channel]: `api/via` as in the `rx` event. */
@@ -281,6 +285,31 @@ data class AdminLabRunView(
     val devices: List<AdminLabDevice>,
     val live: LabLiveView,
 )
+
+/** [ApiRoutes.ADMIN_FIELD_GAMES]: the field runs of games, newest first. */
+@Serializable
+data class AdminFieldGames(val runs: List<AdminLabRun>)
+
+/**
+ * [ApiRoutes.ADMIN_FIELD_GAME]: a game's field run, its phones (and the server's own log as the device `server`, the
+ * organizers' marks as `staff`) and what the chunks received so far say ([LabLiveView]; no pairs in a game: the report
+ * has who heard whom).
+ */
+@Serializable
+data class AdminFieldGameView(
+    val run: AdminLabRun,
+    val devices: List<AdminLabDevice>,
+    val live: LabLiveView,
+    /** The server's clock now, for «ago» next to the admin's computer's. */
+    val serverTimeMillis: Long,
+)
+
+/**
+ * An organizer's mark ([ApiRoutes.ADMIN_FIELD_GAME_MARKS]): [text], what happened (a few words, 1..120 characters),
+ * and why it is written ([reason], the audit log's: with the admin's name, which never goes into the run).
+ */
+@Serializable
+data class AdminFieldMarkRequest(val text: String, val reason: String)
 
 /**
  * A field game's raw logs ([ApiRoutes.ADMIN_FIELD_GAME_RAW], docs/adr/0018-field-test-build.md §6): why ([reason], the

@@ -14,6 +14,7 @@ import app.hovanki.shared.protocol.AdminEnrollment
 import app.hovanki.shared.protocol.AdminFeature
 import app.hovanki.shared.protocol.AdminFeatureRequest
 import app.hovanki.shared.protocol.AdminFeatures
+import app.hovanki.shared.protocol.AdminFieldGames
 import app.hovanki.shared.protocol.AdminLabAdvanceRequest
 import app.hovanki.shared.protocol.AdminLabRun
 import app.hovanki.shared.protocol.AdminLabRunRequest
@@ -133,6 +134,9 @@ class StaffConsole(serverUrl: String, private val observer: Observer) : AutoClos
     // The radio lab's runs (docs/adr/0017-radar-techniques-and-big-run.md §5), admins.
 
     suspend fun labRuns(): AdminLabRuns = get(ApiRoutes.ADMIN_LAB_RUNS)
+
+    /** The field runs of games (docs/adr/0018-field-test-build.md §6): the lab's list has the lab's runs only. */
+    suspend fun fieldGames(): AdminFieldGames = get(ApiRoutes.ADMIN_FIELD_GAMES)
 
     suspend fun createLabRun(title: String, scenarioId: String, reason: String): AdminLabRun =
         call(ApiRoutes.ADMIN_LAB_RUNS, AdminLabRunRequest(title, scenarioId, reason))
