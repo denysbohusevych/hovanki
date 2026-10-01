@@ -937,7 +937,10 @@ class BotPlayer(
             permissions = { mapOf(PermFields.LOCATION to if (gps.hasPermission()) "always" else "denied") },
             carryMonitor = FakeCarryMonitor(carry),
             probes = probes,
-        ).also { if (fieldLog) radarTrace = LabRadioTrace(labLog) }
+        ).also {
+            // The log is the app's main thread's, the simulated air hears on its own: every call goes over to it.
+            if (fieldLog) radarTrace = OnThread(LabRadioTrace(labLog), scope)
+        }
         val session = GameSessionManager(
             api,
             connection,
@@ -1117,4 +1120,23 @@ enum class BotTransport {
 
     /** An app from before the live channel: polling only. */
     POLLING,
+}
+
+/** [trace] called on [scope]'s thread, in order: the simulated air calls the radar's trace from its own thread. */
+private class OnThread(private val trace: RadarTrace, private val scope: CoroutineScope) : RadarTrace {
+    override fun advertise(action: String, tech: String, token: String?, layout: String?, error: String?) {
+        scope.launch { trace.advertise(action, tech, token, layout, error) }
+    }
+
+    override fun scan(action: String, api: RadioApi, filters: String?, error: String?) {
+        scope.launch { trace.scan(action, api, filters, error) }
+    }
+
+    override fun frame(frame: AirFrame, decoded: List<Pair<String, Decoded>>) {
+        scope.launch { trace.frame(frame, decoded) }
+    }
+
+    override fun air(second: AirSecond) {
+        scope.launch { trace.air(second) }
+    }
 }
