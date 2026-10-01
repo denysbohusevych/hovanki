@@ -15,12 +15,12 @@ import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.device.ActivityMonitor
 import app.hovanki.device.AndroidActivityMonitor
 import app.hovanki.device.AndroidCarryMonitor
-import app.hovanki.device.AndroidImpactMonitor
 import app.hovanki.device.AndroidDeviceInfo
+import app.hovanki.device.AndroidImpactMonitor
 import app.hovanki.device.AndroidPocketPulse
 import app.hovanki.device.CarryMonitor
-import app.hovanki.device.ImpactMonitor
 import app.hovanki.device.DeviceInfo
+import app.hovanki.device.ImpactMonitor
 import app.hovanki.device.PocketPulse
 import app.hovanki.device.lab.AndroidLabHaptics
 import app.hovanki.device.lab.AndroidLabProbes

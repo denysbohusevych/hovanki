@@ -18,12 +18,12 @@ import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.client.tracking.IosBackgroundTracker
 import app.hovanki.device.ActivityMonitor
 import app.hovanki.device.CarryMonitor
-import app.hovanki.device.ImpactMonitor
 import app.hovanki.device.DeviceInfo
+import app.hovanki.device.ImpactMonitor
 import app.hovanki.device.IosActivityMonitor
 import app.hovanki.device.IosCarryMonitor
-import app.hovanki.device.IosImpactMonitor
 import app.hovanki.device.IosDeviceInfo
+import app.hovanki.device.IosImpactMonitor
 import app.hovanki.device.IosPocketPulse
 import app.hovanki.device.PocketPulse
 import app.hovanki.device.lab.IosLabHaptics
