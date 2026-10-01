@@ -303,6 +303,10 @@ class FieldSession(
         lastPhase = snapshot.phase
         if (!isActive) return
         val changed = previous != null && previous != snapshot.phase
+        // Outside the round (the lobby, the results) the polls that went fine and changed nothing are not written:
+        // each would be news for the uploader, and a lobby waiting half an hour would go up every few seconds.
+        val inRound = snapshot.phase == GamePhase.HIDING || snapshot.phase == GamePhase.SEEKING
+        if (!inRound && !changed && previous != null) return
         log.sync(
             transport = transport.key,
             ok = true,

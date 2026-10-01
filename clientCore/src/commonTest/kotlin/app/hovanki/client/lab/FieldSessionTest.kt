@@ -464,9 +464,19 @@ class FieldSessionTest {
         advanceTimeBy(35_000)
         runCurrent()
         assertTrue(events().none { it.kind == FieldKinds.TICK })
-        val quiet = api.uploads.size
-        advanceTimeBy(60_000)
+        // The first sync says the phase; it goes up with the next upload.
+        field.onSyncSent()
+        field.onSynced(Transport.POLLING, snapshot(GamePhase.LOBBY))
+        advanceTimeBy(15_000)
         runCurrent()
+        val quiet = api.uploads.size
+        // The lobby's polls go on all the while: the ones that change nothing are not news.
+        repeat(30) {
+            field.onSyncSent()
+            field.onSynced(Transport.POLLING, snapshot(GamePhase.LOBBY))
+            advanceTimeBy(2_000)
+            runCurrent()
+        }
         assertEquals(quiet, api.uploads.size, "a quiet lobby sends nothing")
 
         // The neighbours touch: a jolt, both press «We touched»; it goes up at once.

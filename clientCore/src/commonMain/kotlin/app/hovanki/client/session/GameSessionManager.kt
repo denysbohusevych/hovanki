@@ -764,7 +764,8 @@ class GameSessionManager(
         val token = trace.touchRadioToken(snapshot)
         val wanted = token != null && snapshot.settings.features.hasRadar && mutableRadarEnabled.value
         if (!wanted || token == null) {
-            if (radioForTouch) stopRadio()
+            // Outside the round no radio runs but the touch's (a round's own one stops, should the game go back).
+            if (radioJob != null) stopRadio()
             return
         }
         if (radioJob?.isActive == true && !radioForTouch) stopRadio()
