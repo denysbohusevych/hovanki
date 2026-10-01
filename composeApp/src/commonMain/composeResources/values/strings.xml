@@ -856,4 +856,12 @@
   <string name="field_carry_pocket">In a pocket</string>
   <string name="field_carry_bag">In a bag</string>
   <string name="field_carry_mixed">It varied</string>
+  <string name="field_touch_title">Touch phones with a neighbour</string>
+  <string name="field_touch_title_again">Once more, for the drift</string>
+  <string name="field_touch_text">Stand next to someone and hold the phones back to back for a second. Then each of you picks the other and presses the button.</string>
+  <string name="field_touch_again_text">The radio drifts over a game. Touch phones once more, with the same neighbour or another one.</string>
+  <string name="field_touch_pick">Whom did you touch?</string>
+  <string name="field_touch_done">We touched</string>
+  <string name="field_touch_count">Touches so far: %1$d</string>
+  <string name="field_touch_dismiss">Not now</string>
 </resources>

@@ -472,7 +472,9 @@ class FieldSessionTest {
         // The neighbours touch: a jolt, both press «We touched»; it goes up at once.
         impacts.emit(Impact(DEVICE + currentTime - 400, 1.75))
         runCurrent()
+        assertEquals(0, field.touchCount.value)
         assertTrue(field.touched(PlayerId("player-2")))
+        assertEquals(1, field.touchCount.value, "the card counts the touches")
         runCurrent()
         val touches = api.uploads.drop(quiet).flatMap { it.lines }.map { Json.parseToJsonElement(it).jsonObject }
             .filter { it.kind == TouchKinds.TOUCH }
@@ -486,6 +488,7 @@ class FieldSessionTest {
         assertFalse(field.touchCard.value)
         assertNull(field.touchRadioToken(snapshot(GamePhase.HIDING)))
         assertFalse(field.touched(PlayerId("player-2")))
+        assertEquals(1, field.touchCount.value, "a press with no card is not counted")
         impacts.emit(Impact(DEVICE + currentTime, 2.0))
         advanceTimeBy(2_500)
         runCurrent()

@@ -158,6 +158,26 @@ class LabViewModel(
         mutableLastMark.value = "$label · ${LabSchema.formatUtc(lab.log.serverNow()).substringAfter(' ').take(8)} UTC"
     }
 
+    /**
+     * The labels the other phones go by: the followed run's, else the lab's three usual ones, without this phone's own
+     * (docs/radar-run.md step 4, the touches).
+     */
+    val partnerLabels: List<String>
+        get() = (follow.value?.takeIf { !it.left }?.script?.labels ?: listOf("A", "B", "droid")).filter {
+            it !=
+                label.value
+        }
+
+    /**
+     * «We touched» with the phone called [partner] (both testers press it): the truth the touch detector is checked
+     * against. Its answer goes to [lastMark] like the other buttons'.
+     */
+    fun touched(partner: String) {
+        if (!lab.touched(partner)) return
+        mutableLastMark.value =
+            "touched $partner · ${LabSchema.formatUtc(lab.log.serverNow()).substringAfter(' ').take(8)} UTC"
+    }
+
     fun startScenario(scenario: LabScenario) = lab.scenarios.start(scenario)
 
     fun nextStep() = lab.scenarios.next()

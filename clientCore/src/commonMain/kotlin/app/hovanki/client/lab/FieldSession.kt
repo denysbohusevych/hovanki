@@ -147,6 +147,11 @@ class FieldSession(
      */
     val touchCard: StateFlow<Boolean> = mutableTouchCard.asStateFlow()
 
+    private val mutableTouchCount = MutableStateFlow(0)
+
+    /** How many times this player pressed «We touched» in this game's run: the card says so. */
+    val touchCount: StateFlow<Int> = mutableTouchCount.asStateFlow()
+
     /** The token this phone advertises for the touches: random for every game's run, nobody's radar token. */
     private var touchToken: String? = null
     private var lastSnapshot: GameSnapshot? = null
@@ -256,6 +261,7 @@ class FieldSession(
     fun touched(partner: PlayerId): Boolean {
         if (!mutableTouchCard.value) return false
         log.touchPressed(partner.value)
+        mutableTouchCount.value += 1
         uploader?.let { scope.launch { it.flush() } }
         return true
     }
@@ -382,6 +388,7 @@ class FieldSession(
         impactJob?.cancel()
         impactJob = null
         mutableTouchCard.value = false
+        mutableTouchCount.value = 0
         if (!sendRest) {
             // A last game's rest still going up stops too, its uploader's own loop with it: left running, it would
             // send the next game's log to the last game's run.

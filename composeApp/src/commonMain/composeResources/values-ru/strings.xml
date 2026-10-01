@@ -862,4 +862,12 @@
   <string name="field_carry_pocket">В кармане</string>
   <string name="field_carry_bag">В сумке</string>
   <string name="field_carry_mixed">По-разному</string>
+  <string name="field_touch_title">Чокнись с соседом</string>
+  <string name="field_touch_title_again">Ещё раз — для дрейфа</string>
+  <string name="field_touch_text">Встаньте рядом и приложите телефоны друг к другу спинками на секунду. Потом каждый выбирает другого и жмёт кнопку.</string>
+  <string name="field_touch_again_text">Радио уплывает за игру. Чокнитесь ещё раз, с тем же соседом или с другим.</string>
+  <string name="field_touch_pick">С кем вы чокнулись?</string>
+  <string name="field_touch_done">Чокнулись</string>
+  <string name="field_touch_count">Чоканий: %1$d</string>
+  <string name="field_touch_dismiss">Не сейчас</string>
 </resources>
