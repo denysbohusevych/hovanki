@@ -16,8 +16,11 @@ import app.hovanki.shared.lab.LabRadarKinds
 import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.lab.MarkFields
 import app.hovanki.shared.lab.RxFields
+import app.hovanki.shared.lab.ShadowFields
 import app.hovanki.shared.lab.SurveyFields
 import app.hovanki.shared.lab.SyncFields
+import app.hovanki.shared.lab.TouchFields
+import app.hovanki.shared.lab.TouchKinds
 import app.hovanki.shared.lab.UiFields
 import app.hovanki.shared.protocol.LabUpload
 import app.hovanki.shared.protocol.RadarBand
@@ -82,6 +85,13 @@ class LabLog(
 
     /** The [LabFields.SEQ] of the next event: starts at 1 and never goes back, not even on [clear]. */
     var nextSeq: Long = 1
+        private set
+
+    /**
+     * The [LabFields.SEQ] of the last event that is news: anything but the uploads' own `net` events. Nothing new
+     * since the last upload: the timer has nothing worth sending (`LabUploader`).
+     */
+    var lastNewsSeq: Long = 0
         private set
 
     /** The oldest event still in the ring; null: none. Older ones were dropped (or cleared) before any upload. */
@@ -190,6 +200,7 @@ class LabLog(
         val dt = deviceTimeMillis()
         val t = dt + (mutableClock.value?.offsetMillis ?: 0L)
         val seq = nextSeq++
+        if (k != NET) lastNewsSeq = seq
         val built = buildJsonObject {
             put(LabFields.T, t)
             put(LabFields.DT, dt)
@@ -252,7 +263,7 @@ class LabLog(
         millis: Long? = null,
         error: String? = null,
         pending: Long? = null,
-    ) = event("net") {
+    ) = event(NET) {
         put("action", action)
         put("ok", ok)
         put("seq_from", seqFrom)
@@ -672,6 +683,34 @@ class LabLog(
         if (ago > 0) put("ago", ago)
     }
 
+    /**
+     * «We touched» (docs/adr/0017-radar-techniques-and-big-run.md §3): the tester touched phones with [partner] (its
+     * label in the run; in a game's run the player's id) and pressed the button, the truth the detector is checked
+     * against.
+     */
+    fun touchPressed(partner: String) = event(TouchKinds.TOUCH) {
+        put(TouchFields.SRC, TouchFields.BUTTON)
+        put(TouchFields.PARTNER, partner)
+    }
+
+    /** A lone jolt of [g] beyond gravity at [atMillis] (device clock): a touch's candidate. */
+    fun touchImpact(g: Double, atMillis: Long) {
+        if (!isWriting) return
+        val ago = deviceTimeMillis() - atMillis
+        event(TouchKinds.TOUCH) {
+            put(TouchFields.SRC, TouchFields.IMPACT)
+            put(TouchFields.G, round(g, 2))
+            if (ago > 0) put(TouchFields.AGO, ago)
+        }
+    }
+
+    /** A classifier in the shadow ([tech]: `carry.v1`, `carry.v2`) says [state] now, because of [why]. */
+    fun shadowState(tech: String, state: String, why: String? = null) = event(LabRadarKinds.SHADOW) {
+        put(ShadowFields.TECH, tech)
+        put(ShadowFields.STATE, state)
+        put(ShadowFields.WHY, why)
+    }
+
     fun note(text: String) = event("note") { put("text", text) }
 
     /** An 8-character hash of the OS's id of a sender: tells senders apart within this log only. */
@@ -792,6 +831,9 @@ class LabLog(
         const val CAPACITY = 250_000
 
         const val DEFAULT_LABEL = "A"
+
+        /** The uploads' own kind: never news ([lastNewsSeq]). */
+        const val NET = "net"
 
         private const val MAX_TICK_GAPS = 1_000
 

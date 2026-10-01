@@ -7,6 +7,10 @@ import app.hovanki.client.network.GameSocketException
 import app.hovanki.client.network.Transport
 import app.hovanki.client.session.GameTrace
 import app.hovanki.client.storage.ClientStorage
+import app.hovanki.device.CarryMonitor
+import app.hovanki.device.ImpactMonitor
+import app.hovanki.device.NoopCarryMonitor
+import app.hovanki.device.NoopImpactMonitor
 import app.hovanki.device.lab.LabProbes
 import app.hovanki.device.lab.NoopLabProbes
 import app.hovanki.radar.RadioSighting
@@ -20,7 +24,9 @@ import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.LabCapabilities
 import app.hovanki.shared.protocol.LabRunId
 import app.hovanki.shared.protocol.LocationSample
+import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.rules.RadarToken
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -70,13 +76,17 @@ enum class FieldStatus {
  * `BuildInfo.channel == "preview"`, never `isDebug`) and only after the tester agreed ([giveConsent], kept in
  * [storage]): otherwise nothing of it happens, whatever the server says.
  *
- * It is the game's [GameTrace]: when the round starts ([GamePhase.HIDING] or [GamePhase.SEEKING]) it joins the game's
+ * It is the game's [GameTrace]: from the lobby on ([JOIN_PHASES], docs/field-test.md step 5) it joins the game's
  * run with the player's game token ([LabApi.fieldJoin]; the server answers 404 while it has FIELD_LOG off, and the
  * phone doesn't ask again in this game), turns the log on ([LabLog.startField]: the run's salt, the player as the
- * label, the coordinates allowed, the radio thinned) and uploads it every `uploadIntervalMillis` ([LabUploader]).
- * From then on it writes what the game tells it — GPS fixes with their coordinates (at most one per
- * `gpsEveryMillis`), the radio's readings (thinned), every sync (how long, by which transport, the refusals' codes,
- * the phase changing), errors — and a tick a second, the clock, the app's life and the battery ([probes]). The UI adds
+ * label, the coordinates allowed, the radio thinned) and uploads it every `uploadIntervalMillis` ([LabUploader]),
+ * only when something new was written (a lobby with nothing going on sends nothing). In the lobby and on the
+ * results of a game with the radar it shows the touch card ([touchCard], [touched]): the radio runs then with a
+ * token of the log's own ([touchRadioToken]) and the accelerometer's jolts are written as the touch's candidates.
+ * It writes what the game tells it — GPS fixes with their coordinates (at most one per `gpsEveryMillis`), the radio's
+ * readings (thinned), every sync (how long, by which transport, the refusals' codes, the phase changing), errors —
+ * and the clock, the app's life and the battery ([probes]); from the round on also a tick a second and the pocket's
+ * classifiers in the shadow ([CarryShadow]: `carry.v1` from [carryMonitor], `carry.v2`). The UI adds
  * the screens and taps ([ui]), the permissions ([permissions]), the exceptions it caught ([exception], with the Sentry
  * event's id), «Something is wrong» ([somethingWrong]) and the three
  * questions after the game ([survey]). When the phone leaves the game ([GameTrace.onSessionEnded], or another game) the
@@ -109,6 +119,10 @@ class FieldSession(
     private val retryMillis: Long = RETRY_MILLIS,
     private val clockJitterMillis: Long = CLOCK_JITTER_MILLIS,
     private val random: Random = Random.Default,
+    /** The game's pocket monitor, for `carry.v1` in the shadow beside `carry.v2` ([CarryShadow]) in the round. */
+    private val carryMonitor: CarryMonitor = NoopCarryMonitor(),
+    /** The accelerometer's lone jolts while the touch card is up: the touch's candidates. */
+    private val impacts: ImpactMonitor = NoopImpactMonitor(),
 ) : GameTrace {
     private val mutableState = MutableStateFlow(FieldState())
     val state: StateFlow<FieldState> = mutableState.asStateFlow()
@@ -123,6 +137,21 @@ class FieldSession(
 
     /** In a game's run: the log is written; the UI shows «Something is wrong» then. */
     val isActive: Boolean get() = mutableState.value.status == FieldStatus.ON
+
+    private val mutableTouchCard = MutableStateFlow(false)
+
+    /**
+     * The card «Touch phones with a neighbour» is shown: the field log is on in a game with the radar, in the lobby or
+     * on the results (docs/adr/0018-field-test-build.md §5). The player picks a neighbour, they touch phones, and both
+     * press «We touched» ([touched]).
+     */
+    val touchCard: StateFlow<Boolean> = mutableTouchCard.asStateFlow()
+
+    /** The token this phone advertises for the touches: random for every game's run, nobody's radar token. */
+    private var touchToken: String? = null
+    private var lastSnapshot: GameSnapshot? = null
+    private var roundStarted = false
+    private var impactJob: Job? = null
 
     private var uploader: LabUploader? = null
     private var thinning: FieldThinning? = null
@@ -172,12 +201,63 @@ class FieldSession(
             leave()
             mutableState.value = FieldState()
         }
-        if (snapshot.phase != GamePhase.HIDING && snapshot.phase != GamePhase.SEEKING) return
+        lastSnapshot = snapshot
+        joinIfDue(session, snapshot)
+        updateRound(snapshot)
+        updateTouch(snapshot)
+    }
+
+    /**
+     * Joins the game's run from the lobby on (docs/field-test.md step 5: the touches before the round are logged),
+     * once per game; a join that failed on the way is tried again after [retryMillis]. Not on the results: a game
+     * nobody logged stays so.
+     */
+    private fun joinIfDue(session: PlayerSession, snapshot: GameSnapshot) {
+        if (snapshot.phase !in JOIN_PHASES) return
         val consent = mutableConsentAt.value ?: return
         val state = mutableState.value
         if (state.gameId == snapshot.gameId && state.status != FieldStatus.OFF) return
         if (state.gameId == snapshot.gameId && log.monoNow() < retryAt) return
         join(session, consent)
+    }
+
+    /** The round started: the ticks and the pocket's classifiers in the shadow, until the phone leaves the game. */
+    private fun updateRound(snapshot: GameSnapshot) {
+        if (!isActive || roundStarted) return
+        if (snapshot.phase != GamePhase.HIDING && snapshot.phase != GamePhase.SEEKING) return
+        roundStarted = true
+        jobs += scope.launch { tickLoop() }
+        jobs += scope.launch { quietly { CarryShadow(log).run(probes, carryMonitor) } }
+    }
+
+    /**
+     * «Touch phones with a neighbour» (ADR 0018 §5): in the lobby and on the results of a game with the radar while
+     * the log is on. Then the radio runs outside the round ([touchRadioToken]) and the accelerometer's jolts are the
+     * touch's candidates.
+     */
+    private fun updateTouch(snapshot: GameSnapshot?) {
+        val show = snapshot != null && isActive && snapshot.settings.features.hasRadar &&
+            (snapshot.phase == GamePhase.LOBBY || snapshot.phase == GamePhase.FINISHED)
+        mutableTouchCard.value = show
+        if (show && impactJob == null) {
+            impactJob = scope.launch { quietly { impacts.impacts().collect { log.touchImpact(it.g, it.atMillis) } } }
+        } else if (!show) {
+            impactJob?.cancel()
+            impactJob = null
+        }
+    }
+
+    override fun touchRadioToken(snapshot: GameSnapshot): String? = touchToken.takeIf { mutableTouchCard.value }
+
+    /**
+     * «We touched» with [partner] (both players press it): the truth the touch detector is checked against, sent at
+     * once. False: no touch card now (no log, no radar, or the round is on).
+     */
+    fun touched(partner: PlayerId): Boolean {
+        if (!mutableTouchCard.value) return false
+        log.touchPressed(partner.value)
+        uploader?.let { scope.launch { it.flush() } }
+        return true
     }
 
     override fun onSessionEnded() = leave()
@@ -297,6 +377,11 @@ class FieldSession(
         val state = mutableState.value
         jobs.forEach { it.cancel() }
         jobs.clear()
+        roundStarted = false
+        touchToken = null
+        impactJob?.cancel()
+        impactJob = null
+        mutableTouchCard.value = false
         if (!sendRest) {
             // A last game's rest still going up stops too, its uploader's own loop with it: left running, it would
             // send the next game's log to the last game's run.
@@ -403,8 +488,15 @@ class FieldSession(
         )
         this.uploader = uploader
         uploader.start(response.runId, response.token)
+        touchToken = random.nextBytes(RadarToken.LENGTH / 2).joinToString("") {
+            (it.toInt() and 0xff).toString(16).padStart(2, '0')
+        }
         mutableState.value = FieldState(FieldStatus.ON, gameId, response.runId)
-        jobs += scope.launch { tickLoop() }
+        // The ticks and the shadow's classifiers from the round on; the touch card in the lobby and on the results.
+        lastSnapshot?.takeIf { it.gameId == gameId }?.let {
+            updateRound(it)
+            updateTouch(it)
+        }
         clockSync?.let { sync -> jobs += scope.launch { clockLoop(sync) } }
         jobs += scope.launch { quietly { probes.lifecycle().collect { log.life(it) } } }
         jobs += scope.launch { quietly { probes.battery().collect { log.battery(it.level, it.state, it.lowPower) } } }
@@ -462,6 +554,9 @@ class FieldSession(
         }
 
     companion object {
+        /** The phases the phone joins the game's run in: from the lobby on, so the touches before the round count. */
+        val JOIN_PHASES = setOf(GamePhase.LOBBY, GamePhase.HIDING, GamePhase.SEEKING)
+
         /** The places of [onError] whose errors go to the [ErrorReporter] too. */
         val REPORTED = setOf("radio", "location")
 

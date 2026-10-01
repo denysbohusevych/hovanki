@@ -4,6 +4,8 @@ import app.hovanki.client.diagnostics.DiagnosticsBench
 import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.device.ActivityClassifier
 import app.hovanki.device.CarryMonitor
+import app.hovanki.device.ImpactMonitor
+import app.hovanki.device.NoopImpactMonitor
 import app.hovanki.device.lab.Gravity
 import app.hovanki.device.lab.HapticKind
 import app.hovanki.device.lab.LabHaptics
@@ -84,7 +86,12 @@ class LabController(
     private val inAGame: Flow<Boolean> = flowOf(false),
     private val monotonicMillis: () -> Long = log::monoNow,
     private val random: Random = Random.Default,
+    /** The accelerometer's lone jolts: the touch's candidates (docs/adr/0017-radar-techniques-and-big-run.md §3). */
+    private val impacts: ImpactMonitor = NoopImpactMonitor(),
 ) {
+    /** The pocket's classifiers in the shadow: `carry.v1` (the game's [carryMonitor]) and `carry.v2`. */
+    private val carryShadow = CarryShadow(log)
+
     private val mutableRunning = MutableStateFlow(false)
     val running: StateFlow<Boolean> = mutableRunning.asStateFlow()
 
@@ -185,7 +192,13 @@ class LabController(
         jobs += scope.launch { sensorLoop() }
         jobs += scope.launch { probes.battery().collect { log.battery(it.level, it.state, it.lowPower) } }
         jobs += scope.launch { radio.state.collect { log.bt(it.name.lowercase()) } }
-        jobs += scope.launch { carryMonitor.carry().collect { log.carry(it.name.lowercase()) } }
+        jobs += scope.launch {
+            carryMonitor.carry().collect {
+                log.carry(it.name.lowercase())
+                carryShadow.onCarryV1(it)
+            }
+        }
+        jobs += scope.launch { impacts.impacts().collect { log.touchImpact(it.g, it.atMillis) } }
         jobs += scope.launch {
             // «engine_stopped: audio_session_interrupt (1)»: the result and the reason, so the report counts the stops.
             haptics.engineEvents().collect { (kind, event) ->
@@ -423,6 +436,17 @@ class LabController(
     fun mark(label: String, place: String? = null, action: String? = null, distance: Double? = null) =
         log.mark(label, by = "tester", place = place, action = action, distance = distance)
 
+    /**
+     * «We touched» (docs/adr/0017-radar-techniques-and-big-run.md §3): this phone touched [partner]'s (its label in
+     * the run), the truth for the touch detector. Both testers press it. False: the lab doesn't record now.
+     */
+    fun touched(partner: String): Boolean {
+        val label = partner.trim()
+        if (!mutableRunning.value || label.isEmpty()) return false
+        log.touchPressed(label)
+        return true
+    }
+
     /** Measures the clock, writes the header again and hands the log and its summary to the system «Share». */
     suspend fun export() {
         measureClock()
@@ -458,6 +482,7 @@ class LabController(
             log.tick(ticks++)
             scenarios.tick()
             motionSecond()
+            carryShadow.second(log.deviceNow(), probes.appState())
             delay(TICK_MILLIS)
         }
     }
@@ -481,6 +506,7 @@ class LabController(
 
     private suspend fun sensorLoop() {
         probes.sensors().collect { reading ->
+            carryShadow.onSensor(reading)
             when (reading) {
                 is LabSensorReading.Motion -> {
                     motionWindow.add(reading.atMillis, reading.magnitudeG)

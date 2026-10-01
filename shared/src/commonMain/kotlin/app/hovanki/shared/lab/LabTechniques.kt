@@ -72,7 +72,11 @@ class LabTechniques(
     private fun findTouches(): Touches {
         val touchEvents = events.filter { it.k == TouchKinds.TOUCH }
         val impacts = touchEvents.filter { it.string(TouchFields.SRC) == TouchFields.IMPACT }
-            .mapNotNull { event -> event.double(TouchFields.G)?.let { TouchImpact(event.dev, event.t, it) } }
+            .mapNotNull { event ->
+                // Told once the quiet after it was over: the jolt itself was `ago` ms before the event.
+                val at = event.t - (event.long(TouchFields.AGO) ?: 0L)
+                event.double(TouchFields.G)?.let { TouchImpact(event.dev, at, it) }
+            }
         val detected = TouchDetector.detect(impacts, peaks)
         val truths = buttonTouches(touchEvents)
         val index = TouchDetector.PairReadings(peaks)

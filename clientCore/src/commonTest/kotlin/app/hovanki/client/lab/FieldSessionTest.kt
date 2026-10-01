@@ -8,6 +8,8 @@ import app.hovanki.client.network.testSession
 import app.hovanki.client.network.testSnapshot
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.storage.FakeSecureStore
+import app.hovanki.device.Impact
+import app.hovanki.device.ImpactMonitor
 import app.hovanki.radar.RadioApi
 import app.hovanki.radar.RadioSighting
 import app.hovanki.radar.SightingVia
@@ -20,14 +22,21 @@ import app.hovanki.shared.lab.MarkFields
 import app.hovanki.shared.lab.RxFields
 import app.hovanki.shared.lab.SurveyFields
 import app.hovanki.shared.lab.SyncFields
+import app.hovanki.shared.lab.TouchFields
+import app.hovanki.shared.lab.TouchKinds
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ErrorCode
+import app.hovanki.shared.protocol.FeatureMode
+import app.hovanki.shared.protocol.GameFeatures
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LabCapabilities
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.Platform
+import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.rules.RadarToken
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
@@ -115,11 +124,11 @@ class FieldSessionTest {
 
         preview.field.giveConsent(CONSENT)
         assertEquals(CONSENT, storage.fieldConsentAt)
-        // The lobby is no round yet.
-        preview.round(GamePhase.LOBBY)
+        // The results of a game nobody logged stay unlogged; the lobby already joins (the touches before the round).
+        preview.round(GamePhase.FINISHED)
         runCurrent()
         assertTrue(preview.api.fieldJoins.isEmpty())
-        preview.round(GamePhase.HIDING)
+        preview.round(GamePhase.LOBBY)
         runCurrent()
         val (gameId, token, request) = preview.api.fieldJoins.single()
         assertEquals(testSession.gameId to testSession.token, gameId to token)
@@ -127,6 +136,7 @@ class FieldSessionTest {
         assertEquals("Pixel 8" to Platform.ANDROID, request.model to request.capabilities.platform)
         assertEquals(FieldStatus.ON, preview.field.state.value.status)
         // Every snapshot after that changes nothing.
+        preview.round(GamePhase.HIDING)
         preview.round()
         runCurrent()
         assertEquals(1, preview.api.fieldJoins.size)
@@ -413,6 +423,97 @@ class FieldSessionTest {
         runCurrent()
         assertEquals(2, api.fieldJoins.size)
         assertTrue(phone.field.isActive)
+    }
+
+    @Test
+    fun theLobbyOfAGameWithTheRadarShowsTheTouchCard() = runTest {
+        val impacts = MutableSharedFlow<Impact>(extraBufferCapacity = 8)
+        val monitor = object : ImpactMonitor {
+            override fun impacts() = impacts
+        }
+        val log = LabLog(isEnabled = false, { DEVICE + currentTime }, { currentTime })
+        val api = FakeLabApi()
+        val field = FieldSession(
+            log = log,
+            api = api,
+            storage = storage,
+            scope = backgroundScope,
+            isFieldBuild = true,
+            impacts = monitor,
+        )
+        fun snapshot(phase: GamePhase, radar: Boolean = true) = testSnapshot(phase = phase, serverTimeMillis = SERVER)
+            .let {
+                it.copy(
+                    settings = it.settings.copy(
+                        features = GameFeatures(radar = if (radar) FeatureMode.OPTIONAL else FeatureMode.OFF),
+                    ),
+                )
+            }
+        val events = { log.lines().map { Json.parseToJsonElement(it).jsonObject } }
+
+        // Before the join: no card, no radio outside the round.
+        field.giveConsent(CONSENT)
+        assertNull(field.touchRadioToken(snapshot(GamePhase.LOBBY)))
+        field.onSnapshot(testSession, snapshot(GamePhase.LOBBY))
+        runCurrent()
+        assertTrue(field.isActive)
+        assertTrue(field.touchCard.value)
+        val token = assertNotNull(field.touchRadioToken(snapshot(GamePhase.LOBBY)))
+        assertTrue(RadarToken.isWellFormed(token), token)
+        // No ticks in the lobby, and nothing new to send after the join's first upload.
+        advanceTimeBy(35_000)
+        runCurrent()
+        assertTrue(events().none { it.kind == FieldKinds.TICK })
+        val quiet = api.uploads.size
+        advanceTimeBy(60_000)
+        runCurrent()
+        assertEquals(quiet, api.uploads.size, "a quiet lobby sends nothing")
+
+        // The neighbours touch: a jolt, both press «We touched»; it goes up at once.
+        impacts.emit(Impact(DEVICE + currentTime - 400, 1.75))
+        runCurrent()
+        assertTrue(field.touched(PlayerId("player-2")))
+        runCurrent()
+        val touches = api.uploads.drop(quiet).flatMap { it.lines }.map { Json.parseToJsonElement(it).jsonObject }
+            .filter { it.kind == TouchKinds.TOUCH }
+        assertEquals(listOf(TouchFields.IMPACT, TouchFields.BUTTON), touches.map { it.string(TouchFields.SRC) })
+        assertEquals(1.75, touches.first().double(TouchFields.G))
+        assertEquals(400L, touches.first().long(TouchFields.AGO))
+        assertEquals("player-2", touches.last().string(TouchFields.PARTNER))
+
+        // The round: no card, no touch radio, the ticks and the shadow's pocket start.
+        field.onSnapshot(testSession, snapshot(GamePhase.HIDING))
+        assertFalse(field.touchCard.value)
+        assertNull(field.touchRadioToken(snapshot(GamePhase.HIDING)))
+        assertFalse(field.touched(PlayerId("player-2")))
+        impacts.emit(Impact(DEVICE + currentTime, 2.0))
+        advanceTimeBy(2_500)
+        runCurrent()
+        assertEquals(1, events().count { it.kind == TouchKinds.TOUCH && it.string(TouchFields.SRC) == "impact" })
+        assertTrue(events().any { it.kind == FieldKinds.TICK })
+
+        // On the results, again; a game without the radar has none.
+        field.onSnapshot(testSession, snapshot(GamePhase.FINISHED))
+        assertTrue(field.touchCard.value)
+        assertEquals(token, field.touchRadioToken(snapshot(GamePhase.FINISHED)))
+        field.onSnapshot(testSession, snapshot(GamePhase.FINISHED, radar = false))
+        assertFalse(field.touchCard.value)
+        field.onSessionEnded()
+        assertFalse(field.touchCard.value)
+    }
+
+    @Test
+    fun theReleaseBuildHasNoTouchCard() = runTest {
+        val release = phone(isFieldBuild = false)
+        release.field.giveConsent(CONSENT)
+        val lobby = testSnapshot(phase = GamePhase.LOBBY, serverTimeMillis = SERVER)
+            .let { it.copy(settings = it.settings.copy(features = GameFeatures(radar = FeatureMode.OPTIONAL))) }
+        release.field.onSnapshot(testSession, lobby)
+        runCurrent()
+        assertFalse(release.field.touchCard.value)
+        assertNull(release.field.touchRadioToken(lobby))
+        assertFalse(release.field.touched(PlayerId("player-2")))
+        assertTrue(release.log.lines().isEmpty())
     }
 
     @Test

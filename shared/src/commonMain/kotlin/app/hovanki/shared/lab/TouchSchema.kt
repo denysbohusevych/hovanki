@@ -29,6 +29,9 @@ object TouchFields {
 
     /** The jolt's peak beyond gravity, in g, with [IMPACT]. */
     const val G = "g"
+
+    /** With [IMPACT]: the jolt was this many ms before the event (it is told once the quiet after it is over). */
+    const val AGO = "ago"
 }
 
 /** `shadow` of a classifier: its [TECH], the [STATE] it says now and in a word [WHY]. */
