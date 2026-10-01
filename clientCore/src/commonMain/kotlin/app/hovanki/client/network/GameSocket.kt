@@ -13,6 +13,8 @@ import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -76,8 +78,12 @@ private class KtorGameSocket(private val session: DefaultClientWebSocketSession)
         session.send(Frame.Text(text))
     }
 
-    override suspend fun closeCode(): Int? =
+    override suspend fun closeCode(): Int? = try {
         withTimeoutOrNull(CLOSE_REASON_WAIT_MILLIS) { session.closeReason.await() }?.code?.toInt()
+    } catch (e: CancellationException) {
+        // A session cancelled by its own failure is no cancellation of ours: no code, the caller opens a new socket.
+        if (currentCoroutineContext().isActive) null else throw e
+    }
 
     override suspend fun close() {
         try {

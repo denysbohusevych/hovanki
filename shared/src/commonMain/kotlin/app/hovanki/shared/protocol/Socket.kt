@@ -58,6 +58,9 @@ object SocketLimits {
     /** A frame the server takes, at most: a sync of 100 samples and 200 sightings is far below. */
     const val MAX_FRAME_BYTES = 256 * 1024
 
+    /** A socket that is not open within this long (the upgrade hangs, e.g. in a server's shutdown) is given up on. */
+    const val OPEN_TIMEOUT_MILLIS = 10_000L
+
     /** An answer that takes longer means a dead connection: the app opens a new one. */
     const val REPLY_TIMEOUT_MILLIS = 10_000L
 
