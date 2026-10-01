@@ -33,6 +33,8 @@ private fun configureSentry(options: SentryAndroidOptions, dsn: String, release:
     options.environment = "staging"
     options.release = release
     options.isDebug = false
+    // From the manifest (-Phovanki.sentryProguardUuid); blank when the build was made without one.
+    if (options.proguardUuid.isNullOrBlank()) options.proguardUuid = null
     // No user, no IP address, no request data: nothing the SDK adds on its own about a person. The event goes through
     // SentryEventScrubber as well, which is the real filter.
     @Suppress("DEPRECATION")

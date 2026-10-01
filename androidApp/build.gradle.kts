@@ -56,6 +56,10 @@ android {
             applicationIdSuffix = ".preview"
             versionNameSuffix = "-preview"
             matchingFallbacks += "release"
+            // Sentry reads R8's mapping of this build by this UUID (docs/adr/0018-field-test-build.md §7): CI makes one per
+            // build, passes it here and uploads mapping.txt with it (`sentry-cli upload-proguard --uuid`). Empty: none.
+            manifestPlaceholders["sentryProguardUuid"] =
+                providers.gradleProperty("hovanki.sentryProguardUuid").getOrElse("")
         }
     }
 
