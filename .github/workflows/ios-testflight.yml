@@ -99,8 +99,29 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: |
           fail=0
+          case "$CHANNEL" in
+            preview | release) ;;
+            *)
+              echo "::error::The input channel must be preview or release, got '$CHANNEL'"
+              fail=1
+              ;;
+          esac
           production="$(sed -n 's/^hovanki\.serverUrl=//p' gradle.properties | tr -d '[:space:]')"
+          production="${production%/}"
           [ -n "$production" ] || { echo "::error::hovanki.serverUrl is missing in gradle.properties"; fail=1; }
+          # The addresses as the app has them: the build trims spaces and a trailing slash, and a pasted variable with
+          # a newline in it would break the lines written to GITHUB_ENV and to gradle.properties below.
+          SERVER_URL="$(printf '%s' "$SERVER_URL" | tr -d '[:space:]')"
+          SERVER_URL="${SERVER_URL%/}"
+          FORBIDDEN_URL="$(printf '%s' "$FORBIDDEN_URL" | tr -d '[:space:]')"
+          FORBIDDEN_URL="${FORBIDDEN_URL%/}"
+          case "$SERVER_URL" in
+            "" | https://?*) ;;
+            *)
+              echo "::error::The server address must be https://…, got '$SERVER_URL' (the app talks HTTPS only; check STAGING_SERVER_URL)"
+              fail=1
+              ;;
+          esac
           props="${GRADLE_USER_HOME:-$HOME/.gradle}/gradle.properties"
           mkdir -p "$(dirname "$props")"
           {
@@ -318,15 +339,18 @@ jobs:
 
 
           def has(url):
-              url = url.strip().rstrip("/")
               return bool(url) and (url.encode() in data or url.encode("utf-16-le") in data)
 
 
+          expected = expected.strip().rstrip("/")
+          forbidden = forbidden.strip().rstrip("/")
+          # The forbidden address is an error even when the right one is in the app too; unless it is a part of the
+          # right one.
+          if forbidden and forbidden not in expected and has(forbidden):
+              print("::error::The app contains " + forbidden + ", an address it must not talk to (it should talk to " + expected + "): check the gradle.properties written by the step «Build settings of the app»")
+              sys.exit(1)
           if has(expected):
               print("The app talks to " + expected)
-          elif forbidden and has(forbidden):
-              print("::error::The app talks to " + forbidden + ", not to " + expected + ": check the gradle.properties written by the step «Build settings of the app»")
-              sys.exit(1)
           else:
               print("::warning::Neither " + expected + " nor " + (forbidden or "another address") + " is found in the app, check the build log of the Kotlin framework")
           PY

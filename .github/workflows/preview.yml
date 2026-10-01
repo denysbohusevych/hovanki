@@ -19,9 +19,9 @@ concurrency:
 
 permissions: {}
 
+# Only main publishes (the pre-release, Google Play, TestFlight); a manual run on another branch just builds.
 env:
   BUILD_NUMBER: ${{ github.run_number }}
-  # Only main publishes (the pre-release, Google Play, TestFlight); a manual run on another branch just builds.
 
 jobs:
   android:
@@ -85,12 +85,22 @@ jobs:
           STAGING_SERVER_URL: ${{ vars.STAGING_SERVER_URL }}
         run: |
           production="$(sed -n 's/^hovanki\.serverUrl=//p' gradle.properties | tr -d '[:space:]')"
-          # The build trims spaces and a trailing slash of the address; so does the check of the APK below.
+          production="${production%/}"
+          # The build trims spaces and a trailing slash of the address; so does the check of the APK below. A pasted
+          # variable with a newline in it would also break the lines written to GITHUB_ENV.
           staging="$(printf '%s' "$STAGING_SERVER_URL" | tr -d '[:space:]')"
           staging="${staging%/}"
           if [ -n "$staging" ]; then
+            case "$staging" in
+              https://?*) ;;
+              *)
+                echo "::error title=STAGING_SERVER_URL is not an https address::The repository variable must be like https://hovanki-staging.duckdns.org (the app talks HTTPS only), got '$staging'. See docs/ci-cd.md, «Переменные и секреты»."
+                exit 1
+                ;;
+            esac
             {
               echo "SERVER_URL=$staging"
+              echo "STAGING_URL=$staging"
               echo "FORBIDDEN_SERVER_URL=$production"
             } >> "$GITHUB_ENV"
             {
@@ -115,12 +125,12 @@ jobs:
       # tells the app it is the tester build; an empty Sentry DSN (no secret yet) means no Sentry.
       - name: Build preview APK and AAB
         env:
-          STAGING_SERVER_URL: ${{ vars.STAGING_SERVER_URL }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: |
           props=("-Phovanki.versionCode=$BUILD_NUMBER" "-Phovanki.channel=preview" "-Phovanki.sentryDsn=$SENTRY_DSN")
-          # Only a variable that is set: otherwise the address of gradle.properties stays.
-          if [ -n "$STAGING_SERVER_URL" ]; then props+=("-Phovanki.serverUrl=$STAGING_SERVER_URL"); fi
+          # STAGING_URL is set by the step «Server address» (checked and trimmed) only when the variable is set:
+          # otherwise the address of gradle.properties stays.
+          if [ -n "${STAGING_URL:-}" ]; then props+=("-Phovanki.serverUrl=$STAGING_URL"); fi
           ./gradlew :androidApp:assemblePreview :androidApp:bundlePreview "${props[@]}"
 
       - name: Collect the APK and the AAB
