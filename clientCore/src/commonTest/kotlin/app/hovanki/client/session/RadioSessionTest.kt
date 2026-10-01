@@ -8,11 +8,13 @@ import app.hovanki.client.network.LocationOutbox
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.SyncExtras
+import app.hovanki.client.network.testPlayer
 import app.hovanki.client.network.testSession
 import app.hovanki.client.network.testSnapshot
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.storage.FakeSecureStore
 import app.hovanki.client.storage.SavedSession
+import app.hovanki.radar.RadioOptions
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.ErrorCode
@@ -26,6 +28,7 @@ import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.PlayerStatus
+import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.RadarContact
 import app.hovanki.shared.protocol.RadarState
@@ -189,6 +192,24 @@ class RadioSessionTest {
             "sent once, in server time",
         )
         assertEquals("iPhone15,2", withSightings.device?.model, "the model, since the game has the radar")
+    }
+
+    @Test
+    fun theRadioKnowsThePlayersNumberInTheGame() = runTest {
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        val others = listOf("bob", "carol").map { PlayerView(PlayerId(it), it, Role.HIDER, PlayerStatus.ACTIVE) }
+        val api = FakeGameApi {
+            val serverTime = serverNow + syncs++ * 1_000L
+            deviceNow = serverTime - 10_000L
+            round(GamePhase.SEEKING, serverTimeMillis = serverTime).copy(players = others + testPlayer)
+        }
+        val manager = manager(api)
+
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        runCurrent()
+        // The third to join: an Android hider's layout goes round the circle by it (docs/adr/0018-field-test-build.md).
+        assertEquals(RadioOptions(playerNumber = 2), radio.options)
     }
 
     @Test
