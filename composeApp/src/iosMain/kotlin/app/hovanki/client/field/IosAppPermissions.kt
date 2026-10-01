@@ -18,16 +18,18 @@ import platform.Foundation.lowPowerModeEnabled
 import platform.UserNotifications.UNAuthorizationStatusAuthorized
 import platform.UserNotifications.UNAuthorizationStatusProvisional
 import platform.UserNotifications.UNUserNotificationCenter
+import kotlin.concurrent.Volatile
 
 /**
  * The permissions the field log writes on iOS: location (precise, always), notifications, camera, low power mode. The
  * notification settings come asynchronously: the answer of the last asking is the one given now.
  */
 class IosAppPermissions : AppPermissions {
+    @Volatile
     private var notifications: String? = null
+    private val manager = CLLocationManager()
 
     override fun states(): Map<String, String> = buildMap {
-        val manager = CLLocationManager()
         put(
             PermFields.LOCATION,
             when (manager.authorizationStatus) {
