@@ -7,6 +7,8 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
+import android.bluetooth.le.AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY
+import android.bluetooth.le.AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM
 import android.bluetooth.le.BluetoothLeAdvertiser
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
@@ -25,30 +27,36 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
 import app.hovanki.shared.protocol.BluetoothState
-import app.hovanki.shared.rules.RadarToken
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
-import java.nio.ByteBuffer
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
- * The radar over Bluetooth LE on Android (docs/adr/0012-nearby-radar.md, section 2.2). A hider's phone advertises
- * the radar token as the service data of the game's service UUID; a seeker's advertises an iBeacon frame (Apple's
- * manufacturer data) with the token as major and minor, which an iPhone in a pocket hears through CoreLocation
- * («Пульс»). Every phone scans for both, and for an iPhone hider on the screen, whose token is in its name.
+ * The radar over Bluetooth LE on Android (docs/adr/0012-nearby-radar.md, section 2.2), the Android host of the radar's
+ * channels (docs/adr/0017-radar-techniques-and-big-run.md, section 2.2): one legacy advertisement joined from the
+ * channels' parts ([RadarCatalog.advert], at most 31 bytes and a scan response), one scan with a filter per channel's
+ * interest, and every result read by every channel ([AirDecoder]).
  *
- * An iPhone in the background advertises the service UUID in an overflow area instead of its data, so this phone
- * would have to connect to it and read the token from a characteristic; that part is left for the spike on real
- * phones (the ADR's open question) and is not done yet: such iPhones are heard, not identified. It matters little:
- * the iPhone in the pocket hears this phone's frame and reports it itself.
+ * A hider's phone advertises its token in one of the service data channel's layouts: `.scan_response` (the game's
+ * UUID in the packet, the token in the scan response); with a journal (the field build, the lab) the three take turns
+ * by the player's number ([RadarCatalog.hiderLayout]). The first apps put the UUID and the token in one packet: 40
+ * bytes, which Android refused (`ADVERTISE_FAILED_DATA_TOO_LARGE`), so nobody ever heard an Android hider. A seeker's
+ * phone advertises an iBeacon frame (Apple's manufacturer data) with the token as major and minor, which an iPhone in
+ * a pocket hears through CoreLocation («Пульс»). The scan hears all three layouts, an iPhone hider's name and the
+ * seekers' iBeacons; with a journal also a locked iPhone's overflow mask (`ble.overflow`, in the shadow: its token
+ * goes into the journal only, never to the game).
  *
  * Runs while [run] is collected: every reading of a phone with a well-formed token goes out with the signal strength.
- * [state] follows the adapter and the permissions.
+ * [state] follows the adapter and the permissions. The journal is looked at once a second: when it starts or stops,
+ * the scan and the advertisement start anew with or without the shadow.
  */
 class AndroidProximityRadio(private val context: Context, private val trace: RadioTrace = RadioTrace.None) :
     ProximityRadio {
@@ -84,15 +92,18 @@ class AndroidProximityRadio(private val context: Context, private val trace: Rad
             val adapter = checkNotNull(adapter)
             val scanner: BluetoothLeScanner? = adapter.bluetoothLeScanner
             val advertiser: BluetoothLeAdvertiser? = adapter.bluetoothLeAdvertiser
+            val role = if (asSeeker) AirRole.SEEKER else AirRole.HIDER
+            val mode = if (asSeeker) "ibeacon" else "hider_service_data"
+            val decoder = AirDecoder(trace)
+            var shadow = trace.isListening
+
             val scanCallback = object : ScanCallback() {
                 override fun onScanResult(callbackType: Int, result: ScanResult) {
-                    val (token, via) = result.scanRecord?.let(::tokenOf) ?: return
-                    if (!RadarToken.isWellFormed(token)) return
+                    val record = result.scanRecord ?: return
                     // The reading's time in device-clock terms, from the monotonic stamp.
                     val ageMillis = (SystemClock.elapsedRealtimeNanos() - result.timestampNanos) / 1_000_000
                     val atMillis = System.currentTimeMillis() - ageMillis.coerceAtLeast(0)
-                    val peer = result.device?.address
-                    trySend(RadioSighting(token, result.rssi, atMillis, RadioApi.ANDROID_LE, via, peer))
+                    for (sighting in decoder.decode(frameOf(record, result, atMillis))) trySend(sighting)
                 }
 
                 override fun onScanFailed(errorCode: Int) {
@@ -100,24 +111,32 @@ class AndroidProximityRadio(private val context: Context, private val trace: Rad
                     trace.scan("failed", RadioApi.ANDROID_LE, error = "code $errorCode")
                 }
             }
-            val mode = if (asSeeker) "ibeacon" else "hider_service_data"
+            val scanSettings = ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setReportDelay(0)
+                .build()
+            var scanning = false
+            fun startScan() {
+                val interests = RadarCatalog.interests(AirPlatform.ANDROID, shadow)
+                val filters = interests.mapNotNull(::filterOf)
+                scanner?.startScan(filters, scanSettings, scanCallback)
+                scanning = scanner != null
+                trace.scan("start", RadioApi.ANDROID_LE, describe(interests))
+            }
+
+            fun stopScan() {
+                if (!scanning) return
+                scanner?.stopScan(scanCallback)
+                scanning = false
+                trace.scan("stop", RadioApi.ANDROID_LE)
+            }
+
             val advertiseCallback = object : AdvertiseCallback() {
                 override fun onStartFailure(errorCode: Int) {
                     Log.w(TAG, "Advertising failed: $errorCode")
                     trace.advertise("failed", mode, tokens.value, "code $errorCode")
                 }
             }
-            val filters = listOf(
-                ScanFilter.Builder().setServiceUuid(SERVICE_PARCEL).build(),
-                ScanFilter.Builder().setManufacturerData(APPLE_COMPANY_ID, BEACON_PREFIX, BEACON_PREFIX_MASK).build(),
-            )
-            val settings = ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-                .setReportDelay(0)
-                .build()
-            scanner?.startScan(filters, settings, scanCallback)
-            trace.scan("start", RadioApi.ANDROID_LE, "game service, iBeacon of the game")
-
             var advertising = false
             fun advertise(token: String?) {
                 if (advertising) {
@@ -126,58 +145,90 @@ class AndroidProximityRadio(private val context: Context, private val trace: Rad
                     trace.advertise("stop", mode, null)
                 }
                 if (token == null || advertiser == null) return
-                val data = if (asSeeker) {
-                    AdvertiseData.Builder()
-                        .addManufacturerData(APPLE_COMPANY_ID, beaconFrame(token))
-                        .setIncludeDeviceName(false)
-                        .setIncludeTxPowerLevel(false)
-                        .build()
-                } else {
-                    AdvertiseData.Builder()
-                        .addServiceUuid(SERVICE_PARCEL)
-                        .addServiceData(SERVICE_PARCEL, token.hexToBytes())
-                        .setIncludeDeviceName(false)
-                        .build()
+                val advert = RadarCatalog.advert(token, role, AirPlatform.ANDROID, options, shadow)
+                if (advert.isEmpty) {
+                    trace.advertise("failed", mode, token, "nothing fits", advert.report())
+                    return
                 }
-                val advertiseSettings = AdvertiseSettings.Builder()
-                    .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-                    .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
+                val settings = AdvertiseSettings.Builder()
+                    .setAdvertiseMode(ADVERTISE_MODE_LOW_LATENCY)
+                    .setTxPowerLevel(ADVERTISE_TX_POWER_MEDIUM)
                     .setConnectable(false)
                     .build()
-                advertiser.startAdvertising(advertiseSettings, data, advertiseCallback)
+                val main = advertiseData(advert.main)
+                if (advert.scanResponse.isEmpty) {
+                    advertiser.startAdvertising(settings, main, advertiseCallback)
+                } else {
+                    advertiser.startAdvertising(settings, main, advertiseData(advert.scanResponse), advertiseCallback)
+                }
                 advertising = true
-                trace.advertise("start", mode, token)
+                trace.advertise("start", mode, token, report = advert.report())
             }
+
+            startScan()
             // The token changes every few minutes: advertise the current one.
             val tokenJob = tokens.onEach { advertise(it) }.launchIn(this)
+            // The air's counts once a second, and the journal followed: the shadow comes and goes with it.
+            val shadowJob = launch {
+                while (isActive) {
+                    delay(SHADOW_CHECK_MILLIS)
+                    decoder.flush(System.currentTimeMillis())
+                    val listening = trace.isListening
+                    if (listening != shadow) {
+                        shadow = listening
+                        stopScan()
+                        startScan()
+                        advertise(tokens.value)
+                    }
+                }
+            }
             awaitClose {
                 tokenJob.cancel()
+                shadowJob.cancel()
                 if (advertising) {
                     advertiser?.stopAdvertising(advertiseCallback)
                     trace.advertise("stop", mode, null)
                 }
-                scanner?.stopScan(scanCallback)
-                trace.scan("stop", RadioApi.ANDROID_LE)
+                stopScan()
+                decoder.flush(System.currentTimeMillis(), force = true)
             }
         }
 
-    /** The token in a scan record: a hider's service data, a seeker's iBeacon frame, or an iPhone hider's name. */
-    private fun tokenOf(record: ScanRecord): Pair<String, SightingVia>? {
-        record.getServiceData(SERVICE_PARCEL)?.let { return it.toHex() to SightingVia.SERVICE_DATA }
-        record.getManufacturerSpecificData(APPLE_COMPANY_ID)?.let { frame ->
-            if (frame.size >= BEACON_FRAME_LENGTH - 1 &&
-                frame.copyOf(BEACON_PREFIX.size).contentEquals(BEACON_PREFIX)
-            ) {
-                val buffer = ByteBuffer.wrap(frame, BEACON_PREFIX.size, 4)
-                val major = buffer.short.toInt() and 0xFFFF
-                val minor = buffer.short.toInt() and 0xFFFF
-                return RadarToken.fromMajorMinor(major, minor) to SightingVia.IBEACON
-            }
-        }
-        // An iPhone hider: the token as its name, bare (iOS keeps 8 characters next to the service) or after the first
-        // apps' prefix. Only the game's service and iBeacon frames pass the scan filters.
-        val name = record.deviceName ?: return null
-        return name.removePrefix(NAME_PREFIX) to SightingVia.NAME
+    /** What the scan record shows, for the channels: the packet and the scan response in one, as Android gives them. */
+    private fun frameOf(record: ScanRecord, result: ScanResult, atMillis: Long): HeardFrame {
+        val manufacturer = record.manufacturerSpecificData
+        return HeardFrame(
+            rssi = result.rssi,
+            atMillis = atMillis,
+            api = RadioApi.ANDROID_LE,
+            peer = result.device?.address,
+            localName = record.deviceName,
+            serviceUuids = record.serviceUuids.orEmpty().map { BleUuid.canonical(it.uuid.toString()) },
+            serviceData = record.serviceData.orEmpty().entries.associate { (uuid, data) ->
+                BleUuid.canonical(uuid.uuid.toString()) to AirHex.of(data)
+            },
+            manufacturerData = buildMap {
+                if (manufacturer != null) {
+                    for (i in 0 until manufacturer.size()) {
+                        put(
+                            manufacturer.keyAt(i),
+                            AirHex.of(manufacturer.valueAt(i)),
+                        )
+                    }
+                }
+            },
+            txPower = record.txPowerLevel.takeIf { it != Int.MIN_VALUE },
+            connectable = result.isConnectable,
+            // The record's bytes only for the journal: the packet and the scan response, the zeros after them cut.
+            rawHex = if (trace.isListening) record.bytes?.let(::withoutPadding)?.let(AirHex::of) else null,
+        )
+    }
+
+    /** The record's bytes without the zeros Android pads its buffer with after the last field. */
+    private fun withoutPadding(bytes: ByteArray): ByteArray {
+        var end = bytes.size
+        while (end > 0 && bytes[end - 1] == 0.toByte()) end--
+        return bytes.copyOf(end)
     }
 
     private fun currentState(): BluetoothState {
@@ -200,44 +251,62 @@ class AndroidProximityRadio(private val context: Context, private val trace: Rad
         }
     }
 
-    private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
-
-    private fun String.hexToBytes(): ByteArray = ByteArray(length / 2) { i ->
-        substring(2 * i, 2 * i + 2).toInt(16).toByte()
-    }
-
     companion object {
         private const val TAG = "ProximityRadio"
 
+        /** The journal is looked at this often; the air's counts go out as often. */
+        private const val SHADOW_CHECK_MILLIS = 1_000L
+
         /** The game's own 128-bit UUID: the service of a hider's frame and the proximity UUID of a seeker's iBeacon. */
-        val SERVICE_UUID: UUID = UUID.fromString("7a0b8d2e-4c1f-4e6a-9b3d-2f5e8c1a7d10")
-        private val SERVICE_PARCEL = ParcelUuid(SERVICE_UUID)
+        val SERVICE_UUID: UUID = UUID.fromString(GameAir.SERVICE_UUID)
 
-        /** An iPhone hider on the screen carries its token in its name (iOS advertises no data). */
-        const val NAME_PREFIX = "hv"
+        /** The scan filter of a channel's interest; null: not one Android filters by (iOS's own). */
+        internal fun filterOf(interest: ScanInterest): ScanFilter? = when (interest) {
+            is ScanInterest.ServiceUuid -> ScanFilter.Builder().setServiceUuid(
+                ParcelUuid.fromString(interest.uuid),
+            ).build()
 
-        /** Apple's company id in manufacturer data, where an iBeacon frame lives. */
-        private const val APPLE_COMPANY_ID = 0x004C
+            // Any data of the service: an empty prefix matches whenever the service's data is there.
+            is ScanInterest.ServiceData ->
+                ScanFilter.Builder().setServiceData(ParcelUuid.fromString(interest.uuid), ByteArray(0)).build()
 
-        /** An iBeacon frame after the company id: type 2, length 21, the UUID, major, minor, the measured power. */
-        private const val BEACON_FRAME_LENGTH = 23
-        private val BEACON_PREFIX: ByteArray = ByteBuffer.allocate(2 + 16)
-            .put(0x02).put(0x15)
-            .putLong(SERVICE_UUID.mostSignificantBits).putLong(SERVICE_UUID.leastSignificantBits)
-            .array()
-        private val BEACON_PREFIX_MASK = ByteArray(BEACON_PREFIX.size) { 0xFF.toByte() }
+            is ScanInterest.Manufacturer -> {
+                val prefix = AirHex.bytes(interest.prefixHex)
+                ScanFilter.Builder()
+                    .setManufacturerData(interest.companyId, prefix, ByteArray(prefix.size) { 0xFF.toByte() })
+                    .build()
+            }
 
-        /** The signal at one metre, as iBeacons say it: -59 dBm, a typical phone. */
-        private const val MEASURED_POWER: Byte = 0xC5.toByte()
+            is ScanInterest.OverflowUuids, is ScanInterest.IBeaconRanging, is ScanInterest.IBeaconRegion -> null
+        }
 
-        internal fun beaconFrame(token: String): ByteArray {
-            val (major, minor) = RadarToken.toMajorMinor(token)
-            return ByteBuffer.allocate(BEACON_FRAME_LENGTH)
-                .put(BEACON_PREFIX)
-                .putShort(major.toShort())
-                .putShort(minor.toShort())
-                .put(MEASURED_POWER)
-                .array()
+        /** The advertisement's data as Android takes it. No name: Android can't advertise a token as its name. */
+        internal fun advertiseData(data: AdData): AdvertiseData = AdvertiseData.Builder().apply {
+            for (uuid in data.serviceUuids) addServiceUuid(ParcelUuid.fromString(uuid))
+            for ((uuid, hex) in data.serviceData) addServiceData(ParcelUuid.fromString(uuid), AirHex.bytes(hex))
+            for ((company, hex) in data.manufacturerData) addManufacturerData(company, AirHex.bytes(hex))
+            setIncludeDeviceName(false)
+            setIncludeTxPowerLevel(data.includeTxPower)
+        }.build()
+
+        /** The scan's filters in words, for the journal's `scan`. */
+        private fun describe(interests: List<ScanInterest>): String = interests.joinToString(", ") { interest ->
+            when (interest) {
+                is ScanInterest.ServiceUuid -> "service ${interest.uuid.take(8)}"
+
+                is ScanInterest.ServiceData -> "service data ${interest.uuid.take(8)}"
+
+                is ScanInterest.Manufacturer -> "manufacturer %04x %s".format(
+                    interest.companyId,
+                    interest.prefixHex.take(8),
+                )
+
+                is ScanInterest.OverflowUuids -> "overflow"
+
+                is ScanInterest.IBeaconRanging -> "ranging"
+
+                is ScanInterest.IBeaconRegion -> "region"
+            }
         }
     }
 }
