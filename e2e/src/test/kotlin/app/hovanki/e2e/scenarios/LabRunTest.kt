@@ -103,6 +103,17 @@ class LabRunTest {
                 check(entries.keys.any { it.startsWith("hovanki-lab-$label-") }, "the raw logs have $label's")
             }
             check(entries.values.all { it.isNotEmpty() }, "no empty log")
+            // The radio's own journal (docs/adr/0017-radar-techniques-and-big-run.md §4): the advertisement with its
+            // channels and bytes (the Android hider's fits: `.scan_response`), and frames of ours whole.
+            val droidLog = entries.entries.single { it.key.startsWith("hovanki-lab-droid-") }.value.decodeToString()
+            check(
+                droidLog.lines().any {
+                    "\"k\":\"adv\"" in it && "\"layout\":\"scan_response\"" in it &&
+                        "\"bytes\":18" in it
+                },
+                "the Android hider's advertisement says its layout and bytes",
+            )
+            check(entries.values.all { "\"k\":\"frame\"" in it.decodeToString() }, "every phone wrote frames of ours")
 
             phones.forEach { it.leave() }
             console.deleteLabRun(run.id, reason = "the test is over")

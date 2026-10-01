@@ -1,5 +1,7 @@
 package app.hovanki.client.lab
 
+import app.hovanki.client.errors.ErrorReporter
+import app.hovanki.client.errors.NoopErrorReporter
 import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.GameSocketException
 import app.hovanki.client.network.Transport
@@ -94,6 +96,11 @@ class FieldSession(
     private val clockSync: LabClockSync? = null,
     /** The app's permissions now, by name (`app.hovanki.shared.lab.PermFields`): written at the join. */
     private val permissions: () -> Map<String, String> = { emptyMap() },
+    /**
+     * Where the phone's own failures go beyond the log (Sentry in the field build, [NoopErrorReporter] elsewhere):
+     * the radio's and the location's ([onError]); its event id goes into the log's `err`.
+     */
+    private val errorReporter: ErrorReporter = NoopErrorReporter,
     private val retryMillis: Long = RETRY_MILLIS,
 ) : GameTrace {
     private val mutableState = MutableStateFlow(FieldState())
@@ -174,7 +181,15 @@ class FieldSession(
 
     override fun onSighting(sighting: RadioSighting) {
         if (!isActive) return
-        log.rx(sighting.token, sighting.rssi, sighting.api, sighting.via, sighting.peer, sighting.atMillis)
+        log.rx(
+            sighting.token,
+            sighting.rssi,
+            sighting.api,
+            sighting.via,
+            sighting.peer,
+            sighting.atMillis,
+            sighting.tech,
+        )
     }
 
     override fun onSyncSent() {
@@ -212,7 +227,15 @@ class FieldSession(
         )
     }
 
-    override fun onError(where: String, error: Throwable) = exception(where, error)
+    /**
+     * The game's caught errors. The phone's own failures (the radio's, the location's: their texts come from the OS)
+     * also go to [errorReporter], and the log's `err` carries the event's id. A failed command is the network's or the
+     * server's answer, whose text may quote the server's JSON (nicknames): only the log has it.
+     */
+    override fun onError(where: String, error: Throwable) {
+        val sentryId = if (where in REPORTED) errorReporter.capture(error) else null
+        exception(where, error, sentryId)
+    }
 
     // The UI
 
@@ -394,6 +417,9 @@ class FieldSession(
         }
 
     companion object {
+        /** The places of [onError] whose errors go to the [ErrorReporter] too. */
+        val REPORTED = setOf("radio", "location")
+
         /** The `session` event's mode in a game's run. */
         const val MODE = "field"
         const val TICK_MILLIS = 1_000L

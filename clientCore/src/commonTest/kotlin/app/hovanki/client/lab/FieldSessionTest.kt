@@ -1,5 +1,7 @@
 package app.hovanki.client.lab
 
+import app.hovanki.client.errors.ErrorReporter
+import app.hovanki.client.errors.NoopErrorReporter
 import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.Transport
 import app.hovanki.client.network.testSession
@@ -9,6 +11,7 @@ import app.hovanki.client.storage.FakeSecureStore
 import app.hovanki.radar.RadioApi
 import app.hovanki.radar.RadioSighting
 import app.hovanki.radar.SightingVia
+import app.hovanki.shared.lab.ErrFields
 import app.hovanki.shared.lab.FieldKinds
 import app.hovanki.shared.lab.GpsFields
 import app.hovanki.shared.lab.LabFields
@@ -56,7 +59,11 @@ class FieldSessionTest {
         fun kinds(): List<String> = events.map { it.kind }
     }
 
-    private fun TestScope.phone(isFieldBuild: Boolean = true, api: FakeLabApi = FakeLabApi()): Phone {
+    private fun TestScope.phone(
+        isFieldBuild: Boolean = true,
+        api: FakeLabApi = FakeLabApi(),
+        errorReporter: ErrorReporter = NoopErrorReporter,
+    ): Phone {
         val log = LabLog(isEnabled = false, { DEVICE + currentTime }, { currentTime })
         val field = FieldSession(
             log = log,
@@ -67,6 +74,7 @@ class FieldSessionTest {
             about = { LabAbout("Pixel 8", "Android 16", "1.0 (1) preview", "abc1234") },
             capabilities = { LabCapabilities(platform = Platform.ANDROID) },
             permissions = { mapOf("location" to "always") },
+            errorReporter = errorReporter,
             retryMillis = 5_000,
         )
         return Phone(field, log, api)
@@ -132,7 +140,9 @@ class FieldSessionTest {
         phone.field.onFix(fix(DEVICE + currentTime - 100))
         // The radio: three readings of one phone in a second are one event.
         for (rssi in listOf(-70, -60, -80)) {
-            phone.field.onSighting(RadioSighting("0123abcd", rssi, DEVICE + currentTime, RadioApi.ANDROID_LE))
+            phone.field.onSighting(
+                RadioSighting("0123abcd", rssi, DEVICE + currentTime, RadioApi.ANDROID_LE, tech = "ble.name"),
+            )
         }
         // A sync a quarter of a second long that brings the search.
         phone.field.onSyncSent()
@@ -157,6 +167,7 @@ class FieldSessionTest {
                 Triple(it.int(RxFields.COUNT), it.int(RxFields.RSSI), it.int(RxFields.MAX))
             },
         )
+        assertEquals("ble.name", rx.single().string(RxFields.TECH))
         val (synced, failed) = phone.events.filter { it.kind == FieldKinds.SYNC }
         assertEquals(SyncFields.SOCKET, synced.string(SyncFields.TRANSPORT))
         assertEquals(250, synced.int(SyncFields.MILLIS))
@@ -222,6 +233,23 @@ class FieldSessionTest {
         runCurrent()
         assertEquals(sent, phone.api.uploads.size)
         assertEquals(1, phone.api.fieldJoins.size)
+    }
+
+    @Test
+    fun thePhonesOwnFailuresGoToTheReporterAndTheLogKeepsItsId() = runTest {
+        val reported = ArrayList<Throwable>()
+        val phone = phone(errorReporter = { t -> reported += t; "e${reported.size}" })
+        phone.field.giveConsent(1L)
+        phone.round()
+        runCurrent()
+        phone.field.onError("radio", IllegalStateException("advertiser failed"))
+        // A command's failure is the network's or the server's answer: only the log has it.
+        phone.field.onError("command", IllegalStateException("timeout"))
+
+        assertEquals(listOf("advertiser failed"), reported.map { it.message })
+        val (radio, command) = phone.events.filter { it.kind == FieldKinds.ERR }
+        assertEquals("radio" to "e1", radio.string(ErrFields.WHERE) to radio.string(ErrFields.SENTRY_ID))
+        assertEquals("command" to null, command.string(ErrFields.WHERE) to command.string(ErrFields.SENTRY_ID))
     }
 
     @Test

@@ -226,6 +226,7 @@ val commonModule: Module = module {
                     PermFields.BLUETOOTH to radio.state.value.name.lowercase(),
                 )
             },
+            errorReporter = get(),
         )
     }
     single { FieldMarks() }

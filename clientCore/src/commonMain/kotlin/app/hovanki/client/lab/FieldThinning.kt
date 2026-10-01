@@ -18,8 +18,8 @@ class FieldThinning(
     val frameEveryMillis: Long = FieldUpload.FRAME_EVERY_MILLIS,
     val gpsEveryMillis: Long = FieldUpload.GPS_EVERY_MILLIS,
 ) {
-    /** Who was heard, and how: one window each. */
-    data class RxKey(val token: String?, val api: String, val via: String, val peer: String?)
+    /** Who was heard, and how (by which channel, [tech]): one window each. */
+    data class RxKey(val token: String?, val api: String, val via: String, val peer: String?, val tech: String? = null)
 
     /** A window of readings of one [key]: from [fromMillis] to [toMillis], [count] of them. */
     data class RxSummary(

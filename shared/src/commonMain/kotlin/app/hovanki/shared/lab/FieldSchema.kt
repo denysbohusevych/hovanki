@@ -189,6 +189,9 @@ object RxFields {
     const val VIA = "via"
     const val PEER = "peer"
 
+    /** The channel that read it (`RadarCatalog`'s id, `:radar`). */
+    const val TECH = "tech"
+
     /** The lab: the reading; the field: the median of the window. */
     const val RSSI = "rssi"
 

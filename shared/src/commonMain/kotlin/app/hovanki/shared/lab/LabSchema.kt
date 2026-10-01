@@ -58,6 +58,31 @@ object LabSchema {
     }
 }
 
+/**
+ * The kinds the radar's channels and hosts write (docs/adr/0017-radar-techniques-and-big-run.md §4, ADR 0018 §4 B),
+ * besides the lab's own. Every one carries `tech`, the channel's id (`ble.name`, `ble.service_data.bare`…):
+ *
+ * - [ADV] (the lab's kind, now also): `tech` (the channels in the advertisement, comma-separated), `layout` (an
+ *   Android hider's: `scan_response` / `bare` / `mfr`), `bytes` and `limit` (the packet against 31, iOS 28),
+ *   `fields` (`uuid128 18 + svc_data 22 = 40/31`), `scan_rsp` (the scan response's), `dropped` (channels left out),
+ *   `background` (iOS: UUIDs kept for the locked phone's overflow area);
+ * - [FRAME]: a frame of ours, whole: `tech`, `api`, `rssi`, `peer` (hashed), `hex` (Android's record), `name`,
+ *   `uuids`, `overflow` (bits), `svc` and `mfr` (hex by UUID and company id), `ibeacon`, `tx`, `conn`;
+ * - [AIR]: everybody else's frames the scan let through, once a second: `window` (ms), `ours`, `ibeacon`, `masks`,
+ *   `apple`, `other` (counts), `bits` (the masks' bits: bit → frames);
+ * - [SHADOW]: what a channel in the shadow read, never the game's: `tech`, `token` (and `tokens` when a damaged mask
+ *   gives several), `rssi`, `api`, `via`, `peer`;
+ * - [REGION]: the seekers' iBeacon region (`ble.ibeacon.region`): `event` (`enter`, `exit`, `state`, `failed`),
+ *   `state` (`inside`, `outside`, `unknown`), `error`.
+ */
+object LabRadarKinds {
+    const val ADV = "adv"
+    const val FRAME = "frame"
+    const val AIR = "air"
+    const val SHADOW = "shadow"
+    const val REGION = "region"
+}
+
 /** The common fields of every lab event. */
 object LabFields {
     /** Server time: the device's clock plus the last measured offset. */

@@ -3,8 +3,13 @@ package app.hovanki.e2e.bot
 import app.hovanki.device.CarryMonitor
 import app.hovanki.device.DeviceInfo
 import app.hovanki.device.PocketPulse
+import app.hovanki.radar.JvmAir
+import app.hovanki.radar.JvmAirHost
 import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.RadioOptions
 import app.hovanki.radar.RadioSighting
+import app.hovanki.radar.RadioTrace
+import app.hovanki.radar.airPlatformOf
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.Carry
@@ -15,18 +20,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.SendChannel
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.cos
 import kotlin.math.ln
 import kotlin.math.log10
@@ -36,20 +38,27 @@ import kotlin.math.sqrt
 import kotlin.random.Random
 
 // The radar on the simulated phones (docs/adr/0012-nearby-radar.md, section 7): the emulators have no Bluetooth,
-// so the scenario's world knows where every bot really is and tells each phone what it would hear.
+// so the scenario's world knows where every bot really is and tells each phone what it would hear. What a phone puts
+// on the air and what its APIs make of what comes in is `:radar`'s simulated air (JvmAirHost, AirRules): the same
+// channels and decoding as on the phones, with the OS's rules (docs/adr/0017-radar-techniques-and-big-run.md §2.2).
 
 /**
  * The air between the bots' phones. Once a second every listening phone hears every advertising one within range:
  * the signal falls with the distance like it does outdoors (about -58 dBm a metre away, -73 at five, -85 at
  * twenty), a little noise on top, and the body takes [POCKET_DAMPING_DB] off for each phone in a pocket. What the
- * platforms can hear of each other follows the phones: an iPhone in a pocket (the app in the background) sends
- * neither its name nor the iBeacon frame, so nobody reads its token (docs/adr/0016-iphone-overflow-radar.md); an
- * Android in a pocket and any phone on the screen are heard by everybody.
+ * platforms can hear of each other follows the OS's rules ([app.hovanki.radar.AirRules]): an iPhone in a pocket (the
+ * app in the background) sends neither its name nor the iBeacon frame, so nobody reads its token for the game
+ * (docs/adr/0016-iphone-overflow-radar.md); an Android in a pocket and any phone on the screen are heard by
+ * everybody (an Android hider by its layout: without a journal `.scan_response`, which iPhones hear too).
  */
-class RadioWorld : AutoCloseable {
+class RadioWorld :
+    JvmAir,
+    AutoCloseable {
+    private val attached = ConcurrentHashMap<JvmAirHost, FakeRadio>()
     private val phones = CopyOnWriteArrayList<FakeRadio>()
     private val random = Random(SEED)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val peers = AtomicInteger()
 
     init {
         scope.launch {
@@ -60,27 +69,34 @@ class RadioWorld : AutoCloseable {
         }
     }
 
-    internal fun register(radio: FakeRadio) {
-        phones += radio
+    /** A new phone's id on the air, as its OS shows it to the others (an address). */
+    internal fun nextPeer(): String = "sim:%02x".format(peers.incrementAndGet())
+
+    internal fun attach(radio: FakeRadio) {
+        attached[radio.host] = radio
     }
 
-    internal fun unregister(radio: FakeRadio) {
-        phones -= radio
+    override fun register(host: JvmAirHost) {
+        attached[host]?.let { phones += it }
+    }
+
+    override fun unregister(host: JvmAirHost) {
+        attached[host]?.let { phones -= it }
     }
 
     private fun tick() {
         val on = phones.filter { it.state.value == BluetoothState.ON }
+        val sent = on.mapNotNull { phone -> phone.host.broadcast()?.let { phone to it } }
         for (listener in on) {
             val here = listener.position()
-            for (other in on) {
-                val token = other.token ?: continue
-                if (other === listener || !other.isHeard) continue
+            for ((other, broadcast) in sent) {
+                if (other === listener) continue
                 val meters = here.distanceTo(other.position())
                 var level = rssiAt(meters) + gaussian() * NOISE_DB
                 if (listener.carry() == Carry.IN_POCKET) level -= POCKET_DAMPING_DB
                 if (other.carry() == Carry.IN_POCKET) level -= POCKET_DAMPING_DB
                 if (level < FLOOR_DBM) continue
-                listener.hears(token, level.roundToInt())
+                listener.host.receive(broadcast, level.roundToInt(), other.host.peer)
             }
         }
     }
@@ -108,57 +124,47 @@ class RadioWorld : AutoCloseable {
 }
 
 /**
- * A bot's Bluetooth LE as the app's [ProximityRadio]: while the app collects it, the phone advertises its token in
- * the [RadioWorld] and hears the others'. [state] is the phone's Bluetooth switch, for the scenario to flip.
+ * A bot's Bluetooth LE as the app's [ProximityRadio]: a [JvmAirHost] in the [RadioWorld], so while the app collects
+ * it the phone advertises its token with its platform's channels and hears the others' through its OS's rules.
+ * [state] is the phone's Bluetooth switch, for the scenario to flip. With a [trace] that listens (a journal), the
+ * shadow works as on a phone ([RadioTrace.isListening]).
  */
 class FakeRadio(
-    private val world: RadioWorld,
+    world: RadioWorld,
     val platform: Platform,
     internal val position: () -> GeoPoint,
     internal val carry: () -> Carry,
-    private val clock: () -> Long,
+    clock: () -> Long,
+    trace: RadioTrace = RadioTrace.None,
 ) : ProximityRadio {
     override val state = MutableStateFlow(BluetoothState.ON)
 
-    /** The token this phone advertises right now; null while the app is not running the radar. */
-    @Volatile var token: String? = null
-        private set
+    /** The phone's Bluetooth in the simulated air; the app on the screen unless the phone is in a pocket. */
+    val host = JvmAirHost(
+        platform = airPlatformOf(platform),
+        air = world,
+        onScreen = { carry() != Carry.IN_POCKET },
+        clock = clock,
+        trace = trace,
+        peer = world.nextPeer(),
+        state = state,
+    )
 
-    /** Advertising as a seeker (the iBeacon frame) rather than as a hider (the service). */
-    @Volatile var asSeeker: Boolean = false
-        private set
-
-    @Volatile private var sink: SendChannel<RadioSighting>? = null
-    private val tokensHeard = Collections.synchronizedSet(LinkedHashSet<String>())
-
-    /** Every token this phone ever heard. */
-    val heardTokens: Set<String> get() = synchronized(tokensHeard) { tokensHeard.toSet() }
-
-    override fun run(tokens: kotlinx.coroutines.flow.StateFlow<String?>, asSeeker: Boolean): Flow<RadioSighting> =
-        callbackFlow {
-            this@FakeRadio.asSeeker = asSeeker
-            sink = channel
-            val tokenJob = tokens.onEach { token = it }.launchIn(this)
-            world.register(this@FakeRadio)
-            awaitClose {
-                tokenJob.cancel()
-                world.unregister(this@FakeRadio)
-                sink = null
-                token = null
-            }
-        }
-
-    internal fun hears(token: String, rssi: Int) {
-        tokensHeard += token
-        sink?.trySend(RadioSighting(token, rssi, clock()))
+    init {
+        world.attach(this)
     }
 
-    /**
-     * Whether anybody can read this phone's token at all: not an iPhone in a pocket, whose app in the background sends
-     * neither the hider's name nor the seeker's iBeacon frame (the first test on real phones, 2026-09-29;
-     * docs/adr/0016-iphone-overflow-radar.md). It still hears the others: a seeker's iBeacon through CoreLocation.
-     */
-    internal val isHeard: Boolean get() = platform != Platform.IOS || carry() != Carry.IN_POCKET
+    /** The token this phone advertises right now; null while the app is not running the radar. */
+    val token: String? get() = host.token
+
+    /** Advertising as a seeker (the iBeacon frame) rather than as a hider (the service). */
+    val asSeeker: Boolean get() = host.asSeeker
+
+    /** Every token this phone ever heard (for the game: never the shadow's). */
+    val heardTokens: Set<String> get() = host.heardTokens
+
+    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean, options: RadioOptions): Flow<RadioSighting> =
+        host.run(tokens, asSeeker, options)
 }
 
 /** The bot's phone as the app sees it: its kind, no UWB, no motion sensors, a model for the calibration. */
