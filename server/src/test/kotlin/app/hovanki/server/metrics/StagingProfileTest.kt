@@ -78,28 +78,22 @@ class StagingProfileTest(
         games.sync(PlayerRef(session.gameId, session.playerId), session.gameId, SyncRequest())
         assertEquals(200, get(port, ApiRoutes.TIME).statusCode())
 
-        val metrics = get(managementPort, "/actuator/prometheus")
-        assertEquals(200, metrics.statusCode())
-        val text = metrics.body()
+        // The server records a request's time just after its answer is out, so the first scrape can be a moment early.
+        val text = scrapeUntil { text ->
+            QUANTILES.all { quantile ->
+                hasQuantile(text, "http_server_requests_seconds", quantile) &&
+                    hasQuantile(text, "hovanki_game_sync_seconds", quantile, "transport=\"poll\"")
+            }
+        }
         // What the server holds in memory.
         for (gauge in listOf("hovanki_games", "hovanki_players", "hovanki_sockets")) {
             assertContains(text, "\n$gauge ", message = gauge)
         }
         // The latency of every route and of the sync itself, as quantiles.
-        assertContains(text, "http_server_requests_seconds{")
-        for (quantile in listOf("0.5", "0.95")) {
+        for (quantile in QUANTILES) {
+            assertTrue(hasQuantile(text, "http_server_requests_seconds", quantile), "http.server.requests p$quantile")
             assertTrue(
-                text.lineSequence().any {
-                    it.startsWith("http_server_requests_seconds{") &&
-                        "quantile=\"$quantile\"" in it
-                },
-                "http.server.requests p$quantile",
-            )
-            assertTrue(
-                text.lineSequence().any {
-                    it.startsWith("hovanki_game_sync_seconds{") && "transport=\"poll\"" in it &&
-                        "quantile=\"$quantile\"" in it
-                },
+                hasQuantile(text, "hovanki_game_sync_seconds", quantile, "transport=\"poll\""),
                 "the sync's p$quantile",
             )
         }
@@ -116,8 +110,30 @@ class StagingProfileTest(
         }
     }
 
+    /** The management port's metrics, scraped again for up to five seconds until [ready] likes them. */
+    private fun scrapeUntil(ready: (String) -> Boolean): String {
+        val deadline = System.nanoTime() + SCRAPE_PATIENCE_NANOS
+        while (true) {
+            val metrics = get(managementPort, "/actuator/prometheus")
+            assertEquals(200, metrics.statusCode())
+            if (ready(metrics.body()) || System.nanoTime() > deadline) return metrics.body()
+            Thread.sleep(SCRAPE_PAUSE_MILLIS)
+        }
+    }
+
+    private fun hasQuantile(text: String, metric: String, quantile: String, tag: String? = null): Boolean =
+        text.lineSequence().any {
+            it.startsWith("$metric{") && "quantile=\"$quantile\"" in it && (tag == null || tag in it)
+        }
+
     private fun get(port: Int, path: String): HttpResponse<String> = http.send(
         HttpRequest.newBuilder(URI("http://localhost:$port$path")).GET().build(),
         HttpResponse.BodyHandlers.ofString(),
     )
+
+    private companion object {
+        val QUANTILES = listOf("0.5", "0.95", "0.99")
+        const val SCRAPE_PATIENCE_NANOS = 5_000_000_000L
+        const val SCRAPE_PAUSE_MILLIS = 50L
+    }
 }

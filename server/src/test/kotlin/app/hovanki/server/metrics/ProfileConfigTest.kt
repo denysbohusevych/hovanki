@@ -50,11 +50,18 @@ class ProfileConfigTest {
 
     @Test
     fun stagingChangesNothingOfTheE2eProfile() {
-        // The observer endpoints, recorded emails and no rate limits are the e2e profile's alone: staging has real
-        // players and real mail, and only these three groups of settings differ from production.
+        // The observer endpoints, recorded emails, no rate limits, the test admin key and the fake map are the e2e
+        // profile's alone: staging has real players and real mail. The test is against the e2e file itself, so a setting
+        // that file gets later is covered too, and a later step may add its own staging settings.
         val staging = load("application-staging.yaml")
-        val allowed = listOf("hovanki.game.", "management.", "logging.")
-        val others = staging.propertyNames.filterNot { name -> allowed.any(name::startsWith) }
-        assertTrue(others.isEmpty(), "staging sets more than its limits, management and logs: $others")
+        val e2e = load("application-e2e.yaml")
+        val overlap = staging.propertyNames.filter { name ->
+            e2e.propertyNames.any { other -> name == other || name.startsWith("$other.") || other.startsWith("$name.") }
+        }
+        assertTrue(overlap.isEmpty(), "staging sets what the e2e profile sets: $overlap")
+        assertTrue(
+            staging.propertyNames.none { it.startsWith("spring.profiles") },
+            "staging turns no other profile on (the e2e one in particular)",
+        )
     }
 }
