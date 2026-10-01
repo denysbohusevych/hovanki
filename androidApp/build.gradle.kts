@@ -1,3 +1,4 @@
+import com.android.build.api.variant.HostTestBuilder
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Android application: only the entry points (Application, Activity). UI and logic live in :composeApp.
@@ -61,6 +62,10 @@ android {
     sourceSets {
         // No UI automation hooks, like release (src/release has the no-op twins of src/debug).
         named("preview") { kotlin.directories += "src/release/kotlin" }
+        // The Sentry SDK is in the preview build type only (docs/adr/0018-field-test-build.md §7): the others get the
+        // no-op twin of installCrashReporting.
+        named("debug") { kotlin.directories += "src/withoutSentry/kotlin" }
+        named("release") { kotlin.directories += "src/withoutSentry/kotlin" }
     }
 
     compileOptions {
@@ -70,6 +75,13 @@ android {
 
     buildFeatures {
         compose = true
+    }
+}
+
+// The preview build type has the only code that touches Sentry (src/preview): its JVM tests run here, not on debug.
+androidComponents {
+    beforeVariants(selector().withBuildType("preview")) { variant ->
+        variant.hostTests[HostTestBuilder.UNIT_TEST_TYPE]?.enable = true
     }
 }
 
@@ -87,4 +99,8 @@ dependencies {
     implementation(libs.compose.foundation)
     implementation(libs.compose.ui)
     implementation(libs.koin.android)
+    // Crash reports of the field test build; not in debug and release (installCrashReporting has a no-op twin there).
+    "previewImplementation"(libs.sentry.android)
+    // SentryEventScrubberTest, plain JVM: ./gradlew :androidApp:testPreviewUnitTest
+    "testPreviewImplementation"(libs.kotlin.test.junit)
 }
