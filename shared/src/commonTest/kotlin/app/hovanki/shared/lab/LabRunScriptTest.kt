@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 class LabRunScriptTest {
     @Test
     fun theCatalogValidates() {
-        assertEquals(listOf("radio", "e2e"), LabRunScripts.ALL.map { it.id })
+        assertEquals(listOf("radio", "e2e", "touch"), LabRunScripts.ALL.map { it.id })
         assertSame(LabRunScripts.E2E, LabRunScripts.byId("e2e"))
         assertNull(LabRunScripts.byId("nope"))
         for (script in LabRunScripts.ALL) {

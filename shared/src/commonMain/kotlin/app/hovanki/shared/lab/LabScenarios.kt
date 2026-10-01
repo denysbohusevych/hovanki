@@ -316,7 +316,17 @@ object LabRunScripts {
 
     private fun inHand(setup: PhoneSetup) = DeviceStep(setup, place = LabPlaces.HAND, action = LabPlaces.STAND)
 
-    /** Version 3: three phones in the hand 2 m apart, 22 s; the e2e bots' run (`LabRunTest`). */
+    /** How far apart the e2e bots stand: A, B 2 m east of A, droid 2 m north of A. */
+    private val E2E_DISTANCES = mapOf(
+        RunStep.pairKey("A", "B") to 2.0,
+        RunStep.pairKey("A", "droid") to 2.0,
+        RunStep.pairKey("B", "droid") to 2.8,
+    )
+
+    /**
+     * Version 3: three phones in the hand 2 m apart, 22 s; the e2e bots' run (`LabRunTest`). The distances are the
+     * report's truth for the bands (they don't change what the phones do).
+     */
     val E2E = LabRunScript(
         id = "e2e",
         version = 3,
@@ -329,6 +339,7 @@ object LabRunScripts {
                 8,
                 E2E_LABELS.associateWith { inHand(PhoneSetup(hider = true)) },
                 hint = "Every phone hears every other.",
+                distances = E2E_DISTANCES,
             ),
             RunStep(
                 "probe",
@@ -340,17 +351,61 @@ object LabRunScripts {
                     "droid" to inHand(PhoneSetup(hider = true, listen = true)),
                 ),
                 hint = "B and droid listen to everything.",
+                distances = E2E_DISTANCES,
             ),
             RunStep(
                 "all_again",
                 "Everybody advertises again",
                 8,
                 E2E_LABELS.associateWith { inHand(PhoneSetup(hider = true)) },
+                distances = E2E_DISTANCES,
             ),
         ),
     )
 
-    val ALL: List<LabRunScript> = listOf(RADIO, E2E)
+    private val TOUCH_LABELS = listOf("A", "B")
+    private val APART = mapOf(RunStep.pairKey("A", "B") to 2.0)
+
+    /**
+     * Version 1: the touch calibration's block (docs/adr/0017-radar-techniques-and-big-run.md §3), two phones in the
+     * hand, both advertising as hiders: 2 m apart, three touches with a step back between them (each confirmed by
+     * both with «We touched»: the detector's truth), 2 m apart again; 61 s. The big run's block (more touches, the
+     * backs and edges, the drift at the end) is ADR 0017 §6's.
+     */
+    val TOUCH = LabRunScript(
+        id = "touch",
+        version = 1,
+        title = "Touch: two phones, 61 s",
+        labels = TOUCH_LABELS,
+        steps = listOf(
+            RunStep(
+                "apart",
+                "Stand 2 m apart",
+                8,
+                TOUCH_LABELS.associateWith { inHand(PhoneSetup(hider = true)) },
+                hint = "Screens on, phones in the hand.",
+                distances = APART,
+            ),
+            RunStep(
+                "touch",
+                "Touch the phones three times",
+                45,
+                TOUCH_LABELS.associateWith { inHand(PhoneSetup(hider = true)) },
+                hint = "Step close, touch the phones back to back once, both press «We touched», step back; " +
+                    "three times, about 10 s apart.",
+                distances = mapOf(RunStep.pairKey("A", "B") to 0.0),
+            ),
+            RunStep(
+                "apart_again",
+                "2 m apart again",
+                8,
+                TOUCH_LABELS.associateWith { inHand(PhoneSetup(hider = true)) },
+                distances = APART,
+            ),
+        ),
+    )
+
+    val ALL: List<LabRunScript> = listOf(RADIO, E2E, TOUCH)
 
     fun byId(id: String): LabRunScript? = ALL.firstOrNull { it.id == id }
 

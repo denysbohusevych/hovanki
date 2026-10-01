@@ -106,6 +106,8 @@ import app.hovanki.client.ui.common.Toast
 import app.hovanki.client.ui.common.formatDateTimeIn
 import app.hovanki.client.ui.common.rememberReduceMotion
 import app.hovanki.client.ui.common.rememberToastVisible
+import app.hovanki.client.ui.field.TouchCard
+import app.hovanki.client.ui.field.TouchNeighbour
 import app.hovanki.client.ui.settings.BuildingsPanel
 import app.hovanki.client.ui.settings.SettingsPanel
 import app.hovanki.client.ui.theme.Motion
@@ -197,6 +199,8 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                 WherePlayCard(state, onExpand = viewModel::openMap)
                 SettingsTiles(state, onOpenSettings = viewModel::openSettings, onOpenBoard = viewModel::openBoard)
                 if (state.features.hasRadar) RadarRow(state, viewModel)
+                // The field test build's «touch phones with a neighbour»; nothing in other builds.
+                TouchCard(state.players.filter { !it.isMe }.map { TouchNeighbour(it.id, it.name) })
                 // Everybody is told before the round (docs/adr/0011-spectators-and-recordings.md), guests too. A big
                 // game is not recorded.
                 if (state.bigGame == null) RecordingLine()

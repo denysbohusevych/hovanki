@@ -6,6 +6,8 @@ import app.hovanki.client.session.FakeBackgroundTracker
 import app.hovanki.client.session.FakeCarryMonitor
 import app.hovanki.client.session.FakeLocationProvider
 import app.hovanki.client.session.FakeRadio
+import app.hovanki.device.Impact
+import app.hovanki.device.ImpactMonitor
 import app.hovanki.device.lab.HapticKind
 import app.hovanki.device.lab.HapticResult
 import app.hovanki.device.lab.LabHaptics
@@ -88,6 +90,9 @@ internal class Lab(scope: TestScope, clockWorks: Boolean = true) {
     val files = FakeFiles()
     var serverAsks = 0
     val inAGame = MutableStateFlow(false)
+
+    /** The accelerometer's lone jolts: the test emits them. */
+    val impacts = MutableSharedFlow<Impact>(extraBufferCapacity = 8)
     val bench = DiagnosticsBench(
         radio,
         location,
@@ -121,6 +126,9 @@ internal class Lab(scope: TestScope, clockWorks: Boolean = true) {
         inAGame = inAGame,
         monotonicMillis = { scope.currentTime },
         random = Random(2),
+        impacts = object : ImpactMonitor {
+            override fun impacts(): Flow<Impact> = this@Lab.impacts
+        },
     )
 
     fun events(): List<JsonObject> = log.lines().map { Json.parseToJsonElement(it).jsonObject }

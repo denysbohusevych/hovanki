@@ -163,6 +163,7 @@ val commonModule: Module = module {
             },
             scope = MainScope(),
             inAGame = get<GameSessionManager>().state.map { it.session != null },
+            impacts = get(),
         )
     }
     single { LabRunner(get(), MainScope(), appState = get<LabProbes>()::appState) }
@@ -244,6 +245,7 @@ val commonModule: Module = module {
                 ) + appPermissions.states()
             },
             errorReporter = get(),
+            impacts = get(),
         ).also { session ->
             // Crash reports go out only while the tester's consent stands (docs/adr/0018-field-test-build.md §7).
             if (session.isFieldBuild) scope.launch { session.consentAt.collect { CrashReporting.allow(it != null) } }

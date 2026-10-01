@@ -7,6 +7,7 @@ import app.hovanki.server.lab.LabReportWriter
 import app.hovanki.server.mail.EmailSender
 import app.hovanki.server.mail.RecordingEmailSender
 import app.hovanki.shared.lab.LabReport
+import app.hovanki.shared.lab.LabReportBuilder
 import app.hovanki.shared.protocol.AdminLabAdvanceRequest
 import app.hovanki.shared.protocol.AdminLabRun
 import app.hovanki.shared.protocol.AdminLabRunRequest
@@ -131,7 +132,7 @@ class LabApiTest(
         assertEquals(1, audits("LAB_RUN_CREATE", run.id, "field test"))
         val list = admin.get(ApiRoutes.ADMIN_LAB_RUNS, staff).ok<AdminLabRuns>()
         assertEquals(run.id, list.runs.first { it.id == run.id }.id)
-        assertEquals(setOf("radio", "e2e"), list.scenarios.map { it.id }.toSet())
+        assertEquals(setOf("radio", "e2e", "touch"), list.scenarios.map { it.id }.toSet())
         assertEquals(listOf("A", "B", "droid"), list.scenarios.first { it.id == "e2e" }.labels)
 
         // A wrong code, no code, a label the plan doesn't have.
@@ -308,6 +309,10 @@ class LabApiTest(
         for (direction in hiders.directions) assertEquals(2.0, direction.perSecond, "$direction")
         assertTrue(report.steps.flatMap { it.directions }.none { it.from.startsWith("?") })
         assertEquals(labels, report.ticks.map { it.label }.sorted())
+        // The techniques' sections (docs/radar-run.md step 4): the steps have distances, so the bands have a truth.
+        assertEquals(LabReportBuilder.VERSION, report.version)
+        assertTrue(report.calibration.first { it.tech == "calib.none" }.seconds > 0, "${report.calibration}")
+        assertTrue(report.cards.isNotEmpty())
 
         // The phones' last uploads still come in for a while, and the report takes them.
         val lastSeq = first.getValue(a).size + second.getValue(a).size + 1L

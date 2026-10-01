@@ -1,10 +1,14 @@
 package app.hovanki.client.lab
 
+import app.hovanki.device.Impact
 import app.hovanki.device.lab.HapticKind
 import app.hovanki.radar.RadioApi
 import app.hovanki.radar.SightingVia
 import app.hovanki.radar.lab.AirFrame
+import app.hovanki.shared.lab.CarryTechs
 import app.hovanki.shared.lab.ProbeMode
+import app.hovanki.shared.lab.TouchFields
+import app.hovanki.shared.lab.TouchKinds
 import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.rules.OverflowCode
 import app.hovanki.shared.rules.OverflowProbe
@@ -48,6 +52,30 @@ class LabControllerTest {
         advanceTimeBy(5_000)
         assertEquals(count, lab.log.count.value, "stopped: nothing more")
         assertFalse(lab.controller.running.value)
+    }
+
+    @Test
+    fun aTouchIsWrittenWithItsJoltAndTheButton() = runTest {
+        val lab = Lab(this)
+        assertFalse(lab.controller.touched("B"), "not recording")
+        lab.controller.start()
+        runCurrent()
+        lab.impacts.tryEmit(Impact(1_790_000_000_000L + currentTime - 300, 1.8))
+        runCurrent()
+        assertTrue(lab.controller.touched(" B "))
+        assertFalse(lab.controller.touched(""))
+        advanceTimeBy(1_500)
+        runCurrent()
+
+        val touches = lab.events().filter { it["k"]!!.jsonPrimitive.content == TouchKinds.TOUCH }
+        assertEquals(listOf("impact", "button"), touches.map { it[TouchFields.SRC]!!.jsonPrimitive.content })
+        assertEquals("1.8", touches[0][TouchFields.G]!!.jsonPrimitive.content)
+        assertEquals("300", touches[0][TouchFields.AGO]!!.jsonPrimitive.content)
+        assertEquals("B", touches[1][TouchFields.PARTNER]!!.jsonPrimitive.content)
+        // The pocket's two classifiers write their first states into the shadow.
+        val shadow = lab.events().filter { it["k"]!!.jsonPrimitive.content == "shadow" }
+        assertEquals(setOf(CarryTechs.V1, CarryTechs.V2), shadow.map { it["tech"]!!.jsonPrimitive.content }.toSet())
+        lab.controller.stop()
     }
 
     @Test

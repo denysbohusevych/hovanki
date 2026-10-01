@@ -78,6 +78,7 @@ internal fun LabContent() {
     LabRadioCard(viewModel, now)
     ScreenAndPulseCard(viewModel)
     MarksCard(viewModel)
+    TouchesCard(viewModel)
     ScenarioCard(viewModel, now)
 }
 
@@ -623,6 +624,36 @@ private fun MarksCard(viewModel: LabViewModel) {
             height = 40.dp,
             style = PopStyle.Outline,
         )
+    }
+}
+
+/**
+ * «We touched» (docs/radar-run.md step 4): the two testers hold the phones back to back for a second, each picks the
+ * other's label and presses the button. The truth the report's touch detector is checked against.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TouchesCard(viewModel: LabViewModel) {
+    val lastMark by viewModel.lastMark.collectAsStateWithLifecycle()
+    val follow by viewModel.follow.collectAsStateWithLifecycle()
+    val label by viewModel.label.collectAsStateWithLifecycle()
+    // The labels change with the run and the phone's own label; the pick goes with the list.
+    val partners = remember(follow, label) { viewModel.partnerLabels }
+    var picked by remember { mutableStateOf<String?>(null) }
+    val partner = picked?.takeIf { it in partners } ?: partners.singleOrNull()
+    Section("Touches") {
+        SecondaryText("Touch the two phones back to back for a second, then both press the button.")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            partners.forEach { option -> ChoiceButton(option, partner == option) { picked = option } }
+        }
+        PopButton(
+            text = if (partner == null) "We touched" else "We touched $partner",
+            onClick = { partner?.let(viewModel::touched) },
+            enabled = partner != null,
+            height = 44.dp,
+            style = PopStyle.Dark,
+        )
+        lastMark?.takeIf { it.startsWith("touched") }?.let { Line("Last: $it") }
     }
 }
 

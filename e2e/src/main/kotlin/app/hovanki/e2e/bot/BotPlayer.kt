@@ -158,6 +158,9 @@ class BotPlayer(
         radioWorld?.let { FakeRadio(it, platform, { gps.truePosition }, { carry.value }, clock::now) }
             ?: NoopProximityRadio()
 
+    /** The accelerometer's jolts, for the field log's touch: the scenario knocks ([touches]). */
+    val impacts = FakeImpactMonitor(clock::now)
+
     /** The pulse the phone beats with (docs/adr/0012-nearby-radar.md, «Пульс»). */
     val pulse = FakePocketPulse()
     val network = FakeNetwork(::onExchange)
@@ -214,6 +217,21 @@ class BotPlayer(
         val marked = withContext(running.mainThread) { running.field.somethingWrong(text) }
         log(if (marked) "marks «something is wrong»: $text" else "marks «something is wrong», but no log is on")
         return marked
+    }
+
+    /** The card «Touch phones with a neighbour» is up (the field log in the lobby or on the results of a radar game). */
+    val seesTouchCard: Boolean get() = app?.field?.touchCard?.value == true
+
+    /**
+     * Knocks the phone against [partner]'s and presses «We touched» on the card (docs/adr/0018-field-test-build.md
+     * §5): false when no card is up. Where the two stand is the scenario's.
+     */
+    suspend fun touches(partner: BotPlayer): Boolean {
+        val running = app ?: return false
+        impacts.knock()
+        val pressed = withContext(running.mainThread) { running.field.touched(partner.id) }
+        log(if (pressed) "touches ${partner.name}'s phone" else "touches ${partner.name}'s phone, but there is no card")
+        return pressed
     }
 
     /** The three questions on the results screen. */
@@ -891,6 +909,8 @@ class BotPlayer(
             },
             clockSync = LabClockSync(api::serverTime, clock::now, labLog::monoNow),
             permissions = { mapOf(PermFields.LOCATION to if (gps.hasPermission()) "always" else "denied") },
+            carryMonitor = FakeCarryMonitor(carry),
+            impacts = impacts,
         )
         val session = GameSessionManager(
             api,

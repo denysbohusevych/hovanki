@@ -21,9 +21,11 @@ import app.hovanki.client.tracking.IosBackgroundTracker
 import app.hovanki.device.ActivityMonitor
 import app.hovanki.device.CarryMonitor
 import app.hovanki.device.DeviceInfo
+import app.hovanki.device.ImpactMonitor
 import app.hovanki.device.IosActivityMonitor
 import app.hovanki.device.IosCarryMonitor
 import app.hovanki.device.IosDeviceInfo
+import app.hovanki.device.IosImpactMonitor
 import app.hovanki.device.IosPocketPulse
 import app.hovanki.device.PocketPulse
 import app.hovanki.device.lab.IosLabHaptics
@@ -67,6 +69,7 @@ actual val platformModule: Module = module {
         }
     }
     single<CarryMonitor> { IosCarryMonitor() }
+    single<ImpactMonitor> { IosImpactMonitor() }
     // The radio lab (docs/radio-lab.md), reached from the debug build's diagnostics only.
     single<LabProbes> { IosLabProbes() }
     single<LabAir> { IosLabAir() }

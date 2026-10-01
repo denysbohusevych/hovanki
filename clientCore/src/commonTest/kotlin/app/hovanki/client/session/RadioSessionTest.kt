@@ -15,6 +15,7 @@ import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.storage.FakeSecureStore
 import app.hovanki.client.storage.SavedSession
 import app.hovanki.radar.RadioOptions
+import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.ErrorCode
@@ -95,6 +96,7 @@ class RadioSessionTest {
         radio: FakeRadio = this@RadioSessionTest.radio,
         diagnostics: Diagnostics = Diagnostics.Off,
         connection: GameConnection = PollingGameConnection(api),
+        trace: GameTrace = GameTrace.None,
     ) = GameSessionManager(
         api,
         connection,
@@ -109,6 +111,7 @@ class RadioSessionTest {
         pocketPulse = pulse,
         carryMonitor = carry,
         diagnostics = diagnostics,
+        trace = trace,
     )
 
     private fun round(
@@ -254,6 +257,52 @@ class RadioSessionTest {
         val before = api.syncRequests.size
         manager.state.first { api.syncRequests.size > before }
         assertEquals(BluetoothState.ON, api.syncRequests.last().device?.bluetooth, "the host may start the game")
+    }
+
+    @Test
+    fun theLobbyHasNoRadioUnlessTheFieldLogAsksForTheTouch() = runTest {
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        var phase = GamePhase.LOBBY
+        val heard = ArrayList<String>()
+        var touch: String? = null
+        val trace = object : GameTrace {
+            override fun touchRadioToken(snapshot: GameSnapshot): String? = touch
+
+            override fun onSighting(sighting: RadioSighting) {
+                heard += sighting.token
+            }
+        }
+        val api = snapshots({ phase })
+        val manager = manager(api, trace = trace)
+
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        runCurrent()
+        assertEquals(0, radio.collectors, "every build: no radio in the lobby")
+
+        // The field log's touch card: the phone advertises the log's own token as a hider.
+        touch = "f00dcafe"
+        manager.state.first { api.syncRequests.size >= 3 }
+        runCurrent()
+        assertEquals(1, radio.collectors)
+        assertEquals("f00dcafe", radio.tokens?.value)
+        assertEquals(false, radio.asSeeker)
+        radio.hears("0123abcd", -45, atMillis = deviceNow)
+        runCurrent()
+        val before = api.syncRequests.size
+        manager.state.first { api.syncRequests.size >= before + 2 }
+        assertEquals(listOf("0123abcd"), heard, "what it hears is the journal's")
+        assertTrue(api.syncRequests.all { it.nearby.isEmpty() }, "and never the server's")
+
+        // The round: the game's own radio, with the game's token.
+        phase = GamePhase.SEEKING
+        manager.state.first { it.snapshot?.phase == GamePhase.SEEKING }
+        runCurrent()
+        assertEquals(1, radio.collectors)
+        assertEquals(
+            RadarToken.at(secret, assertNotNull(manager.state.value.snapshot).serverTimeMillis),
+            radio.tokens?.value,
+        )
     }
 
     @Test

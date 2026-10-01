@@ -58,6 +58,33 @@ class LabUploaderTest {
     }
 
     @Test
+    fun theUploadsOwnEventsAloneWaitForNews() = runTest {
+        val lab = recording()
+        lab.log.note("event")
+        val api = FakeLabApi()
+        val uploader = LabUploader(lab.log, api, backgroundScope, intervalMillis = 1_000)
+        uploader.start(runId, FakeLabApi.TOKEN)
+        runCurrent()
+        assertEquals(1, api.uploads.size)
+
+        // Only the upload's own `net` event since: the timer sends nothing, however long (a quiet lobby).
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(1, api.uploads.size)
+        assertEquals(1L, uploader.pending.value)
+
+        // Something new: it goes with the waiting `net` event.
+        lab.log.note("news")
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(2, api.uploads.size)
+        assertEquals(2, api.uploads.last().batch.count)
+        // A flush sends even the uploads' own events.
+        assertTrue(uploader.flush())
+        assertEquals(3, api.uploads.size)
+    }
+
+    @Test
     fun aFullBatchSendsTheNextAtOnce() = runTest {
         val lab = recording()
         repeat(5) { lab.log.note("event $it") }

@@ -47,6 +47,13 @@ interface GameTrace {
      */
     fun onAction(action: String) = Unit
 
+    /**
+     * The token the phone advertises outside the round (the lobby, the results) so that two phones touching hear each
+     * other (the field log's «Touch phones with a neighbour», docs/adr/0018-field-test-build.md §5); null: no radio
+     * outside the round, as in every build but the field one. What the radio hears then comes to [onSighting] only.
+     */
+    fun touchRadioToken(snapshot: GameSnapshot): String? = null
+
     /** Nobody writes anything down. */
     object None : GameTrace
 }

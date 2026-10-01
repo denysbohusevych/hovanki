@@ -73,7 +73,7 @@ class LabUploader(
         updatePending()
         job = scope.launch {
             while (true) {
-                when (uploadOnce()) {
+                when (uploadOnce(onlyNews = true)) {
                     Outcome.CLOSED -> return@launch
                     Outcome.MORE -> continue
                     else -> delay(intervalMillis)
@@ -113,9 +113,18 @@ class LabUploader(
         } ?: false
     }
 
-    private suspend fun uploadOnce(): Outcome = sending.withLock {
+    /**
+     * One batch. [onlyNews] (the timer): only the uploads' own `net` events since the last acknowledged one are not
+     * worth a request; they go with the next news ([LabLog.lastNewsSeq]) or a [flush]. A phone waiting in a game's
+     * lobby sends nothing then.
+     */
+    private suspend fun uploadOnce(onlyNews: Boolean = false): Outcome = sending.withLock {
         val (runId, token) = target ?: return@withLock Outcome.IDLE
         if (mutableClosed.value) return@withLock Outcome.CLOSED
+        if (onlyNews && log.lastNewsSeq <= mutableAcked.value) {
+            updatePending()
+            return@withLock Outcome.IDLE
+        }
         val last = log.nextSeq - 1
         val batch = log.pending(mutableAcked.value, maxEvents, maxBytes)
         if (batch == null) {

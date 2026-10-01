@@ -168,6 +168,9 @@ class GameSessionManager(
     private val heard = MutableStateFlow<List<NearbySighting>>(emptyList())
     private val uwbPeers = MutableStateFlow<List<UwbPeer>>(emptyList())
     private var radioJob: Job? = null
+
+    /** [radioJob] is the field log's touch radio outside the round ([updateTouchRadio]), not the game's. */
+    private var radioForTouch = false
     private var activityJob: Job? = null
     private var rangingJob: Job? = null
     private var carryJob: Job? = null
@@ -643,7 +646,8 @@ class GameSessionManager(
         // until the app touches CoreBluetooth, which also asks the player; a game without the radar never asks.
         if (snapshot.phase != GamePhase.FINISHED && snapshot.settings.features.hasRadar) radio.refresh()
         when (snapshot.phase) {
-            GamePhase.LOBBY -> Unit
+            // The field build's touch («Touch phones with a neighbour», ADR 0018 §5): the radio only while it asks.
+            GamePhase.LOBBY -> updateRadio(snapshot)
 
             GamePhase.HIDING, GamePhase.SEEKING -> {
                 startTracking()
@@ -671,6 +675,7 @@ class GameSessionManager(
                     storage.clearSession()
                 }
                 loadTracks()
+                updateRadio(snapshot)
             }
         }
     }
@@ -685,9 +690,14 @@ class GameSessionManager(
     private fun updateRadio(snapshot: GameSnapshot) {
         val secret = snapshot.me.radarSecret
         val inRound = snapshot.phase == GamePhase.HIDING || snapshot.phase == GamePhase.SEEKING
+        if (!inRound) {
+            updateTouchRadio(snapshot)
+            return
+        }
+        // The round's radio replaces the touch's: another token, maybe a seeker's advertisement.
+        if (radioForTouch) stopRadio()
         val playing = snapshot.me.role == Role.SEEKER || snapshot.me.status == PlayerStatus.ACTIVE
-        val wanted = secret != null && inRound && snapshot.settings.features.hasRadar && playing &&
-            mutableRadarEnabled.value
+        val wanted = secret != null && snapshot.settings.features.hasRadar && playing && mutableRadarEnabled.value
         if (!wanted || secret == null) {
             stopRadio()
             return
@@ -753,7 +763,40 @@ class GameSessionManager(
         }
         .takeLast(MAX_SIGHTINGS_PER_SYNC)
 
+    /**
+     * The radio outside the round, in the lobby and on the results, only while the field log asks for it
+     * ([GameTrace.touchRadioToken]: «Touch phones with a neighbour», docs/adr/0018-field-test-build.md §5): this phone
+     * advertises the log's own token as a hider and hears the others, so a touch's peak is in the journal. What it
+     * hears goes to the journal only, never to the server. Every other build: no radio outside the round, as ever.
+     */
+    private fun updateTouchRadio(snapshot: GameSnapshot) {
+        val token = trace.touchRadioToken(snapshot)
+        val wanted = token != null && snapshot.settings.features.hasRadar && mutableRadarEnabled.value
+        if (!wanted || token == null) {
+            // Outside the round no radio runs but the touch's (a round's own one stops, should the game go back).
+            if (radioJob != null) stopRadio()
+            return
+        }
+        if (radioJob?.isActive == true && !radioForTouch) stopRadio()
+        radarToken.value = token
+        if (radioJob?.isActive == true) return
+        radioForTouch = true
+        val options = RadioOptions(
+            playerNumber = snapshot.players.indexOfFirst { it.id == snapshot.me.playerId }.coerceAtLeast(0),
+        )
+        radioJob = scope.launch {
+            try {
+                radio.run(radarToken, asSeeker = false, options).collect { trace.onSighting(it) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                trace.onError("radio", e)
+            }
+        }
+    }
+
     private fun stopRadio() {
+        radioForTouch = false
         if (radioJob != null) diagnostics.onRadio(null, asSeeker = false)
         radioJob?.cancel()
         radioJob = null

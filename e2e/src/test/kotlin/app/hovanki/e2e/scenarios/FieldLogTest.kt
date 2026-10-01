@@ -20,6 +20,8 @@ import app.hovanki.shared.lab.ServerFields
 import app.hovanki.shared.lab.ServerKinds
 import app.hovanki.shared.lab.SrvFields
 import app.hovanki.shared.lab.SyncFields
+import app.hovanki.shared.lab.TouchFields
+import app.hovanki.shared.lab.TouchKinds
 import app.hovanki.shared.lab.UiFields
 import app.hovanki.shared.protocol.AdminLabRun
 import app.hovanki.shared.protocol.GamePhase
@@ -28,6 +30,7 @@ import app.hovanki.shared.protocol.LabRunStatus
 import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.UserRole
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -36,13 +39,15 @@ import org.junit.jupiter.api.parallel.ResourceLock
 import java.io.ByteArrayInputStream
 import java.util.zip.ZipInputStream
 import kotlin.test.Test
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
  * The field log (docs/adr/0018-field-test-build.md §3, docs/field-test.md step 2): six testers' phones of the field
- * build play a game with the radar on a server with FIELD_LOG; each joins the game's run when the round starts and
- * uploads its log: the GPS with coordinates, the radio thinned, the syncs, and a player's «something is wrong». The
+ * build play a game with the radar on a server with FIELD_LOG; each joins the game's run in the lobby (where two of
+ * them touch phones on the touch card, docs/field-test.md step 5) and uploads its log: the GPS with coordinates, the
+ * radio thinned, the syncs, the touch, and a player's «something is wrong». The
  * admin finds the game's run and its raw logs; coordinates are only in the `gps` events. With the switch off nobody
  * joins anything. The privacy audit of every game response stays green.
  */
@@ -65,11 +70,19 @@ class FieldLogTest {
 
             sam.createsGame(GameSetups.radar())
             join(*hiders.toTypedArray())
-            check(everybody.all { it.fieldState.status == FieldStatus.OFF }, "nobody logs in the lobby")
-            check(
-                console.labRuns().runs.none { it.gameId == gameId.value },
-                "no run for the game before its round starts",
-            )
+            // The log is on from the lobby (docs/field-test.md step 5): the touches before the round count.
+            for (phone in everybody) {
+                eventually("${phone.name}'s field log is on in the lobby", within = 20.seconds) {
+                    phone.takeIf { it.fieldState.status == FieldStatus.ON && it.seesTouchCard }
+                }
+            }
+            // «Touch phones with a neighbour»: Anna steps up to Sam, they knock their phones and both press the card.
+            val annasPlace = anna.gps.truePosition
+            anna.gps.teleport(sam.gps.truePosition.offset(eastMeters = 0.3))
+            delay(1_500.milliseconds)
+            check(sam.touches(anna) && anna.touches(sam), "the touch card takes the touch")
+            delay(1_500.milliseconds)
+            anna.gps.teleport(annasPlace)
             sam.startsGame(seekers = listOf(sam))
             awaitPhase(GamePhase.SEEKING, within = 20.seconds)
             for (phone in everybody) {
@@ -114,6 +127,7 @@ class FieldLogTest {
                 }
             }
             checkLogs(logs, sam, anna)
+            checkTouch(logs, sam, anna)
 
             // The server's log: the round's phases, Sam's claim with the shadow's answer, and its numbers (srv).
             val server = eventually("the server's events are in the raw logs", within = 30.seconds) {
@@ -155,6 +169,30 @@ class FieldLogTest {
         check(events.none(LabSchema::hasCoordinates), "no position in the server's events")
         val seqs = events.map { it.text(LabFields.SEQ)?.toLong() }
         check(seqs == seqs.indices.map { it.toLong() }, "the server's seq without a gap")
+    }
+
+    /**
+     * The lobby's touch in both logs: the jolt and «We touched» with the other's id; and the radio heard in the lobby
+     * (before the round's first tick), where only the touch card runs it.
+     */
+    private fun Scenario.checkTouch(logs: Map<BotPlayer, List<JsonObject>>, sam: BotPlayer, anna: BotPlayer) {
+        for ((phone, partner) in listOf(sam to anna, anna to sam)) {
+            val touches = logs.getValue(phone).filter { it.kind == TouchKinds.TOUCH }
+            check(
+                touches.any {
+                    it.text(TouchFields.SRC) == TouchFields.BUTTON &&
+                        it.text(TouchFields.PARTNER) == partner.id.value
+                },
+                "${phone.name} pressed «We touched» with ${partner.name} ($touches)",
+            )
+            check(touches.any { it.text(TouchFields.SRC) == TouchFields.IMPACT }, "${phone.name}'s jolt is in the log")
+        }
+        val sams = logs.getValue(sam)
+        val firstTick = sams.indexOfFirst { it.kind == FieldKinds.TICK }
+        check(
+            sams.take(firstTick.coerceAtLeast(0)).any { it.kind == FieldKinds.RX },
+            "Sam's radio heard Anna in the lobby, before the round",
+        )
     }
 
     @Test
