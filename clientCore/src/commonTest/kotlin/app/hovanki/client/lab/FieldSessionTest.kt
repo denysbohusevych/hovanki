@@ -200,6 +200,31 @@ class FieldSessionTest {
     }
 
     @Test
+    fun theConsentTakenBackSendsNothingMore() = runTest {
+        val phone = phone()
+        phone.field.giveConsent(1L)
+        phone.round()
+        runCurrent()
+        assertTrue(phone.field.isActive)
+        phone.field.onFix(fix(DEVICE + currentTime))
+        assertTrue(phone.field.somethingWrong("lost"))
+        val sent = phone.api.uploads.size
+
+        phone.field.withdrawConsent()
+        runCurrent()
+        assertNull(storage.fieldConsentAt)
+        assertTrue(phone.field.needsConsent)
+        assertEquals(FieldStatus.LEFT, phone.field.state.value.status)
+        // What was not up yet stays on no phone and goes nowhere.
+        assertTrue(phone.log.lines().isEmpty())
+        advanceTimeBy(60_000)
+        phone.round()
+        runCurrent()
+        assertEquals(sent, phone.api.uploads.size)
+        assertEquals(1, phone.api.fieldJoins.size)
+    }
+
+    @Test
     fun aServerWithoutTheFieldLogIsNotAskedAgainInThisGame() = runTest {
         val api = FakeLabApi().apply { fieldRefusal = ApiException(404, ApiError(ErrorCode.NOT_FOUND, "Not found")) }
         val phone = phone(api = api)

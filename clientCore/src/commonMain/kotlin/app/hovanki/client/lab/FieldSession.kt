@@ -131,11 +131,14 @@ class FieldSession(
         mutableConsentAt.value = atMillis
     }
 
-    /** The tester takes it back: the log stops now and nothing more is written. */
+    /**
+     * The tester takes it back: the log stops now, nothing more is written, and what has not gone up yet never does
+     * (it is dropped from the phone).
+     */
     fun withdrawConsent() {
         storage.clearFieldConsent()
         mutableConsentAt.value = null
-        leave()
+        stop(sendRest = false)
     }
 
     // The game (GameTrace)
@@ -248,27 +251,40 @@ class FieldSession(
     }
 
     /** Out of the game's run now: the log stops, the rest of it goes up in the background. */
-    fun leave() {
+    fun leave() = stop(sendRest = true)
+
+    /** Out of the game's run; [sendRest]: the log's rest goes up (else it is dropped, the consent taken back). */
+    private fun stop(sendRest: Boolean) {
         val state = mutableState.value
         jobs.forEach { it.cancel() }
         jobs.clear()
+        if (!sendRest) {
+            // A last game's rest still going up stops too.
+            flushing?.cancel()
+            flushing = null
+        }
         when (state.status) {
             FieldStatus.ON -> {
                 log.stopField()
                 val uploader = uploader
                 this.uploader = null
                 thinning = null
-                // On the app's scope: the last upload goes on whatever the screen does.
-                flushing = scope.launch {
-                    uploader?.flush()
+                if (sendRest) {
+                    // On the app's scope: the last upload goes on whatever the screen does.
+                    flushing = scope.launch {
+                        uploader?.flush()
+                        uploader?.stop()
+                    }
+                } else {
                     uploader?.stop()
+                    log.clear()
                 }
                 mutableState.value = state.copy(status = FieldStatus.LEFT)
             }
 
             FieldStatus.JOINING -> mutableState.value = state.copy(status = FieldStatus.LEFT)
 
-            else -> Unit
+            else -> if (!sendRest && state.status == FieldStatus.LEFT) log.clear()
         }
     }
 
