@@ -505,12 +505,20 @@ sequenceDiagram
 | GET | `/api/v1/lab/runs/{runId}/state` | устройства | — | `LabRunStateView` (шаг, начало шага, пауза, `revision`, время сервера) |
 | POST | `/api/v1/lab/runs/{runId}/advance` | устройства | `LabAdvanceRequest` (`NEXT`, `REPEAT`, `PAUSE`, `RESUME`) | `LabRunStateView` |
 | POST | `/api/v1/lab/runs/{runId}/events?seqFrom=&seqTo=&count=&tFrom=&tTo=` | устройства | строки журнала (`application/x-ndjson`, можно `Content-Encoding: gzip`), до 4 МБ; лимит частоты на устройство | `LabEventsResponse` (`ackedSeq`: что уже хранится); повтор пачки безвреден; закрытый прогон — `LAB_RUN_CLOSED` (законченный ещё 30 минут берёт последние пачки), больше 300 МБ на прогон — `LIMIT_REACHED`. Берёт и токен устройства полевого журнала: тогда работает при включённом `FIELD_LOG` и с пределами `hovanki.field.*`. Из строк прогона лаборатории сервер вырезает `lat`/`lon`, прогона игры — кроме событий `gps` |
-| GET, POST | `/api/v1/admin/lab/runs` | Адм.: список (100 новых) и каталог планов; создать прогон | создание: `AdminLabRunRequest` (название, `scenarioId`, причина) | `AdminLabRuns` / `AdminLabRun` (код и QR) |
+| GET, POST | `/api/v1/admin/lab/runs` | Адм.: список (100 новых, только прогоны лабы: игры — в `/admin/field/games`) и каталог планов; создать прогон | создание: `AdminLabRunRequest` (название, `scenarioId`, причина) | `AdminLabRuns` / `AdminLabRun` (код и QR) |
 | GET | `/api/v1/admin/lab/runs/{runId}` | Адм.: пульт и живой вид (устройства, пары «кто → кого, канал, слышно за 10 с, медиана RSSI») | — | `AdminLabRunView` |
 | POST | `/api/v1/admin/lab/runs/{runId}/advance`, `/finish` | Адм.: пульт; `/finish` завершает прогон и считает отчёт | `AdminLabAdvanceRequest` / `AdminReasonRequest` | `AdminLabRunView` |
-| GET | `/api/v1/admin/lab/runs/{runId}/report` | Адм. | — | `LabReport` (JSON, как сохранён); 404, пока не посчитан |
+| GET | `/api/v1/admin/lab/runs/{runId}/report` | Адм. | — | `LabReport` (JSON, как сохранён); для прогона игры — `FieldReport`; 404, пока не посчитан |
 | POST | `/api/v1/admin/lab/runs/{runId}/raw` | Адм., причина в журнал: сырые журналы устройств одним zip | `AdminReasonRequest` | `application/zip` |
 | POST | `/api/v1/admin/lab/runs/{runId}/delete` | Адм. | `AdminReasonRequest` | 204 (вместе с устройствами, пачками и отчётом) |
+| GET | `/api/v1/admin/field/games` | Адм. (модератор — 403): полевые тесты | — | `AdminFieldGames` (прогоны игр, 100 новых сверху) |
+| GET | `/api/v1/admin/field/games/{runId}` | Адм.: игра и живой вид (телефоны: последний кусок, событие, состояние приложения, батарея, последний `sync`) | — | `AdminFieldGameView` (прогон, устройства, `LabLiveView`, `serverTimeMillis`); прогон лабы — 404 |
+| GET | `/api/v1/admin/field/games/{runId}/report` | Адм. | — | `FieldReport` (JSON, как сохранён: живой или итоговый, `final`); 404, пока не посчитан |
+| POST | `/api/v1/admin/field/games/{runId}/marks` | Адм.: отметка организатора — событие `mark` устройства `staff` в прогоне; ник — только в аудите (`FIELD_MARK`); до 500 на игру | `AdminFieldMarkRequest` (`text` до 120 знаков, причина) | 204; прогон закрыт и `upload-grace` прошёл — `LAB_RUN_CLOSED` |
+| DELETE | `/api/v1/admin/field/games/{runId}` | Адм.; аудит `LAB_RUN_DELETE` | `AdminReasonRequest` | 204 (вместе с устройствами, пачками и отчётом) |
+| POST | `/api/v1/admin/field/games/{runId}/report.md` | Адм., причина в журнал (`FIELD_EXPORT`) | `AdminReasonRequest` | `text/markdown`: итоговый отчёт или посчитанный сейчас; игроки P1…Pn, без координат |
+| POST | `/api/v1/admin/field/games/{runId}/digest.jsonl` | Адм., причина в журнал (`FIELD_EXPORT`) | `AdminReasonRequest` | `application/x-ndjson` потоком: события игры, `srv`, `mark`, `survey`, `anomaly`, строка `minute` на игрока в минуту; P1…Pn, без координат |
+| POST | `/api/v1/admin/field/games/{runId}/raw.zip` | Адм., причина в журнал (`LAB_RUN_DOWNLOAD`) | `AdminFieldRawRequest` (причина, устройства, `fromMillis`, `toMillis`) | `application/zip`: срез «устройства × время» сырых журналов |
 
 **Служебное.**
 

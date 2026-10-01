@@ -96,7 +96,8 @@ class FieldLoadTest {
                     phone.takeIf { it.fieldState.status == FieldStatus.ON }
                 }
             }
-            val run = eventually("the game's run") { console.labRuns().runs.firstOrNull { it.gameId == gameId.value } }
+            val run =
+                eventually("the game's run") { console.fieldGames().runs.firstOrNull { it.gameId == gameId.value } }
 
             note("playing for $MINUTES min")
             val syncsBefore = metrics.syncLatencies.size
