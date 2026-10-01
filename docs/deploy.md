@@ -278,7 +278,7 @@ docker compose down postgres
 
 1. `docker compose pull server` — скачать образ тега `HOVANKI_TAG` из `.env`;
 2. если это тот же образ, из которого запущен контейнер сервера, — ничего не делать;
-3. спросить работающий сервер, не идёт ли большая игра (`GET /actuator/restarthold` прямо на контейнер, мимо Caddy). Идёт — написать в журнал «New server image … waits for a big game until <время UTC>» и выйти: следующий запуск таймера спросит снова ([ADR 0010](adr/0010-big-games.md#6-обновление-сервера-во-время-большой-игры));
+3. спросить работающий сервер, не идёт ли большая игра (`GET /actuator/restarthold` прямо на контейнер, мимо Caddy: сначала на порту управления 8081, как на staging, потом на 8080). Идёт — написать в журнал «New server image … waits for a big game until <время UTC>» и выйти: следующий запуск таймера спросит снова ([ADR 0010](adr/0010-big-games.md#6-обновление-сервера-во-время-большой-игры));
 4. `docker compose up -d server` — перезапустить сервер с новым образом. В журнал пишется «New server image … at <время UTC>»;
 5. `docker image prune -f` — удалить старые образы.
 
@@ -375,7 +375,13 @@ docker compose down postgres
    sudo systemctl enable --now hovanki-update.timer
    ```
    Что значат переменные — в самом файле и в [Настройки](#настройки-env). Ключ админки: `echo "HOVANKI_ADMIN_SECRET_KEY=$(openssl rand -base64 32)"` — вписать в `.env` вместо пустого значения, потом `docker compose up -d server`. Ключ у staging свой.
-7. **Проверка.** На машине: `docker compose ps` — `server` и `caddy` в `running`; `docker compose logs server | grep -iE "flyway|profile"` — миграции применены, профиль `staging` включён. С компьютера: `curl https://hovanki-staging.duckdns.org/actuator/health` → `{"status":"UP",…}`. Метрики сервера наружу не отдаются: `curl -s -o /dev/null -w '%{http_code}\n' https://hovanki-staging.duckdns.org/actuator/prometheus` должен ответить не `200`. Если сервер не поднимается — таблица [Если сервер не подключается](#если-сервер-не-подключается), только с базой и ролью `hovanki_staging`.
+7. **Проверка.** На машине: `docker compose ps` — `server` и `caddy` в `running`; `docker compose logs server | grep -iE "flyway|profile"` — миграции применены, профиль `staging` включён (логи staging — JSON, читать удобнее через `jq`). Весь `/actuator` на staging живёт на порту управления 8081, который compose не публикует и Caddy не проксирует, поэтому здоровье и метрики смотрят с машины, по адресу контейнера:
+   ```bash
+   IP=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' $(docker compose ps --quiet server) | awk '{print $1}')
+   curl -s http://$IP:8081/actuator/health        # {"status":"UP",…}
+   curl -s http://$IP:8081/actuator/prometheus | grep '^hovanki_'
+   ```
+   С компьютера: `https://hovanki-staging.duckdns.org/admin` открывается, а `curl -s -o /dev/null -w '%{http_code}\n' https://hovanki-staging.duckdns.org/actuator/health` и то же для `/actuator/prometheus` отвечают `404` — снаружи `/actuator` не виден. Порт 8081 нельзя открывать в группе безопасности и публиковать в `compose.yaml`, Caddy остаётся на `--to server:8080`. Если сервер не поднимается — таблица [Если сервер не подключается](#если-сервер-не-подключается), только с базой и ролью `hovanki_staging`.
 8. **Админ.** Зарегистрироваться в тестовой сборке, которая ходит на staging (или любой сборкой с `-Phovanki.serverUrl=https://hovanki-staging.duckdns.org`), потом в консоли базы staging (как в [Обслуживание](#обслуживание), но `dbname=hovanki_staging user=hovanki_staging` и пароль из `.env`):
    ```sql
    UPDATE users SET role = 'ADMIN' WHERE email_key = lower('you@example.com');
@@ -404,9 +410,9 @@ docker compose down postgres
    `disable --now` держит таймер выключенным и после перезагрузки машины; простой `systemctl stop` после перезагрузки включился бы снова.
 2. Машина `t3.medium`: EC2 → Instances → `hovanki-staging` → Instance state → Stop; Actions → Instance settings → Change instance type → `t3.medium`; Start. Elastic IP остаётся, простой — пара минут.
 3. В `.env` поднять память: `SERVER_MEM_LIMIT=2g`, затем `docker compose up -d`. Куча — 75 % от лимита.
-4. Проверка: `curl https://hovanki-staging.duckdns.org/actuator/health`; `systemctl list-timers hovanki-update.timer` — таймера в списке нет; флаги в админке включены; RDS → Free storage space — запас есть.
+4. Проверка: здоровье по адресу контейнера на 8081, как в шаге 7 [первого запуска staging](#первый-запуск-staging); `systemctl list-timers hovanki-update.timer` — таймера в списке нет; флаги в админке включены; RDS → Free storage space — запас есть.
 
-**В день:** `docker compose logs -f server` (сервер координат и токенов не логирует), `docker stats` — память и процессор; RDS → Monitoring — подключения и нагрузка. Игру при сбое не перезапускать без нужды: рестарт обрывает все игры.
+**В день:** `docker compose logs -f server` (сервер координат и токенов не логирует), `docker stats` — память и процессор, метрики сервера — `curl -s http://$IP:8081/actuator/prometheus` (задержки `hovanki_game_sync_seconds`, игры, игроки, сокеты, ответы по кодам в `http_server_requests_seconds`); RDS → Monitoring — подключения и нагрузка. Игру при сбое не перезапускать без нужды: рестарт обрывает все игры.
 
 **После теста:**
 

@@ -1,6 +1,6 @@
 # ADR 0017. Техники радара, большой прогон трёх телефонов и отчёт в админке
 
-- **Статус:** Accepted (шаг 1 реализован 2026-09-29: прогон на сервере; шаг 2 — 2026-09-30: модули `:radar` и `:device`; шаги 3–7 — план, в коде их нет)
+- **Статус:** Accepted (шаг 1 реализован 2026-09-29: прогон на сервере; шаг 2 — 2026-09-30: модули `:radar` и `:device`; шаг 3 — 2026-10-01: каналы и хосты, вместе с полевой сборкой [ADR 0018](0018-field-test-build.md); шаги 4–7 — план, в коде их нет)
 - **Дата:** 2026-09-29
 - **Автор:** Denys Bohusevych (черновик — Claude Code)
 - **Пересматривает:** [ADR 0016](0016-iphone-overflow-radar.md) — «Чего не делаем» и «Исследование», п. 4 и 6 (GATT, будить экран уведомлениями, фоновое аудио, Wi-Fi Aware, Multipeer); [ADR 0012](0012-nearby-radar.md) — «калибровку касанием» из «Отличий реализации». **Дополняет:** [radio-lab.md](../radio-lab.md) (журнал и прогон переезжают на сервер), [ADR 0008](0008-admin.md) (вкладка «Радиолаба» в админке).
@@ -303,6 +303,24 @@ ADR 0012 оставил её вариантом для моделей, кото�
 - **Тесты переехали с кодом:** `ActivityClassifierTest` и часть `LabPartsTest` про `CarryFeatures` (`CarryFeaturesTest`) — в `:device` `commonTest`; CI гоняет `:device:iosSimulatorArm64Test` рядом с `:clientCore`.
 
 **Не проверено здесь:** сборка Android (`:radar`, `:device`, `:composeApp`, `:androidApp`) — в облаке нет Android SDK, собирает CI; iOS-приложение и тесты на симуляторе — на Маке. Проверено: `spotlessCheck`, `:shared:jvmTest`, `:radar:jvmTest`, `:device:jvmTest`, `:clientCore:jvmTest`, `:server:test`, `:e2e:unitTest`, метаданные `commonMain` и `iosMain` у `:radar`, `:device`, `:clientCore`, `:composeApp` (это ловит и неразрешённые `platform.*` на iOS), `:e2e:test` (весь набор).
+
+### Шаг 3 (2026-10-01)
+
+Шаг 3 из §9 сделан ([radar-run.md](../radar-run.md), §3) вместе с шагом 4 полевой сборки ([ADR 0018](0018-field-test-build.md#шаг-4-каналы), [field-test.md](../field-test.md)). Чем код отличается от текста выше:
+
+- **Общая часть — в корневом пакете** `app.hovanki.radar` (`Air.kt`: `AdData`, `AdPart`, `ScanInterest`, `HeardFrame`, `RadarChannel`, `GameAir`, `BleUuid`, `AirHex`; `AdBudget.kt`: `AdBudget`, `AdJoin`, `Advert`, `AdvertReport`; `AirDecoder.kt`; `RadarCatalog.kt` с `hiderLayout` и `RadioOptions`), а не в `channel/`. Каналы — каждый в `channel/<id>`: `servicedata` (`.scan_response`, `.bare`, `.mfr`), `name`, `ibeacon` (`ble.ibeacon.ranging` и `ble.ibeacon.region` в тени), `overflow` (в тени; берёт `OverflowArea`, `OverflowCode` и `AppleData` из `:shared`).
+- **Общий класс кадра — `HeardFrame`:** имя `AirFrame` уже занято кадром лаборатории (`radar.lab`).
+- **Хосты — прежние классы, не новые `AndroidAirHost`/`IosAirHost`:** `AndroidProximityRadio` (одна реклама и ответ на скан из вкладов каналов, по фильтру скана на интерес, каждый кадр — через `AirDecoder`) и `IosProximityRadio`. `JvmAirHost` + `AirRules` — в jvmMain; `bot/Radio.kt` на нём, `RadioWorld` хранит расстояния, шум и карманы.
+- **Хост iOS — не один скан, а два:** скан игры по сервису не меняется; второй `CBCentralManager`, по 128 UUID таблицы, включается только при журнале и отдаёт дальше только биты маски.
+- **Реклама Android-прячущегося починена во всех сборках** (`.scan_response`): в плане раскладку в игре не меняли, но 40 байт не уходили в эфир вообще. Раскладки по кругу — только при журнале (ADR 0018, §4 B).
+- **Раскладка `.mfr`** — компания `0xFFFF` (SIG: для тестов), затем `48 01`, UUID игры и жетон: 26 байт. `.bare` — только service data, 22 байта. `SightingVia.MANUFACTURER_DATA` — новое значение.
+- **Новый вид журнала `region`** (вход, выход, состояние, ошибка мониторинга) и `LabRadarKinds` (`adv`, `frame`, `air`, `shadow`, `region`) отдельным объектом в `LabSchema.kt`. `frame.hex` у Android — запись до первого поля нулевой длины, как её разбирает `ScanRecord.parseFromBytes` (`AirHex.recordFields`), а не до последнего ненулевого байта.
+- **`RadioTrace.isListening`:** тени и раскладки по кругу работают, только пока пишется журнал (`LabLog.isWriting`: лаборатория в debug или полевой журнал в preview). Release не слушает никогда. Хосты проверяют это раз в секунду и перезапускают скан при смене.
+- **`ModuleBoundariesTest`** считает `channel.<id>` отдельными техниками; из корневого пакета называть их может только `RadarCatalog.kt`.
+- **Симулятор моделирует не всё:** «свою» переполненную область на экране, склейку дублей фонового скана iOS, отсутствие ответа на скан у пассивного скана.
+- **Пульт лаборатории** номер игрока не передаёт, поэтому стенд всегда вещает `.scan_response`; шаг, перебирающий раскладки, получит `RadioOptions` из плана (шаг 7).
+
+**Не проверено здесь:** эфир на телефонах (уходит ли реклама Android, какие раскладки слышат iPhone — вероятно, только `.scan_response`: CoreBluetooth в игре сканирует по UUID сервиса), ответ на скан у iPhone в фоне, два `CBCentralManager` на iPhone, смена рекламы при `willResignActive`; iOS скомпилирован на Linux (`compileKotlinIosArm64`: на нём нашлась и исправлена ошибка, которую метаданные не ловят), но не слинкован; Swift-помощник Мака не собирался. Проверено: тесты кодеков, бюджета (по `BluetoothLeAdvertiser.totalBytes` из AOSP), декодера, правил ОС и симулятора, `check`, `:e2e:test` (весь набор, в том числе `RadarTest`, `ProximityCatchTest`, `LabRunTest`, `BeaconTest`, `BeaconLabTest`).
 
 ## Последствия
 
