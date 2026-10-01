@@ -5,6 +5,10 @@
 # Settings come from `.env` next to this file: DOMAIN, HOVANKI_TAG (default `main`, updated by hovanki-update.timer
 # after every push to main), DATABASE_HOST and DATABASE_PASSWORD, and the SMTP account for emails (SPRING_MAIL_HOST,
 # SPRING_MAIL_PORT, SPRING_MAIL_USERNAME, SPRING_MAIL_PASSWORD, HOVANKI_MAIL_FROM). Setup and updates: docs/deploy.md.
+# The same file runs the staging server of the field test (ADR 0018): its own VM, its own `.env`
+# (.env.staging.example) with SPRING_PROFILES_ACTIVE=staging, the database `hovanki_staging` with its own role
+# (DATABASE_NAME, DATABASE_USER), the staging name in DOMAIN and a bigger memory limit (SERVER_MEM_LIMIT). Without those
+# variables nothing changes for the production VM.
 # One replica only: games live in memory, so a restart ends the games in progress.
 
 x-logging: &logging
@@ -19,8 +23,9 @@ services:
     restart: unless-stopped
     environment:
       # verify-full: TLS, and the certificate must be the RDS instance's (issued by an RDS CA, for this host name).
-      SPRING_DATASOURCE_URL: "jdbc:postgresql://${DATABASE_HOST:?set DATABASE_HOST in .env}:5432/hovanki?sslmode=verify-full&sslrootcert=/etc/hovanki/rds-ca.pem"
-      SPRING_DATASOURCE_USERNAME: hovanki
+      # The database and its role are `hovanki` here; staging has its own on the same RDS (DATABASE_NAME, DATABASE_USER).
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://${DATABASE_HOST:?set DATABASE_HOST in .env}:5432/${DATABASE_NAME:-hovanki}?sslmode=verify-full&sslrootcert=/etc/hovanki/rds-ca.pem"
+      SPRING_DATASOURCE_USERNAME: ${DATABASE_USER:-hovanki}
       SPRING_DATASOURCE_PASSWORD: ${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env}
       # Real emails (verification and password reset codes); the server refuses to start without host and sender.
       HOVANKI_MAIL_SENDER: smtp
@@ -31,6 +36,10 @@ services:
       HOVANKI_MAIL_FROM: ${HOVANKI_MAIL_FROM:?set HOVANKI_MAIL_FROM in .env}
       # The admin (docs/adr/0008-admin.md): off while empty. Spring reads it as hovanki.admin.secret-key.
       HOVANKI_ADMIN_SECRETKEY: ${HOVANKI_ADMIN_SECRET_KEY:-}
+      # Staging only: `staging` turns on the settings of application-staging.yaml. Empty is the same as unset.
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+      # Staging only: Sentry of the server (ADR 0018, §7); empty: no Sentry. Never set on production.
+      SENTRY_DSN: ${SENTRY_DSN:-}
     volumes:
       # Missing file: `docker compose` stops with an error instead of creating an empty directory in its place.
       - type: bind
@@ -39,8 +48,9 @@ services:
         read_only: true
         bind:
           create_host_path: false
-    # The heap is 75% of this limit (JAVA_TOOL_OPTIONS in server/Dockerfile); leaves room for Caddy on a 1 GB VM.
-    mem_limit: 640m
+    # The heap is 75% of this limit (JAVA_TOOL_OPTIONS in server/Dockerfile); 640m leaves room for Caddy on a 1 GB VM.
+    # Staging has more RAM: SERVER_MEM_LIMIT=1g on a t3.small, 2g on a t3.medium on the day of a test.
+    mem_limit: ${SERVER_MEM_LIMIT:-640m}
     logging: *logging
 
   caddy:
