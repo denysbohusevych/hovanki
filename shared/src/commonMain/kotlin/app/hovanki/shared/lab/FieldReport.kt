@@ -276,19 +276,20 @@ data class FieldReportShadowRules(
 )
 
 /**
- * The lab's techniques where they apply to a game (docs/adr/0017-radar-techniques-and-big-run.md §2.3, [LabTechniques]):
- * the touches and their calibration, the detector, «without X» and the cards (a game has no step distances: the cards
- * that need them say so). [computed] false: the game had more readings than the server reads for them ([note]).
+ * The lab's techniques where they apply to a game (docs/adr/0017-radar-techniques-and-big-run.md §3, §7): the touches
+ * the lab's detector finds in the players' knocks and readings ([TouchDetector], the touch card's presses its truth),
+ * their spread and drift, the presses it [missedTouches], and «without X» ([WithoutChannel]). A game has no step
+ * distances: the cards and the band errors, which need them, are the lab run's. [computed] false: the game had more
+ * readings than the server reads for them ([note]).
  */
 @Serializable
 data class FieldReportTechniques(
     val computed: Boolean = true,
     val note: String? = null,
     val touches: List<LabReportTouch> = emptyList(),
-    val touchPairs: List<LabReportTouchPair> = emptyList(),
-    val touchDetector: LabReportTouchDetector? = null,
+    val touchSpreads: List<LabReportTouchSpread> = emptyList(),
+    val missedTouches: Int = 0,
     val without: List<LabReportWithout> = emptyList(),
-    val cards: List<LabReportCard> = emptyList(),
 )
 
 /** A detector's finding ([kind]: [FieldAnomalies]'s), from [atMillis] (to [untilMillis]), about [player]. */

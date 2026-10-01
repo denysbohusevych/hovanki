@@ -15,7 +15,8 @@ import app.hovanki.client.network.testSnapshot
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.storage.FakeSecureStore
 import app.hovanki.client.storage.SavedSession
-import app.hovanki.radar.RadioOptions
+import app.hovanki.radar.ChannelMix
+import app.hovanki.radar.RadarCatalog
 import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.Carry
@@ -212,13 +213,34 @@ class RadioSessionTest {
             deviceNow = serverTime - 10_000L
             round(GamePhase.SEEKING, serverTimeMillis = serverTime).copy(players = others + testPlayer)
         }
-        val manager = manager(api)
+        val numbers = mutableListOf<Int>()
+        val trace = object : GameTrace {
+            override fun radarChannels(playerNumber: Int): ChannelMix {
+                numbers += playerNumber
+                return RadarCatalog.field(playerNumber)
+            }
+        }
+        val manager = manager(api, trace = trace)
 
         manager.resumeSavedGame()
         manager.state.first { it.snapshot != null }
         runCurrent()
         // The third to join: an Android hider's layout goes round the circle by it (docs/adr/0018-field-test-build.md).
-        assertEquals(RadioOptions(playerNumber = 2), radio.options)
+        assertEquals(listOf(2), numbers)
+        assertEquals(RadarCatalog.field(2), radio.mix)
+    }
+
+    @Test
+    fun withoutAJournalTheRadioRunsTheGamesChannels() = runTest {
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        val api = snapshots({ GamePhase.SEEKING })
+        val manager = manager(api)
+
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        runCurrent()
+        assertEquals(1, radio.collectors)
+        assertEquals(null, radio.mix)
     }
 
     @Test

@@ -81,6 +81,68 @@ Kotlin-фреймворк собирается только для `iosArm64` и
   пользователь может выбрать «Всегда» в настройках, если iOS останавливает раунд в фоне.
 - В симуляторе движение имитируется через Features > Location или файлом GPX в схеме.
 
+## Радиолаба: Live Activity и фоновые режимы
+
+Шаг 5 [docs/radar-run.md](../docs/radar-run.md) (§5.1, §5.3): режимы `mode.audio`, `mode.notification_wake`,
+`mode.live_activity` и `uwb.ni` для двух iPhone в карманах. Только Debug-сборка, только лаборатория: игра их не
+включает.
+
+Что уже сделано без Xcode:
+
+- `Configuration/debug-info-plist.sh` добавляет в Info.plist Debug-сборки фоновые режимы `audio` и
+  `nearby-interaction` (к `bluetooth-*` и `location`, без повторов) и `NSSupportsLiveActivities = YES`. В Release
+  их нет.
+- `NSNearbyInteractionUsageDescription` — в `Info.plist` и `InfoPlist.xcstrings` (en/uk/ru).
+- Код Live Activity на Swift: `iosApp/LiveActivity/HovankiLiveAttributes.swift` (оба таргета),
+  `iosApp/LiveActivity/HovankiLiveActivityHost.swift` (приложение), `HovankiLive/HovankiLiveBundle.swift` и
+  `HovankiLive/HovankiLiveWidget.swift` (расширение). `ContentView.swift` ищет класс `HovankiLiveActivityHost` по
+  имени и отдаёт его в Kotlin (`LiveActivityBridgeKt.installLiveActivityHost`), поэтому приложение собирается и без
+  этих файлов — тогда лаборатория пишет в журнал, что `mode.live_activity` недоступен.
+
+Что делает владелец (один раз, на Маке):
+
+1. Убрать наши файлы расширения в сторону, чтобы шаблон Xcode их не задел:
+   `mv iosApp/HovankiLive /tmp/HovankiLive-ours`.
+2. Xcode → File → New → Target… → iOS → Widget Extension. Product Name `HovankiLive`, галочка «Include Live
+   Activity» (остальные — «Include Control», «Include Configuration App Intent» — снять), Team — тот же, что у
+   приложения, Embed in Application — `iosApp`. На вопрос «Activate "HovankiLive" scheme?» — Activate или Cancel,
+   всё равно: запускаем схему `iosApp`.
+3. У нового таргета `HovankiLive`, General и Build Settings:
+   - Bundle Identifier — bundle id приложения плюс `.live`: `app.hovanki.ios.live`, а с бесплатным Apple ID —
+     `<BUNDLE_ID из Local.xcconfig>.live`. Вписать руками: `$(BUNDLE_ID)` у этого таргета не определён,
+     `Config.xcconfig` подключён только к приложению (и подключать его сюда нельзя: он задаёт имя и bundle id
+     приложения).
+   - Team — тот же, что у приложения (`TEAM_ID` из `Local.xcconfig`).
+   - Minimum Deployments / iOS Deployment Target — `16.2` (Xcode ставит самую новую iOS — тогда на iPhone со
+     старой iOS расширение молча не установится).
+   - Marketing Version `0.1.0` и Current Project Version `1` — как у приложения (иначе Xcode предупреждает о
+     разных версиях).
+   - Swift Language Version — `Swift 5`; Default Actor Isolation — `nonisolated`, если Xcode поставил `MainActor`
+     (иначе `HovankiLiveAttributes` может не собраться в расширении).
+4. Удалить Swift-файлы шаблона в папке `iosApp/HovankiLive/` (Move to Trash): `HovankiLive.swift`,
+   `HovankiLiveBundle.swift`, `HovankiLiveLiveActivity.swift` и, если есть, `HovankiLiveControl.swift`,
+   `AppIntent.swift`. `Info.plist` и `Assets.xcassets` шаблона оставить.
+5. Вернуть наши файлы: `cp /tmp/HovankiLive-ours/*.swift iosApp/HovankiLive/`. Если группа расширения в Xcode —
+   синхронизированная папка (синяя), они войдут в таргет сами; если обычная (жёлтая) — перетащить их в группу
+   `HovankiLive` с галочкой только у таргета `HovankiLive`. `git status` после этого не должен показывать изменений
+   в них.
+6. Добавить в проект папку `iosApp/iosApp/LiveActivity/` (File → Add Files to "iosApp"…, «Create groups»):
+   `HovankiLiveAttributes.swift` — галочки у обоих таргетов (`iosApp` и `HovankiLive`),
+   `HovankiLiveActivityHost.swift` — только у `iosApp`.
+7. Signing & Capabilities приложения: Background Modes менять не нужно — `audio` и `nearby-interaction` добавляет
+   скрипт. Только если в журнале лаборатории нет ни звука, ни UWB в фоне, а в собранном
+   `Hovanki.app/Info.plist` нет этих режимов, — включить «Audio, AirPlay, and Picture in Picture» и «Nearby
+   Interaction» здесь (тогда они попадут и в Release — не коммитить).
+8. Собрать схему `iosApp` на оба iPhone; ошибки компиляции прислать в сессию целиком.
+
+**Не коммитить `project.pbxproj` с расширением**, пока `preview.yml` подписывает всё одним профилем
+(`PROVISIONING_PROFILE_SPECIFIER` на весь проект): с таргетом `HovankiLive` без своего профиля App Store сборка
+TestFlight упадёт. Расширение живёт в локальном проекте владельца; Swift-файлы уже в репозитории.
+
+Проверка: в лаборатории шаг с `mode.live_activity` — заблокировать телефон, на экране блокировки карточка «Hovanki
+lab / the run is on», раз в минуту меняется время. Если её нет: Настройки → Hovanki → Live Activities включены? В
+Console.app по процессу Hovanki — строки `HovankiLive:`.
+
 ## Позже (после MVP): BLE
 
 Когда появится поиск рядом по Bluetooth, добавить в `Info.plist`:

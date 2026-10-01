@@ -81,6 +81,11 @@ class LabViewModel(
     val uploadPending: StateFlow<Long> = uploader.pending
     val uploadError: StateFlow<String?> = uploader.lastError
 
+    /** The GATT link's connected peers and the last UWB reading (`gatt.link`, `uwb.ni`): the run card's status. */
+    val linkPeers: StateFlow<Int> = lab.linkPeers
+    val lastRange: StateFlow<String?> = lab.lastRange
+    val labTechniques: StateFlow<Set<String>> = lab.labTechniques
+
     val following: Boolean get() = follower.isFollowing
 
     val benchToken: String get() = lab.bench.token
@@ -138,6 +143,10 @@ class LabViewModel(
 
     fun setPulse(pulse: LabPulse) = lab.setPulse(pulse)
 
+    val availableModes: Set<String> get() = lab.availableModes
+
+    fun setLabTechnique(id: String, on: Boolean) = lab.setLabTechnique(id, on)
+
     /**
      * The vibration test as a test of its own: the lab starts if it is off; [keepAwake] keeps the app alive locked by
      * «as in a game» (GPS), off for the attempt without it.
@@ -155,27 +164,22 @@ class LabViewModel(
 
     fun mark(label: String, place: String? = null, action: String? = null, distance: Double? = null) {
         lab.mark(label, place, action, distance)
-        mutableLastMark.value = "$label · ${LabSchema.formatUtc(lab.log.serverNow()).substringAfter(' ').take(8)} UTC"
+        showMark(label)
     }
 
     /**
-     * The labels the other phones go by: the followed run's, else the lab's three usual ones, without this phone's own
-     * (docs/radar-run.md step 4, the touches).
+     * The labels «Touched with …» offers: the run's other devices while this phone follows one; null outside a run
+     * (the tester types the other label).
      */
-    val partnerLabels: List<String>
-        get() = (follow.value?.takeIf { !it.left }?.script?.labels ?: listOf("A", "B", "droid")).filter {
-            it !=
-                label.value
-        }
+    fun touchLabels(run: LabFollowState?): List<String>? = run?.takeIf { !it.left }?.let { it.script.labels - it.label }
 
-    /**
-     * «We touched» with the phone called [partner] (both testers press it): the truth the touch detector is checked
-     * against. Its answer goes to [lastMark] like the other buttons'.
-     */
-    fun touched(partner: String) {
-        if (!lab.touched(partner)) return
-        mutableLastMark.value =
-            "touched $partner · ${LabSchema.formatUtc(lab.log.serverNow()).substringAfter(' ').take(8)} UTC"
+    /** This phone was just knocked back to back with [otherLabel]'s: the touch calibration's truth. */
+    fun touched(otherLabel: String) {
+        if (lab.touched(otherLabel)) showMark("touched with ${otherLabel.trim()}")
+    }
+
+    private fun showMark(label: String) {
+        mutableLastMark.value = "$label · ${LabSchema.formatUtc(lab.log.serverNow()).substringAfter(' ').take(8)} UTC"
     }
 
     fun startScenario(scenario: LabScenario) = lab.scenarios.start(scenario)

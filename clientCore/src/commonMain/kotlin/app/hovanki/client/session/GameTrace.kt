@@ -1,6 +1,8 @@
 package app.hovanki.client.session
 
 import app.hovanki.client.network.Transport
+import app.hovanki.radar.ChannelMix
+import app.hovanki.radar.ProximityRadio
 import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.LocationSample
@@ -61,6 +63,13 @@ interface GameTrace {
      * a touch radio [touchRadioToken] started runs only while this says so.
      */
     val touchRadioWanted: Flow<Boolean> get() = flowOf(true)
+
+    /**
+     * The channels the radio runs instead of the game's ([ProximityRadio.run] with a [ChannelMix]) for the player of
+     * [playerNumber] (the order they joined): the field log's journal (docs/adr/0018-field-test-build.md §4 B); null:
+     * the game's, as in every build but the field one.
+     */
+    fun radarChannels(playerNumber: Int): ChannelMix? = null
 
     /** Nobody writes anything down. */
     object None : GameTrace

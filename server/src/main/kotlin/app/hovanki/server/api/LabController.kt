@@ -13,6 +13,7 @@ import app.hovanki.shared.protocol.LabJoinRequest
 import app.hovanki.shared.protocol.LabJoinResponse
 import app.hovanki.shared.protocol.LabRunStateView
 import app.hovanki.shared.protocol.LabUpload
+import app.hovanki.shared.protocol.LabUwbTokenRequest
 import app.hovanki.shared.protocol.protocolJson
 import jakarta.servlet.http.HttpServletRequest
 import org.springframework.core.MethodParameter
@@ -67,6 +68,13 @@ class LabController(private val labs: LabRunService, private val accounts: Accou
         @PathVariable runId: String,
         @RequestBody request: LabAdvanceRequest,
     ): LabRunStateView = labs.advance(device.of(runId), request.action)
+
+    @PostMapping(ApiRoutes.LAB_UWB)
+    fun uwb(
+        device: LabDeviceRef,
+        @PathVariable runId: String,
+        @RequestBody request: LabUwbTokenRequest,
+    ): LabRunStateView = labs.setUwbToken(device.of(runId), request.token)
 
     /**
      * The body: the log's lines (JSONL, [LabUpload.CONTENT_TYPE]), gzipped with `Content-Encoding: gzip`; read from

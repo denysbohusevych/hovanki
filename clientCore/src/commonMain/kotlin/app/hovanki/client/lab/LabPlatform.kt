@@ -1,12 +1,11 @@
 package app.hovanki.client.lab
 
-import app.hovanki.radar.AdvertReport
-import app.hovanki.radar.AirSummary
-import app.hovanki.radar.HeardFrame
-import app.hovanki.radar.RadarCatalog
+import app.hovanki.radar.AirFrame
+import app.hovanki.radar.AirSecond
+import app.hovanki.radar.Decoded
+import app.hovanki.radar.RadarTrace
 import app.hovanki.radar.RadioApi
-import app.hovanki.radar.RadioTrace
-import app.hovanki.radar.SightingVia
+import app.hovanki.radar.RangeTrace
 
 /*
  * What the radio lab needs from the app (docs/radio-lab.md §5) besides the phone's parts: sharing the files, and the
@@ -28,26 +27,36 @@ class NoopLabFiles : LabFiles {
 }
 
 /**
- * The game's radios tell the log what they advertise, scan and hear ([RadioTrace]): the debug build's lab, and the
- * field build's journal (docs/adr/0018-field-test-build.md), whenever the log records. While it does, the radios run
- * the shadow's channels too ([RadioTrace.isListening]); their readings come here, never to the game.
+ * The radar's host tells the lab's log what it advertises, scans and hears ([RadarTrace]): `adv` (with the channel and
+ * the advertisement's layout; `mode` keeps the older names where a channel had one), `scan`, `frame` and `air`.
  */
-class LabRadioTrace(private val log: LabLog) : RadioTrace {
-    override val isListening: Boolean get() = log.isWriting
-
-    override fun advertise(action: String, mode: String, token: String?, error: String?, report: AdvertReport?) =
-        log.adv(action, mode, token, error = error, report = report)
+class LabRadioTrace(private val log: LabLog) : RadarTrace {
+    override fun advertise(action: String, tech: String, token: String?, layout: String?, error: String?) =
+        log.adv(action, modeOf(tech), token, error = error, tech = tech, layout = layout)
 
     override fun scan(action: String, api: RadioApi, filters: String?, error: String?) =
         log.scan(action, api, filters, error)
 
-    override fun frame(frame: HeardFrame, tech: String) = log.frame(frame, tech)
+    override fun frame(frame: AirFrame, decoded: List<Pair<String, Decoded>>) = log.frame(frame, decoded)
 
-    override fun air(summary: AirSummary) = log.air(summary)
+    override fun air(second: AirSecond) = log.air(second)
 
-    override fun shadow(tech: String, tokens: List<String>, frame: HeardFrame, via: SightingVia) =
-        log.shadow(tech, tokens, frame, via)
+    companion object {
+        /** The `adv` event's `mode` before the channels (schema 2): the older readers of the log know these. */
+        fun modeOf(tech: String): String = when {
+            tech == "ble.name" -> "hider_name"
+            tech.startsWith("ble.service_data") -> "hider_service_data"
+            tech == "ble.ibeacon" -> "ibeacon"
+            else -> tech
+        }
+    }
+}
 
-    override fun region(event: String, state: String?, error: String?) =
-        log.region(RadarCatalog.REGION.id, event, state, error)
+/**
+ * The precision radio tells the lab's log every step of its ranging sessions ([RangeTrace]): the `range` events with
+ * an action other than `reading` (`session_start`, `config`, `suspended`, `removed`, `invalidated`…). The platform
+ * module gives it to the lab's own precision radio (iOS: `IosPrecisionRadio`); the game's never traces.
+ */
+class LabRangeTrace(private val log: LabLog) : RangeTrace {
+    override fun range(action: String, peer: String?, error: String?) = log.range(action, peer, error = error)
 }

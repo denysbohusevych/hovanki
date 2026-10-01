@@ -71,7 +71,7 @@ import app.hovanki.client.ui.welcome.WelcomeViewModel
 import app.hovanki.device.DeviceInfo
 import app.hovanki.device.lab.LabProbes
 import app.hovanki.radar.ProximityRadio
-import app.hovanki.radar.RadioTrace
+import app.hovanki.radar.RadarTrace
 import app.hovanki.shared.lab.PermFields
 import app.hovanki.shared.protocol.LabCapabilities
 import app.hovanki.shared.rules.AccountRules
@@ -81,6 +81,7 @@ import kotlinx.coroutines.launch
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
 import org.koin.core.module.dsl.viewModelOf
+import org.koin.core.qualifier.named
 import org.koin.dsl.KoinAppDeclaration
 import org.koin.dsl.module
 import org.koin.mp.KoinPlatformTools
@@ -101,6 +102,12 @@ fun initKoin(appDeclaration: KoinAppDeclaration = {}) {
         CrashReporting.allow(runCatching { koin.get<ClientStorage>().fieldConsentAt != null }.getOrDefault(false))
     }
 }
+
+/**
+ * The radio lab's own UWB radio (`uwb.ni`, docs/radar-run.md §5.3), bound by the platform modules next to the game's
+ * `PrecisionRadio`, which stays a no-op: the game doesn't range yet.
+ */
+internal val LAB_PRECISION = named("lab.precision")
 
 val commonModule: Module = module {
     single { ClientStorage(get()) }
@@ -133,7 +140,7 @@ val commonModule: Module = module {
     // §4.D). It records only while the lab runs or the field log is on, and the field log is the only thing in it that
     // carries coordinates.
     single { LabLog(isEnabled = get<BuildInfo>().isDebug || get<BuildInfo>().isFieldBuild) }
-    single<RadioTrace> { LabRadioTrace(get()) }
+    single<RadarTrace> { LabRadioTrace(get()) }
     single { DiagnosticsBench(get(), get(), get(), MainScope(), lab = get()) }
     single {
         val log = get<LabLog>()
@@ -163,7 +170,9 @@ val commonModule: Module = module {
             },
             scope = MainScope(),
             inAGame = get<GameSessionManager>().state.map { it.session != null },
-            impacts = get(),
+            modes = get(),
+            link = get(),
+            precision = get(LAB_PRECISION),
         )
     }
     single { LabRunner(get(), MainScope(), appState = get<LabProbes>()::appState) }
@@ -175,6 +184,7 @@ val commonModule: Module = module {
         val deviceInfo = get<DeviceInfo>()
         val radio = get<ProximityRadio>()
         val locationProvider = get<LocationProvider>()
+        val controller = get<LabController>()
         val account = get<AccountManager>()
         LabRunFollower(
             get(),
@@ -188,7 +198,7 @@ val commonModule: Module = module {
                 LabCapabilities(
                     platform = deviceInfo.platform,
                     bluetooth = radio.state.value,
-                    uwb = deviceInfo.hasUwb,
+                    uwb = controller.canRange,
                     locationPermission = locationProvider.hasPermission(),
                 )
             },
@@ -245,7 +255,6 @@ val commonModule: Module = module {
                 ) + appPermissions.states()
             },
             errorReporter = get(),
-            impacts = get(),
         ).also { session ->
             // Crash reports go out only while the tester's consent stands (docs/adr/0018-field-test-build.md §7).
             if (session.isFieldBuild) scope.launch { session.consentAt.collect { CrashReporting.allow(it != null) } }

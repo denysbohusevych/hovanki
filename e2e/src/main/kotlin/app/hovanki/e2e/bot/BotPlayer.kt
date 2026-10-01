@@ -11,6 +11,7 @@ import app.hovanki.client.lab.HttpLabApi
 import app.hovanki.client.lab.LabAbout
 import app.hovanki.client.lab.LabClockSync
 import app.hovanki.client.lab.LabLog
+import app.hovanki.client.lab.LabRadioTrace
 import app.hovanki.client.network.AdaptiveGameConnection
 import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.ApiResult
@@ -48,8 +49,13 @@ import app.hovanki.client.spectator.SpectatorState
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.scenario.Timeline
+import app.hovanki.radar.AirFrame
+import app.hovanki.radar.AirSecond
+import app.hovanki.radar.Decoded
 import app.hovanki.radar.NoopProximityRadio
 import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.RadarTrace
+import app.hovanki.radar.RadioApi
 import app.hovanki.shared.lab.PermFields
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.Audience
@@ -154,12 +160,32 @@ class BotPlayer(
 
     /** Where the phone is: in the hand or in the pocket (docs/adr/0012-nearby-radar.md, «Карман»). */
     val carry = MutableStateFlow(Carry.IN_HAND)
-    val radio: ProximityRadio =
-        radioWorld?.let { FakeRadio(it, platform, { gps.truePosition }, { carry.value }, clock::now) }
-            ?: NoopProximityRadio()
 
-    /** The accelerometer's jolts, for the field log's touch: the scenario knocks ([touches]). */
-    val impacts = FakeImpactMonitor(clock::now)
+    /**
+     * What the radio's host tells the field log, as the app's DI wires it (`LabRadioTrace` of the app's log): the
+     * running app's while it writes one ([fieldLog]), nothing otherwise.
+     */
+    @Volatile private var radarTrace: RadarTrace = RadarTrace.None
+
+    val radio: ProximityRadio =
+        radioWorld?.let {
+            val trace = object : RadarTrace {
+                override fun advertise(action: String, tech: String, token: String?, layout: String?, error: String?) =
+                    radarTrace.advertise(action, tech, token, layout, error)
+
+                override fun scan(action: String, api: RadioApi, filters: String?, error: String?) =
+                    radarTrace.scan(action, api, filters, error)
+
+                override fun frame(frame: AirFrame, decoded: List<Pair<String, Decoded>>) =
+                    radarTrace.frame(frame, decoded)
+
+                override fun air(second: AirSecond) = radarTrace.air(second)
+            }
+            FakeRadio(it, name, platform, { gps.truePosition }, { carry.value }, clock::now, trace)
+        } ?: NoopProximityRadio()
+
+    /** The phone's sensors as the field log reads them: the scenario knocks for the touch ([touches]). */
+    val probes = BotProbes(clock::now)
 
     /** The pulse the phone beats with (docs/adr/0012-nearby-radar.md, «Пульс»). */
     val pulse = FakePocketPulse()
@@ -228,7 +254,7 @@ class BotPlayer(
      */
     suspend fun touches(partner: BotPlayer): Boolean {
         val running = app ?: return false
-        impacts.knock()
+        probes.knock()
         val pressed = withContext(running.mainThread) { running.field.touched(partner.id) }
         log(if (pressed) "touches ${partner.name}'s phone" else "touches ${partner.name}'s phone, but there is no card")
         return pressed
@@ -910,8 +936,8 @@ class BotPlayer(
             clockSync = LabClockSync(api::serverTime, clock::now, labLog::monoNow),
             permissions = { mapOf(PermFields.LOCATION to if (gps.hasPermission()) "always" else "denied") },
             carryMonitor = FakeCarryMonitor(carry),
-            impacts = impacts,
-        )
+            probes = probes,
+        ).also { if (fieldLog) radarTrace = LabRadioTrace(labLog) }
         val session = GameSessionManager(
             api,
             connection,

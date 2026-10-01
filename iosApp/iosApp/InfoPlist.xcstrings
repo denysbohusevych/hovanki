@@ -72,6 +72,30 @@
           }
         }
       }
+    },
+    "NSNearbyInteractionUsageDescription" : {
+      "comment" : "Privacy - Nearby Interaction Usage Description",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Measures the distance to another player’s iPhone when both look at the radar; nothing leaves the phone."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Измеряет расстояние до iPhone другого игрока, когда оба смотрят на радар; ничего не передаётся с телефона."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вимірює відстань до iPhone іншого гравця, коли обидва дивляться на радар; нічого не передається з телефона."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

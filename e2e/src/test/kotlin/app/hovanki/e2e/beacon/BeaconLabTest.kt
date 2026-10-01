@@ -22,7 +22,7 @@ class BeaconLabTest {
         assertEquals(null, (HelperLine.parse("heard 0123abcd -48 ibeacon") as HelperLine.Heard).peer, "old helper")
         // An Android hider's `.mfr` layout (docs/adr/0017-radar-techniques-and-big-run.md §2.3).
         assertEquals(
-            SightingVia.MANUFACTURER_DATA,
+            SightingVia.SERVICE_DATA,
             (HelperLine.parse("heard 0123abcd -50 mfr P") as HelperLine.Heard).via,
         )
         assertEquals(

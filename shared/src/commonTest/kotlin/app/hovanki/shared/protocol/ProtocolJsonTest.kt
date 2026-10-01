@@ -85,6 +85,17 @@ class ProtocolJsonTest {
     }
 
     @Test
+    fun aLabStateWithoutUwbTokensIsReadAsNone() {
+        // A server before step 5 sends no `uwbTokens`; the route of the token is the run's.
+        val json = """{"runId":"r1","status":"RUNNING","stepIndex":0,"revision":1,"serverTimeMillis":5}"""
+        assertEquals(emptyMap(), protocolJson.decodeFromString<LabRunStateView>(json).uwbTokens)
+        val view = LabRunStateView(LabRunId("r1"), LabRunStatus.RUNNING, 0, revision = 1, serverTimeMillis = 5)
+            .copy(uwbTokens = mapOf("A" to "YnBsaXN0MDA="))
+        assertEquals(view, protocolJson.decodeFromString<LabRunStateView>(protocolJson.encodeToString(view)))
+        assertEquals("/api/v1/lab/runs/r1/uwb", ApiRoutes.labUwb(LabRunId("r1")))
+    }
+
+    @Test
     fun aBanSaysUntilWhen() {
         val ban = ApiError(ErrorCode.FORBIDDEN, "Banned", ErrorReason.ACCOUNT_BANNED, untilMillis = 1_800_000_000_000)
         assertEquals(ban, protocolJson.decodeFromString<ApiError>(protocolJson.encodeToString(ban)))

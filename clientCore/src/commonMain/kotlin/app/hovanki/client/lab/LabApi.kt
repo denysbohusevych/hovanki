@@ -15,6 +15,7 @@ import app.hovanki.shared.protocol.LabRunAction
 import app.hovanki.shared.protocol.LabRunId
 import app.hovanki.shared.protocol.LabRunStateView
 import app.hovanki.shared.protocol.LabUpload
+import app.hovanki.shared.protocol.LabUwbTokenRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.header
@@ -56,6 +57,12 @@ interface LabApi {
 
     suspend fun advance(runId: LabRunId, token: String, action: LabRunAction): LabRunStateView
 
+    /**
+     * Posts this device's UWB discovery token ([uwbToken]: `NIDiscoveryToken` archived, base64) for `uwb.ni`; the
+     * answer lists every device's ([LabRunStateView.uwbTokens]).
+     */
+    suspend fun uwbToken(runId: LabRunId, token: String, uwbToken: String): LabRunStateView
+
     /** [body]: [batch]'s JSONL, gzipped when [gzip]; the batch's bounds go as the query's parameters. */
     suspend fun upload(
         runId: LabRunId,
@@ -84,6 +91,9 @@ class HttpLabApi(client: HttpClient, serverUrl: ServerUrl) : LabApi {
 
     override suspend fun advance(runId: LabRunId, token: String, action: LabRunAction): LabRunStateView =
         http.post(ApiRoutes.labAdvance(runId), token, LabAdvanceRequest(action))
+
+    override suspend fun uwbToken(runId: LabRunId, token: String, uwbToken: String): LabRunStateView =
+        http.post(ApiRoutes.labUwb(runId), token, LabUwbTokenRequest(uwbToken))
 
     override suspend fun upload(
         runId: LabRunId,

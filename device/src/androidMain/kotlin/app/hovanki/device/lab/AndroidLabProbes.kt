@@ -103,7 +103,11 @@ class AndroidLabProbes(private val context: Context) : LabProbes {
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
         }
-        for (type in listOf(Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_GRAVITY, Sensor.TYPE_PROXIMITY, Sensor.TYPE_LIGHT)) {
+        // The accelerometer at 50 Hz: a knock of two phones (the touch calibration) lasts a few tens of milliseconds.
+        manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
+            manager.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME)
+        }
+        for (type in listOf(Sensor.TYPE_GRAVITY, Sensor.TYPE_PROXIMITY, Sensor.TYPE_LIGHT)) {
             manager.getDefaultSensor(type)?.let { manager.registerListener(listener, it, SAMPLING_PERIOD_MICROS) }
         }
         // The proximity sensor and the light say only changes, and with the screen off some phones say nothing at all:

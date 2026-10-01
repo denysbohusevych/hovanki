@@ -115,9 +115,9 @@ class FieldReportBuilderTest {
             LabRadarKinds.ADV,
             "active",
             "action" to "start",
-            "mode" to "hider",
+            "mode" to if (layout == null) "hider_name" else "hider_service_data",
+            "tech" to if (layout == null) "ble.name" else "ble.service_data.$layout",
             "token" to token,
-            "layout" to layout,
         )
     }
 
@@ -151,17 +151,19 @@ class FieldReportBuilderTest {
         // The lobby's touch: both pressed «We touched».
         a.event(
             T0 + 30_000,
-            TouchKinds.TOUCH,
+            FieldKinds.MARK,
             "active",
-            TouchFields.SRC to TouchFields.BUTTON,
-            TouchFields.PARTNER to B_ID,
+            "label" to TouchDetector.LABEL_PREFIX + RunStep.pairKey(A_ID, B_ID),
+            "by" to "user",
+            "action" to TouchDetector.TOUCH_ACTION,
         )
         b.event(
             T0 + 31_000,
-            TouchKinds.TOUCH,
+            FieldKinds.MARK,
             "active",
-            TouchFields.SRC to TouchFields.BUTTON,
-            TouchFields.PARTNER to A_ID,
+            "label" to TouchDetector.LABEL_PREFIX + RunStep.pairKey(B_ID, A_ID),
+            "by" to "user",
+            "action" to TouchDetector.TOUCH_ACTION,
         )
         a.event(T0, FieldKinds.BATTERY, "active", "level" to 0.9)
         a.event(T0 + 30 * MINUTE, FieldKinds.BATTERY, "active", "level" to 0.8)
@@ -414,7 +416,7 @@ class FieldReportBuilderTest {
         assertEquals(listOf(FieldReportCount("WARM→COLD", 1)), rules.shifts)
         val techniques = assertNotNull(radar.techniques)
         assertTrue(techniques.computed)
-        assertEquals(1, techniques.touchDetector?.buttonTouches)
+        assertEquals(1, techniques.missedTouches, "the presses without knocks: one touch the detector missed")
     }
 
     @Test

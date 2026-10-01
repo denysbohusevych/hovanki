@@ -1,95 +1,136 @@
 package app.hovanki.radar
 
+import app.hovanki.radar.channel.ibeacon.IBeaconChannel
+import app.hovanki.radar.channel.name.NameChannel
+import app.hovanki.radar.channel.servicedata.ServiceDataChannel
+import app.hovanki.shared.protocol.Platform
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** The bytes of the advertisements, as Android counts them before `startAdvertising` (ADR 0017 §2.2). */
 class AdBudgetTest {
-    private val token = "0a1b2c3d"
-    private val service = GameAir.SERVICE_UUID
+    private val token = byteArrayOf(0x0a, 0x1b, 0x2c, 0x3d)
 
     @Test
-    fun theFirstAppsHiderAdvertisementIs40BytesAndNeverWentOut() {
-        val packet = AdBudget.android(AdData(serviceUuids = listOf(service), serviceData = mapOf(service to token)))
-        assertEquals(40, packet.bytes)
-        assertFalse(packet.fits)
-        assertEquals("uuid128 18 + svc_data 22 = 40/31", packet.toString())
+    fun theFirstHiderLayoutIs40BytesAndNeverFit() {
+        val old = listOf(AdPart.ServiceUuid(RadarService.UUID), AdPart.ServiceData(RadarService.UUID, token))
+        assertEquals(40, AdBudget.bytes(old, scanResponse = false))
+        assertFalse(AdBudget.fits(old))
+        assertEquals("adv 40 (uuid128 18, svcdata 22)", AdBudget.layout(old))
     }
 
     @Test
     fun theThreeLayoutsFit() {
-        val scanResponse = advert(RadarCatalog.SCAN_RESPONSE)
-        assertEquals(18, AdBudget.android(scanResponse.main).bytes)
-        assertEquals(22, AdBudget.android(scanResponse.scanResponse).bytes)
-        assertEquals(22, AdBudget.android(advert(RadarCatalog.BARE).main).bytes)
-        assertEquals(26, AdBudget.android(advert(RadarCatalog.MFR).main).bytes)
-        for (layout in RadarCatalog.hiderLayouts) {
-            val advert = advert(layout)
-            assertEquals(listOf(layout.id), advert.tech, layout.id)
-            assertTrue(advert.dropped.isEmpty(), layout.id)
-            assertTrue(AdBudget.android(advert.main).fits && AdBudget.android(advert.scanResponse).fits, layout.id)
-        }
+        val response = ServiceDataChannel.ScanResponse.advertise(TOKEN, RadarRole.HIDER)
+        assertEquals(18, AdBudget.bytes(response, scanResponse = false))
+        assertEquals(22, AdBudget.bytes(response, scanResponse = true))
+        assertTrue(AdBudget.fits(response))
+        assertEquals("adv 18 (uuid128 18) + rsp 22 (svcdata 22)", AdBudget.layout(response))
+
+        val bare = ServiceDataChannel.Bare.advertise(TOKEN, RadarRole.HIDER)
+        assertEquals(22, AdBudget.bytes(bare, scanResponse = false))
+        assertEquals(0, AdBudget.bytes(bare, scanResponse = true))
+
+        val mfr = ServiceDataChannel.Mfr.advertise(TOKEN, RadarRole.HIDER)
+        assertEquals(2 + 2 + 16 + 4, AdBudget.bytes(mfr, scanResponse = false))
+        assertTrue(AdBudget.fits(mfr))
     }
 
     @Test
-    fun theSeekersIBeaconIs27Bytes() {
-        val advert = RadarCatalog.advert(token, AirRole.SEEKER, AirPlatform.ANDROID, RadioOptions(), shadow = false)
-        assertEquals(listOf(RadarCatalog.IBEACON.id), advert.tech)
-        assertEquals("mfr 27 = 27/31", AdBudget.android(advert.main).toString())
+    fun theFlagsCountOnlyInAConnectableAdvertisement() {
+        val bare = ServiceDataChannel.Bare.advertise(TOKEN, RadarRole.HIDER)
+        assertEquals(25, AdBudget.bytes(bare, scanResponse = false, connectable = true))
+        assertEquals(0, AdBudget.bytes(bare, scanResponse = true, connectable = true))
+        assertEquals("adv 25 (flags 3, svcdata 22)", AdBudget.layout(bare, connectable = true))
     }
 
     @Test
-    fun fieldsAreCountedTheWayAndroidDoes() {
-        val packet = AdBudget.android(
-            AdData(
-                serviceUuids = listOf("FEAA", "FEAB", "12345678", service),
-                localName = "hovanki",
-                includeTxPower = true,
-            ),
-            flags = true,
+    fun uuidsOfOneSizeShareAField() {
+        val parts = listOf(
+            AdPart.ServiceUuid("FEAA"),
+            AdPart.ServiceUuid("0000FEAB-0000-1000-8000-00805F9B34FB"),
+            AdPart.ServiceUuid(RadarService.UUID),
         )
-        // flags 3, two 16-bit UUIDs in one field (2 + 4), one 32-bit (2 + 4), one 128-bit (2 + 16), tx 3, name 2 + 7.
-        assertEquals(listOf(3, 6, 6, 18, 3, 9), packet.fields.map { it.bytes })
-        assertEquals(45, packet.bytes)
-        assertEquals("-", AdBudget.android(AdData()).toString())
+        assertEquals(2 + 2 * 2 + 2 + 16, AdBudget.bytes(parts, scanResponse = false))
+        val beacon = IBeaconChannel.advertise(TOKEN, RadarRole.SEEKER)
+        assertEquals(27, AdBudget.bytes(beacon, scanResponse = false))
     }
 
     @Test
-    fun aPartThatDoesNotFitIsLeftOutAndNamed() {
-        val tooBig = AdPart("old", main = AdData(serviceUuids = listOf(service), serviceData = mapOf(service to token)))
-        val fits = AdPart("bare", main = AdData(serviceData = mapOf(service to token)))
-        val advert = AdJoin.join(listOf(tooBig, fits), AirPlatform.ANDROID)
-        assertEquals(listOf("bare"), advert.tech)
-        assertEquals(listOf("old"), advert.dropped)
-        // The same service data twice would overwrite the first: the second is left out.
-        val twice = AdJoin.join(listOf(fits, fits.copy(tech = "again")), AirPlatform.ANDROID)
-        assertEquals(listOf("again"), twice.dropped)
+    fun androidDropsTheNameAndWhatDoesNotFitFromTheEnd() {
+        val plan = AdPlan.of(RadarCatalog.game, TOKEN, RadarRole.HIDER, Platform.ANDROID)
+        assertEquals(
+            listOf(
+                TechPart(ServiceDataChannel.ScanResponse.id, AdPart.ServiceUuid(RadarService.UUID)),
+                TechPart(
+                    ServiceDataChannel.ScanResponse.id,
+                    AdPart.ServiceData(RadarService.UUID, token, inScanResponse = true),
+                ),
+            ),
+            plan.parts,
+        )
+        assertEquals(listOf(Dropped(NameChannel.id, AdPart.LocalName(TOKEN), "no local name on android")), plan.dropped)
+
+        val old = listOf(
+            TechPart("old", AdPart.ServiceUuid(RadarService.UUID)),
+            TechPart("old", AdPart.ServiceData(RadarService.UUID, token)),
+        )
+        val fitted = AdPlan.forPlatform(old, Platform.ANDROID)
+        assertEquals(old.take(1), fitted.parts)
+        assertEquals("over 31 bytes: adv 40 (uuid128 18, svcdata 22)", fitted.dropped.single().why)
     }
 
     @Test
-    fun anIPhoneHidersNameAndServiceFillTheForegroundRoom() {
-        val advert = RadarCatalog.advert(token, AirRole.HIDER, AirPlatform.IOS, RadioOptions(), shadow = false)
-        assertEquals(listOf(RadarCatalog.NAME.id), advert.tech)
-        val report = advert.report()
-        assertEquals("uuid128 18 + name 10 = 28/28", report.main.toString())
-        assertNull(report.scanResponse)
-        assertTrue(advert.backgroundUuids.isEmpty())
+    fun anIphoneSendsNoDataAndAnIBeaconAlone() {
+        val hider = AdPlan.of(RadarCatalog.game, TOKEN, RadarRole.HIDER, Platform.IOS)
+        assertEquals(listOf(AdPart.ServiceUuid(RadarService.UUID), AdPart.LocalName(TOKEN)), hider.adParts)
+        assertEquals(listOf("no service data on ios"), hider.dropped.map { it.why })
+        assertEquals(listOf(ServiceDataChannel.ScanResponse.id, NameChannel.id), hider.techs)
+
+        val both = AdPlan.forPlatform(
+            listOf(TechPart("a", AdPart.ServiceUuid(RadarService.UUID))) +
+                IBeaconChannel.advertise(TOKEN, RadarRole.SEEKER).map { TechPart("b", it) },
+            Platform.IOS,
+        )
+        assertEquals(listOf("b"), both.techs)
+        assertEquals(listOf("an ibeacon advertises alone on ios"), both.dropped.map { it.why })
     }
 
     @Test
-    fun iOSCanAdvertiseOnlyANameAndUuidsOrAnIBeacon() {
-        val beacon = RadarCatalog.IBEACON.adPart(token, AirRole.SEEKER, AirPlatform.IOS)!!
-        val name = RadarCatalog.NAME.adPart(token, AirRole.HIDER, AirPlatform.IOS)!!
-        val serviceData = AdPart("data", main = AdData(serviceData = mapOf(service to token)))
-        val advert = AdJoin.join(listOf(beacon, name, serviceData), AirPlatform.IOS)
-        assertEquals(listOf(beacon.tech), advert.tech)
-        assertEquals(listOf(name.tech, "data"), advert.dropped)
-        assertTrue(advert.main.isEmpty)
+    fun thePlanTellsTheTraceOncePerChannelAndWhatItDropped() {
+        val trace = RecordingTrace()
+        val plan = AdPlan.of(RadarCatalog.game, TOKEN, RadarRole.HIDER, Platform.ANDROID)
+        plan.trace(trace, "start", TOKEN)
+        assertEquals(
+            listOf(
+                "start ${ServiceDataChannel.ScanResponse.id} adv 18 (uuid128 18) + rsp 22 (svcdata 22) null",
+                "dropped ${NameChannel.id} adv 18 (uuid128 18) + rsp 22 (svcdata 22) no local name on android",
+            ),
+            trace.adverts,
+        )
+    }
+}
+
+class RecordingTrace : RadarTrace {
+    val adverts = mutableListOf<String>()
+    val scans = mutableListOf<String>()
+    val frames = mutableListOf<Pair<AirFrame, List<Pair<String, Decoded>>>>()
+    val seconds = mutableListOf<AirSecond>()
+
+    override fun advertise(action: String, tech: String, token: String?, layout: String?, error: String?) {
+        adverts += "$action $tech $layout $error"
     }
 
-    private fun advert(layout: RadarChannel): Advert =
-        AdJoin.join(listOfNotNull(layout.adPart(token, AirRole.HIDER, AirPlatform.ANDROID)), AirPlatform.ANDROID)
+    override fun scan(action: String, api: RadioApi, filters: String?, error: String?) {
+        scans += "$action ${api.key}"
+    }
+
+    override fun frame(frame: AirFrame, decoded: List<Pair<String, Decoded>>) {
+        frames += frame to decoded
+    }
+
+    override fun air(second: AirSecond) {
+        seconds += second
+    }
 }

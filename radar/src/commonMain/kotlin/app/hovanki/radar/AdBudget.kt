@@ -1,214 +1,165 @@
 package app.hovanki.radar
 
+import app.hovanki.shared.protocol.Platform
+
 /**
- * The bytes of an advertisement (docs/adr/0017-radar-techniques-and-big-run.md, section 2.2). [android] counts the way
- * `BluetoothLeAdvertiser.totalBytes` does before `startAdvertising`: 2 bytes per field (length and type) and the field's
- * data, 16-bit, 32-bit and 128-bit service UUIDs each in one field, 2 more for a company id, the flags (3) only for a
- * connectable advertisement. A legacy packet holds [LEGACY_BYTES]: more, and Android refuses it with
- * `ADVERTISE_FAILED_DATA_TOO_LARGE` (code 1) before anything goes on the air. [ios] counts the room iOS gives an app
- * in the foreground ([IOS_FOREGROUND_BYTES] for the name and the service UUIDs): what doesn't fit is not refused, the
- * UUIDs go into the overflow area.
+ * The byte budget of a legacy advertisement on Android (docs/radar-run.md §3), counted the way
+ * `BluetoothLeAdvertiser.totalBytes` does before `startAdvertising` refuses a packet with
+ * `ADVERTISE_FAILED_DATA_TOO_LARGE`: 2 bytes of header per field; the service UUIDs of one size share one field
+ * (16 bytes per 128-bit UUID, 4 per 32-bit, 2 per 16-bit); service data is its UUID and the data; manufacturer data 2
+ * bytes of company id and the data; the flags (3 bytes) only when the advertisement is connectable. The advertisement
+ * and the scan response each have [LEGACY_MAX] bytes; only [AdPart.ServiceData] with `inScanResponse` goes into the
+ * latter.
  */
 object AdBudget {
-    const val LEGACY_BYTES = 31
+    const val LEGACY_MAX = 31
+    private const val FIELD_HEADER = 2
+    private const val FLAGS = 3
+    private const val COMPANY_ID = 2
 
-    /** iOS in the foreground: the name and the service UUIDs share this much (`CBPeripheralManager.startAdvertising`). */
-    const val IOS_FOREGROUND_BYTES = 28
+    /** The bytes of [parts] in one packet: the scan response when [scanResponse], else the advertisement. */
+    fun bytes(parts: List<AdPart>, scanResponse: Boolean, connectable: Boolean = false): Int =
+        fields(parts, scanResponse, connectable).sumOf { it.second }
 
-    /** `AdvertiseCallback.ADVERTISE_FAILED_DATA_TOO_LARGE`. */
-    const val ANDROID_TOO_LARGE = 1
+    /** Both packets within [LEGACY_MAX]. */
+    fun fits(parts: List<AdPart>, connectable: Boolean = false): Boolean =
+        bytes(parts, scanResponse = false, connectable) <= LEGACY_MAX &&
+            bytes(parts, scanResponse = true, connectable) <= LEGACY_MAX
 
-    private const val FLAGS_BYTES = 3
-    private const val FIELD_OVERHEAD = 2
-    private const val COMPANY_ID_BYTES = 2
+    /**
+     * The layout in words for the log's `adv` event: `adv 18 (uuid128 18) + rsp 22 (svcdata 22)`; the scan response
+     * only when something is in it.
+     */
+    fun layout(parts: List<AdPart>, connectable: Boolean = false): String {
+        fun packet(label: String, scanResponse: Boolean): String {
+            val fields = fields(parts, scanResponse, connectable)
+            val total = fields.sumOf { it.second }
+            return if (fields.isEmpty()) {
+                "$label $total"
+            } else {
+                "$label $total (${fields.joinToString(", ") { "${it.first} ${it.second}" }})"
+            }
+        }
+        val adv = packet("adv", scanResponse = false)
+        return if (parts.any { it.inScanResponse }) "$adv + ${packet("rsp", scanResponse = true)}" else adv
+    }
 
-    /** One field of a packet: what it is and its bytes on the air, the 2 of length and type included. */
-    data class Field(val name: String, val bytes: Int)
-
-    /** A packet's fields against its [limit]. */
-    data class Packet(val fields: List<Field>, val limit: Int = LEGACY_BYTES) {
-        val bytes: Int get() = fields.sumOf { it.bytes }
-        val fits: Boolean get() = bytes <= limit
-
-        /** `uuid128 18 + svc_data 22 = 40/31`; `-` for an empty packet. */
-        override fun toString(): String = if (fields.isEmpty()) {
-            "-"
-        } else {
-            fields.joinToString(" + ") { "${it.name} ${it.bytes}" } + " = $bytes/$limit"
+    /** The fields of one packet: a label and its bytes, in the order `totalBytes` counts them. */
+    private fun fields(parts: List<AdPart>, scanResponse: Boolean, connectable: Boolean): List<Pair<String, Int>> {
+        val here = parts.filter { it.inScanResponse == scanResponse }
+        return buildList {
+            if (connectable && !scanResponse) add("flags" to FLAGS)
+            val uuids = here.filterIsInstance<AdPart.ServiceUuid>().map { BleUuid.normalize(it.uuid) }.distinct()
+            for ((size, label) in listOf(2 to "uuid16", 4 to "uuid32", 16 to "uuid128")) {
+                val count = uuids.count { BleUuid.size(it) == size }
+                if (count > 0) add(label to FIELD_HEADER + count * size)
+            }
+            for (part in here) {
+                when (part) {
+                    is AdPart.ServiceData -> add("svcdata" to FIELD_HEADER + BleUuid.size(part.uuid) + part.data.size)
+                    is AdPart.ManufacturerData -> add("mfr" to FIELD_HEADER + COMPANY_ID + part.data.size)
+                    is AdPart.IBeacon -> add("ibeacon" to FIELD_HEADER + COMPANY_ID + IBeaconBytes.LENGTH)
+                    is AdPart.LocalName -> add("name" to FIELD_HEADER + part.name.encodeToByteArray().size)
+                    is AdPart.ServiceUuid -> Unit
+                }
+            }
         }
     }
 
-    /** The packet as Android counts it; [flags]: a connectable (and discoverable) advertisement carries them. */
-    fun android(data: AdData, flags: Boolean = false): Packet = Packet(
-        buildList {
-            if (flags) add(Field("flags", FLAGS_BYTES))
-            val bySize = data.serviceUuids.groupBy(BleUuid::sizeOnAir)
-            for (size in listOf(2, 4, 16)) {
-                val uuids = bySize[size] ?: continue
-                add(Field("uuid${size * 8}", FIELD_OVERHEAD + uuids.size * size))
-            }
-            for ((uuid, hex) in data.serviceData) {
-                add(Field("svc_data", FIELD_OVERHEAD + BleUuid.sizeOnAir(uuid) + hex.length / 2))
-            }
-            for ((_, hex) in data.manufacturerData) {
-                add(Field("mfr", FIELD_OVERHEAD + COMPANY_ID_BYTES + hex.length / 2))
-            }
-            if (data.includeTxPower) add(Field("tx_power", FIELD_OVERHEAD + 1))
-            data.localName?.let { add(Field("name", FIELD_OVERHEAD + it.encodeToByteArray().size)) }
-        },
-    )
-
-    /** The room iOS gives the name and the service UUIDs in the foreground; nothing else can be advertised there. */
-    fun ios(data: AdData): Packet = Packet(
-        buildList {
-            val bySize = data.serviceUuids.groupBy(BleUuid::sizeOnAir)
-            for (size in listOf(2, 4, 16)) {
-                val uuids = bySize[size] ?: continue
-                add(Field("uuid${size * 8}", FIELD_OVERHEAD + uuids.size * size))
-            }
-            data.localName?.let { add(Field("name", FIELD_OVERHEAD + it.encodeToByteArray().size)) }
-        },
-        limit = IOS_FOREGROUND_BYTES,
-    )
+    private val AdPart.inScanResponse: Boolean get() = this is AdPart.ServiceData && inScanResponse
 }
 
-/**
- * The advertisement a host puts on the air, joined from its channels' parts ([AdJoin]): the channels in it ([tech]),
- * [main], [scanResponse], an [iBeacon] (iOS: the whole advertisement; Android: already in [main] as Apple's
- * manufacturer data), on iOS the [backgroundUuids] for a locked iPhone, and the channels left out ([dropped]).
- */
-data class Advert(
-    val tech: List<String>,
-    val main: AdData,
-    val scanResponse: AdData,
-    val iBeacon: IBeaconAd?,
-    val backgroundUuids: List<String>,
-    val dropped: List<String>,
-    val layout: String?,
-    val platform: AirPlatform,
-) {
-    val isEmpty: Boolean get() = main.isEmpty && scanResponse.isEmpty && iBeacon == null
+/** A part of the advertisement with the channel ([tech]) it came from. */
+data class TechPart(val tech: String, val part: AdPart)
 
-    /** What the journal's `adv` says of it (ADR 0017 §4): the channels, the bytes, what didn't fit. */
-    fun report(): AdvertReport = AdvertReport(
-        tech = tech,
-        layout = layout,
-        main = if (platform == AirPlatform.ANDROID) AdBudget.android(main) else AdBudget.ios(main),
-        scanResponse = scanResponse.takeIf { !it.isEmpty }?.let { AdBudget.android(it) },
-        dropped = dropped,
-        background = backgroundUuids.size,
-    )
-}
-
-/** An advertisement's layout in the journal (`adv`): [main] and [scanResponse] by field, the channels left out. */
-data class AdvertReport(
-    val tech: List<String>,
-    val layout: String?,
-    val main: AdBudget.Packet,
-    val scanResponse: AdBudget.Packet?,
-    val dropped: List<String>,
-    val background: Int = 0,
-)
+/** A part the host left out, and [why], for the log's `adv` event. */
+data class Dropped(val tech: String, val part: AdPart, val why: String)
 
 /**
- * Joins the channels' parts into one advertisement by the OS's rules (ADR 0017 §2.2), in the order given (the first
- * has the room first); a part that doesn't fit or clashes with one taken is left out and named in [Advert.dropped].
- *
- * - Android: a legacy packet and its scan response, each [AdBudget.LEGACY_BYTES] at most; an iBeacon is Apple's
- *   manufacturer data in the packet; no overflow area (only iOS makes one).
- * - iOS and the Mac: the name and the service UUIDs only (CoreBluetooth takes nothing else), or an iBeacon, which is
- *   a whole advertisement of its own; [Advert.backgroundUuids] on iOS only.
+ * The advertisement a host asks its OS for (docs/adr/0017-radar-techniques-and-big-run.md, section 2.2): assembled
+ * from every channel's parts, in the channels' order, a service UUID two channels want once; minus what the platform
+ * can't send ([dropped]). The hosts of Android and iOS and the simulator's share it.
  */
-object AdJoin {
-    fun join(parts: List<AdPart>, platform: AirPlatform): Advert =
-        if (platform == AirPlatform.ANDROID) android(parts) else apple(parts, platform)
+data class AdPlan(val parts: List<TechPart>, val dropped: List<Dropped> = emptyList()) {
+    val adParts: List<AdPart> get() = parts.map { it.part }
 
-    private fun android(parts: List<AdPart>): Advert {
-        var main = AdData()
-        var response = AdData()
-        val kept = ArrayList<AdPart>()
-        val dropped = ArrayList<String>()
-        for (part in parts) {
-            val beacon = part.iBeacon?.let {
-                AdData(manufacturerData = mapOf(GameAir.APPLE_COMPANY_ID to it.frameHex()))
-            }
-            val partMain = part.main + (beacon ?: AdData())
-            val nothingHere = partMain.isEmpty && part.scanResponse.isEmpty
-            val clash = clashes(main, partMain) || clashes(response, part.scanResponse)
-            val nextMain = main + partMain
-            val nextResponse = response + part.scanResponse
-            if (nothingHere || clash || !AdBudget.android(nextMain).fits || !AdBudget.android(nextResponse).fits) {
-                dropped += part.tech
-                continue
-            }
-            main = nextMain
-            response = nextResponse
-            kept += part
-        }
-        return Advert(
-            tech = kept.map { it.tech },
-            main = main,
-            scanResponse = response,
-            iBeacon = null,
-            backgroundUuids = emptyList(),
-            dropped = dropped,
-            layout = kept.firstNotNullOfOrNull { it.layout },
-            platform = AirPlatform.ANDROID,
-        )
+    /** The channels with something on the air, in order. */
+    val techs: List<String> get() = parts.map { it.tech }.distinct()
+
+    val isEmpty: Boolean get() = parts.isEmpty()
+
+    fun layout(connectable: Boolean = false): String = AdBudget.layout(adParts, connectable)
+
+    /**
+     * Tells [trace] about [action] (`start`, `stop`, `failed` with [error], `skipped_background`) once per channel on
+     * the air; with `start` and `failed`, also every part left out ([traceDropped]).
+     */
+    fun trace(trace: RadarTrace, action: String, token: String?, error: String? = null, connectable: Boolean = false) {
+        val layout = layout(connectable)
+        for (tech in techs) trace.advertise(action, tech, token, layout, error)
+        if (action == "start" || action == "failed") traceDropped(trace, token, connectable)
     }
 
-    private fun apple(parts: List<AdPart>, platform: AirPlatform): Advert {
-        var main = AdData()
-        var beacon: IBeaconAd? = null
-        val background = ArrayList<String>()
-        val kept = ArrayList<AdPart>()
-        val dropped = ArrayList<String>()
-        for (part in parts) {
-            val unsupported = part.main.serviceData.isNotEmpty() || part.main.manufacturerData.isNotEmpty() ||
-                !part.scanResponse.isEmpty || part.main.includeTxPower
-            val onlyBackground = part.main.isEmpty && part.iBeacon == null
-            when {
-                unsupported -> dropped += part.tech
-
-                onlyBackground && (platform != AirPlatform.IOS || part.backgroundUuids.isEmpty()) ->
-                    dropped +=
-                        part.tech
-
-                onlyBackground -> {
-                    background += part.backgroundUuids
-                    kept += part
-                }
-
-                part.iBeacon != null -> if (beacon == null && main.isEmpty) {
-                    beacon = part.iBeacon
-                    kept += part
-                } else {
-                    dropped += part.tech
-                }
-
-                beacon != null || (main.localName != null && part.main.localName != null) -> dropped += part.tech
-
-                else -> {
-                    main += part.main
-                    if (platform == AirPlatform.IOS) background += part.backgroundUuids
-                    kept += part
-                }
-            }
-        }
-        return Advert(
-            tech = kept.map { it.tech },
-            main = main,
-            scanResponse = AdData(),
-            iBeacon = beacon,
-            backgroundUuids = background.distinct(),
-            dropped = dropped,
-            layout = kept.firstNotNullOfOrNull { it.layout },
-            platform = platform,
-        )
+    /** Every part left out: `dropped`, the reason as the error. */
+    fun traceDropped(trace: RadarTrace, token: String?, connectable: Boolean = false) {
+        val layout = layout(connectable)
+        for (drop in dropped) trace.advertise("dropped", drop.tech, token, layout, drop.why)
     }
 
-    /** The same service data UUID or company id twice: the second would overwrite the first. */
-    private fun clashes(taken: AdData, part: AdData): Boolean = part.serviceData.keys.any { it in taken.serviceData } ||
-        part.manufacturerData.keys.any { it in taken.manufacturerData } ||
-        (part.localName != null && taken.localName != null)
+    companion object {
+        /** Every channel's parts for [token] in [role], a service UUID once. */
+        fun assemble(channels: List<RadarChannel>, token: String, role: RadarRole): List<TechPart> {
+            val seen = mutableSetOf<String>()
+            return channels.flatMap { channel -> channel.advertise(token, role).map { TechPart(channel.id, it) } }
+                .filter { (_, part) -> part !is AdPart.ServiceUuid || seen.add(BleUuid.normalize(part.uuid)) }
+        }
+
+        /**
+         * The plan for [platform]. Android: no local name (it can't name one advertisement without renaming the
+         * phone), then parts from the end until both packets fit ([AdBudget]). iOS and a Mac (CoreBluetooth): no
+         * service data or manufacturer data (an app can't advertise them); an iBeacon advertises alone.
+         */
+        fun of(
+            channels: List<RadarChannel>,
+            token: String,
+            role: RadarRole,
+            platform: Platform,
+            connectable: Boolean = false,
+        ): AdPlan = forPlatform(assemble(channels, token, role), platform, connectable)
+
+        fun forPlatform(parts: List<TechPart>, platform: Platform, connectable: Boolean = false): AdPlan {
+            val kept = mutableListOf<TechPart>()
+            val dropped = mutableListOf<Dropped>()
+            when (platform) {
+                Platform.ANDROID -> {
+                    for (part in parts) {
+                        if (part.part is AdPart.LocalName) {
+                            dropped += Dropped(part.tech, part.part, "no local name on android")
+                        } else {
+                            kept += part
+                        }
+                    }
+                    while (kept.isNotEmpty() && !AdBudget.fits(kept.map { it.part }, connectable)) {
+                        val over = AdBudget.layout(kept.map { it.part }, connectable)
+                        val last = kept.removeAt(kept.lastIndex)
+                        dropped += Dropped(last.tech, last.part, "over ${AdBudget.LEGACY_MAX} bytes: $over")
+                    }
+                }
+
+                Platform.IOS, Platform.OTHER -> {
+                    val beacon = parts.firstOrNull { it.part is AdPart.IBeacon }
+                    for (part in parts) {
+                        val why = when {
+                            part.part is AdPart.ServiceData -> "no service data on ios"
+                            part.part is AdPart.ManufacturerData -> "no manufacturer data on ios"
+                            beacon != null && part !== beacon -> "an ibeacon advertises alone on ios"
+                            else -> null
+                        }
+                        if (why == null) kept += part else dropped += Dropped(part.tech, part.part, why)
+                    }
+                }
+            }
+            return AdPlan(kept, dropped)
+        }
+    }
 }

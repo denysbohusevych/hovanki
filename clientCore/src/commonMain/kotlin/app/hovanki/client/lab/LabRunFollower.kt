@@ -23,6 +23,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -69,7 +71,9 @@ data class LabFollowState(
  * that last moment still counts. The buttons (Next, Repeat, Pause, Resume) are the admin's or any phone's
  * ([advance]). When the run is over the lab stops recording and the rest of the log goes up; [leave] ends following.
  * When the lab stops meanwhile (a game started: the lab never shares the radio with a round) the phone leaves the run
- * by itself and touches none of the lab's parts again. Main thread.
+ * by itself and touches none of the lab's parts again. A phone with UWB ([LabController.canRange]) makes its radio
+ * ready at the join and posts its discovery token to the run, again whenever it changes ([LabApi.uwbToken]); every
+ * answer's tokens of the run's devices go to the controller ([LabController.setUwbPeers]) for `uwb.ni`. Main thread.
  */
 class LabRunFollower(
     private val controller: LabController,
@@ -198,9 +202,14 @@ class LabRunFollower(
             radarToken = response.radarToken,
             warnings = warnings,
         )
+        controller.setUwbPeers(response.state.uwbTokens)
         update(byClock(script, LabRunPlan.fromView(response.state)))
         loops += scope.launch { pollLoop() }
         loops += scope.launch { tickLoop() }
+        if (controller.canRange) {
+            controller.prepareRanging()
+            loops += scope.launch { postUwbTokens() }
+        }
         watcher = scope.launch {
             controller.running.first { !it }
             labStopped()
@@ -271,6 +280,34 @@ class LabRunFollower(
         mutableState.value = mutableState.value?.copy(left = true)
     }
 
+    /**
+     * Posts this phone's UWB discovery token to the run whenever there is a new one, until it goes through (a failed
+     * post is tried again every [pollMillis]); the answer is a state view like a poll's.
+     */
+    private suspend fun postUwbTokens() {
+        controller.uwbToken.filterNotNull().collectLatest { uwbToken ->
+            while (true) {
+                val state = mutableState.value ?: return@collectLatest
+                val token = token ?: return@collectLatest
+                if (state.left) return@collectLatest
+                val startedAt = log.monoNow()
+                try {
+                    val view = api.uwbToken(state.runId, token, uwbToken)
+                    log.net("uwb", ok = true, millis = log.monoNow() - startedAt)
+                    onAnswer(view)
+                    return@collectLatest
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val reason = LabUploader.describe(e)
+                    log.net("uwb", ok = false, millis = log.monoNow() - startedAt, error = reason)
+                    mutableError.value = "uwb: $reason"
+                }
+                delay(pollMillis)
+            }
+        }
+    }
+
     private suspend fun pollLoop() {
         var lastPollAt = Long.MIN_VALUE
         while (true) {
@@ -310,6 +347,8 @@ class LabRunFollower(
     private fun onAnswer(view: LabRunStateView) {
         val state = mutableState.value ?: return
         if (state.left || token == null || view.runId != state.runId) return
+        // The run's UWB tokens don't move with the plan: every answer has the latest the server knows.
+        controller.setUwbPeers(view.uwbTokens)
         // An answer older than what this phone already has (its own button's, a poll overtaken): nothing new.
         if (view.revision < state.plan.revision) return
         endAsked = false
@@ -342,6 +381,11 @@ class LabRunFollower(
             stepEndsAtMillis = LabRunPlan.stepEndsAt(script, plan),
         )
         mutableState.value = next
+        controller.setLiveStep(
+            next.step?.let { "Step ${plan.stepIndex + 1}/${script.steps.size}: ${it.title}" }
+                ?: if (plan.status == LabRunStatus.FINISHED) "The run is over" else "Waiting for the start",
+            next.stepEndsAtMillis,
+        )
         when {
             plan.status == LabRunStatus.FINISHED -> if (previous.status != LabRunStatus.FINISHED) finished()
             plan.status == LabRunStatus.CREATED || plan.stepIndex !in script.steps.indices -> Unit
@@ -386,9 +430,12 @@ class LabRunFollower(
         } else {
             // The advertisement changes only while the phone is active; the locked steps keep the lock step's.
             if (controller.probe.value != setup.probe) controller.setProbe(setup.probe)
+            // The step's channels before the radio (re)starts: a radio already on starts again with them.
+            controller.setTechniques(setup.techniques)
             val asSeeker = when {
                 setup.hider -> false
                 setup.seeker -> true
+                setup.techniques.isNotEmpty() -> false
                 else -> null
             }
             val radio = controller.bench.radioMode.value
@@ -434,8 +481,11 @@ class LabRunFollower(
     private fun stopParts() {
         advertisedStretch = null
         if (!controller.running.value) return
+        controller.setUwbPeers(emptyMap())
+        controller.setLiveStep(null)
         controller.setProbe(null)
         controller.setBenchRadio(null)
+        controller.setTechniques(emptySet())
         controller.setListening(false)
         controller.setScreenOff(false)
         controller.setPulse(LabPulse.OFF)

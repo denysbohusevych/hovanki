@@ -161,7 +161,8 @@ class IosLabProbes : LabProbes {
     }
 
     private companion object {
-        const val MOTION_INTERVAL_SECONDS = 0.1
+        /** 50 Hz: a knock of two phones (the touch calibration) lasts a few tens of milliseconds. */
+        const val MOTION_INTERVAL_SECONDS = 0.02
         const val MINUTE_MILLIS = 60_000L
     }
 }

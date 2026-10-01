@@ -3,8 +3,6 @@ package app.hovanki.server.radio
 import app.hovanki.server.db.toTimestamptz
 import app.hovanki.server.game.CalibrationAnchor
 import app.hovanki.server.game.CalibrationBucket
-import app.hovanki.shared.lab.CalibrationSample
-import app.hovanki.shared.lab.ModelOffsets
 import app.hovanki.shared.protocol.Carry
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
@@ -41,30 +39,6 @@ class RadioCalibrationRepository(private val jdbc: JdbcClient) {
                 .update()
         }
     }
-
-    /**
-     * What each pair of models heard at the catches (`CATCH`: a metre apart) with neither phone in a pocket: the radio
-     * lab's report turns it into the `calib.model` offsets ([ModelOffsets.fromCatches]), which say what the models do,
-     * not the body's damping (a hider's pocketed phone at the catch, the usual case, is a dozen dB quieter).
-     */
-    fun catches(): List<CalibrationSample> = jdbc.sql(
-        """
-        SELECT hearer_model, heard_model, rssi_dbm, SUM(readings) AS readings FROM radio_calibration
-        WHERE anchor = :anchor AND hearer_carry <> :pocket AND heard_carry <> :pocket
-        GROUP BY hearer_model, heard_model, rssi_dbm
-        """.trimIndent(),
-    )
-        .param("anchor", CalibrationAnchor.CATCH.name)
-        .param("pocket", Carry.IN_POCKET.name)
-        .query { rs, _ ->
-            CalibrationSample(
-                hearerModel = rs.getString("hearer_model"),
-                heardModel = rs.getString("heard_model"),
-                rssiDbm = rs.getInt("rssi_dbm"),
-                readings = rs.getLong("readings").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-            )
-        }
-        .list()
 
     /** Everything counted so far, the loudest first. */
     fun all(): List<CalibrationBucket> = jdbc.sql(

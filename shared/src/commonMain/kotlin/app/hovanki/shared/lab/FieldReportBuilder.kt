@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.roundToLong
@@ -397,7 +398,11 @@ class FieldReportBuilder(
                 )
             }
 
-            FieldKinds.MARK -> {
+            FieldKinds.MARK -> if (event.string("action") == TouchDetector.TOUCH_ACTION) {
+                // «We touched» on the touch card: the touch detector's truth, no «something is wrong».
+                technique(event, p)
+                TouchDetector.touchPair(event)?.split('|')?.let { (a, b) -> buttonTouches += t to (a to b) }
+            } else {
                 p.marks++
                 mark(event, p)
             }
@@ -424,7 +429,18 @@ class FieldReportBuilder(
             LabRadarKinds.ADV -> {
                 event.string("token")?.let { owners.getOrPut(it) { mutableSetOf() } += p.label }
                 when (event.string("action")) {
-                    "start" -> p.radio.add(t, event.string("layout") ?: ON)
+                    // One `adv` a channel on the air: an Android hider's service data says its layout, the other
+                    // channels of the same advertisement only that the radio is on.
+                    "start" -> {
+                        val layout = event.string("tech")?.takeIf { it.startsWith(SERVICE_DATA) }
+                            ?.removePrefix(SERVICE_DATA)
+                        if (layout != null) {
+                            p.radio.add(t, layout)
+                        } else if (p.radio.at(t).let { it == null || it == OFF }) {
+                            p.radio.add(t, ON)
+                        }
+                    }
+
                     "stop", "failed" -> p.radio.add(t, OFF)
                 }
                 if (event.string("action") == "start") technique(event, p)
@@ -467,14 +483,7 @@ class FieldReportBuilder(
                 if (token != null && band != null) minute(p, t)?.bands?.put(token, band)
             }
 
-            TouchKinds.TOUCH -> {
-                technique(event, p)
-                if (event.string(TouchFields.SRC) == TouchFields.BUTTON) {
-                    event.string(TouchFields.PARTNER)?.let { partner ->
-                        buttonTouches += t to (p.label to partner)
-                    }
-                }
-            }
+            IMPACT -> technique(event, p)
         }
     }
 
@@ -566,9 +575,10 @@ class FieldReportBuilder(
             techniqueEvents.trimToSize()
             return
         }
-        // The techniques read players by their aliases: the partner of a touch too.
-        val fields = event.string(TouchFields.PARTNER)?.let { partner ->
-            JsonObject(event.fields + (TouchFields.PARTNER to JsonPrimitive(alias(partner))))
+        // The techniques read players by their aliases: the pair of a touch's mark too.
+        val fields = TouchDetector.touchPair(event)?.split('|')?.let { (a, b) ->
+            val label = TouchDetector.LABEL_PREFIX + RunStep.pairKey(alias(a), alias(b))
+            JsonObject(event.fields + ("label" to JsonPrimitive(label)))
         } ?: event.fields
         techniqueEvents += LabEvent(event.t, p.alias, event.k, event.app, event.mono, fields)
     }
@@ -875,12 +885,34 @@ class FieldReportBuilder(
         }
     }
 
-    /** Touches as «0 m»: from the techniques when they were computed, else the button's presses alone. */
-    private fun touchZeroPoints(techniques: FieldReportTechniques?): List<FieldReportZero> =
-        techniques?.touches?.takeIf { techniques.computed }?.map {
-            FieldReportZero(TOUCH_ZERO, it.atMillis, it.a, it.b, it.rssiAToB, it.rssiBToA)
-        } ?: buttonTouches.map { (t, pair) -> FieldReportZero(TOUCH_ZERO, t, alias(pair.first), alias(pair.second)) }
+    /**
+     * Touches as «0 m»: the detector's when the techniques were computed (with their RSSI), and the button's presses
+     * it did not find (no RSSI).
+     */
+    private fun touchZeroPoints(techniques: FieldReportTechniques?): List<FieldReportZero> {
+        val found = techniques?.touches?.takeIf { techniques.computed }.orEmpty().map {
+            val (a, b) = it.pair.split('|')
+            FieldReportZero(
+                TOUCH_ZERO,
+                it.atMillis,
+                a,
+                b,
+                it.rssi[Calibration.direction(a, b)],
+                it.rssi[Calibration.direction(b, a)],
+            )
+        }
+        val pressed = buttonTouches.map { (t, pair) ->
+            FieldReportZero(TOUCH_ZERO, t, alias(pair.first), alias(pair.second))
+        }
             .distinctBy { Triple(it.atMillis / BUTTON_SAME_MILLIS, minOf(it.a, it.b), maxOf(it.a, it.b)) }
+            .filter { press ->
+                found.none {
+                    setOf(it.a, it.b) == setOf(press.a, press.b) &&
+                        abs(it.atMillis - press.atMillis) <= TouchDetector.TRUTH_WINDOW_MILLIS
+                }
+            }
+        return found + pressed
+    }
 
     private fun techniques(): FieldReportTechniques? {
         if (techniquesOverflow) {
@@ -889,25 +921,36 @@ class FieldReportBuilder(
                 note = "More than ${options.maxTechniqueEvents} readings and touches: merge the raw logs on a computer",
             )
         }
-        if (techniqueEvents.none { it.k == FieldKinds.RX || it.k == TouchKinds.TOUCH }) return null
+        if (techniqueEvents.none { it.k == FieldKinds.RX || it.k == IMPACT }) return null
         val sorted = techniqueEvents.sortedWith(compareBy({ it.t }, { it.dev }, { it.mono }))
-        val span = LabSpan(-1, sorted.first().t, sorted.last().t + 1)
-        val labTechniques = LabTechniques(
-            events = sorted,
-            spans = listOf(span),
-            script = null,
-            sender = { token ->
-                val owner = token?.let { owners[it] }?.singleOrNull()
-                owner?.let(players::get)?.alias ?: (token?.let { "?$it" } ?: "?")
-            },
-            models = players.values.associate { it.alias to it.model },
-        )
+        val sender: (String?) -> String = { token ->
+            val owner = token?.let { owners[it] }?.singleOrNull()
+            owner?.let(players::get)?.alias ?: (token?.let { "?$it" } ?: "?")
+        }
+        val marks = sorted.filter { it.k == FieldKinds.MARK }
+        val touches = TouchDetector.find(sorted, sender, marks)
+        val devices = sorted.mapTo(HashSet()) { it.dev }
+        val techs = sorted.filter { it.k == FieldKinds.RX && it.int(RxFields.RSSI) != null }
+            .filter { rx -> sender(rx.string(RxFields.TOKEN)).let { it != rx.dev && it in devices } }
+            .map { LabMerge.techOf(it) }
+            .distinct()
+            .sorted()
         return FieldReportTechniques(
-            touches = labTechniques.touches.rows,
-            touchPairs = labTechniques.touches.pairs,
-            touchDetector = labTechniques.touches.detector,
-            without = labTechniques.without(),
-            cards = labTechniques.cards(),
+            touches = touches.map { touch ->
+                LabReportTouch(
+                    pair = touch.pairKey,
+                    atMillis = touch.t,
+                    rssi = touch.rssi,
+                    peaksG = touch.peaksG.mapValues { (it.value * 100).roundToLong() / 100.0 },
+                    markAtMillis = touch.truthT,
+                )
+            },
+            touchSpreads = touches.spreads().map {
+                LabReportTouchSpread(it.pairKey, it.direction, it.touches, it.spreadDb, it.driftDb)
+            },
+            missedTouches = TouchDetector.missed(marks, touches).size,
+            without = WithoutChannel.all(sorted, sender, techs, BandErrors.secondsOf(sorted))
+                .map { LabReportWithout(it.tech, it.seconds, it.same, it.onlyChannel) },
         )
     }
 
@@ -1429,6 +1472,9 @@ class FieldReportBuilder(
         const val CATCH_ZERO = "catch"
         const val TOUCH_ZERO = "touch"
 
+        /** A knock the accelerometer felt (the lab's `impact`): the touch detector's input. */
+        private const val IMPACT = "impact"
+
         /** The distance buckets of the RSSI table, meters. */
         val BUCKETS = listOf("0-5", "5-10", "10-20", "20-40", "40+")
 
@@ -1454,6 +1500,9 @@ class FieldReportBuilder(
         private val ROUND_PHASES = setOf(ROUND_HIDING, ROUND_SEEKING)
         private const val CONFIRMED = "confirmed"
         private const val ON = "on"
+
+        /** The service data's channels: `ble.service_data.<layout>`. */
+        private const val SERVICE_DATA = "ble.service_data."
         private const val OFF = "off"
         private const val MIN_DBM = -127
         private const val MINUTE = 60_000L

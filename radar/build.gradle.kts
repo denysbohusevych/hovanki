@@ -1,10 +1,12 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-// The radar between the phones (docs/adr/0017-radar-techniques-and-big-run.md, section 1): the game's Bluetooth LE
-// (`ProximityRadio`), the precision radar's seam (`PrecisionRadio`) and the radio lab's own air (`lab/`), with the
-// Android and iOS implementations. Used by :clientCore (the game and the lab) and, through it, by :composeApp and the
-// e2e bots. Knows nothing of the phone's sensors (:device) or the game's session: whoever uses both joins them.
-// Packages keep the techniques apart; ModuleBoundariesTest checks that they don't import each other.
+// The radar between the phones (docs/adr/0017-radar-techniques-and-big-run.md, sections 1 and 2.2): the game's
+// Bluetooth LE (`ProximityRadio` on a platform's `AirHost` with the channels of `RadarCatalog`), the precision
+// radar's seam (`PrecisionRadio`) and the radio lab's own air (`lab/`). The channels (`channel/<x>/`) are common
+// Kotlin; the hosts are per platform: Android, iOS, and on the JVM the simulator of the air the e2e bots use
+// (`host/SimulatedAir`, the OS's rules in `OsRules`). Used by :clientCore (the game and the lab) and, through it, by
+// :composeApp and the e2e bots. Knows nothing of the phone's sensors (:device) or the game's session: whoever uses
+// both joins them. ModuleBoundariesTest checks the packages' borders: a channel imports only the root package.
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
@@ -36,7 +38,7 @@ kotlin {
             api(libs.kotlinx.coroutines.core)
         }
         androidMain.dependencies {
-            // ContextCompat.checkSelfPermission in AndroidProximityRadio.
+            // ContextCompat.checkSelfPermission in host.AndroidAirHost.
             implementation(libs.androidx.core.ktx)
         }
         commonTest.dependencies {

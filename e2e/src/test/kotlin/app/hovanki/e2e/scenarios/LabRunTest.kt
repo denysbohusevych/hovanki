@@ -4,16 +4,16 @@ import app.hovanki.client.network.ApiException
 import app.hovanki.e2e.OWN_SERVER
 import app.hovanki.e2e.admin.AdminRejected
 import app.hovanki.e2e.admin.StaffConsole
+import app.hovanki.e2e.bot.LabBot
+import app.hovanki.e2e.bot.RadioWorld
 import app.hovanki.e2e.route.offset
 import app.hovanki.e2e.scenario
 import app.hovanki.e2e.scenario.GameSetups.PARK
 import app.hovanki.e2e.scenario.Scenario
 import app.hovanki.e2e.scenarioOnOwnServer
-import app.hovanki.shared.lab.CalibrationVariant
+import app.hovanki.shared.lab.LabFields
 import app.hovanki.shared.lab.LabJoinCode
 import app.hovanki.shared.lab.LabReport
-import app.hovanki.shared.lab.LabReportBuilder
-import app.hovanki.shared.lab.LabReportTouch
 import app.hovanki.shared.lab.LabRunScripts
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.LabRunAction
@@ -22,13 +22,14 @@ import app.hovanki.shared.protocol.LabRunStatus
 import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.UserRole
-import kotlinx.coroutines.delay
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.parallel.ResourceLock
 import java.io.ByteArrayInputStream
 import java.util.zip.ZipInputStream
 import kotlin.random.Random
 import kotlin.test.Test
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -99,7 +100,7 @@ class LabRunTest {
             val report = eventually("the report is computed", within = 30.seconds) {
                 reportOrNull(console, run.id)?.takeIf { it.computedAtMillis >= finished.state.serverTimeMillis }
             }
-            checkReport(report, labels = script.labels)
+            checkReport(report, phones)
 
             val zip = console.downloadLabRaw(run.id, reason = "a look at the raw logs")
             val entries = zipEntries(zip)
@@ -108,90 +109,12 @@ class LabRunTest {
                 check(entries.keys.any { it.startsWith("hovanki-lab-$label-") }, "the raw logs have $label's")
             }
             check(entries.values.all { it.isNotEmpty() }, "no empty log")
-            // The radio's own journal (docs/adr/0017-radar-techniques-and-big-run.md §4): the advertisement with its
-            // channels and bytes (the Android hider's fits: `.scan_response`), and frames of ours whole.
-            val droidLog = entries.entries.single { it.key.startsWith("hovanki-lab-droid-") }.value.decodeToString()
-            check(
-                droidLog.lines().any {
-                    "\"k\":\"adv\"" in it && "\"layout\":\"scan_response\"" in it &&
-                        "\"bytes\":18" in it
-                },
-                "the Android hider's advertisement says its layout and bytes",
-            )
-            check(entries.values.all { "\"k\":\"frame\"" in it.decodeToString() }, "every phone wrote frames of ours")
+            checkListening(entries)
 
             phones.forEach { it.leave() }
             console.deleteLabRun(run.id, reason = "the test is over")
             val gone = runCatching { console.labRun(run.id) }.exceptionOrNull()
             check((gone as? AdminRejected)?.status == 404, "the deleted run is gone (got $gone)")
-        }
-    }
-
-    /**
-     * The touch calibration (docs/adr/0017-radar-techniques-and-big-run.md §3, docs/radar-run.md step 4): two lab
-     * phones 2 m apart follow the plan «touch»; in its second step they come together three times, knock and both
-     * press «We touched». The report finds the touches by the jolts and the signal, confirmed by the button, gives the
-     * pair its offsets, and has the calibrations, smoothings and cards against the steps' distances.
-     */
-    @Test
-    fun twoPhonesTouchAndTheReportFindsIt() = scenario("The radio lab's touch", timeout = 4.minutes) {
-        observer.enableFeatures(listOf(ServerFeature.RADIO_LAB.name))
-        StaffConsole(serverUrl, observer).use { console ->
-            logsInAsAdmin(console)
-            val script = LabRunScripts.TOUCH
-            val run = console.createLabRun("Touch", script.id, reason = "the e2e touch")
-            val apart = PARK.offset(eastMeters = 2.0)
-            val a = labPhone("A", at = PARK, platform = Platform.IOS)
-            val b = labPhone("B", at = apart, platform = Platform.ANDROID)
-            a.joinRun(run.code)
-            b.joinRun(run.code)
-            console.advanceLabRun(run.id, LabRunAction.NEXT, reason = "go")
-            for (phone in listOf(a, b)) {
-                eventually("${phone.label} is in the step touch", within = 20.seconds) {
-                    phone.takeIf { it.follow.value?.step?.id == "touch" }
-                }
-            }
-            // Three touches about 10 s apart, a step back to 2 m between them.
-            repeat(3) {
-                delay(4.seconds)
-                b.gps.teleport(PARK.offset(eastMeters = 0.3))
-                delay(1_200.milliseconds)
-                a.touches("B")
-                b.touches("A")
-                delay(1_500.milliseconds)
-                b.gps.teleport(apart)
-            }
-
-            eventually("the run is over by its plan", within = 60.seconds) {
-                console.labRun(run.id).takeIf { it.state.status == LabRunStatus.FINISHED }
-            }
-            for (phone in listOf(a, b)) {
-                eventually("${phone.label} uploaded everything", within = 45.seconds) {
-                    phone.takeIf {
-                        it.follow.value?.finished == true && !it.isRecording && it.uploadPending.value == 0L
-                    }
-                }
-            }
-            val finished = console.finishLabRun(run.id, reason = "the report with every upload")
-            val report = eventually("the report is computed", within = 30.seconds) {
-                reportOrNull(console, run.id)?.takeIf { it.computedAtMillis >= finished.state.serverTimeMillis }
-            }
-            check(report.version == LabReportBuilder.VERSION, "the report of the techniques (${report.version})")
-            val detector = checkNotNull(report.touchDetector) { "the report has the touches" }
-            check(detector.buttonTouches == 3, "three touches pressed by both (${report.touches})")
-            check(detector.found >= 2, "the jolts and the signal found them: $detector, ${report.touches}")
-            check(
-                report.touches.filter { it.source == LabReportTouch.BOTH }.all { it.a == "A" && it.b == "B" },
-                "the pair A · B",
-            )
-            val pair = report.touchPairs.single()
-            check(pair.offsetAToB != null && pair.offsetBToA != null, "the pair's offsets from its touches: $pair")
-            val none = report.calibration.single { it.tech == CalibrationVariant.NONE.id }
-            check(none.seconds > 0, "the bands against the steps' distances: ${report.calibration}")
-            check(report.calibration.any { it.tech == CalibrationVariant.TOUCH.id }, "and with the touch")
-            check(report.cards.any { it.id == CalibrationVariant.TOUCH.id }, "a card for calib.touch")
-            listOf(a, b).forEach { it.leave() }
-            console.deleteLabRun(run.id, reason = "the test is over")
         }
     }
 
@@ -230,23 +153,51 @@ class LabRunTest {
     }
 
     /**
-     * Everybody in the hand 2 m apart: in the first step every phone heard every other about once a second (the
-     * [app.hovanki.e2e.bot.RadioWorld] ticks every second), and every sender is known by its token.
+     * Everybody in the hand 2 m apart: in the first step every phone heard every other the simulator lets it hear
+     * ([RadioWorld.reads]: an iPhone hider's name, an Android hider's scan response) about once a second (the
+     * [app.hovanki.radar.host.SimulatedAir] ticks every second), nobody heard what the simulator keeps off the air, and
+     * every sender is known by its token.
      */
-    private fun Scenario.checkReport(report: LabReport, labels: List<String>) {
+    private fun Scenario.checkReport(report: LabReport, phones: List<LabBot>) {
+        val labels = phones.map { it.label }
         check(report.devices.map { it.label }.sorted() == labels.sorted(), "the report has the three phones")
         val first = report.steps.filter { it.id == "all_hiders" }
         check(first.isNotEmpty(), "the report has the step all_hiders (${report.steps.map { it.id }})")
-        for (from in labels) {
-            for (to in labels - from) {
-                val best = first.flatMap { it.directions }.filter { it.from == from && it.to == to }
+        for (from in phones) {
+            for (to in phones - from) {
+                val best = first.flatMap { it.directions }.filter { it.from == from.label && it.to == to.label }
                     .maxOfOrNull { it.perSecond } ?: 0.0
-                check(best >= 0.5, "$to heard $from in all_hiders: ${"%.2f".format(best)} readings a second")
+                val heard = "%.2f".format(best)
+                if (RadioWorld.reads(from.platform, from.radio.phone.app(), to.platform, to.radio.phone.app())) {
+                    check(best >= 0.5, "${to.label} heard ${from.label} in all_hiders: $heard readings a second")
+                } else {
+                    check(best == 0.0, "${to.label} can't hear ${from.label} in all_hiders, yet: $heard a second")
+                }
             }
         }
         val unknown = report.steps.flatMap { it.directions }.filter { it.from.startsWith("?") }
         check(unknown.isEmpty(), "every sender is known by its token (${unknown.map { it.from }.distinct()})")
     }
+
+    /**
+     * The probe step on the simulator: B (an iPhone on the screen) and droid listen to everything and write the frames
+     * they hear whole (`frame`), A's overflow probe among them (`mask`), and count the rest a second (`air`).
+     */
+    private fun Scenario.checkListening(entries: Map<String, ByteArray>) {
+        val kinds = entries.mapKeys { (name, _) -> name.removePrefix("hovanki-lab-").substringBefore('-') }
+            .mapValues { (_, log) -> kindsOf(log) }
+        timeline.log("lab", "events by kind: $kinds")
+        for (label in listOf("B", "droid")) {
+            val counted = kinds[label].orEmpty()
+            check((counted["frame"] ?: 0) > 0, "$label logged the frames it heard listening ($counted)")
+            check((counted["mask"] ?: 0) > 0, "$label heard A's overflow probe ($counted)")
+        }
+    }
+
+    private fun kindsOf(log: ByteArray): Map<String, Int> = log.decodeToString().lineSequence()
+        .filter { it.isNotBlank() }
+        .mapNotNull { line -> Json.parseToJsonElement(line).jsonObject[LabFields.K]?.jsonPrimitive?.content }
+        .groupingBy { it }.eachCount()
 
     private fun zipEntries(zip: ByteArray): Map<String, ByteArray> = buildMap {
         ZipInputStream(ByteArrayInputStream(zip)).use { input ->

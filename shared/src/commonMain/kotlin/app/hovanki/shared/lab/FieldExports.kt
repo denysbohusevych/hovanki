@@ -286,36 +286,27 @@ object FieldReportMarkdown {
             appendLine(techniques.note ?: "Not computed.")
             return
         }
-        techniques.touchDetector?.let {
-            appendLine(
-                "Touches: ${it.buttonTouches} by the button, the detector found ${it.found}, ${it.falseAlarms} false.",
-            )
+        val confirmed = techniques.touches.count { it.markAtMillis != null }
+        appendLine(
+            "Touches: the detector found ${techniques.touches.size} ($confirmed of them pressed «We touched»), " +
+                "it missed ${techniques.missedTouches} presses.",
+        )
+        for (touch in techniques.touches) {
+            val rssi = touch.rssi.entries.joinToString { "${it.key} ${it.value} dBm" }.ifEmpty { "-" }
+            appendLine("- ${touch.pair}: ${rssi.cell()}")
         }
-        for (pair in techniques.touchPairs) {
+        for (spread in techniques.touchSpreads) {
             appendLine(
-                "- ${pair.a}–${pair.b}: ${pair.touches} touches, offsets ${pair.offsetAToB ?: "-"} / " +
-                    "${pair.offsetBToA ?: "-"} dB, spread ${pair.spreadDb ?: "-"}, drift ${pair.driftDb ?: "-"} dB",
+                "- ${spread.direction}: ${spread.touches} touches, spread ${spread.spreadDb} dB, " +
+                    "drift ${spread.driftDb} dB",
             )
         }
         if (techniques.without.isNotEmpty()) {
             appendLine()
-            appendLine("| without | directions | seconds | same band % | only it heard, s |")
-            appendLine("|---|---|---|---|---|")
+            appendLine("| without | pair-seconds | same band | only it heard, s |")
+            appendLine("|---|---|---|---|")
             for (w in techniques.without) {
-                appendLine(
-                    "| ${w.tech} | ${w.directions} | ${w.seconds} | ${w.equalPercent ?: "-"} | ${w.aloneSeconds} |",
-                )
-            }
-        }
-        if (techniques.cards.isNotEmpty()) {
-            appendLine()
-            appendLine("| card | group | verdict | criterion | numbers |")
-            appendLine("|---|---|---|---|---|")
-            for (card in techniques.cards) {
-                appendLine(
-                    "| ${card.id} | ${card.group} | ${card.verdict} | ${card.criterion.cell()} | " +
-                        "${card.numbers.cell()} |",
-                )
+                appendLine("| ${w.tech} | ${w.seconds} | ${w.same} | ${w.onlyChannel} |")
             }
         }
     }

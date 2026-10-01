@@ -9,16 +9,19 @@ import app.hovanki.client.session.GameTrace
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.device.ActivityMonitor
 import app.hovanki.device.CarryMonitor
-import app.hovanki.device.ImpactMonitor
 import app.hovanki.device.NoopActivityMonitor
 import app.hovanki.device.NoopCarryMonitor
-import app.hovanki.device.NoopImpactMonitor
+import app.hovanki.device.lab.ImpactDetector
 import app.hovanki.device.lab.LabProbes
 import app.hovanki.device.lab.LabSensorReading
 import app.hovanki.device.lab.MotionFeatures
 import app.hovanki.device.lab.NoopLabProbes
+import app.hovanki.radar.ChannelMix
+import app.hovanki.radar.RadarCatalog
 import app.hovanki.radar.RadioSighting
+import app.hovanki.shared.lab.RunStep
 import app.hovanki.shared.lab.SyncFields
+import app.hovanki.shared.lab.TouchDetector
 import app.hovanki.shared.lab.UiFields
 import app.hovanki.shared.protocol.FieldJoinRequest
 import app.hovanki.shared.protocol.FieldJoinResponse
@@ -88,11 +91,12 @@ enum class FieldStatus {
  * label, the coordinates allowed, the radio thinned) and uploads it every `uploadIntervalMillis` ([LabUploader]),
  * only when something new was written (a lobby with nothing going on sends nothing). In the lobby and on the
  * results of a game with the radar it shows the touch card ([touchCard], [touched]): the radio runs then with a
- * token of the log's own ([touchRadioToken]) and the accelerometer's jolts are written as the touch's candidates.
+ * token of the log's own ([touchRadioToken]) and the accelerometer's knocks are written as the lab writes them
+ * (`impact`, the lab's [ImpactDetector] on [probes]' motion), the touch detector's input.
  * It writes what the game tells it — GPS fixes with their coordinates (at most one per `gpsEveryMillis`), the radio's
  * readings (thinned), every sync (how long, by which transport, the refusals' codes, the phase changing), errors —
  * and the clock, the app's life and the battery ([probes]); during the round also a tick a second and the pocket's
- * classifiers in the shadow ([CarryShadow]: `carry.v1` from [carryMonitor], `carry.v2`) and the sensors thinned
+ * `carry.v2` in the shadow of [carryMonitor]'s `carry` ([CarryShadow], the lab's classifier) and the sensors thinned
  * ([FieldProbeThinning]: `carry`, `motion`, `prox`, `light`). The UI adds
  * the screens and taps ([ui]), the permissions ([permissions]), the exceptions it caught ([exception], with the Sentry
  * event's id), «Something is wrong» ([somethingWrong]) and the three
@@ -118,8 +122,7 @@ class FieldSession(
     private val clockSync: LabClockSync? = null,
     /**
      * Where the phone is and what the player does by its sensors (own listeners from the round on, whatever the game's
-     * features are): the changes go into `carry` and `motion`; the carry is also `carry.v1` in the shadow
-     * ([CarryShadow]).
+     * features are): the changes go into `carry` and `motion`; `carry.v2` in its shadow ([CarryShadow]).
      */
     private val carryMonitor: CarryMonitor = NoopCarryMonitor(),
     private val activityMonitor: ActivityMonitor = NoopActivityMonitor(),
@@ -137,8 +140,6 @@ class FieldSession(
     private val retryMillis: Long = RETRY_MILLIS,
     private val clockJitterMillis: Long = CLOCK_JITTER_MILLIS,
     private val random: Random = Random.Default,
-    /** The accelerometer's lone jolts while the touch card is up: the touch's candidates. */
-    private val impacts: ImpactMonitor = NoopImpactMonitor(),
 ) : GameTrace {
     private val mutableState = MutableStateFlow(FieldState())
     val state: StateFlow<FieldState> = mutableState.asStateFlow()
@@ -287,7 +288,6 @@ class FieldSession(
             quietly {
                 carryMonitor.carry().collect {
                     if (probeThinning.allowCarry(it.name.lowercase())) log.carry(it.name.lowercase())
-                    shadow.onCarryV1(it)
                 }
             }
         }
@@ -299,13 +299,13 @@ class FieldSession(
                 }
             }
         }
-        roundJobs += scope.launch { quietly { shadow.seconds(probes::appState) } }
+        roundJobs += scope.launch { quietly { shadow.seconds(probes) } }
     }
 
     /**
      * «Touch phones with a neighbour» (ADR 0018 §5): in the lobby and on the results of a game with the radar while
-     * the log is on. Then the radio runs outside the round ([touchRadioToken]) and the accelerometer's jolts are the
-     * touch's candidates.
+     * the log is on. Then the radio runs outside the round ([touchRadioToken]) and the accelerometer's knocks are
+     * written (`impact`, as the lab's controller writes them: the touch detector pairs them with the RSSI's peak).
      */
     private fun updateTouch(snapshot: GameSnapshot?) {
         val show = snapshot != null && isActive && snapshot.settings.features.hasRadar &&
@@ -313,16 +313,38 @@ class FieldSession(
             snapshot.phase != touchDismissedIn
         mutableTouchCard.value = show
         if (show && impactJob == null) {
-            impactJob = scope.launch { quietly { impacts.impacts().collect { log.touchImpact(it.g, it.atMillis) } } }
+            impactJob = scope.launch { quietly { knocks() } }
         } else if (!show) {
             impactJob?.cancel()
             impactJob = null
         }
     }
 
+    /** The lab's knocks from [probes]' motion: `impact` with how long ago on the sensors' clock. */
+    private suspend fun knocks() {
+        val detector = ImpactDetector()
+        probes.sensors().collect { reading ->
+            if (reading !is LabSensorReading.Motion) return@collect
+            // Told at least [ImpactDetector.PEAK_MILLIS] after the knock: how long ago on the sensors' clock.
+            detector.add(reading.atMillis, reading.magnitudeG)?.let {
+                log.impact(
+                    it.peakG,
+                    reading.atMillis - it.atMillis,
+                )
+            }
+        }
+    }
+
     override fun touchRadioToken(snapshot: GameSnapshot): String? = touchToken.takeIf { mutableTouchCard.value }
 
     override val touchRadioWanted: Flow<Boolean> get() = mutableTouchCard
+
+    /**
+     * While the log is written, the game's radio runs the field's channels (docs/adr/0018-field-test-build.md §4 B,
+     * [RadarCatalog.field]): an Android hider's layout by the player's number, every layout heard, the overflow mask
+     * in the shadow.
+     */
+    override fun radarChannels(playerNumber: Int): ChannelMix? = RadarCatalog.field(playerNumber).takeIf { isActive }
 
     /**
      * «Not now» on the touch card: no card, no touch radio and no jolts until the game's phase changes (the lobby's
@@ -335,12 +357,14 @@ class FieldSession(
     }
 
     /**
-     * «We touched» with [partner] (both players press it): the truth the touch detector is checked against, sent at
-     * once. False: no touch card now (no log, no radar, or the round is on).
+     * «We touched» with [partner] (both players press it): the truth the touch detector is checked against, as the
+     * lab's «touched with …» writes it (a `mark` `touch <pair>` of the two players' labels in the run, with the action
+     * `touch`), sent at once. False: no touch card now (no log, no radar, or the round is on).
      */
     fun touched(partner: PlayerId): Boolean {
         if (!mutableTouchCard.value) return false
-        log.touchPressed(partner.value)
+        val pair = RunStep.pairKey(log.label.value, partner.value)
+        log.mark(TouchDetector.LABEL_PREFIX + pair, by = "user", action = TouchDetector.TOUCH_ACTION)
         mutableTouchCount.value += 1
         uploader?.let { scope.launch { it.flush() } }
         return true

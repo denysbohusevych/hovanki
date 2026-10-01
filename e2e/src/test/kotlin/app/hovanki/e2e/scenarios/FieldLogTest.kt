@@ -17,13 +17,13 @@ import app.hovanki.shared.lab.GpsFields
 import app.hovanki.shared.lab.LabFields
 import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.lab.MarkFields
+import app.hovanki.shared.lab.RunStep
 import app.hovanki.shared.lab.RxFields
 import app.hovanki.shared.lab.ServerFields
 import app.hovanki.shared.lab.ServerKinds
 import app.hovanki.shared.lab.SrvFields
 import app.hovanki.shared.lab.SyncFields
-import app.hovanki.shared.lab.TouchFields
-import app.hovanki.shared.lab.TouchKinds
+import app.hovanki.shared.lab.TouchDetector
 import app.hovanki.shared.lab.UiFields
 import app.hovanki.shared.protocol.AdminLabRun
 import app.hovanki.shared.protocol.GamePhase
@@ -209,20 +209,17 @@ class FieldLogTest {
     }
 
     /**
-     * The lobby's touch in both logs: the jolt and «We touched» with the other's id; and the radio heard in the lobby
-     * (before the round's first tick), where only the touch card runs it.
+     * The lobby's touch in both logs, as the lab writes one (docs/adr/0017-radar-techniques-and-big-run.md §3): the
+     * knock (`impact`) and «We touched» (a `mark` `touch <pair>` of the two players' ids); and the radio heard in the
+     * lobby (before the round's first tick), where only the touch card runs it.
      */
     private fun Scenario.checkTouch(logs: Map<BotPlayer, List<JsonObject>>, sam: BotPlayer, anna: BotPlayer) {
-        for ((phone, partner) in listOf(sam to anna, anna to sam)) {
-            val touches = logs.getValue(phone).filter { it.kind == TouchKinds.TOUCH }
-            check(
-                touches.any {
-                    it.text(TouchFields.SRC) == TouchFields.BUTTON &&
-                        it.text(TouchFields.PARTNER) == partner.id.value
-                },
-                "${phone.name} pressed «We touched» with ${partner.name} ($touches)",
-            )
-            check(touches.any { it.text(TouchFields.SRC) == TouchFields.IMPACT }, "${phone.name}'s jolt is in the log")
+        val pair = TouchDetector.LABEL_PREFIX + RunStep.pairKey(sam.id.value, anna.id.value)
+        for (phone in listOf(sam, anna)) {
+            val log = logs.getValue(phone)
+            val pressed = log.filter { it.kind == FieldKinds.MARK && it.text("action") == TouchDetector.TOUCH_ACTION }
+            check(pressed.any { it.text("label") == pair }, "${phone.name} pressed «We touched» ($pressed)")
+            check(log.any { it.kind == "impact" }, "${phone.name}'s knock is in the log")
         }
         val sams = logs.getValue(sam)
         val firstTick = sams.indexOfFirst { it.kind == FieldKinds.TICK }

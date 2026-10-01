@@ -62,6 +62,11 @@ data class LabRunStateView(
     /** Grows with every control action (NEXT, REPEAT, PAUSE, RESUME, finish): a REPEAT keeps the index. */
     val revision: Long,
     val serverTimeMillis: Long,
+    /**
+     * Label → UWB discovery token of every device of the run that posted one ([ApiRoutes.LAB_UWB]), the asking
+     * device's own too; the newest device of a label wins. Only in the phones' answers; empty on the admin's side.
+     */
+    val uwbTokens: Map<String, String> = emptyMap(),
 )
 
 @Serializable
@@ -143,6 +148,19 @@ object FieldUpload {
      * which the server refuses and the phone stamps again by the server's clock.
      */
     const val EARLIEST_CONSENT_MILLIS = 1_767_225_600_000L
+}
+
+/**
+ * This device's UWB discovery token for `uwb.ni` (ADR 0017 §2.3, docs/radar-run.md step 5.3): an iPhone's
+ * `NIDiscoveryToken` archived with `NSKeyedArchiver`, base64 ([MAX_LENGTH] characters at most). Opaque and not
+ * personal: the other phones of the run read it from [LabRunStateView.uwbTokens] to range with this one; it lives
+ * with the run and is never in the log.
+ */
+@Serializable
+data class LabUwbTokenRequest(val token: String) {
+    companion object {
+        const val MAX_LENGTH = 512
+    }
 }
 
 /** The upload was stored: every event up to [ackedSeq] is on the server. */

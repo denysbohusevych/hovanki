@@ -37,6 +37,10 @@ internal class FakeLabApi(
 
     val uploads = mutableListOf<Upload>()
     val joins = mutableListOf<LabJoinRequest>()
+
+    /** Label → UWB token, as the server lists them; this device posts as [uwbLabel]. */
+    val uwbTokens = mutableMapOf<String, String>()
+    var uwbLabel = "A"
     var polls = 0
         private set
 
@@ -112,6 +116,12 @@ internal class FakeLabApi(
         return view()
     }
 
+    override suspend fun uwbToken(runId: LabRunId, token: String, uwbToken: String): LabRunStateView {
+        check(token == TOKEN)
+        uwbTokens[uwbLabel] = uwbToken
+        return view()
+    }
+
     override suspend fun upload(
         runId: LabRunId,
         token: String,
@@ -137,7 +147,7 @@ internal class FakeLabApi(
 
     fun view(): LabRunStateView {
         plan = LabRunPlan.advanceByTime(script, plan, serverNow())
-        return LabRunPlan.toView(plan, runId, serverNow())
+        return LabRunPlan.toView(plan, runId, serverNow()).copy(uwbTokens = uwbTokens.toMap())
     }
 
     companion object {

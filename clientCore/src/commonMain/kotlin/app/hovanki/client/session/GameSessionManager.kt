@@ -31,7 +31,6 @@ import app.hovanki.radar.NoopProximityRadio
 import app.hovanki.radar.PeerRange
 import app.hovanki.radar.PrecisionRadio
 import app.hovanki.radar.ProximityRadio
-import app.hovanki.radar.RadioOptions
 import app.hovanki.shared.protocol.Activity
 import app.hovanki.shared.protocol.Audience
 import app.hovanki.shared.protocol.BigGameId
@@ -711,17 +710,14 @@ class GameSessionManager(
         radarToken.value = RadarToken.at(secret, clock.now())
         diagnostics.onRadio(radarToken.value, asSeeker = snapshot.me.role == Role.SEEKER)
         if (radioJob?.isActive == true) return
-        // The player's number in the game (the order they joined, which a round keeps): an Android hider's layout of
-        // the advertisement goes round the circle by it while the journal is written (ADR 0018 §4 B).
-        val options =
-            RadioOptions(
-                playerNumber = snapshot.players.indexOfFirst {
-                    it.id == snapshot.me.playerId
-                }.coerceAtLeast(0),
-            )
+        val asSeeker = snapshot.me.role == Role.SEEKER
+        // The field log's channels while its journal is written (ADR 0018 §4 B): by the player's number in the game
+        // (the order they joined, which a round keeps); the game's own otherwise.
+        val mix = trace.radarChannels(playerNumber(snapshot))
+        val sightings = if (mix == null) radio.run(radarToken, asSeeker) else radio.run(radarToken, asSeeker, mix)
         radioJob = scope.launch {
             try {
-                radio.run(radarToken, asSeeker = snapshot.me.role == Role.SEEKER, options).collect { sighting ->
+                sightings.collect { sighting ->
                     val isRival = sighting.token in rivalTokens
                     diagnostics.onSighting(sighting.token, sighting.rssi, sighting.atMillis, isRival, sighting.via)
                     trace.onSighting(sighting)
@@ -787,14 +783,14 @@ class GameSessionManager(
         radarToken.value = token
         if (radioJob?.isActive == true) return
         radioForTouch = true
-        val options = RadioOptions(
-            playerNumber = snapshot.players.indexOfFirst { it.id == snapshot.me.playerId }.coerceAtLeast(0),
-        )
+        val mix = trace.radarChannels(playerNumber(snapshot))
         radioJob = scope.launch {
             try {
                 // Only while the field log still asks for it: dismissed or stopped between snapshots, it stops at once.
                 trace.touchRadioWanted.distinctUntilChanged().collectLatest { wanted ->
-                    if (wanted) radio.run(radarToken, asSeeker = false, options).collect { trace.onSighting(it) }
+                    if (!wanted) return@collectLatest
+                    val sightings = if (mix == null) radio.run(radarToken, false) else radio.run(radarToken, false, mix)
+                    sightings.collect { trace.onSighting(it) }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -803,6 +799,10 @@ class GameSessionManager(
             }
         }
     }
+
+    /** The player's number in the game: the order they joined, from 0. */
+    private fun playerNumber(snapshot: GameSnapshot): Int =
+        snapshot.players.indexOfFirst { it.id == snapshot.me.playerId }.coerceAtLeast(0)
 
     private fun stopRadio() {
         radioForTouch = false

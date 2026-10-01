@@ -18,11 +18,13 @@ import app.hovanki.device.ActivityMonitor
 import app.hovanki.device.AndroidActivityMonitor
 import app.hovanki.device.AndroidCarryMonitor
 import app.hovanki.device.AndroidDeviceInfo
-import app.hovanki.device.AndroidImpactMonitor
 import app.hovanki.device.AndroidPocketPulse
+import app.hovanki.device.BackgroundModes
 import app.hovanki.device.CarryMonitor
 import app.hovanki.device.DeviceInfo
-import app.hovanki.device.ImpactMonitor
+import app.hovanki.device.LiveActivityHost
+import app.hovanki.device.NoopBackgroundModes
+import app.hovanki.device.NoopLiveActivityHost
 import app.hovanki.device.PocketPulse
 import app.hovanki.device.lab.AndroidLabHaptics
 import app.hovanki.device.lab.AndroidLabProbes
@@ -30,12 +32,16 @@ import app.hovanki.device.lab.AndroidLabScreen
 import app.hovanki.device.lab.LabHaptics
 import app.hovanki.device.lab.LabProbes
 import app.hovanki.device.lab.LabScreen
-import app.hovanki.radar.AndroidProximityRadio
+import app.hovanki.radar.AirHost
+import app.hovanki.radar.HostProximityRadio
 import app.hovanki.radar.NoopPrecisionRadio
 import app.hovanki.radar.PrecisionRadio
 import app.hovanki.radar.ProximityRadio
-import app.hovanki.radar.lab.AndroidLabAir
+import app.hovanki.radar.host.AndroidAirHost
+import app.hovanki.radar.lab.HostLabAir
 import app.hovanki.radar.lab.LabAir
+import app.hovanki.radar.link.AndroidGattLink
+import app.hovanki.radar.link.GattLink
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
 import org.koin.android.ext.koin.androidContext
@@ -50,18 +56,26 @@ actual val platformModule: Module = module {
     single<AppPermissions> { AndroidAppPermissions(androidContext()) }
     single<BackgroundTracker> { AndroidBackgroundTracker(androidContext()) }
     single<ShareSheet> { AndroidShareSheet(androidContext()) }
-    // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md); the precision radar by UWB is not implemented yet.
-    single<ProximityRadio> { AndroidProximityRadio(androidContext(), get()) }
+    // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md): the game's channels on the phone's one host of the
+    // air (docs/adr/0017-radar-techniques-and-big-run.md, section 2.2); the precision radar by UWB is not implemented
+    // on Android yet.
+    single<AirHost> { AndroidAirHost(androidContext()) }
+    single<ProximityRadio> { HostProximityRadio(get(), trace = get()) }
     single<PrecisionRadio> { NoopPrecisionRadio() }
     single<DeviceInfo> { AndroidDeviceInfo(androidContext()) }
     single<ActivityMonitor> { AndroidActivityMonitor(androidContext()) }
     single<PocketPulse> { AndroidPocketPulse(androidContext()) }
     single<CarryMonitor> { AndroidCarryMonitor(androidContext()) }
-    single<ImpactMonitor> { AndroidImpactMonitor(androidContext()) }
     // The radio lab (docs/radio-lab.md), reached from the debug build's diagnostics only.
     single<LabProbes> { AndroidLabProbes(androidContext()) }
-    single<LabAir> { AndroidLabAir(androidContext()) }
+    single<LabAir> { HostLabAir(get(), get()) }
     single<LabScreen> { AndroidLabScreen(androidContext()) }
     single<LabHaptics> { AndroidLabHaptics(androidContext()) }
     single<LabFiles> { AndroidLabFiles(androidContext()) }
+    // The background modes are iPhone's (docs/radar-run.md §5.1, §5.3): the foreground service keeps an Android alive.
+    single<BackgroundModes> { NoopBackgroundModes() }
+    single<LiveActivityHost> { NoopLiveActivityHost() }
+    // The radio lab's GATT link and its own UWB radio (docs/radar-run.md §5.2, §5.3); the game uses neither.
+    single<GattLink> { AndroidGattLink(androidContext()) }
+    single<PrecisionRadio>(LAB_PRECISION) { NoopPrecisionRadio() }
 }

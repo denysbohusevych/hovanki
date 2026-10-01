@@ -265,6 +265,12 @@ object ApiRoutes {
      */
     const val GAME_FIELD_LEAVE = "$GAMES/{gameId}/field/leave"
 
+    /**
+     * POST [LabUwbTokenRequest] with the device token: this device's UWB discovery token for the run's other phones
+     * (a new one replaces the old); [LabRunStateView] with every device's.
+     */
+    const val LAB_UWB = "$LAB_RUNS/{runId}/uwb"
+
     // The radio lab in the admin: admins only, whether the flag is on or off (old reports stay readable).
 
     /** GET: [AdminLabRuns]; POST [AdminLabRunRequest]: a new run ([AdminLabRun]). */
@@ -454,6 +460,8 @@ object ApiRoutes {
     fun gameFieldJoin(gameId: GameId): String = GAME_FIELD_JOIN.fill("gameId" to gameId.value)
 
     fun gameFieldLeave(gameId: GameId): String = GAME_FIELD_LEAVE.fill("gameId" to gameId.value)
+
+    fun labUwb(runId: LabRunId): String = LAB_UWB.fill("runId" to runId.value)
 
     /** [ADMIN_LAB_RUN] and the actions under it: `adminLabRun(id)`, `adminLabRun(id, "finish")`. */
     fun adminLabRun(runId: LabRunId, action: String? = null): String {

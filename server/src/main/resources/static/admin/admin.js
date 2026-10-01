@@ -1671,22 +1671,33 @@ async function labReportView(id) {
   const sender = (from) => (from.startsWith("?") ? [el("span", { class: "mono" }, from), " ", el("span", { class: "tag mute" }, "неизвестный")]
     : el("span", { class: "mono" }, from));
   const cover = (perSecond) => (perSecond >= 2 ? "cover-ok" : perSecond >= 0.5 ? "cover-weak" : "cover-none");
+  // Step 4 (docs/radar-run.md §4). The server leaves out empty fields: every list and number may be missing.
+  const clock = (ms) => (ms ? new Date(ms).toLocaleTimeString("ru-RU") : "—");
+  const minus = (text) => String(text).replace("-", "−");
+  const dbm = (value) => `${minus(value)} дБм`;
+  const direction = (key) => key.replace("|", "→");
+  const offset = (value) => `${value > 0 ? "+" : value < 0 ? "−" : ""}${fmt.number(Math.abs(value), 2)} дБ`;
+  const share = (part, whole) => (whole ? part / whole : null);
+  const exactCover = (level) => (level == null ? null : level >= 0.8 ? "cover-ok" : level >= 0.6 ? "cover-weak" : "cover-none");
+  const VERDICTS = {
+    KEEP: { class: "tag ok", text: "оставить" },
+    DROP: { class: "tag ban", text: "выбросить" },
+    INSUFFICIENT: { class: "tag mute", text: "мало данных" },
+  };
+  const CARRY_TECHS = ["carry.v1", "carry.v2"];
 
   const devices = report.devices ?? [];
   const steps = report.steps ?? [];
   const carry = report.carry ?? [];
-  const verdictText = { keep: "оставить", drop: "выбросить", too_little_data: "мало данных" };
-  const verdictClass = { keep: "cover-ok", drop: "cover-none", too_little_data: "cover-weak" };
-  const pct = (value) => (value == null ? "—" : `${fmt.number(value, 1)} %`);
-  const db = (value) => (value == null ? "—" : `${fmt.number(value, 1)} дБ`);
-  const dbm = (value) => (value == null ? "—" : `${value} дБм`);
-  const touchSource = { button: "кнопка", detector: "детектор", both: "детектор и кнопка" };
-  const bandErrors = (rows) => empty(rows) ?? table(["Техника", "Секунд", "Неверно", "Ошибка полосы", "Направлений", "Без поправки"],
-    rows.map((r) => el("tr", {}, el("td", { class: "mono" }, r.tech), el("td", {}, fmt.number(r.seconds)),
-      el("td", {}, fmt.number(r.wrong)), el("td", {}, pct(r.errorPercent)), el("td", {}, fmt.number(r.directions ?? 0)),
-      el("td", {}, fmt.number(r.uncalibrated ?? 0)))));
-  const witness = report.witness;
-  const detector = report.touchDetector;
+  const cards = report.cards ?? [];
+  const touches = report.touches ?? [];
+  const touchSpreads = report.touchSpreads ?? [];
+  const calibrations = report.calibrations ?? [];
+  const bands = report.bands ?? [];
+  const without = report.without ?? [];
+  const witness = report.witness ?? null;
+  const carryTechs = [...new Set(carry.map((c) => c.tech ?? "carry.v1"))]
+    .sort((a, b) => (CARRY_TECHS.indexOf(a) + 1 || 99) - (CARRY_TECHS.indexOf(b) + 1 || 99) || a.localeCompare(b));
   show(el("a", { href: labHash(id) }, "← К прогону"),
     el("div", { class: "report" },
       el("h1", {}, `Отчёт: ${view?.run.title ?? report.runId}`),
@@ -1714,16 +1725,17 @@ async function labReportView(id) {
       el("h2", {}, "Проблемы"),
       report.problems?.length ? el("ul", {}, report.problems.map((p) => el("li", {}, p))) : el("p", { class: "muted" }, "Нет."),
 
-      // Version 2 (docs/radar-run.md step 4): a card per technique against its criterion; older reports have none.
-      el("h2", {}, "Техники"),
-      el("p", { class: "muted small" }, "Критерий записан до замеров (ADR 0017 §2.3); вердикт — по цифрам этого прогона."),
-      empty(report.cards) ?? table(["Техника", "Группа", "Вердикт", "Критерий", "Цифры"],
-        report.cards.map((c) => el("tr", {},
-          el("td", { class: "mono" }, c.id),
-          el("td", { class: "small" }, c.group),
-          el("td", { class: verdictClass[c.verdict] ?? null }, verdictText[c.verdict] ?? c.verdict),
-          el("td", { class: "small" }, c.criterion),
-          el("td", { class: "small" }, c.numbers)))),
+      el("h2", {}, "Карточки техник"),
+      el("p", { class: "muted small" }, "Каждая техника против условия из каталога (ADR 0017 §2.3 и §3). Пороги — догадки плана, пока нет прогона; " +
+        "«мало данных» — журналам не хватило того, что условие требует."),
+      empty(cards) ?? cards.map((card) => {
+        const verdict = VERDICTS[card.verdict] ?? { class: "tag", text: card.verdict };
+        return el("div", { class: "card" },
+          el("h3", {}, el("span", { class: "mono" }, card.tech), " ", el("span", { class: verdict.class }, verdict.text)),
+          el("p", { class: "small" }, card.criterion),
+          card.numbers?.length ? el("ul", { class: "small" }, card.numbers.map((n) => el("li", {}, n))) : null,
+          card.missing ? el("p", { class: "muted small" }, `Не хватило: ${card.missing}`) : null);
+      }),
 
       el("h2", {}, "Кто кого слышал, по шагам"),
       empty(steps),
@@ -1732,10 +1744,11 @@ async function labReportView(id) {
           el("span", { class: "mono muted small" }, step.id), " ",
           el("span", { class: "muted small" }, `${seconds(step.endMillis - step.startMillis)}, с ${fmt.time(step.startMillis)}`)),
         step.directions?.length ? table(
-          ["Кого слышно → кто слышит", "Канал", "Приёмов", "В секунду", "RSSI медиана", "p80", "мин…макс", "Дольше всего тишина", "Приложение слушателя"],
+          ["Кого слышно → кто слышит", "Канал", "Техника", "Приёмов", "В секунду", "RSSI медиана", "p80", "мин…макс", "Дольше всего тишина", "Приложение слушателя"],
           step.directions.map((d) => el("tr", {},
             el("td", {}, sender(d.from), " → ", el("span", { class: "mono" }, d.to)),
             el("td", { class: "mono" }, d.channel),
+            el("td", { class: "mono" }, d.tech ?? "—"),
             el("td", {}, fmt.number(d.readings)),
             el("td", { class: cover(d.perSecond) }, fmt.number(d.perSecond, 2)),
             el("td", {}, `${d.medianRssi} дБм`),
@@ -1744,60 +1757,91 @@ async function labReportView(id) {
             el("td", {}, seconds(d.longestGapMillis)),
             el("td", { class: "small" }, d.during || "—")))) : el("p", { class: "muted" }, "Никто никого не слышал."))),
 
+      el("h2", {}, "Чоканье"),
+      el("p", { class: "muted small" }, "Два телефона, стукнутые друг о друга: удары на обоих в пределах 150 мс и пик RSSI пары. Отметка — кнопка «Чокнулись с …» " +
+        "на телефоне; отчёт сверяет с ней найденное, а не берёт её за вход. Три касания одной пары в одну сторону должны расходиться не больше чем на 6 дБ."),
+      empty(touches) ?? table(["Пара", "Когда", "RSSI по направлениям", "Удары, g", "Отметка"],
+        touches.map((t) => el("tr", {},
+          el("td", { class: "mono" }, t.pair),
+          el("td", {}, clock(t.atMillis)),
+          el("td", { class: "small" }, Object.entries(t.rssi ?? {}).map(([key, value]) => el("div", {}, `${direction(key)}: ${dbm(value)}`))),
+          el("td", { class: "small" }, Object.entries(t.peaksG ?? {}).map(([label, peak]) => el("div", {}, `${label}: ${fmt.number(peak, 2)}`))),
+          el("td", { class: t.markAtMillis ? "cover-ok" : null }, t.markAtMillis ? "✓" : "—")))),
+      el("p", { class: report.missedTouches ? "" : "muted" }, `Пропущено отметок: ${fmt.number(report.missedTouches ?? 0)}`),
+      touchSpreads.length ? table(["Пара", "Направление", "Касаний", "Разброс, дБ", "Дрейф, дБ"],
+        touchSpreads.map((t) => el("tr", {},
+          el("td", { class: "mono" }, t.pair),
+          el("td", { class: "mono" }, direction(t.direction)),
+          el("td", {}, fmt.number(t.touches)),
+          el("td", { class: t.touches < 2 ? null : t.spreadDb <= 6 ? "cover-ok" : "cover-none" }, fmt.number(t.spreadDb)),
+          el("td", {}, fmt.number(t.driftDb))))) : null,
+
+      el("h2", {}, "Калибровки"),
+      el("p", { class: "muted small" }, "Сколько дБ прибавляется к каждому направлению (`от|кому`) до сглаживания. `calib.none` — ноль, его здесь нет. " +
+        "`calib.model` — по показаниям этого же прогона в 1 м (−60 дБм), `calib.touch` — по касаниям (−40 дБм): лучший случай, обе считаны на том, на чём проверены."),
+      empty(calibrations) ?? table(["Калибровка", "Поправки по направлениям"],
+        calibrations.map((c) => el("tr", {},
+          el("td", { class: "mono" }, c.id),
+          el("td", { class: "small" }, Object.entries(c.offsetsDb ?? {}).sort(([a], [b]) => a.localeCompare(b))
+            .map(([key, value]) => el("div", {}, `${key}: ${offset(value)}`)))))),
+
+      el("h2", {}, "Полосы против расстояний"),
+      el("p", { class: "muted small" }, "Полоса радара каждую секунду для каждой пары против расстояния из сценария или отметки: до 1,5 м горит, до 4 м жарко, до 15 м тепло, дальше ничего. " +
+        "Точно: зелёный — от 80 %, жёлтый — от 60 %, красный — меньше. Пересчитано из показаний, в игре ничего не менялось."),
+      empty(bands) ?? table(["Сглаживание", "Калибровка", "Секунд (пар·с)", "Точно", "На полосу мимо", "Мимо", "Средняя ошибка, полос"],
+        bands.map((b) => el("tr", {},
+          el("td", { class: "mono" }, b.smoothing),
+          el("td", { class: "mono" }, b.calibration),
+          el("td", {}, fmt.number(b.seconds)),
+          el("td", { class: exactCover(share(b.exact, b.seconds)) }, percent(share(b.exact, b.seconds))),
+          el("td", {}, percent(share(b.oneOff, b.seconds))),
+          el("td", {}, percent(share(b.wrong, b.seconds))),
+          el("td", {}, fmt.number(b.meanError, 2))))),
+
+      el("h2", {}, "Без канала"),
+      el("p", { class: "muted small" }, "Полосы пар со всеми каналами против полос без одного из них (сглаживание игры, без калибровки): сколько секунд совпали " +
+        "и сколько секунд канал был единственным, что пара слышала."),
+      empty(without) ?? table(["Канал", "Секунд (пар·с)", "Совпали", "Канал один"],
+        without.map((w) => el("tr", {},
+          el("td", { class: "mono" }, w.tech),
+          el("td", {}, fmt.number(w.seconds)),
+          el("td", {}, `${fmt.number(w.same)} (${percent(share(w.same, w.seconds))})`),
+          el("td", {}, `${fmt.number(w.onlyChannel)} (${percent(share(w.onlyChannel, w.seconds))})`)))),
+
+      el("h2", {}, "Свидетель"),
+      el("p", { class: "muted small" }, "Пара молчит, но третий телефон слышит обоих не тише «жарко»: пара выводится «тепло». Сверено с расстоянием пары; нужны три телефона."),
+      witness == null ? el("p", { class: "muted" }, "Нет данных.") : table(
+        ["Секунд", "Выведено (пар·с)", "Верно", "Неверно", "Пары"],
+        [el("tr", {},
+          el("td", {}, fmt.number(witness.seconds)),
+          el("td", {}, fmt.number(witness.inferred)),
+          el("td", {}, fmt.number(witness.right)),
+          el("td", {}, fmt.number(witness.wrong)),
+          el("td", { class: "mono" }, (witness.pairs ?? []).join(", ") || "—"))]),
+
       el("h2", {}, "Карман"),
-      el("p", { class: "muted small" }, "Секунды: строка — где телефон был на самом деле (по отметкам), столбец — что сказал датчик кармана."),
+      el("p", { class: "muted small" }, "Секунды: строка — где телефон был на самом деле (по отметкам), столбец — что сказал датчик кармана. " +
+        "`carry.v1` — монитор игры, `carry.v2` — классификатор в тени (телефон пишет его в журнал, в игре его нет)."),
       empty(carry),
-      [...new Set(carry.map((c) => c.label))].map((label) => {
-        const rows = carry.filter((c) => c.label === label);
+      carryTechs.flatMap((tech) => [...new Set(carry.filter((c) => (c.tech ?? "carry.v1") === tech).map((c) => c.label))].map((label) => {
+        const rows = carry.filter((c) => c.label === label && (c.tech ?? "carry.v1") === tech);
         const truths = [...new Set(rows.map((c) => c.truth))];
         const said = [...new Set(rows.map((c) => c.said))];
-        return el("div", {}, el("h3", { class: "mono" }, label),
+        return el("div", {}, el("h3", {}, el("span", { class: "mono" }, label), " ", el("span", { class: "mono muted small" }, tech)),
           table(["Было \\ сказал", ...said], truths.map((truth) => el("tr", {},
             el("td", { class: "mono" }, truth),
             said.map((s) => {
               const cell = rows.find((c) => c.truth === truth && c.said === s);
               return el("td", { class: truth === s ? "cover-ok" : null }, cell ? fmt.number(cell.seconds) : "—");
             })))));
-      }),
+      })),
 
-      el("h2", {}, "Карман: классификаторы против разметки"),
-      el("p", { class: "muted small" }, "carry.v1 — нынешний датчик кармана, carry.v2 — кандидат в тени (radio-lab.md §7.3)."),
-      empty(report.carryClassifiers) ?? table(["Метка", "Классификатор", "Секунд с разметкой", "Совпало"],
-        report.carryClassifiers.map((c) => el("tr", {}, el("td", { class: "mono" }, c.label), el("td", { class: "mono" }, c.tech),
-          el("td", {}, fmt.number(c.seconds)), el("td", {}, `${fmt.number(c.agree)} (${pct(c.agreePercent)})`)))),
-
-      el("h2", {}, "Чоканье"),
-      el("p", { class: "muted small" }, detector
-        ? `Кнопкой отмечено ${fmt.number(detector.buttonTouches)}, детектор нашёл из них ${fmt.number(detector.found)}, ` +
-          `ложных ${fmt.number(detector.falseAlarms)}. RSSI a→b — что b слышал от a в момент касания.`
-        : "Касаний нет."),
-      report.touches?.length ? table(["Пара", "Время", "Источник", "RSSI a→b", "RSSI b→a", "Удары, g", "Разнос, мс"],
-        report.touches.map((t) => el("tr", {}, el("td", { class: "mono" }, `${t.a} · ${t.b}`), el("td", {}, fmt.time(t.atMillis)),
-          el("td", {}, touchSource[t.source] ?? t.source), el("td", {}, dbm(t.rssiAToB)), el("td", {}, dbm(t.rssiBToA)),
-          el("td", {}, t.impactA == null && t.impactB == null ? "—" : `${t.impactA ?? "—"} / ${t.impactB ?? "—"}`),
-          el("td", {}, t.skewMillis ?? "—")))) : null,
-      report.touchPairs?.length ? table(["Пара", "Касаний", "Поправка a→b", "Поправка b→a", "Разброс трёх", "Дрейф"],
-        report.touchPairs.map((p) => el("tr", {}, el("td", { class: "mono" }, `${p.a} · ${p.b}`), el("td", {}, fmt.number(p.touches)),
-          el("td", {}, db(p.offsetAToB)), el("td", {}, db(p.offsetBToA)),
-          el("td", { class: p.spreadDb != null && p.spreadDb > 6 ? "cover-none" : null }, db(p.spreadDb)), el("td", {}, db(p.driftDb))))) : null,
-
-      el("h2", {}, "Калибровка: ошибка полосы против расстояний шагов"),
-      bandErrors(report.calibration),
-
-      el("h2", {}, "Сглаживание: ошибка полосы против расстояний шагов"),
-      bandErrors(report.smoothing),
-
-      el("h2", {}, "Без канала"),
-      el("p", { class: "muted small" }, "Полоса со всеми каналами против полосы без одного: доля одинаковых секунд и секунды, когда слышал только он."),
-      empty(report.without) ?? table(["Канал", "Направлений", "Секунд", "Полоса та же", "Слышал только он, с"],
-        report.without.map((w) => el("tr", {}, el("td", { class: "mono" }, w.tech), el("td", {}, fmt.number(w.directions)),
-          el("td", {}, fmt.number(w.seconds)), el("td", {}, pct(w.equalPercent)), el("td", {}, fmt.number(w.aloneSeconds ?? 0))))),
-
-      el("h2", {}, "Свидетель (infer.witness)"),
-      el("p", { class: witness ? null : "muted" }, witness
-        ? `Пар-секунд с выводом: ${fmt.number(witness.inferredSeconds)}; с расстоянием шага ${fmt.number(witness.withTruth)}, ` +
-          `из них верно ${fmt.number(witness.right)}.`
-        : "Нет данных: меньше трёх телефонов слышали друг друга."),
+      el("h2", {}, "Шум эфира"),
+      el("p", { class: "muted small" }, "Чужие кадры, которых не разобрал ни один канал (`air`, раз в секунду): сколько их, среди них iBeacon любого UUID, масок overflow и кадров с данными Apple."),
+      empty(report.noise) ?? table(["Метка", "Секунд", "Кадров", "iBeacon", "Масок", "Apple", "Пик в секунду"],
+        report.noise.map((n) => el("tr", {}, el("td", { class: "mono" }, n.label), el("td", {}, fmt.number(n.seconds)),
+          el("td", {}, fmt.number(n.frames)), el("td", {}, fmt.number(n.iBeacons)), el("td", {}, fmt.number(n.masks)),
+          el("td", {}, fmt.number(n.apple)), el("td", {}, fmt.number(n.maxFramesPerSecond))))),
 
       el("h2", {}, "Маски (iOS overflow)"),
       empty(report.masks) ?? table(["Метка", "Кадров", "Совпали с пробой", "Расшифрован токен"],

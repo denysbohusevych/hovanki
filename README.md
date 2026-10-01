@@ -21,7 +21,7 @@
 | `shared/` | KMP (JVM, Android, iOS): DTO протокола, `ApiRoutes`, TOTP, гео, расписание зоны, правила GPS |
 | `server/` | Spring Boot сервер: игры в памяти, аккаунты, друзья, группы, жалобы, история игр, расписание больших игр и флаги возможностей в PostgreSQL; админка |
 | `clientCore/` | KMP (JVM, Android, iOS): клиентская логика без UI — API сервера, синхронизация, `ServerClock`, игровая сессия с чатом, аккаунт, друзья и группы |
-| `radar/` | KMP (JVM, Android, iOS): радар между телефонами — Bluetooth LE на Android и iOS, свой эфир радиолаборатории |
+| `radar/` | KMP (JVM, Android, iOS): радар между телефонами — каналы (форматы жетона в эфире), хосты платформ (Bluetooth LE на Android и iOS, симулятор эфира с правилами ОС для ботов), свой эфир радиолаборатории |
 | `device/` | KMP (JVM, Android, iOS): сам телефон — карман, движение, вибрация пульса, `DeviceInfo`, пробы радиолаборатории |
 | `composeApp/` | KMP-библиотека клиента: Compose UI, DI, платформенные сервисы (геолокация, фон, Keystore/Keychain; радио, пульс и датчики — в `radar/` и `device/`) |
 | `androidApp/` | Android-приложение: точка входа (`Application`, `MainActivity`) |
@@ -101,7 +101,7 @@ open iosApp/iosApp.xcodeproj
 | `./gradlew check` | Все тесты и проверки, кроме e2e-сценариев (то же, что в CI на Linux) |
 | `./gradlew :shared:jvmTest` | Быстрые тесты общего кода |
 | `./gradlew :clientCore:jvmTest` | Тесты клиентской логики (API, синхронизация, `ServerClock`) на JVM |
-| `./gradlew :radar:jvmTest :device:jvmTest` | Тесты радара и телефона (классификатор движения, признаки кармана, границы модулей) на JVM |
+| `./gradlew :radar:jvmTest :device:jvmTest` | Тесты радара и телефона (кодеки каналов, бюджет рекламы, правила ОС и симулятор эфира, классификатор движения, признаки кармана, границы модулей) на JVM |
 | `./gradlew :server:test` | Тесты сервера |
 | `./gradlew :e2e:test` | End-to-end сценарии: боты играют целые партии против сервера (~6 мин), отчёты — `e2e/build/reports/e2e/`. Только явно: в `check` и CI на push не входят, идут ночью |
 | `./gradlew :e2e:test -Pe2e.slow=true` | То же вместе с долгими сценариями (тег `slow`: партия с правилами по умолчанию, большая игра на 300 ботов), как ночью; `--tests '*BigGameLoadTest' -Pe2e.bigGamePlayers=1600` — нагрузочный тест большой игры на 1 600 ботов |

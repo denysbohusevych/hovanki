@@ -8,8 +8,9 @@ import app.hovanki.client.network.testSession
 import app.hovanki.client.network.testSnapshot
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.storage.FakeSecureStore
-import app.hovanki.device.Impact
-import app.hovanki.device.ImpactMonitor
+import app.hovanki.device.lab.LabBattery
+import app.hovanki.device.lab.LabProbes
+import app.hovanki.device.lab.LabSensorReading
 import app.hovanki.radar.RadioApi
 import app.hovanki.radar.RadioSighting
 import app.hovanki.radar.SightingVia
@@ -19,11 +20,11 @@ import app.hovanki.shared.lab.GpsFields
 import app.hovanki.shared.lab.LabFields
 import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.lab.MarkFields
+import app.hovanki.shared.lab.RunStep
 import app.hovanki.shared.lab.RxFields
 import app.hovanki.shared.lab.SurveyFields
 import app.hovanki.shared.lab.SyncFields
-import app.hovanki.shared.lab.TouchFields
-import app.hovanki.shared.lab.TouchKinds
+import app.hovanki.shared.lab.TouchDetector
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.FeatureMode
@@ -36,6 +37,7 @@ import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.rules.RadarToken
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -453,9 +455,22 @@ class FieldSessionTest {
 
     @Test
     fun theLobbyOfAGameWithTheRadarShowsTheTouchCard() = runTest {
-        val impacts = MutableSharedFlow<Impact>(extraBufferCapacity = 8)
-        val monitor = object : ImpactMonitor {
-            override fun impacts() = impacts
+        val sensors = MutableSharedFlow<LabSensorReading>(extraBufferCapacity = 8)
+        val probes = object : LabProbes {
+            override fun appState(): String = "screen_on"
+
+            override fun lifecycle(): Flow<String> = MutableSharedFlow()
+
+            override fun sensors(): Flow<LabSensorReading> = sensors
+
+            override fun battery(): Flow<LabBattery> = MutableSharedFlow()
+        }
+
+        /** A knock of [peakG] over gravity on the sensors' clock: the reading, then a quiet one [after] ms later. */
+        suspend fun knock(peakG: Double, after: Long = 200) {
+            val at = currentTime
+            sensors.emit(LabSensorReading.Motion(at, 1.0 + peakG, null))
+            sensors.emit(LabSensorReading.Motion(at + after, 1.0, null))
         }
         val log = LabLog(isEnabled = false, { DEVICE + currentTime }, { currentTime })
         val api = FakeLabApi()
@@ -465,7 +480,7 @@ class FieldSessionTest {
             storage = storage,
             scope = backgroundScope,
             isFieldBuild = true,
-            impacts = monitor,
+            probes = probes,
         )
         fun snapshot(phase: GamePhase, radar: Boolean = true) = testSnapshot(phase = phase, serverTimeMillis = SERVER)
             .let {
@@ -505,19 +520,23 @@ class FieldSessionTest {
         }
         assertEquals(quiet, api.uploads.size, "a quiet lobby sends nothing")
 
-        // The neighbours touch: a jolt, both press «We touched»; it goes up at once.
-        impacts.emit(Impact(DEVICE + currentTime - 400, 1.75))
+        // The neighbours touch: a knock, both press «We touched»; it goes up at once.
+        knock(1.75, after = 400)
         runCurrent()
         assertEquals(0, field.touchCount.value)
         assertTrue(field.touched(PlayerId("player-2")))
         assertEquals(1, field.touchCount.value, "the card counts the touches")
         runCurrent()
         val touches = api.uploads.drop(quiet).flatMap { it.lines }.map { Json.parseToJsonElement(it).jsonObject }
-            .filter { it.kind == TouchKinds.TOUCH }
-        assertEquals(listOf(TouchFields.IMPACT, TouchFields.BUTTON), touches.map { it.string(TouchFields.SRC) })
-        assertEquals(1.75, touches.first().double(TouchFields.G))
-        assertEquals(400L, touches.first().long(TouchFields.AGO))
-        assertEquals("player-2", touches.last().string(TouchFields.PARTNER))
+            .filter { it.kind == IMPACT || it.kind == FieldKinds.MARK }
+        assertEquals(listOf(IMPACT, FieldKinds.MARK), touches.map { it.kind }, "the lab's knock and its truth")
+        assertEquals(1.75, touches.first().double("peak"))
+        assertEquals(400L, touches.first().long("ago"))
+        assertEquals(TouchDetector.TOUCH_ACTION, touches.last().string("action"))
+        assertEquals(
+            TouchDetector.LABEL_PREFIX + RunStep.pairKey(log.label.value, "player-2"),
+            touches.last().string("label"),
+        )
 
         // The round: no card, no touch radio, the ticks and the shadow's pocket start.
         field.onSnapshot(testSession, snapshot(GamePhase.HIDING))
@@ -525,10 +544,10 @@ class FieldSessionTest {
         assertNull(field.touchRadioToken(snapshot(GamePhase.HIDING)))
         assertFalse(field.touched(PlayerId("player-2")))
         assertEquals(1, field.touchCount.value, "a press with no card is not counted")
-        impacts.emit(Impact(DEVICE + currentTime, 2.0))
+        knock(2.0)
         advanceTimeBy(2_500)
         runCurrent()
-        assertEquals(1, events().count { it.kind == TouchKinds.TOUCH && it.string(TouchFields.SRC) == "impact" })
+        assertEquals(1, events().count { it.kind == IMPACT }, "no knocks in the round")
         assertTrue(events().any { it.kind == FieldKinds.TICK })
 
         // On the results, again; the round's ticks stop, so a quiet results screen sends nothing.
@@ -548,11 +567,11 @@ class FieldSessionTest {
         field.dismissTouch()
         assertFalse(field.touchCard.value)
         assertNull(field.touchRadioToken(snapshot(GamePhase.FINISHED)))
-        impacts.emit(Impact(DEVICE + currentTime, 2.5))
+        knock(2.5)
         runCurrent()
         field.onSnapshot(testSession, snapshot(GamePhase.FINISHED))
         assertFalse(field.touchCard.value, "dismissed until the phase changes")
-        assertTrue(events().none { it.kind == TouchKinds.TOUCH && it.double(TouchFields.G) == 2.5 })
+        assertTrue(events().none { it.kind == IMPACT && it.double("peak") == 2.5 })
 
         // A game without the radar has none.
         field.onSnapshot(testSession, snapshot(GamePhase.FINISHED, radar = false))
@@ -600,6 +619,7 @@ class FieldSessionTest {
 
     private companion object {
         const val DEVICE = 1_790_000_000_000L
+        const val IMPACT = "impact"
 
         /** The server's clock in the snapshots: after the field build existed. */
         const val SERVER = 1_790_000_000_000L

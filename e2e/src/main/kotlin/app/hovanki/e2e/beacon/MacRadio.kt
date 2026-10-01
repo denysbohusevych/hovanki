@@ -2,7 +2,6 @@ package app.hovanki.e2e.beacon
 
 import app.hovanki.radar.ProximityRadio
 import app.hovanki.radar.RadioApi
-import app.hovanki.radar.RadioOptions
 import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.protocol.BluetoothState
 import kotlinx.coroutines.flow.Flow
@@ -77,11 +76,10 @@ class MacRadio(
         }
     }
 
-    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean, options: RadioOptions): Flow<RadioSighting> =
-        channelFlow {
-            launch { tokens.collect { command(if (it == null || !advertise) "stop" else "advertise $it") } }
-            sightings.collect { send(it) }
-        }.onCompletion { command("stop") }
+    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean): Flow<RadioSighting> = channelFlow {
+        launch { tokens.collect { command(if (it == null || !advertise) "stop" else "advertise $it") } }
+        sightings.collect { send(it) }
+    }.onCompletion { command("stop") }
 
     private fun command(line: String) {
         synchronized(input) {

@@ -3,9 +3,11 @@
 package app.hovanki.client.lab
 
 import app.hovanki.device.lab.MotionFeatures
-import app.hovanki.radar.AdvertReport
-import app.hovanki.radar.AirSummary
-import app.hovanki.radar.HeardFrame
+import app.hovanki.radar.AirFrame
+import app.hovanki.radar.AirSecond
+import app.hovanki.radar.Decoded
+import app.hovanki.radar.RadarCatalog
+import app.hovanki.radar.RadarTrace
 import app.hovanki.radar.RadioApi
 import app.hovanki.radar.SightingVia
 import app.hovanki.shared.lab.ErrFields
@@ -16,11 +18,8 @@ import app.hovanki.shared.lab.LabRadarKinds
 import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.lab.MarkFields
 import app.hovanki.shared.lab.RxFields
-import app.hovanki.shared.lab.ShadowFields
 import app.hovanki.shared.lab.SurveyFields
 import app.hovanki.shared.lab.SyncFields
-import app.hovanki.shared.lab.TouchFields
-import app.hovanki.shared.lab.TouchKinds
 import app.hovanki.shared.lab.UiFields
 import app.hovanki.shared.protocol.LabUpload
 import app.hovanki.shared.protocol.RadarBand
@@ -57,7 +56,8 @@ import kotlin.time.TimeSource
  *
  * The field log (docs/adr/0018-field-test-build.md §3.2, [startField]) is the same log in a real game of the field
  * build, whatever [isEnabled] says: only there `gps` carries the coordinates ([fix]), the radio's readings are thinned
- * to one event per peer and second ([FieldThinning]), and the game's own kinds come in ([sync], [ui], [perm], [err],
+ * to one event per peer and second ([FieldThinning]), the frames and the air to one per window, what the shadow's
+ * channels read is a `shadow` reading ([frame]), and the game's own kinds come in ([sync], [ui], [perm], [err],
  * [playerMark], [survey]).
  */
 class LabLog(
@@ -250,9 +250,9 @@ class LabLog(
     }
 
     /**
-     * A request to the lab's server routes: [action] `join`, `state`, `upload` or `advance`, whether it went through
-     * ([ok]), the upload's events ([seqFrom]..[seqTo]) and [bytes] on the wire, how long it took ([millis]), the
-     * [error] and how many events wait for an upload ([pending]).
+     * A request to the lab's server routes: [action] `join`, `state`, `upload`, `advance` or `uwb` (the UWB token
+     * posted), whether it went through ([ok]), the upload's events ([seqFrom]..[seqTo]) and [bytes] on the wire, how
+     * long it took ([millis]), the [error] and how many events wait for an upload ([pending]).
      */
     fun net(
         action: String,
@@ -333,8 +333,9 @@ class LabLog(
     }
 
     /**
-     * [mode]: `hider_name`, `hider_service_data`, `ibeacon`, `overflow_probe`, `background_overflow`; [payload]: what
-     * the advertisement has; [report]: its channels, layout and bytes ([LabRadarKinds.ADV]).
+     * [mode]: `hider_name`, `hider_service_data`, `ibeacon`, `overflow_probe` (and a channel's id where it has no older
+     * name); [payload]: what the advertisement has; [tech]: the channel ([app.hovanki.radar.RadarChannel.id]);
+     * [layout]: the advertisement's bytes in words and, with `dropped`, what was left out ([error] says why).
      */
     fun adv(
         action: String,
@@ -342,102 +343,17 @@ class LabLog(
         token: String? = null,
         payload: String? = null,
         error: String? = null,
-        report: AdvertReport? = null,
-    ) = event(LabRadarKinds.ADV) {
+        tech: String? = null,
+        layout: String? = null,
+    ) = event("adv") {
         put("action", action)
         put("mode", mode)
+        put("tech", tech)
         put("token", token)
         put("payload", payload)
+        put("layout", layout)
         put("error", error)
-        if (report != null) {
-            put("tech", report.tech.joinToString(","))
-            put("layout", report.layout)
-            put("bytes", report.main.bytes)
-            put("limit", report.main.limit)
-            put("fields", report.main.toString())
-            put("scan_rsp", report.scanResponse?.toString())
-            if (report.dropped.isNotEmpty()) put("dropped", report.dropped.joinToString(","))
-            if (report.background > 0) put("background", report.background)
-        }
     }
-
-    /** A frame of ours, whole ([LabRadarKinds.FRAME]): [tech] read it. */
-    fun frame(frame: HeardFrame, tech: String) {
-        if (!isWriting) return
-        val now = deviceTimeMillis()
-        event(LabRadarKinds.FRAME) {
-            put("tech", tech)
-            put("api", frame.api.key)
-            put("rssi", frame.rssi)
-            put("peer", frame.peer?.let(::peerId))
-            if (now - frame.atMillis > 0) put("ago", now - frame.atMillis)
-            put("hex", frame.rawHex)
-            put("name", frame.localName)
-            if (frame.serviceUuids.isNotEmpty()) put("uuids", JsonArray(frame.serviceUuids.map(::JsonPrimitive)))
-            if (frame.overflowUuids.isNotEmpty()) {
-                val bits = frame.overflowUuids.mapNotNull(OverflowArea::bitOf).sorted()
-                put("overflow", JsonArray(bits.map(::JsonPrimitive)))
-            }
-            if (frame.serviceData.isNotEmpty()) {
-                put("svc", JsonObject(frame.serviceData.mapValues { JsonPrimitive(it.value) }))
-            }
-            if (frame.manufacturerData.isNotEmpty()) {
-                val byCompany = frame.manufacturerData.entries.associate { (id, hex) ->
-                    id.toString(16).padStart(4, '0') to JsonPrimitive(hex)
-                }
-                put("mfr", JsonObject(byCompany))
-            }
-            frame.iBeacon?.let { put("ibeacon", "${it.uuid} ${it.major} ${it.minor}") }
-            put("tx", frame.txPower)
-            put("conn", frame.connectable)
-        }
-    }
-
-    /** Everybody else's frames in a second ([LabRadarKinds.AIR]): counts, and the masks' bits. */
-    fun air(summary: AirSummary) = event(LabRadarKinds.AIR) {
-        put("window", summary.millis)
-        put("ours", summary.ours)
-        put("ibeacon", summary.ibeacons)
-        put("masks", summary.masks)
-        put("apple", summary.apple)
-        put("other", summary.other)
-        if (summary.maskBits.isNotEmpty()) {
-            put(
-                "bits",
-                JsonObject(
-                    summary.maskBits.entries.sortedBy { it.key }.associate {
-                        "${it.key}" to
-                            JsonPrimitive(it.value)
-                    },
-                ),
-            )
-        }
-    }
-
-    /** What a channel in the shadow read ([LabRadarKinds.SHADOW]): never the game's. */
-    fun shadow(tech: String, tokens: List<String>, frame: HeardFrame, via: SightingVia) {
-        if (!isWriting) return
-        val now = deviceTimeMillis()
-        event(LabRadarKinds.SHADOW) {
-            put("tech", tech)
-            put("token", tokens.firstOrNull())
-            if (tokens.size > 1) put("tokens", JsonArray(tokens.map(::JsonPrimitive)))
-            put("rssi", frame.rssi)
-            put("api", frame.api.key)
-            put("via", via.key)
-            put("peer", frame.peer?.let(::peerId))
-            if (now - frame.atMillis > 0) put("ago", now - frame.atMillis)
-        }
-    }
-
-    /** The seekers' iBeacon region ([LabRadarKinds.REGION]): entered, left, its state, or monitoring failed. */
-    fun region(tech: String, change: String, state: String? = null, error: String? = null) =
-        event(LabRadarKinds.REGION) {
-            put("tech", tech)
-            put("event", change)
-            put("state", state)
-            put("error", error)
-        }
 
     fun scan(action: String, api: RadioApi, filters: String? = null, error: String? = null) = event("scan") {
         put("action", action)
@@ -448,8 +364,8 @@ class LabLog(
 
     /**
      * Every reading, not thinned out: [token] (null when the sender carried none we could read), [rssi], by [api] via
-     * [via], from [peer] (the OS's id; hashed here), read by the channel [tech]. [atMillis]: when the platform heard
-     * it, device clock. A reading with a token moves the lab's smoothed band for it ([band] on a change). In the field
+     * [via] of the channel [tech], from [peer] (the OS's id; hashed here). [atMillis]: when the platform heard it,
+     * device clock. A reading with a token moves the lab's smoothed band for it ([band] on a change). In the field
      * one `rx` per peer, channel and window ([FieldThinning]): the count, the median and the loudest.
      */
     fun rx(
@@ -465,7 +381,7 @@ class LabLog(
         val now = deviceTimeMillis()
         val field = thinning
         if (field != null) {
-            val key = FieldThinning.RxKey(token, api.key, via.key, peer?.let(::peerId), tech)
+            val key = FieldThinning.RxKey(token, api.key, via.key, peer?.let(::peerId), tech?.ifEmpty { null })
             field.rx(key, rssi, atMillis ?: now).forEach(::writeReadings)
         } else {
             event("rx") {
@@ -473,8 +389,8 @@ class LabLog(
                 put("rssi", rssi)
                 put("api", api.key)
                 put("via", via.key)
+                put("tech", tech?.ifEmpty { null })
                 put("peer", peer?.let(::peerId))
-                put("tech", tech)
                 if (atMillis != null && now - atMillis > 0) put("ago", now - atMillis)
             }
         }
@@ -492,6 +408,89 @@ class LabLog(
                     put("band", band.name.lowercase())
                 }
             }
+        }
+    }
+
+    /**
+     * A frame of the radar's own a channel read ([decoded]: the channel's id and what it read, [RadarTrace.frame]),
+     * whole: `tech` (the first channel), `via`, `token` (and `candidates` when the frame may carry several), what the
+     * platform gave (`name`, `uuids`, `overflow` as the table's bits, `svcdata` and `mfr` in hex by UUID and company
+     * id, `tx`, `conn`), `rssi`, `peer` (hashed), `api`, `hex` (the raw record, Android) and `ago` (how long ago the
+     * platform heard it, as [rx]). The tokens are the lab's own; a frame has no position. In a field run a frame a
+     * channel of the shadow read ([shadowTechs]: the overflow mask, docs/adr/0018-field-test-build.md §4 B) is also a
+     * `shadow` reading ([LabRadarKinds.SHADOW]), every one of them: the report counts what the shadow would have heard.
+     */
+    fun frame(frame: AirFrame, decoded: List<Pair<String, Decoded>>) {
+        if (!isWriting) return
+        val now = deviceTimeMillis()
+        if (isField) {
+            decoded.firstOrNull { it.first in shadowTechs }?.let { (tech, read) -> shadowReading(tech, read, frame) }
+        }
+        val first = decoded.firstOrNull()
+        event("frame") {
+            put("tech", first?.first)
+            if (decoded.map { it.first }.distinct().size > 1) {
+                put("techs", JsonArray(decoded.map { it.first }.distinct().map(::JsonPrimitive)))
+            }
+            put("via", first?.second?.via?.key)
+            put("token", first?.second?.token)
+            val candidates = first?.second?.candidates.orEmpty()
+            if (candidates.size > 1) put("candidates", JsonArray(candidates.map(::JsonPrimitive)))
+            put("name", frame.name)
+            if (frame.serviceUuids.isNotEmpty()) put("uuids", JsonArray(frame.serviceUuids.map(::JsonPrimitive)))
+            if (frame.overflowUuids.isNotEmpty()) {
+                // The table's bits; a UUID not in the table (none should be) as it came.
+                val bits = frame.overflowUuids.map { uuid -> OverflowArea.bitOf(uuid)?.let(::JsonPrimitive) }
+                put("overflow", JsonArray(bits.zip(frame.overflowUuids) { bit, uuid -> bit ?: JsonPrimitive(uuid) }))
+            }
+            if (frame.serviceData.isNotEmpty()) {
+                put("svcdata", buildJsonObject { for ((uuid, data) in frame.serviceData) put(uuid, hexOf(data)) })
+            }
+            if (frame.manufacturerData.isNotEmpty()) {
+                put(
+                    "mfr",
+                    buildJsonObject {
+                        for ((company, data) in frame.manufacturerData) put(companyKey(company), hexOf(data))
+                    },
+                )
+            }
+            put("tx", frame.txPower)
+            put("conn", frame.connectable)
+            put("rssi", frame.rssi)
+            put("peer", frame.peer?.let(::peerId))
+            put("api", frame.api.key)
+            put("hex", frame.hex())
+            if (now - frame.atMillis > 0) put("ago", now - frame.atMillis)
+        }
+    }
+
+    /**
+     * One second of the frames no channel read ([RadarTrace.air]): `frames` in all, `ibeacons`, overflow `masks`,
+     * `apple` (with Apple's manufacturer data) and every mask's `bits`: the street's noise.
+     */
+    fun air(second: AirSecond) = event("air") {
+        put("frames", second.frames)
+        put("ibeacons", second.iBeacons)
+        put("masks", second.masks)
+        put("apple", second.apple)
+        put("bits", JsonArray(second.maskBits.sorted().map(::JsonPrimitive)))
+    }
+
+    /**
+     * What a channel in the shadow read ([LabRadarKinds.SHADOW], the field log): `tech`, `token` (and `tokens` when a
+     * damaged mask gives several), `rssi`, `api`, `via`, `peer` (hashed), `ago`; never the game's.
+     */
+    private fun shadowReading(tech: String, read: Decoded, frame: AirFrame) {
+        val now = deviceTimeMillis()
+        event(LabRadarKinds.SHADOW) {
+            put("tech", tech)
+            put("token", read.token)
+            if (read.candidates.size > 1) put("tokens", JsonArray(read.candidates.map(::JsonPrimitive)))
+            put("rssi", frame.rssi)
+            put("api", frame.api.key)
+            put("via", read.via.key)
+            put("peer", frame.peer?.let(::peerId))
+            if (now - frame.atMillis > 0) put("ago", now - frame.atMillis)
         }
     }
 
@@ -548,7 +547,30 @@ class LabLog(
         put("reason", reason)
     }
 
-    /** [kind]: `core_haptics`, `impact`, `notify_silent_sound`, `notify_no_sound`, `vibrator`. */
+    /**
+     * A knock the accelerometer felt ([app.hovanki.device.lab.ImpactDetector]): `peak`, |magnitude − 1| in g, and
+     * `ago`, how long before this event it was. The sensors run on their own clock (since the boot), not the device's:
+     * the lab measures [agoMillis] on theirs, against the newest reading, and the report puts the knock at `t − ago`
+     * (docs/adr/0017-radar-techniques-and-big-run.md §3, the touch calibration).
+     */
+    fun impact(peakG: Double, agoMillis: Long) = event("impact") {
+        put("peak", round(peakG, 2))
+        put("ago", agoMillis.coerceAtLeast(0))
+    }
+
+    /**
+     * A technique's answer in the shadow of the game's ([tech]: `carry.v2`): the [state] it would say
+     * (`in_pocket`, `in_hand`, `unknown`) and why ([reason]); nothing of it reaches the game.
+     */
+    fun shadow(tech: String, state: String, reason: String? = null) = event("shadow") {
+        put("tech", tech)
+        put("state", state)
+        put("reason", reason)
+    }
+
+    /**
+     * [kind]: `core_haptics`, `core_haptics_audio`, `impact`, `notify_silent_sound`, `notify_no_sound`, `vibrator`.
+     */
     fun haptic(kind: String, result: String, error: String? = null, reason: String? = null, group: Int? = null) =
         event("haptic") {
             put("kind", kind)
@@ -557,6 +579,53 @@ class LabLog(
             put("reason", reason)
             put("group", group)
         }
+
+    /**
+     * A step of the GATT link (`gatt.link`, docs/radar-run.md §5.2): [action] the link's trace
+     * ([app.hovanki.radar.link.LinkTrace]: `connect`, `connected`, `wrote`, `notified`, `disconnected`…) or `reading`
+     * (a token or an RSSI read over the link), with the peer ([peer], the OS's id; hashed here as in [rx]), the peer's
+     * [token], the [rssi] (dBm, only the side that connected reads it) and the [error].
+     */
+    fun link(action: String, peer: String? = null, token: String? = null, rssi: Int? = null, error: String? = null) =
+        event("link") {
+            put("action", action)
+            put("peer", peer?.let(::peerId))
+            put("token", token)
+            put("rssi", rssi)
+            put("error", error)
+        }
+
+    /**
+     * UWB ranging (`uwb.ni`, docs/radar-run.md §5.3): [action] `reading` with the distance [meters] (2 decimals) and
+     * the direction [degrees] (whole, clockwise from where the phone points; none when iOS doesn't know it) to [peer]
+     * (the run's label: it is no OS id), or a step of the session ([app.hovanki.radar.RangeTrace]: `session_start`,
+     * `config`, `running`, `suspended`, `removed`, `invalidated`…) with its [error]. The discovery tokens are never
+     * written.
+     */
+    fun range(
+        action: String,
+        peer: String? = null,
+        meters: Double? = null,
+        degrees: Double? = null,
+        error: String? = null,
+    ) = event("range") {
+        put("action", action)
+        put("peer", peer)
+        put("m", meters?.takeIf { it.isFinite() }?.let { round(it, 2) })
+        put("deg", degrees?.takeIf { it.isFinite() }?.roundToLong())
+        put("error", error)
+    }
+
+    /**
+     * A background mode (`mode.audio`, `mode.notification_wake`, `mode.live_activity`, docs/radar-run.md §5.1, §5.3):
+     * [event] `on`, `off`, `failed` or `unavailable` as the lab switched it, or what the mode said while on
+     * (`interruption_began`, `route_change`, `notification_sent`, `live_activity_started`…), with the [reason].
+     */
+    fun mode(mode: String, event: String, reason: String? = null) = event("mode") {
+        put("mode", mode)
+        put("event", event)
+        put("reason", reason)
+    }
 
     fun battery(level: Double?, state: String?, lowPower: Boolean?) = event("battery") {
         put("level", level?.let { round(it, 3) })
@@ -686,34 +755,6 @@ class LabLog(
         if (ago > 0) put("ago", ago)
     }
 
-    /**
-     * «We touched» (docs/adr/0017-radar-techniques-and-big-run.md §3): the tester touched phones with [partner] (its
-     * label in the run; in a game's run the player's id) and pressed the button, the truth the detector is checked
-     * against.
-     */
-    fun touchPressed(partner: String) = event(TouchKinds.TOUCH) {
-        put(TouchFields.SRC, TouchFields.BUTTON)
-        put(TouchFields.PARTNER, partner)
-    }
-
-    /** A lone jolt of [g] beyond gravity at [atMillis] (device clock): a touch's candidate. */
-    fun touchImpact(g: Double, atMillis: Long) {
-        if (!isWriting) return
-        val ago = deviceTimeMillis() - atMillis
-        event(TouchKinds.TOUCH) {
-            put(TouchFields.SRC, TouchFields.IMPACT)
-            put(TouchFields.G, round(g, 2))
-            if (ago > 0) put(TouchFields.AGO, ago)
-        }
-    }
-
-    /** A classifier in the shadow ([tech]: `carry.v1`, `carry.v2`) says [state] now, because of [why]. */
-    fun shadowState(tech: String, state: String, why: String? = null) = event(LabRadarKinds.SHADOW) {
-        put(ShadowFields.TECH, tech)
-        put(ShadowFields.STATE, state)
-        put(ShadowFields.WHY, why)
-    }
-
     fun note(text: String) = event("note") { put("text", text) }
 
     /** An 8-character hash of the OS's id of a sender: tells senders apart within this log only. */
@@ -838,13 +879,16 @@ class LabLog(
         /** The uploads' own kind: never news ([lastNewsSeq]). */
         const val NET = "net"
 
-        private const val MAX_TICK_GAPS = 1_000
-
         /** A player's words, an exception's message: this long at most. */
         const val MAX_TEXT = 200
 
         /** About 1 cm: more than GPS knows. */
         private const val COORDINATE_DIGITS = 7
+
+        /** The channels a field run's journal reads in the shadow ([frame]): their frames are `shadow` readings. */
+        val shadowTechs: Set<String> = RadarCatalog.fieldShadow.map { it.id }.toSet()
+
+        private const val MAX_TICK_GAPS = 1_000
 
         private const val FNV_OFFSET = -3750763034362895579L // 0xcbf29ce484222325
         private const val FNV_PRIME = 1099511628211L
@@ -855,6 +899,12 @@ class LabLog(
             val start = TimeSource.Monotonic.markNow()
             return { start.elapsedNow().inWholeMilliseconds }
         }
+
+        private fun hexOf(data: ByteArray): String =
+            data.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+
+        /** `004c`: a company id as its 4 hex digits. */
+        private fun companyKey(id: Int): String = id.toString(16).padStart(4, '0')
 
         internal fun round(value: Double, digits: Int): Double {
             var scale = 1.0

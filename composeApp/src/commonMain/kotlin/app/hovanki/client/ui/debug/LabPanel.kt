@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
@@ -37,6 +38,7 @@ import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopTextField
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.theme.Palette
+import app.hovanki.device.ModeIds
 import app.hovanki.device.lab.HapticKind
 import app.hovanki.shared.lab.LabJoinCode
 import app.hovanki.shared.lab.LabPlaces
@@ -78,7 +80,6 @@ internal fun LabContent() {
     LabRadioCard(viewModel, now)
     ScreenAndPulseCard(viewModel)
     MarksCard(viewModel)
-    TouchesCard(viewModel)
     ScenarioCard(viewModel, now)
 }
 
@@ -184,6 +185,9 @@ private fun JoinServerRun(viewModel: LabViewModel, inGame: Boolean, error: Strin
 private fun FollowedRun(viewModel: LabViewModel, run: LabFollowState, error: String?) {
     val pending by viewModel.uploadPending.collectAsStateWithLifecycle()
     val uploadError by viewModel.uploadError.collectAsStateWithLifecycle()
+    val linkPeers by viewModel.linkPeers.collectAsStateWithLifecycle()
+    val lastRange by viewModel.lastRange.collectAsStateWithLifecycle()
+    val labTechniques by viewModel.labTechniques.collectAsStateWithLifecycle()
     val now = viewModel.serverNow()
     val status = run.plan.status
     Line("${run.script.title} · ${run.code} · as ${run.label}")
@@ -212,6 +216,9 @@ private fun FollowedRun(viewModel: LabViewModel, run: LabFollowState, error: Str
                 },
             )
         }
+    }
+    if ("gatt.link" in labTechniques || "uwb.ni" in labTechniques) {
+        Line("link: $linkPeers peers · range: ${lastRange ?: "none yet"}")
     }
     Line("upload: $pending pending")
     uploadError?.let { SecondaryText("⚠ upload: $it") }
@@ -553,10 +560,14 @@ private fun VibrationTest(viewModel: LabViewModel, inGame: Boolean, hapticTest: 
 private val HapticKind.label: String
     get() = when (this) {
         HapticKind.CORE_HAPTICS -> "Core Haptics"
+        HapticKind.CORE_HAPTICS_AUDIO -> "Core Haptics, audio session"
         HapticKind.IMPACT -> "impact"
         HapticKind.NOTIFY_SILENT_SOUND -> "notification, silent sound"
         HapticKind.NOTIFY_NO_SOUND -> "notification, no sound"
         HapticKind.VIBRATOR -> "vibration motor"
+        HapticKind.LIVE_ACTIVITY_ALERT -> "Live Activity alert, silent sound (switch mode.live_activity on first)"
+        HapticKind.LIVE_ACTIVITY_ALERT_DOUBLE -> "Live Activity, two alerts 300 ms apart"
+        HapticKind.NOTIFY_SILENT_RINGTONE -> "notification, silent ringtone (the ringtone's vibration)"
     }
 
 @Composable
@@ -572,6 +583,17 @@ private fun ScreenAndPulseCard(viewModel: LabViewModel) {
                 onCheckedChange = viewModel::setScreenOff,
             )
         }
+        // The modes of step 5 by hand (docs/radar-run.md §5.1, §5.3): a run's step names them; here for a locked
+        // vibration test with the audio session or the Live Activity on.
+        val labTechniques by viewModel.labTechniques.collectAsStateWithLifecycle()
+        MODE_SWITCHES.forEach { (id, text) ->
+            BenchSwitch(
+                text = text,
+                checked = id in labTechniques,
+                enabled = id in viewModel.availableModes,
+                onCheckedChange = { on -> viewModel.setLabTechnique(id, on) },
+            )
+        }
         SecondaryText("Pulse by the lab's loudest band:")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             LabPulse.entries.forEach { option ->
@@ -583,6 +605,13 @@ private fun ScreenAndPulseCard(viewModel: LabViewModel) {
     }
 }
 
+/** The background modes the screen switches, in the words of the tester. */
+private val MODE_SWITCHES: List<Pair<String, String>> = listOf(
+    ModeIds.AUDIO to "Audio session (mode.audio): Core Haptics while locked?",
+    ModeIds.NOTIFICATION_WAKE to "Notification wake (mode.notification_wake), every 20 s",
+    ModeIds.LIVE_ACTIVITY to "Live Activity (mode.live_activity): needs the HovankiLive target",
+)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MarksCard(viewModel: LabViewModel) {
@@ -590,6 +619,7 @@ private fun MarksCard(viewModel: LabViewModel) {
     val lastMark by viewModel.lastMark.collectAsStateWithLifecycle()
     Section("Marks") {
         Line("Last mark: ${lastMark ?: "none yet"}")
+        TouchRow(viewModel)
         SecondaryText("Distance")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             LabPlaces.DISTANCES.forEach { meters ->
@@ -628,32 +658,39 @@ private fun MarksCard(viewModel: LabViewModel) {
 }
 
 /**
- * «We touched» (docs/radar-run.md step 4): the two testers hold the phones back to back for a second, each picks the
- * other's label and presses the button. The truth the report's touch detector is checked against.
+ * «Touched with …» (docs/adr/0017-radar-techniques-and-big-run.md §3, the touch calibration): knock this phone back to
+ * back with another one, then press that one's label at once. In a server run a button per other device of the run;
+ * outside one, the other device's label typed.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TouchesCard(viewModel: LabViewModel) {
-    val lastMark by viewModel.lastMark.collectAsStateWithLifecycle()
+private fun TouchRow(viewModel: LabViewModel) {
     val follow by viewModel.follow.collectAsStateWithLifecycle()
-    val label by viewModel.label.collectAsStateWithLifecycle()
-    // The labels change with the run and the phone's own label; the pick goes with the list.
-    val partners = remember(follow, label) { viewModel.partnerLabels }
-    var picked by remember { mutableStateOf<String?>(null) }
-    val partner = picked?.takeIf { it in partners } ?: partners.singleOrNull()
-    Section("Touches") {
-        SecondaryText("Touch the two phones back to back for a second, then both press the button.")
+    val own by viewModel.label.collectAsStateWithLifecycle()
+    val others = viewModel.touchLabels(follow)
+    SecondaryText("Touched with … (back to back, one knock, then press at once)")
+    if (others != null) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            partners.forEach { option -> ChoiceButton(option, partner == option) { picked = option } }
+            others.forEach { other -> ChoiceButton(other, false) { viewModel.touched(other) } }
         }
-        PopButton(
-            text = if (partner == null) "We touched" else "We touched $partner",
-            onClick = { partner?.let(viewModel::touched) },
-            enabled = partner != null,
-            height = 44.dp,
-            style = PopStyle.Dark,
-        )
-        lastMark?.takeIf { it.startsWith("touched") }?.let { Line("Last: $it") }
+    } else {
+        var other by remember { mutableStateOf("") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            PopTextField(
+                value = other,
+                onValueChange = { other = it.trim().take(LABEL_MAX_LENGTH) },
+                singleLine = true,
+                label = { Text("Other label") },
+                modifier = Modifier.weight(1f),
+            )
+            PopButton(
+                text = "Touched",
+                onClick = { viewModel.touched(other) },
+                enabled = other.isNotBlank() && other != own,
+                height = 44.dp,
+                style = PopStyle.Outline,
+            )
+        }
     }
 }
 

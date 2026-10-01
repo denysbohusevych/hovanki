@@ -7,9 +7,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 
 /*
- * The radio lab's own radio (docs/radio-lab.md §5), besides the game's. Implemented in this module's androidMain
- * (`AndroidLabAir`) and iosMain (`IosLabAir`), the no-op one below everywhere else. Debug builds only use it: the
- * lab's screen exists only there. Flows are collected on the main thread and may emit from it only.
+ * The radio lab's own radio (docs/radio-lab.md §5), besides the game's. Implemented on the phone's host
+ * ([HostLabAir]), the no-op one below where there is none. Debug builds only use it: the lab's screen exists only
+ * there. Flows are collected on the main thread and may emit from it only.
  */
 
 /**
@@ -23,7 +23,7 @@ interface LabAir {
      * While collected: Android and the Mac hear every Apple frame (the overflow mask `0x01`, iBeacon `0x02 0x15`); an
      * iPhone scans for the table's 128 UUIDs and the game's service and reads the overflow bits CoreBluetooth lists.
      */
-    fun listen(): Flow<AirFrame> = emptyFlow()
+    fun listen(): Flow<LabFrame> = emptyFlow()
 
     val canProbe: Boolean
 
@@ -35,7 +35,8 @@ interface LabAir {
     fun probe(bits: StateFlow<Set<Int>>): Flow<ProbeEvent> = emptyFlow()
 }
 
-sealed interface AirFrame {
+/** What the lab's «listen to everything» hears (the radar's own frames are [app.hovanki.radar.AirFrame]). */
+sealed interface LabFrame {
     val rssi: Int
     val peer: String?
     val atMillis: Long
@@ -49,9 +50,12 @@ sealed interface AirFrame {
         override val peer: String?,
         override val atMillis: Long,
         override val api: RadioApi,
-    ) : AirFrame
+    ) : LabFrame
 
-    /** A token read another way: an iBeacon frame of the game, a hider's name or service data. */
+    /**
+     * A token read another way: an iBeacon frame of the game, a hider's name or service data; [tech]: the channel
+     * that read it ([app.hovanki.radar.RadarChannel.id]), empty when unknown.
+     */
     data class Token(
         val token: String,
         val via: SightingVia,
@@ -59,11 +63,15 @@ sealed interface AirFrame {
         override val peer: String?,
         override val atMillis: Long,
         override val api: RadioApi,
-    ) : AirFrame
+        val tech: String = "",
+    ) : LabFrame
 }
 
-/** [action]: `start`, `stop`, `failed` ([error]), `skipped_background`. */
-data class ProbeEvent(val action: String, val error: String? = null)
+/**
+ * [action]: `start`, `stop`, `failed` ([error]), `skipped_background`, `dropped` (a part the platform can't send,
+ * [error] says why); [layout]: the advertisement's bytes in words ([app.hovanki.radar.AdBudget.layout]).
+ */
+data class ProbeEvent(val action: String, val error: String? = null, val layout: String? = null)
 
 class NoopLabAir : LabAir {
     override val canListen: Boolean = false

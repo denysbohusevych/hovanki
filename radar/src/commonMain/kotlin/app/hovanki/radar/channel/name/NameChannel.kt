@@ -1,48 +1,44 @@
 package app.hovanki.radar.channel.name
 
-import app.hovanki.radar.AdData
 import app.hovanki.radar.AdPart
-import app.hovanki.radar.AirPlatform
-import app.hovanki.radar.AirRole
-import app.hovanki.radar.BleUuid
-import app.hovanki.radar.ChannelReading
-import app.hovanki.radar.ChannelUse
-import app.hovanki.radar.GameAir
-import app.hovanki.radar.HeardFrame
+import app.hovanki.radar.AirFrame
+import app.hovanki.radar.Availability
+import app.hovanki.radar.Decoded
+import app.hovanki.radar.RadarCaps
 import app.hovanki.radar.RadarChannel
+import app.hovanki.radar.RadarRole
+import app.hovanki.radar.RadarService
 import app.hovanki.radar.ScanInterest
 import app.hovanki.radar.SightingVia
+import app.hovanki.radar.TechniqueStatus
 import app.hovanki.shared.rules.RadarToken
 
 /**
- * An iPhone hider on the screen (`ble.name`, docs/adr/0017-radar-techniques-and-big-run.md, section 2.3): iOS lets an
- * app advertise only a name and service UUIDs, so the token is the name, next to the game's service (iOS keeps 8
- * characters of the name beside a 128-bit UUID: exactly the token). In the background iOS drops the name: a locked
- * iPhone is not heard this way. The Mac advertises the same in either role. Read only next to the game's service, so
- * nobody else's name passes for a token.
+ * `ble.name` (docs/adr/0017-radar-techniques-and-big-run.md, section 2.3): an iPhone hider on the screen, the game's
+ * service UUID and the token as the local name (iOS lets an app advertise nothing else, and keeps 8 characters of
+ * the name next to a 128-bit UUID: exactly the token). In the background iOS sends no name: nobody reads the token.
+ * Android can't name one advertisement: its host drops the name and says so. Everybody hears it by the service.
  */
-class NameChannel : RadarChannel {
-    override val id: String = TECH
-    override val use: ChannelUse = ChannelUse.GAME
+data object NameChannel : RadarChannel {
+    override val id: String = "ble.name"
+    override val status: TechniqueStatus = TechniqueStatus.GAME
 
-    override fun adPart(token: String, role: AirRole, platform: AirPlatform): AdPart? {
-        val advertises = platform == AirPlatform.MAC || (platform == AirPlatform.IOS && role == AirRole.HIDER)
-        if (!advertises || !RadarToken.isWellFormed(token)) return null
-        return AdPart(id, main = AdData(serviceUuids = listOf(GameAir.SERVICE_UUID), localName = token))
-    }
+    override fun available(caps: RadarCaps): Availability = caps.noBluetoothLe ?: Availability.Available
 
-    override fun interests(platform: AirPlatform): List<ScanInterest> =
-        listOf(ScanInterest.ServiceUuid(GameAir.SERVICE_UUID))
+    override fun advertise(token: String, role: RadarRole): List<AdPart> =
+        if (role == RadarRole.HIDER && RadarToken.isWellFormed(token)) {
+            listOf(AdPart.ServiceUuid(RadarService.UUID), AdPart.LocalName(token))
+        } else {
+            emptyList()
+        }
 
-    override fun decode(frame: HeardFrame): ChannelReading? {
-        val name = frame.localName ?: return null
-        if (frame.serviceUuids.none { BleUuid.canonical(it) == GameAir.SERVICE_UUID }) return null
-        val token = name.removePrefix(GameAir.NAME_PREFIX)
-        if (!RadarToken.isWellFormed(token)) return null
-        return ChannelReading(id, listOf(token), SightingVia.NAME, use)
-    }
+    override fun interests(): List<ScanInterest> = listOf(ScanInterest.Service(RadarService.UUID))
 
-    companion object {
-        const val TECH = "ble.name"
+    /** The name, bare or after the first apps' prefix, when it is a token and the frame is the game's service's. */
+    override fun decode(frame: AirFrame): List<Decoded> {
+        val name = frame.name ?: return emptyList()
+        if (!frame.lists(RadarService.UUID)) return emptyList()
+        val token = name.removePrefix(RadarService.NAME_PREFIX)
+        return if (RadarToken.isWellFormed(token)) listOf(Decoded(token, SightingVia.NAME)) else emptyList()
     }
 }

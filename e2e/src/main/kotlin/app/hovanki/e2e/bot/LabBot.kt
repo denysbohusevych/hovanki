@@ -20,7 +20,8 @@ import app.hovanki.device.lab.NoopLabProbes
 import app.hovanki.device.lab.NoopLabScreen
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.scenario.Timeline
-import app.hovanki.radar.lab.NoopLabAir
+import app.hovanki.radar.host.JvmAirHost
+import app.hovanki.radar.lab.HostLabAir
 import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LabCapabilities
@@ -41,10 +42,11 @@ import kotlinx.coroutines.withContext
 /**
  * A headless phone in the radio lab (docs/adr/0017-radar-techniques-and-big-run.md §5): the debug build's lab as the
  * app wires it ([LabLog], [DiagnosticsBench], [LabController], [LabUploader], [LabRunFollower] over [HttpLabApi]) on a
- * simulated phone: its Bluetooth is a [FakeRadio] in the scenario's [RadioWorld], so the lab phones hear each other
- * by their true positions, and its clock a [DeviceClock]. The platform's own lab parts (sensors, the overflow probe,
- * listening, haptics, the screen) are the no-op ones: what the run records here is the bench radio, the ticks, the
- * clock and the run's steps. The phone is in the hand ([carry]), so every platform is heard.
+ * simulated phone: its Bluetooth is the radar's simulator (a [FakeRadio] and the lab's [HostLabAir] on the phone's
+ * [JvmAirHost] in the scenario's [RadioWorld]), so the lab phones hear each other by their true positions and the
+ * OS's rules, «listen» steps log the frames heard (`frame`, `air`) and an iPhone probes its overflow area; its clock
+ * is a [DeviceClock]. The other lab parts (sensors, haptics, the screen) are the no-op ones. The phone is in the hand
+ * ([carry]), its app on the screen.
  *
  * [label] is the phone's name in the run; [uploadIntervalMillis] is shorter than the app's so a test waits less.
  */
@@ -63,14 +65,7 @@ class LabBot(
 
     /** Where the phone is: in the hand unless the scenario puts it away. */
     val carry = MutableStateFlow(Carry.IN_HAND)
-    val log = LabLog(isEnabled = true, deviceTimeMillis = clock::now)
-
-    /** The radio writes into the lab's log as the app's does ([LabRadioTrace]): its advertisement, frames, the air. */
-    val radio = FakeRadio(radioWorld, platform, { gps.truePosition }, { carry.value }, clock::now, LabRadioTrace(log))
     val backgroundTracker = FakeBackgroundTracker()
-
-    /** The accelerometer's jolts: the scenario knocks two phones together ([touches]). */
-    val impacts = FakeImpactMonitor(clock::now)
 
     /** The app's "main thread": the lab's parts are confined to it, as on the phone. */
     private val mainThread = Dispatchers.Default.limitedParallelism(1)
@@ -78,6 +73,11 @@ class LabBot(
     private val httpClient = createHttpClient(OkHttp.create(), logRequests = false)
     private val url = ServerUrl(serverUrl)
 
+    val log = LabLog(isEnabled = true, deviceTimeMillis = clock::now)
+    private val trace = LabRadioTrace(log)
+
+    /** The bench radio: the game's radio on the simulated phone, telling the lab's log what it does and hears. */
+    val radio = FakeRadio(radioWorld, label, platform, { gps.truePosition }, { carry.value }, clock::now, trace)
     private val bench = DiagnosticsBench(
         radio,
         gps,
@@ -91,7 +91,7 @@ class LabBot(
         log = log,
         bench = bench,
         probes = NoopLabProbes(),
-        air = NoopLabAir(),
+        air = HostLabAir(JvmAirHost(radioWorld.air, radio.phone), trace),
         screen = NoopLabScreen(),
         haptics = NoopLabHaptics(),
         files = NoopLabFiles(),
@@ -101,7 +101,6 @@ class LabBot(
         clockSync = LabClockSync(gameApi::serverTime, clock::now, log::monoNow),
         about = { LabAbout("Bot ${platform.name.lowercase()}", "e2e", "e2e lab bot", null) },
         scope = scope,
-        impacts = impacts,
     )
     private val uploader = LabUploader(log, HttpLabApi(httpClient, url), scope, intervalMillis = uploadIntervalMillis)
     private val follower = LabRunFollower(
@@ -162,16 +161,6 @@ class LabBot(
     suspend fun leave() {
         withContext(mainThread) { follower.leave() }
         log("left the lab run")
-    }
-
-    /**
-     * The tester knocks this phone against [partner]'s (docs/adr/0017-radar-techniques-and-big-run.md §3): the jolt in
-     * the accelerometer, then «We touched» with the partner's label. Where the phones are is the scenario's.
-     */
-    suspend fun touches(partner: String) {
-        impacts.knock()
-        val pressed = withContext(mainThread) { controller.touched(partner) }
-        log(if (pressed) "touches $partner's phone" else "touches $partner's phone, but the lab doesn't record")
     }
 
     /** Whether the lab records (it stops by itself when the run is over). */

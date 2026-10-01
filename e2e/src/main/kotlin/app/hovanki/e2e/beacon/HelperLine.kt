@@ -14,7 +14,7 @@ sealed interface HelperLine {
                 "name" -> SightingVia.NAME
                 "ibeacon" -> SightingVia.IBEACON
                 "service-data" -> SightingVia.SERVICE_DATA
-                "mfr" -> SightingVia.MANUFACTURER_DATA
+                "mfr" -> SightingVia.SERVICE_DATA
                 else -> SightingVia.UNKNOWN
             }
     }

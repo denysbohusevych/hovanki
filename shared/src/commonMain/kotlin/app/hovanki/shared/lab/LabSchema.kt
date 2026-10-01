@@ -59,21 +59,20 @@ object LabSchema {
 }
 
 /**
- * The kinds the radar's channels and hosts write (docs/adr/0017-radar-techniques-and-big-run.md §4, ADR 0018 §4 B),
- * besides the lab's own. Every one carries `tech`, the channel's id (`ble.name`, `ble.service_data.bare`…):
+ * The kinds the radar's host writes through the lab's trace (docs/adr/0017-radar-techniques-and-big-run.md §4, the
+ * lab's `LabLog`), and what the field build's journal adds (ADR 0018 §4 B):
  *
- * - [ADV] (the lab's kind, now also): `tech` (the channels in the advertisement, comma-separated), `layout` (an
- *   Android hider's: `scan_response` / `bare` / `mfr`), `bytes` and `limit` (the packet against 31, iOS 28),
- *   `fields` (`uuid128 18 + svc_data 22 = 40/31`), `scan_rsp` (the scan response's), `dropped` (channels left out),
- *   `background` (iOS: UUIDs kept for the locked phone's overflow area);
- * - [FRAME]: a frame of ours, whole: `tech`, `api`, `rssi`, `peer` (hashed), `hex` (Android's record), `name`,
- *   `uuids`, `overflow` (bits), `svc` and `mfr` (hex by UUID and company id), `ibeacon`, `tx`, `conn`;
- * - [AIR]: everybody else's frames the scan let through, once a second: `window` (ms), `ours`, `ibeacon`, `masks`,
- *   `apple`, `other` (counts), `bits` (the masks' bits: bit → frames);
- * - [SHADOW]: what a channel in the shadow read, never the game's: `tech`, `token` (and `tokens` when a damaged mask
- *   gives several), `rssi`, `api`, `via`, `peer`;
- * - [REGION]: the seekers' iBeacon region (`ble.ibeacon.region`): `event` (`enter`, `exit`, `state`, `failed`),
- *   `state` (`inside`, `outside`, `unknown`), `error`.
+ * - [ADV]: one per channel on the air: `action` (`start`, `stop`, `failed`, `skipped_background`, `dropped`), `tech`
+ *   (the channel), `mode` (the older names: `hider_name`, `hider_service_data`, `ibeacon`), `layout` (the whole
+ *   advertisement's bytes in words), `token`, `error`;
+ * - [FRAME]: a frame some channel read, whole: `tech` (and `techs`), `via`, `token` (and `candidates`), `name`,
+ *   `uuids`, `overflow` (bits), `svcdata` and `mfr` (hex), `tx`, `conn`, `rssi`, `peer` (hashed), `api`, `hex`, `ago`;
+ * - [AIR]: the frames no channel read, once a second: `frames`, `ibeacons`, `masks`, `apple`, `bits`;
+ * - [SHADOW]: an answer in the shadow of the game's, never used by it: the pocket's classifier (`tech` `carry.v2`,
+ *   `state`, `reason`), and in a field run what the shadow's radar channels read (`tech` `ble.overflow`, `token`,
+ *   `tokens`, `rssi`, `api`, `via`, `peer`, `ago`);
+ * - [REGION]: kept for the older readers; the seekers' iBeacon region is a `scan` event now, its `action`
+ *   `region_enter` or `region_exit`.
  */
 object LabRadarKinds {
     const val ADV = "adv"

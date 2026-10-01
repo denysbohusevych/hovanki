@@ -2,6 +2,7 @@ package app.hovanki.shared.lab
 
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.OverflowCode
+import app.hovanki.shared.rules.Smoothings
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -44,8 +45,19 @@ class LabReportBuilderTest {
             lines += json.toString()
         }
 
-        fun rx(t: Long, token: String, rssi: Int, api: String = "corebluetooth", via: String = "name") =
-            event(t, "rx", fields = arrayOf("token" to token, "rssi" to rssi, "api" to api, "via" to via))
+        fun rx(
+            t: Long,
+            token: String,
+            rssi: Int,
+            api: String = "corebluetooth",
+            via: String = "name",
+            tech: String? = null,
+        ) = event(
+            t,
+            "rx",
+            fields = arrayOf<Pair<String, Any?>>("token" to token, "rssi" to rssi, "api" to api, "via" to via) +
+                listOfNotNull(tech?.let { "tech" to it }),
+        )
 
         fun step(t: Long, index: Int, revision: Long = 1) {
             val step = LabRunScripts.E2E.steps[index]
@@ -263,6 +275,214 @@ class LabReportBuilderTest {
     }
 
     @Test
+    fun theFramesAndTheAirOfTheChannelsAreRead() {
+        // What the lab writes since the channels (docs/radio-lab.md §4.1): whole frames and the air's seconds.
+        val log = Log("droid", offset = 0)
+        session(log, "Pixel 8", "Android 16")
+        log.event(START + 10, "clock", fields = arrayOf("offset" to 0))
+        log.step(START + 1_000, 0)
+        val frame = """{"t":${START + 1_200},"dt":${START + 1_200},"mono":1200,"dev":"droid","k":"frame",""" +
+            """"app":"active","seq":90,"run":"$RUN","tech":"ble.service_data.scan_response","via":"service_data",""" +
+            """"token":"$A_TOKEN","uuids":["7A0B8D2E-4C1F-4E6A-9B3D-2F5E8C1A7D10"],""" +
+            """"svcdata":{"7A0B8D2E-4C1F-4E6A-9B3D-2F5E8C1A7D10":"aaaa0001"},"mfr":{"004c":"0215"},""" +
+            """"rssi":-60,"peer":"0badf00d","api":"android_le","hex":"0201","ago":12}"""
+        log.rx(START + 1_200, A_TOKEN, -60, api = "android_le", via = "service_data")
+        log.event(
+            START + 2_000,
+            "air",
+            fields = arrayOf("frames" to 12, "ibeacons" to 2, "masks" to 1, "apple" to 9, "bits" to listOf(3, 70)),
+        )
+        log.event(
+            START + 3_000,
+            "air",
+            fields = arrayOf("frames" to 30, "ibeacons" to 0, "masks" to 0, "apple" to 20, "bits" to emptyList<Int>()),
+        )
+        val jsonl = log.jsonl + frame + "\n"
+        val input = LabReportInput("droid", "d", null, jsonl)
+        val report = LabReportBuilder.build(RUN, LabRunScripts.E2E, listOf(input), NOW)
+        assertEquals(emptyList(), report.problems)
+        assertEquals(8, report.devices.single().events, "session, clock, step, mark, rx, two airs, the frame")
+        assertEquals(listOf(LabReportNoise("droid", 2, 42, 2, 1, 29, 30)), report.noise)
+        // A frame is no reading: the directions count the rx alone.
+        assertEquals(1, report.steps.single { it.index == 0 }.directions.single().readings)
+        val merge = LabMerge(listOf("droid" to jsonl))
+        assertTrue("frame tech=ble.service_data.scan_response" in merge.timeline(), merge.timeline())
+    }
+
+    /**
+     * Step 4 (docs/radar-run.md §4): A and B (iPhones) and C (a Pixel) in one step with distances, A 1 m from C, B 2 m
+     * from C, A and B 3 m apart and deaf to each other; A and C touch once (and A presses «чокнулись»), B marks a touch
+     * with C nobody made; A runs the pocket's classifier in the shadow.
+     */
+    private fun radarLogs(): Pair<LabRunScript, List<LabReportInput>> {
+        val script = LabRunScript(
+            id = "touch",
+            version = 1,
+            title = "Touch",
+            labels = listOf("A", "B", "C"),
+            steps = listOf(
+                RunStep(
+                    "near",
+                    "Near",
+                    60,
+                    listOf("A", "B", "C").associateWith { DeviceStep(PhoneSetup(hider = true)) },
+                    distances = mapOf("A|B" to 3.0, "A|C" to 1.0, "B|C" to 2.0),
+                ),
+            ),
+        )
+        val a = Log("A", offset = 0)
+        val b = Log("B", offset = 0)
+        val c = Log("C", offset = 0)
+        session(a, "iPhone15,2", "iOS 26.0")
+        session(b, "iPhone13,1", "iOS 26.0")
+        session(c, "Pixel 8", "Android 16")
+        for ((log, token, tech) in listOf(
+            Triple(a, A_TOKEN, NAME),
+            Triple(b, B_TOKEN, NAME),
+            Triple(c, C_TOKEN, SCAN),
+        )) {
+            log.event(START + 10, "clock", fields = arrayOf("offset" to 0, "rtt" to 40, "samples" to 5))
+            log.event(
+                START + 30,
+                "adv",
+                fields = arrayOf(
+                    "action" to "start",
+                    "mode" to "x",
+                    "tech" to tech,
+                    "token" to token,
+                ),
+            )
+            log.event(
+                START + 1_000,
+                "step",
+                fields = arrayOf("index" to 0, "id" to "near", "title" to "Near", "revision" to 1),
+            )
+        }
+        a.event(
+            START + 1_000,
+            "mark",
+            fields = arrayOf("label" to "pocket", "by" to "tester", "place" to "pocket_front"),
+        )
+        a.event(START + 1_000, "carry", fields = arrayOf("state" to "in_hand"))
+        a.event(
+            START + 2_000,
+            "shadow",
+            fields = arrayOf(
+                "tech" to "carry.v2",
+                "state" to "in_pocket",
+                "reason" to "dark",
+            ),
+        )
+        a.event(START + 5_000, "carry", fields = arrayOf("state" to "in_pocket"))
+        var t = START + 2_000
+        while (t < START + 40_000) {
+            c.rx(t, A_TOKEN, -58, tech = NAME)
+            a.rx(t + 10, C_TOKEN, -60, api = "corebluetooth", via = "service_data", tech = SCAN)
+            c.rx(t + 20, B_TOKEN, -65, tech = NAME)
+            b.rx(t + 30, C_TOKEN, -66, api = "corebluetooth", via = "service_data", tech = SCAN)
+            t += 400
+        }
+        // The touch: both impacts 60 ms apart, both directions at their loudest.
+        a.event(START + 20_000, "impact", fields = arrayOf("peak" to 2.4, "ago" to 0))
+        c.event(START + 20_060, "impact", fields = arrayOf("peak" to 1.9, "ago" to 0))
+        c.rx(START + 20_100, A_TOKEN, -42, tech = NAME)
+        a.rx(START + 20_200, C_TOKEN, -41, api = "corebluetooth", via = "service_data", tech = SCAN)
+        a.event(START + 20_500, "mark", fields = arrayOf("label" to "touch A|C", "by" to "user", "action" to "touch"))
+        b.event(START + 30_000, "mark", fields = arrayOf("label" to "touch B|C", "by" to "user", "action" to "touch"))
+        return script to listOf(
+            LabReportInput("A", "dev-a", A_TOKEN, a.jsonl),
+            LabReportInput("B", "dev-b", B_TOKEN, b.jsonl),
+            LabReportInput("C", "dev-c", C_TOKEN, c.jsonl),
+        )
+    }
+
+    @Test
+    fun theRadarsCompetitorsAreScored() {
+        val (script, logs) = radarLogs()
+        val report = LabReportBuilder.build(RUN, script, logs, NOW)
+
+        val touch = report.touches.single()
+        assertEquals("A|C", touch.pair)
+        assertEquals(mapOf("A|C" to -42, "C|A" to -41), touch.rssi)
+        assertEquals(mapOf("A" to 2.4, "C" to 1.9), touch.peaksG)
+        assertEquals(START + 20_500, touch.markAtMillis)
+        assertEquals(1, report.missedTouches, "B's mark with C: no impacts")
+        assertEquals(listOf("A|C", "C|A"), report.touchSpreads.map { it.direction })
+        assertEquals(
+            setOf(Calibrations.MODEL, Calibrations.TOUCH),
+            report.calibrations.map { it.id }.toSet(),
+            "A and C stood a metre apart: the model pair's offsets; and the touch's",
+        )
+        assertEquals(-40.0 - -42.0, report.calibrations.single { it.id == Calibrations.TOUCH }.offsetsDb["A|C"])
+
+        assertEquals(9, report.bands.size)
+        assertTrue(report.bands.all { it.seconds > 0 }, "${report.bands}")
+        val plain = report.bands.single { it.smoothing == Smoothings.EMA && it.calibration == Calibrations.NONE }
+        assertEquals(plain.seconds, plain.exact + plain.oneOff + plain.wrong)
+        assertTrue(plain.wrong > 0, "A|B was deaf at 3 m: $plain")
+
+        assertEquals(listOf(NAME, SCAN), report.without.map { it.tech }.sorted())
+        val witness = assertNotNull(report.witness)
+        assertEquals(listOf("A|B"), witness.pairs)
+        assertTrue(witness.inferred >= 30 && witness.right == witness.inferred, "$witness")
+
+        val carry = report.carry.filter { it.tech == LabMerge.CARRY_V2 }
+        assertTrue(carry.isNotEmpty() && carry.all { it.label == "A" }, "$carry")
+        assertTrue(report.carry.any { it.tech == LabMerge.CARRY_V1 })
+        val directions = report.steps.single { it.id == "near" }.directions
+        assertEquals(setOf(NAME, SCAN), directions.mapNotNull { it.tech }.toSet())
+
+        val cards = report.cards.associateBy { it.tech }
+        assertEquals("KEEP", cards.getValue(NAME).verdict)
+        assertEquals("KEEP", cards.getValue(SCAN).verdict, "${cards[SCAN]}")
+        assertEquals("KEEP", cards.getValue(TechniqueCards.WITNESS).verdict, "${cards[TechniqueCards.WITNESS]}")
+        assertEquals("INSUFFICIENT", cards.getValue(Calibrations.TOUCH).verdict, "one touch: no spread")
+        // A smoothing that tied the best is not dropped: «мало данных», the tie named.
+        for (smoothing in Smoothings.ALL) {
+            val card = cards.getValue(smoothing)
+            assertTrue(card.verdict in setOf("KEEP", "DROP") || card.missing?.startsWith("ничья") == true, "$card")
+        }
+        assertEquals(1, Smoothings.ALL.count { cards.getValue(it).verdict == "KEEP" })
+        assertTrue(LabMerge.CARRY_V1 in cards && LabMerge.CARRY_V2 in cards, "${cards.keys}")
+
+        val json = protocolJson.encodeToString(LabReport.serializer(), report)
+        assertEquals(report, protocolJson.decodeFromString(LabReport.serializer(), json))
+    }
+
+    @Test
+    fun anOldLogHasNoneOfStepFour() {
+        // The made-up run above: schema 2 but no impacts, no shadow, no distances in the script.
+        val report = report()
+        assertEquals(emptyList(), report.touches)
+        assertEquals(emptyList(), report.touchSpreads)
+        assertEquals(0, report.missedTouches)
+        assertEquals(emptyList(), report.calibrations)
+        assertEquals(emptyList(), report.bands)
+        assertTrue(report.carry.all { it.tech == LabMerge.CARRY_V1 })
+        assertEquals(0, report.witness?.inferred ?: 0)
+        val cards = report.cards.associateBy { it.tech }
+        for (id in Smoothings.ALL + Calibrations.ALL + TechniqueCards.WITNESS) {
+            assertEquals("INSUFFICIENT", cards.getValue(id).verdict, id)
+        }
+        // The readings name their channel by api/via: no channel card, but the overflow's (the masks tell).
+        assertEquals(listOf("ble.overflow"), cards.keys.filter { it.startsWith("ble.") })
+        assertTrue(report.steps.flatMap { it.directions }.all { it.tech == null })
+    }
+
+    @Test
+    fun aStoredReportWithoutStepFourDecodes() {
+        val json = """{"runId":"r","computedAtMillis":1,"carry":[{"label":"A","truth":"in_hand","said":"in_hand",""" +
+            """"seconds":3}],"steps":[{"index":0,"id":"x","title":"x","startMillis":0,"endMillis":1,"directions":""" +
+            """[{"from":"A","to":"B","channel":"c","readings":1,"perSecond":1.0,"medianRssi":-60,"p80Rssi":-60,""" +
+            """"minRssi":-60,"maxRssi":-60,"longestGapMillis":0}]}]}"""
+        val report = protocolJson.decodeFromString(LabReport.serializer(), json)
+        assertEquals(LabMerge.CARRY_V1, report.carry.single().tech)
+        assertEquals(null, report.steps.single().directions.single().tech)
+        assertEquals(emptyList(), report.cards)
+        assertEquals(null, report.witness)
+    }
+
+    @Test
     fun noLogsNoSteps() {
         val empty = LabReportBuilder.build(RUN, null, emptyList(), NOW)
         assertEquals(emptyList(), empty.steps)
@@ -288,7 +508,43 @@ class LabReportBuilderTest {
         assertEquals(emptyList(), report.problems)
     }
 
+    @Test
+    fun aLockGoesOnAcrossTheSteps() {
+        // The `radio` run of 2026-09-30: the phone locks in the step «lock» and ranges (or not) in the next one; the
+        // Mac's iBeacon stops with its «stop everything» (`mode = mac`) two steps later.
+        val phone = Log("A", offset = 0)
+        val mac = Log("mac", offset = 0)
+        session(phone, "iPhone13,2", "iOS 26.2.1")
+        session(mac, "MacBook", "Mac OS X 26.3")
+        mac.event(START + 500, "adv", "-", arrayOf("action" to "start", "mode" to "ibeacon", "token" to BEACON))
+        fun mark(t: Long, id: String, step: Int) =
+            phone.event(t, "mark", fields = arrayOf("label" to "run: $id", "by" to "run", "step" to step))
+        mark(START + 1_000, "ibeacon_screen", 4)
+        for (second in 1..9) phone.rx(START + second * 1_000L, BEACON, -50, "corelocation_ranging", "ibeacon", IBEACON)
+        mark(START + 10_000, "lock", 5)
+        phone.event(START + 14_000, "life", "background", arrayOf("event" to "protected_data_off"))
+        mark(START + 55_000, "ibeacon_locked", 6)
+        for (second in 15..104) {
+            phone.rx(START + second * 1_000L, BEACON, -52, "corelocation_ranging", "ibeacon", IBEACON)
+        }
+        mark(START + 175_000, "token_rotates", 7)
+        mac.event(START + 175_000, "adv", "-", arrayOf("action" to "stop", "mode" to "mac"))
+        phone.event(START + 180_000, "mark", fields = arrayOf("label" to "run: done", "by" to "run"))
+
+        val report = LabReportBuilder.build(
+            RUN,
+            LabRunScripts.RADIO,
+            listOf(LabReportInput("A", "a", null, phone.jsonl), LabReportInput("mac", "m", null, mac.jsonl)),
+            NOW,
+        )
+        val card = report.cards.single { it.tech == TechniqueCards.IBEACON }
+        // Locked at 14 s, the last reading at 104 s: 90 s, in a window of 161 s up to the Mac's stop.
+        assertTrue(card.numbers.any { "заблокированный A слышал mac 90.0 с после блокировки" in it }, "$card")
+    }
+
     private companion object {
+        const val BEACON = "cafe0002"
+        const val IBEACON = "ble.ibeacon"
         const val START = 1_790_000_000_000L
         const val NOW = START + 60_000
         const val RUN = "run-1"
@@ -296,5 +552,8 @@ class LabReportBuilderTest {
         const val B_TOKEN = "bbbb0001"
         const val DROID_TOKEN = "dddd0001"
         const val UNKNOWN_TOKEN = "eeee0009"
+        const val C_TOKEN = "cccc0003"
+        const val NAME = "ble.name"
+        const val SCAN = "ble.service_data.scan_response"
     }
 }

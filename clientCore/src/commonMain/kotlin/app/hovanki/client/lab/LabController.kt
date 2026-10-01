@@ -3,24 +3,41 @@ package app.hovanki.client.lab
 import app.hovanki.client.diagnostics.DiagnosticsBench
 import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.device.ActivityClassifier
+import app.hovanki.device.BackgroundModes
+import app.hovanki.device.CarryClassifier
+import app.hovanki.device.CarryInputs
 import app.hovanki.device.CarryMonitor
-import app.hovanki.device.ImpactMonitor
-import app.hovanki.device.NoopImpactMonitor
-import app.hovanki.device.lab.Gravity
+import app.hovanki.device.Gravity
+import app.hovanki.device.ModeIds
+import app.hovanki.device.NoopBackgroundModes
+import app.hovanki.device.Orientation
 import app.hovanki.device.lab.HapticKind
+import app.hovanki.device.lab.ImpactDetector
 import app.hovanki.device.lab.LabHaptics
 import app.hovanki.device.lab.LabProbes
 import app.hovanki.device.lab.LabScreen
 import app.hovanki.device.lab.LabSensorReading
 import app.hovanki.device.lab.MotionFeatures
 import app.hovanki.device.lab.MotionWindow
-import app.hovanki.device.lab.Orientation
+import app.hovanki.radar.NoopPrecisionRadio
+import app.hovanki.radar.PrecisionRadio
 import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.RadarCatalog
 import app.hovanki.radar.RadioApi
 import app.hovanki.radar.SightingVia
-import app.hovanki.radar.lab.AirFrame
+import app.hovanki.radar.UwbTechnique
+import app.hovanki.radar.channel.overflow.OverflowChannel
 import app.hovanki.radar.lab.LabAir
+import app.hovanki.radar.lab.LabFrame
+import app.hovanki.radar.link.GattLink
+import app.hovanki.radar.link.LinkTechnique
+import app.hovanki.radar.link.LinkTrace
+import app.hovanki.radar.link.NoopGattLink
 import app.hovanki.shared.lab.ProbeMode
+import app.hovanki.shared.lab.RunStep
+import app.hovanki.shared.protocol.Platform
+import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.protocol.UwbPeer
 import app.hovanki.shared.rules.HeartbeatRules
 import app.hovanki.shared.rules.OverflowArea
 import app.hovanki.shared.rules.OverflowCode
@@ -35,11 +52,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -65,8 +85,11 @@ enum class LabPulse { OFF, HAPTICS, NOTIFICATION }
  * ([start]): a tick a second, the clock measured against the server's, the app's life, the sensors, the battery, the
  * Bluetooth state and the game's carry monitor. The switches: «as in a game» ([setInGame]: GPS in the background as in
  * a round), the bench's radio, the overflow probe ([setProbe]), listening to everything ([setListening]), the screen
- * off by the proximity sensor, the vibration test, the pulse, marks and scenarios. Nothing of it changes the game.
- * Main thread.
+ * off by the proximity sensor, the vibration test, the pulse, marks and scenarios. Besides, the knocks the
+ * accelerometer feels (`impact`, for the touch calibration, [touched]) and, once a second, `carry.v2` in the shadow of
+ * the game's carry monitor ([CarryClassifier]). A step of a run names its techniques by id ([setTechniques]): the
+ * radar's channels, the background modes ([modes]), the GATT link ([link]), UWB ranging ([precision], with the run's
+ * peers, [setUwbPeers]) and the pulse's way to vibrate. Nothing of it changes the game. Main thread.
  */
 class LabController(
     val log: LabLog,
@@ -86,12 +109,13 @@ class LabController(
     private val inAGame: Flow<Boolean> = flowOf(false),
     private val monotonicMillis: () -> Long = log::monoNow,
     private val random: Random = Random.Default,
-    /** The accelerometer's lone jolts: the touch's candidates (docs/adr/0017-radar-techniques-and-big-run.md §3). */
-    private val impacts: ImpactMonitor = NoopImpactMonitor(),
+    /** The background modes a step switches by id (`mode.*`, docs/radar-run.md §5.1, §5.3). */
+    private val modes: BackgroundModes = NoopBackgroundModes(),
+    /** The GATT link (`gatt.link`, docs/radar-run.md §5.2). */
+    private val link: GattLink = NoopGattLink(),
+    /** The lab's own UWB radio (`uwb.ni`, docs/radar-run.md §5.3); the game's stays a no-op. */
+    private val precision: PrecisionRadio = NoopPrecisionRadio(),
 ) {
-    /** The pocket's classifiers in the shadow: `carry.v1` (the game's [carryMonitor]) and `carry.v2`. */
-    private val carryShadow = CarryShadow(log)
-
     private val mutableRunning = MutableStateFlow(false)
     val running: StateFlow<Boolean> = mutableRunning.asStateFlow()
 
@@ -113,6 +137,31 @@ class LabController(
 
     /** When the probe's token will change (monotonic); null: no change pending. */
     val rotateAt: StateFlow<Long?> = mutableRotateAt.asStateFlow()
+
+    private val mutableTechniques = MutableStateFlow<Set<String>>(emptySet())
+
+    /** The channels the bench's radio runs ([setTechniques]); empty: the game's. */
+    val techniques: StateFlow<Set<String>> = mutableTechniques.asStateFlow()
+
+    private val mutableLabTechniques = MutableStateFlow<Set<String>>(emptySet())
+
+    /** The techniques besides the channels this phone runs now ([setTechniques]): modes, the link, UWB, the pulse. */
+    val labTechniques: StateFlow<Set<String>> = mutableLabTechniques.asStateFlow()
+
+    private val mutableUwbPeers = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /** The run's UWB discovery tokens by label (this device's own among them), as the server lists them. */
+    val uwbPeers: StateFlow<Map<String, String>> = mutableUwbPeers.asStateFlow()
+
+    private val mutableLinkPeers = MutableStateFlow(0)
+
+    /** The peers the GATT link is connected with now, either way (`gatt.link`); 0 while it is off. */
+    val linkPeers: StateFlow<Int> = mutableLinkPeers.asStateFlow()
+
+    private val mutableLastRange = MutableStateFlow<String?>(null)
+
+    /** The last UWB reading for the screen, `2.35 m to B`; null: none since `uwb.ni` went on. */
+    val lastRange: StateFlow<String?> = mutableLastRange.asStateFlow()
 
     private val mutableListening = MutableStateFlow(false)
     val listening: StateFlow<Boolean> = mutableListening.asStateFlow()
@@ -171,13 +220,36 @@ class LabController(
     val canTurnScreenOff: Boolean get() = screen.canTurnOffByProximity
     val hapticKinds: List<HapticKind> get() = haptics.kinds
 
+    /** This phone has UWB for `uwb.ni` (an iPhone 11 or later, not the SE). */
+    val canRange: Boolean get() = precision.isSupported
+
+    /**
+     * This phone's UWB discovery token while its radio is ready ([prepareRanging]); a run passes it to the others. It
+     * changes when the radio had to start over.
+     */
+    val uwbToken: StateFlow<String?> get() = precision.token
+
     private val jobs = ArrayList<Job>()
     private var probeJob: Job? = null
     private var rotateJob: Job? = null
     private var listenJob: Job? = null
     private var pulseJob: Job? = null
     private var hapticTestJob: Job? = null
+    private var linkJob: Job? = null
+    private var rangeJob: Job? = null
     private var ticks = 0L
+
+    /** The modes this lab switched on and that are on. */
+    private val modesOn = LinkedHashSet<String>()
+
+    /** What was noted as not on this phone (a mode, the link, UWB, a pulse), so each is noted once. */
+    private val notedMissing = HashSet<String>()
+
+    /** The link's peers connected now, by the OS's id. */
+    private val linked = HashSet<String>()
+
+    /** The pulse's ways to vibrate the step chose, in the order they are tried ([setTechniques]); empty: default. */
+    private var pulseKinds: List<HapticKind> = emptyList()
 
     /** Starts recording: the tick, the clock, the life, the sensors, the battery, Bluetooth and the carry monitor. */
     fun start() {
@@ -188,17 +260,21 @@ class LabController(
         writeSession()
         jobs += scope.launch { tickLoop() }
         jobs += scope.launch { clockLoop() }
-        jobs += scope.launch { probes.lifecycle().collect { log.life(it) } }
+        jobs += scope.launch {
+            probes.lifecycle().collect {
+                log.life(it)
+                screenOnOf(it)?.let { on -> lifeScreenOn = on }
+            }
+        }
         jobs += scope.launch { sensorLoop() }
         jobs += scope.launch { probes.battery().collect { log.battery(it.level, it.state, it.lowPower) } }
         jobs += scope.launch { radio.state.collect { log.bt(it.name.lowercase()) } }
         jobs += scope.launch {
             carryMonitor.carry().collect {
-                log.carry(it.name.lowercase())
-                carryShadow.onCarryV1(it)
+                lastCarry = it.name.lowercase()
+                log.carry(lastCarry!!)
             }
         }
-        jobs += scope.launch { impacts.impacts().collect { log.touchImpact(it.g, it.atMillis) } }
         jobs += scope.launch {
             // «engine_stopped: audio_session_interrupt (1)»: the result and the reason, so the report counts the stops.
             haptics.engineEvents().collect { (kind, event) ->
@@ -207,6 +283,7 @@ class LabController(
                 log.haptic(kind.key, result, reason = reason)
             }
         }
+        jobs += scope.launch { modes.events().collect { log.mode(it.mode, it.event, it.reason) } }
         jobs += scope.launch {
             inAGame.first { it }
             log.note("a game started: the lab stops")
@@ -225,9 +302,15 @@ class LabController(
         stopHapticTest()
         setInGame(false)
         bench.stopRadio()
+        setTechniques(emptySet())
+        modes.stopAll()
+        modesOn.clear()
+        notedMissing.clear()
+        setUwbPeers(emptyMap())
         log.note("lab stopped")
         jobs.forEach { it.cancel() }
         jobs.clear()
+        resetSensors()
         log.isRecording = false
         mutableRunning.value = false
     }
@@ -253,9 +336,187 @@ class LabController(
         log.note("as in a game ${if (on) "on" else "off"}")
     }
 
-    /** The game's radio on the bench as a hider or a seeker ([token]: the bench's own unless given); null: off. */
+    /**
+     * The game's radio on the bench as a hider or a seeker ([token]: the bench's own unless given), with the channels
+     * of [techniques]; null: off.
+     */
     fun setBenchRadio(asSeeker: Boolean?, token: String? = null) {
-        if (asSeeker == null) bench.stopRadio() else bench.startRadio(asSeeker, token ?: bench.token)
+        if (asSeeker == null) {
+            bench.stopRadio()
+        } else {
+            bench.startRadio(asSeeker, token ?: bench.token, mutableTechniques.value)
+        }
+    }
+
+    /** The modes this phone has ([BackgroundModes.available]), for the screen's switches. */
+    val availableModes: Set<String> get() = modes.available
+
+    /**
+     * One lab technique on or off from the screen ([LAB_TECHNIQUES]), keeping the rest: the vibration test with the
+     * audio session or the Live Activity on, without a run's step.
+     */
+    fun setLabTechnique(id: String, on: Boolean) {
+        val current = mutableTechniques.value + mutableLabTechniques.value
+        setTechniques(if (on) current + id else current - id)
+    }
+
+    /**
+     * The techniques this phone runs from now on, by id (docs/adr/0017-radar-techniques-and-big-run.md §2.3; a step of
+     * a run names them). The radar's channels (`RadarCatalog`) go to the bench's radio (empty: the game's; a radio on
+     * the bench starts again with them). The rest ([LAB_TECHNIQUES]): every [ModeIds] mode on when named and off when
+     * not ([modes]; one this phone hasn't is noted once and skipped), `gatt.link` runs the [link] with the bench
+     * radio's token, `uwb.ni` ranges with the run's other devices ([uwbPeers]), and the `pulse.*` ids pick how the
+     * lab's pulse vibrates ([PULSE_KINDS]: the first of them this phone has, the next when it fails;
+     * `pulse.live_activity` also turns `mode.live_activity` on). An id this build doesn't know is noted and left out.
+     */
+    fun setTechniques(ids: Set<String>) {
+        val known = ids.filterTo(LinkedHashSet()) { RadarCatalog.byId(it) != null }
+        val lab = ids.filterTo(LinkedHashSet()) { it in LAB_TECHNIQUES }
+        val unknown = ids - known - lab
+        if (unknown.isNotEmpty()) log.note("unknown techniques ${unknown.sorted().joinToString(",")}: left out")
+        if (lab != mutableLabTechniques.value) {
+            mutableLabTechniques.value = lab
+            log.note("lab techniques ${lab.sorted().joinToString(",").ifEmpty { "none" }}")
+            // The modes first: the Live Activity must be asked for while the app is still on the screen.
+            setModes(
+                ModeIds.ALL.filterTo(HashSet()) {
+                    it in lab || (it == ModeIds.LIVE_ACTIVITY && (PULSE_LIVE in lab || PULSE_LIVE_DOUBLE in lab))
+                },
+            )
+            setLink(LinkTechnique.id in lab)
+            setRanging(UwbTechnique.id in lab)
+            setPulseKinds(lab)
+        }
+        if (known == mutableTechniques.value) return
+        mutableTechniques.value = known
+        log.note("techniques ${known.sorted().joinToString(",").ifEmpty { "of the game" }}")
+        val running = bench.radioMode.value ?: return
+        bench.startRadio(running.asSeeker, bench.radioToken ?: bench.token, known)
+    }
+
+    /**
+     * The run's UWB discovery tokens by label (`LabRunStateView.uwbTokens`, the follower hands every answer over):
+     * `uwb.ni` ranges with every label but this device's own.
+     */
+    fun setUwbPeers(peers: Map<String, String>) {
+        mutableUwbPeers.value = peers
+    }
+
+    /** Makes the UWB radio ready, so that [uwbToken] appears before a step ranges (a run posts it at the join). */
+    fun prepareRanging() {
+        if (precision.isSupported) precision.prepare()
+    }
+
+    private fun setModes(on: Set<String>) {
+        for (id in ModeIds.ALL) {
+            val wanted = id in on
+            if (wanted == id in modesOn) continue
+            if (wanted && id !in modes.available) {
+                if (notedMissing.add(id)) log.mode(id, "unavailable", "not on this phone")
+                continue
+            }
+            val result = modes.set(id, wanted)
+            when {
+                !result.ok -> log.mode(id, "failed", result.error)
+                wanted -> modesOn += id
+                else -> modesOn -= id
+            }
+            if (result.ok) log.mode(id, if (wanted) "on" else "off", result.error)
+        }
+    }
+
+    private fun setLink(on: Boolean) {
+        if (on == (linkJob != null)) return
+        if (!on) {
+            linkJob?.cancel()
+            linkJob = null
+            linked.clear()
+            mutableLinkPeers.value = 0
+            return
+        }
+        if (!link.isSupported) {
+            if (notedMissing.add(LinkTechnique.id)) log.link("failed", error = "no GATT link on this phone")
+            return
+        }
+        val trace = object : LinkTrace {
+            override fun link(action: String, peer: String?, peerToken: String?, error: String?) {
+                log.link(action, peer, peerToken, error = error)
+                if (peer != null) linkPeer(action, peer)
+            }
+        }
+        linkJob = scope.launch {
+            try {
+                // The token the bench's radio advertises: the link writes the same one (none while the radio is off).
+                link.run(bench.advertisedToken, trace).collect { reading ->
+                    log.link(READING, reading.peer, reading.peerToken, reading.rssi)
+                    linkPeer("connected", reading.peer)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.link("failed", error = e.message ?: e::class.simpleName)
+            }
+        }
+    }
+
+    /** The connected peers by the link's steps: the screen's count. */
+    private fun linkPeer(action: String, peer: String) {
+        when (action) {
+            "connected", "central_connected" -> linked += peer
+            "disconnected", "central_disconnected", "forget", "identifier_changed" -> linked -= peer
+            else -> return
+        }
+        mutableLinkPeers.value = linked.size
+    }
+
+    private fun setRanging(on: Boolean) {
+        if (on == (rangeJob != null)) return
+        if (!on) {
+            rangeJob?.cancel()
+            rangeJob = null
+            mutableLastRange.value = null
+            return
+        }
+        if (!precision.isSupported) {
+            if (notedMissing.add(UwbTechnique.id)) log.range("unsupported", error = "no UWB on this phone")
+            return
+        }
+        precision.prepare()
+        rangeJob = scope.launch {
+            try {
+                val peers = mutableUwbPeers.map(::uwbPeersOf).stateIn(
+                    this,
+                    SharingStarted.Eagerly,
+                    uwbPeersOf(mutableUwbPeers.value),
+                )
+                precision.range(peers).collect { range ->
+                    val label = range.playerId.value
+                    log.range(READING, label, range.distanceMeters, range.directionDegrees)
+                    mutableLastRange.value = "${LabLog.round(range.distanceMeters, 2)} m to $label"
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.range("failed", error = e.message ?: e::class.simpleName)
+            }
+        }
+    }
+
+    /** The run's other devices with a token, as UWB peers: the label is the peer's id in the lab. */
+    private fun uwbPeersOf(tokens: Map<String, String>): List<UwbPeer> {
+        val own = log.label.value
+        return tokens.filterKeys { it != own }.map { (label, token) -> UwbPeer(PlayerId(label), token, Platform.IOS) }
+    }
+
+    private fun setPulseKinds(ids: Set<String>) {
+        val named = PULSE_KINDS.filter { it.first in ids }
+        val kinds = named.map { it.second }.distinct().filter { it in haptics.kinds }
+        if (named.isNotEmpty() && kinds.isEmpty() && notedMissing.add(PULSE_KINDS_MISSING)) {
+            log.note("pulse ${named.joinToString(",") { it.first }}: not on this phone, the default pulse")
+        }
+        if (kinds == pulseKinds) return
+        pulseKinds = kinds
+        if (mutablePulse.value == LabPulse.HAPTICS) restartPulse()
     }
 
     fun setProbe(mode: ProbeMode?) {
@@ -279,6 +540,8 @@ class LabController(
                             token = probeTokenFor(mutableProbe.value),
                             payload = probeBits.value.sorted().joinToString(","),
                             error = event.error,
+                            tech = PROBE_TECH,
+                            layout = event.layout,
                         )
                     }
                 } catch (e: CancellationException) {
@@ -332,22 +595,24 @@ class LabController(
             try {
                 air.listen().collect { frame ->
                     when (frame) {
-                        is AirFrame.Mask -> {
+                        is LabFrame.Mask -> {
                             val decoded = OverflowCode.decode(frame.bits)
                             log.mask(frame.bits, frame.rssi, frame.api, frame.hex, frame.peer, decoded)
                             // A decoded token is a reading like any other: the lab's band follows it.
                             decoded.singleOrNull()?.let { token ->
-                                log.rx(token, frame.rssi, frame.api, overflowVia(frame), frame.peer, frame.atMillis)
+                                val via = overflowVia(frame)
+                                log.rx(token, frame.rssi, frame.api, via, frame.peer, frame.atMillis, PROBE_TECH)
                             }
                         }
 
-                        is AirFrame.Token -> log.rx(
+                        is LabFrame.Token -> log.rx(
                             frame.token,
                             frame.rssi,
                             frame.api,
                             frame.via,
                             frame.peer,
                             frame.atMillis,
+                            frame.tech,
                         )
                     }
                 }
@@ -367,25 +632,36 @@ class LabController(
         log.note("screen off by proximity ${if (on) "on" else "off"}")
     }
 
+    /**
+     * The lab's pulse from its loudest band: [LabPulse.HAPTICS] vibrates the way the step's `pulse.*` ids chose
+     * ([setTechniques]), else by the first kind this phone has that is no notification.
+     */
     fun setPulse(pulse: LabPulse) {
         if (pulse == mutablePulse.value) return
-        pulseJob?.cancel()
-        pulseJob = null
         mutablePulse.value = pulse
         log.note("pulse ${pulse.name.lowercase()}")
-        val kind = when (pulse) {
+        restartPulse()
+    }
+
+    private fun restartPulse() {
+        pulseJob?.cancel()
+        pulseJob = null
+        val kinds = when (mutablePulse.value) {
             LabPulse.OFF -> return
-            LabPulse.HAPTICS -> haptics.kinds.firstOrNull { !it.isNotification } ?: return
-            LabPulse.NOTIFICATION -> haptics.kinds.firstOrNull { it == HapticKind.NOTIFY_SILENT_SOUND } ?: return
+            LabPulse.HAPTICS -> pulseKinds.ifEmpty { listOfNotNull(haptics.kinds.firstOrNull { !it.isNotification }) }
+            LabPulse.NOTIFICATION -> listOfNotNull(haptics.kinds.firstOrNull { it == HapticKind.NOTIFY_SILENT_SOUND })
         }
-        pulseJob = scope.launch { pulseLoop(kind) }
+        if (kinds.isEmpty()) return
+        pulseJob = scope.launch { pulseLoop(kinds) }
     }
 
     /**
      * The vibration test (H2): [leadMillis] to lock the phone and put it away, then every kind in turn, group N with N
-     * beats, so the tester tells a group by its count even when another group stays silent: 1 Core Haptics, 2 impact,
-     * 3 a notification with a silent sound, 4 one without. [HAPTIC_TEST_PAUSE_MILLIS] between the groups; at the end a
-     * notification with text says the test is over. The tester marks what they felt afterwards ([toggleFelt]).
+     * beats, so the tester tells a group by its count even when another group stays silent. The groups are whatever
+     * [LabHaptics.kinds] lists, in its order: five on an iPhone (1 Core Haptics, 2 Core Haptics on the audio session,
+     * 3 impact, 4 a notification with a silent sound, 5 one without), the vibrator and the notifications on Android.
+     * [HAPTIC_TEST_PAUSE_MILLIS] between the groups; at the end a notification with text says the test is over. The
+     * tester marks what they felt afterwards ([toggleFelt]).
      */
     fun startHapticTest(leadMillis: Long = HAPTIC_TEST_LEAD_MILLIS) {
         stopHapticTest()
@@ -437,13 +713,17 @@ class LabController(
         log.mark(label, by = "tester", place = place, action = action, distance = distance)
 
     /**
-     * «We touched» (docs/adr/0017-radar-techniques-and-big-run.md §3): this phone touched [partner]'s (its label in
-     * the run), the truth for the touch detector. Both testers press it. False: the lab doesn't record now.
+     * «Touched with [otherLabel]»: the tester knocked this phone back to back with that one just now, the truth of the
+     * touch calibration (docs/adr/0017-radar-techniques-and-big-run.md §3): a mark `touch <pair>` (the pair's key,
+     * [RunStep.pairKey], of this device's label and [otherLabel]) with the action `touch`. The report finds the touch
+     * itself from both phones' `impact` events and the RSSI; this mark tells it which ones were real. False: no mark
+     * (no label, or this device's own).
      */
-    fun touched(partner: String): Boolean {
-        val label = partner.trim()
-        if (!mutableRunning.value || label.isEmpty()) return false
-        log.touchPressed(label)
+    fun touched(otherLabel: String): Boolean {
+        val other = otherLabel.trim()
+        val own = log.label.value
+        if (other.isEmpty() || other == own) return false
+        log.mark("$TOUCH_ACTION ${RunStep.pairKey(own, other)}", by = "user", action = TOUCH_ACTION)
         return true
     }
 
@@ -460,10 +740,20 @@ class LabController(
         )
     }
 
+    /**
+     * Empties the log (a run starts). The carry monitor writes only its changes, so its last state goes in again after
+     * the header: else the report reads the seconds before its next change as «said nothing».
+     */
     fun clear() {
         log.clear()
-        if (mutableRunning.value) writeSession()
+        if (mutableRunning.value) {
+            writeSession()
+            lastCarry?.let { log.carry(it) }
+        }
     }
+
+    /** The carry monitor's last state (`in_hand`…), for [clear]. */
+    private var lastCarry: String? = null
 
     private fun writeSession() {
         val about = about()
@@ -477,12 +767,43 @@ class LabController(
         log.session(about.model, about.os, about.build, about.commit, mode)
     }
 
+    private var liveStep: String? = null
+    private var liveEndsAtServerMillis: Long? = null
+    private var liveLast: List<Any?> = emptyList()
+
+    /**
+     * What the Live Activity shows for the run's step ([LabRunFollower]): [text] like «Step 3/107: the table», and
+     * the step's end by the server's clock for the card's countdown; null: no run.
+     */
+    fun setLiveStep(text: String?, endsAtServerMillis: Long? = null) {
+        liveStep = text
+        liveEndsAtServerMillis = endsAtServerMillis
+        liveSecond()
+    }
+
+    /** Once a second: the card's text, band, detail and countdown, sent to the modes only when something changed. */
+    private fun liveSecond() {
+        val band = log.strongestBand()
+        val text = liveStep ?: "the lab is on"
+        val detail = listOfNotNull(
+            bench.radioMode.value?.let { if (it.asSeeker) "seeker" else "hider" },
+            mutableLabTechniques.value.sorted().joinToString(", ").ifEmpty { null },
+        ).joinToString(" · ")
+        // The step's end by the phone's clock: the widget counts down by it.
+        val endsAt = liveEndsAtServerMillis?.let { it - (log.serverNow() - log.deviceNow()) } ?: 0L
+        val status = listOf(text, band, detail, endsAt)
+        if (status == liveLast) return
+        liveLast = status
+        modes.liveStatus(text, band.ordinal, detail, endsAt)
+    }
+
     private suspend fun tickLoop() {
         while (currentCoroutineContext().isActive) {
             log.tick(ticks++)
             scenarios.tick()
             motionSecond()
-            carryShadow.second(log.deviceNow(), probes.appState())
+            carrySecond()
+            liveSecond()
             delay(TICK_MILLIS)
         }
     }
@@ -501,28 +822,43 @@ class LabController(
 
     private val motionWindow = MotionWindow()
     private val activity = ActivityClassifier()
+    private val impacts = ImpactDetector()
+    private var carryV2 = CarryClassifier()
     private var gravity: Gravity? = null
     private var lastMotionAt: Long? = null
 
+    /** When the last motion reading came, by [monotonicMillis]: the sensors' own clock can't tell how old it is. */
+    private var lastMotionMono: Long? = null
+    private var near: Boolean? = null
+    private var lux: Double? = null
+
+    /** The screen by the last life event (`screen_on`, `did_enter_background`…), where the app's state says nothing. */
+    private var lifeScreenOn: Boolean? = null
+
     private suspend fun sensorLoop() {
         probes.sensors().collect { reading ->
-            carryShadow.onSensor(reading)
             when (reading) {
                 is LabSensorReading.Motion -> {
                     motionWindow.add(reading.atMillis, reading.magnitudeG)
                     activity.add(reading.atMillis, reading.magnitudeG * STANDARD_GRAVITY)
                     reading.gravity?.let { gravity = it }
                     lastMotionAt = reading.atMillis
+                    lastMotionMono = monotonicMillis()
+                    // Told at least [ImpactDetector.PEAK_MILLIS] after the knock: how long ago on the sensors' clock.
+                    impacts.add(reading.atMillis, reading.magnitudeG)?.let { impact ->
+                        log.impact(impact.peakG, reading.atMillis - impact.atMillis)
+                    }
                 }
 
-                is LabSensorReading.Proximity -> log.prox(
-                    reading.near,
-                    reading.rawCm,
-                    reading.maxCm,
-                    reading.monitoring,
-                )
+                is LabSensorReading.Proximity -> {
+                    near = reading.near
+                    log.prox(reading.near, reading.rawCm, reading.maxCm, reading.monitoring)
+                }
 
-                is LabSensorReading.Light -> log.light(reading.lux)
+                is LabSensorReading.Light -> {
+                    lux = reading.lux
+                    log.light(reading.lux)
+                }
             }
         }
     }
@@ -534,7 +870,52 @@ class LabController(
         log.motion(MotionFeatures(motionWindow.std(), gravity, gravity?.let(Orientation::of), activity.classify()))
     }
 
-    private suspend fun pulseLoop(kind: HapticKind) {
+    /**
+     * Once a second: `carry.v2` in the shadow ([CarryClassifier]) from this second's screen (the app's state, else the
+     * last life event), the lab's «screen off by proximity» switch, the last proximity and light, and the motion as
+     * `motion` has it (none when the sensors said nothing for [MOTION_STALE_MILLIS]: the classifier keeps its state).
+     * Nothing when the lab knows neither the screen nor the motion.
+     */
+    private fun carrySecond() {
+        val screenOn = screenOnOf(probes.appState()) ?: lifeScreenOn
+        val motionMono = lastMotionMono
+        val fresh = motionMono != null && monotonicMillis() - motionMono <= MOTION_STALE_MILLIS
+        if (screenOn == null && !fresh) return
+        val gravity = gravity.takeIf { fresh }
+        val verdict = carryV2.add(
+            CarryInputs(
+                atMillis = monotonicMillis(),
+                screenOn = screenOn,
+                screenOffByProximity = mutableScreenOff.value,
+                near = near,
+                lux = lux,
+                orientation = gravity?.let(Orientation::of),
+                std = if (fresh) motionWindow.std() else null,
+                activity = if (fresh) activity.classify() else null,
+            ),
+        )
+        log.shadow(CARRY_V2, verdict.carry.name.lowercase(), verdict.reason)
+    }
+
+    /** Everything the sensors said, forgotten when the lab stops: a new start doesn't read old knocks or motion. */
+    private fun resetSensors() {
+        motionWindow.clear()
+        impacts.clear()
+        gravity = null
+        lastMotionAt = null
+        lastMotionMono = null
+        near = null
+        lux = null
+        lifeScreenOn = null
+        carryV2 = CarryClassifier()
+    }
+
+    /**
+     * Beats [kinds]' first while it plays; one that fails gives way to the next for good (the chain «the first that
+     * works» of ADR 0017 §2.3), the last one stays whatever it says.
+     */
+    private suspend fun pulseLoop(kinds: List<HapticKind>) {
+        var index = 0
         var lastNotification: Long? = null
         while (currentCoroutineContext().isActive) {
             val beat = HeartbeatRules.beat(log.strongestBand())
@@ -542,12 +923,19 @@ class LabController(
                 delay(PULSE_IDLE_MILLIS)
                 continue
             }
+            val kind = kinds[index]
             val now = monotonicMillis()
             val last = lastNotification
             if (!kind.isNotification || last == null || now - last >= NOTIFICATION_GAP_MILLIS) {
                 val result = haptics.play(kind, beat.strongAmplitude)
                 if (kind.isNotification) lastNotification = now
-                if (result.result != "played") log.haptic(kind.key, result.result, result.error, reason = "pulse")
+                if (result.result != "played") {
+                    log.haptic(kind.key, result.result, result.error, reason = "pulse")
+                    if (index < kinds.lastIndex) {
+                        index++
+                        log.note("pulse: ${kind.key} failed, now ${kinds[index].key}")
+                    }
+                }
             }
             delay(beat.periodMillis)
         }
@@ -588,7 +976,7 @@ class LabController(
 
     private fun probeTokenFor(mode: ProbeMode?): String? = mutableProbeToken.value.takeIf { mode == ProbeMode.Token }
 
-    private fun overflowVia(frame: AirFrame.Mask) = if (frame.hex != null) {
+    private fun overflowVia(frame: LabFrame.Mask) = if (frame.hex != null) {
         SightingVia.OVERFLOW_RAW
     } else {
         SightingVia.OVERFLOW_UUIDS
@@ -610,6 +998,55 @@ class LabController(
         const val NOTIFICATION_GAP_MILLIS = 4_000L
         const val PULSE_IDLE_MILLIS = 500L
         private const val STANDARD_GRAVITY = 9.81
+
+        /** The mark's action of «touched with …» ([touched]) and the first word of its label. */
+        const val TOUCH_ACTION = "touch"
+
+        /** The classifier the lab runs in the shadow of the game's carry monitor (`shadow` events' `tech`). */
+        const val CARRY_V2 = "carry.v2"
+
+        /** Motion readings older than this are none: the platform stopped the sensors (the app in the background). */
+        const val MOTION_STALE_MILLIS = 3_000L
+
+        /**
+         * The screen by the app's state or a life event: lit on `screen_on` (Android) and `active` (iOS: the app in
+         * front; the proximity sensor may still have turned it off, the lab's switch says); dark on `screen_off`,
+         * `inactive`, `background`, `did_enter_background`, `will_resign`; null: says nothing of the screen.
+         */
+        internal fun screenOnOf(state: String): Boolean? = when (state) {
+            "screen_on", "active", "did_become_active" -> true
+            "screen_off", "inactive", "background", "did_enter_background", "will_resign" -> false
+            else -> null
+        }
+
+        /** The `link` and `range` events' action of a reading (a token or an RSSI over the link, a UWB distance). */
+        const val READING = "reading"
+
+        private const val PULSE_LIVE = "pulse.live_activity"
+        private const val PULSE_LIVE_DOUBLE = "pulse.live_activity.double"
+        private const val PULSE_KINDS_MISSING = "pulse.*"
+
+        /**
+         * The pulse's ways to vibrate by id (ADR 0017 §2.3, the vibration's candidates), in the order of the chain «the
+         * first that works». `pulse.live_activity` is Core Haptics with the Live Activity on.
+         */
+        val PULSE_KINDS: List<Pair<String, HapticKind>> = listOf(
+            "pulse.core_haptics" to HapticKind.CORE_HAPTICS,
+            "pulse.core_haptics.audio" to HapticKind.CORE_HAPTICS_AUDIO,
+            PULSE_LIVE to HapticKind.LIVE_ACTIVITY_ALERT,
+            "pulse.live_activity.double" to HapticKind.LIVE_ACTIVITY_ALERT_DOUBLE,
+            "pulse.impact" to HapticKind.IMPACT,
+            "pulse.notify_silent_sound" to HapticKind.NOTIFY_SILENT_SOUND,
+            "pulse.notify" to HapticKind.NOTIFY_NO_SOUND,
+            "pulse.notify_ringtone" to HapticKind.NOTIFY_SILENT_RINGTONE,
+        )
+
+        /** The ids [setTechniques] knows besides the radar's channels. */
+        val LAB_TECHNIQUES: Set<String> =
+            ModeIds.ALL.toSet() + LinkTechnique.id + UwbTechnique.id + PULSE_KINDS.map { it.first }
+
+        /** The overflow channel's id: the probe's `adv` and a mask's reading carry it. */
+        private val PROBE_TECH = OverflowChannel.id
 
         /** The bits no probe may set, for the screen's bit picker. */
         val FORBIDDEN_BITS: Set<Int> = setOf(OverflowArea.APPLE_WATCH_BIT)

@@ -25,7 +25,10 @@ interface LabProbes {
      */
     fun lifecycle(): Flow<String>
 
-    /** Motion about ten times a second, the proximity sensor and the light as the platform gives them. */
+    /**
+     * Motion about 50 times a second (a knock of the touch calibration is short), the proximity sensor and the light
+     * as the platform gives them.
+     */
     fun sensors(): Flow<LabSensorReading>
 
     /** The battery now, then on changes and at least once a minute. */
@@ -66,16 +69,39 @@ interface LabScreen {
 
 enum class HapticKind {
     CORE_HAPTICS,
+
+    /**
+     * Core Haptics on an engine made with the app's audio session (`pulse.core_haptics.audio`): with `mode.audio` on,
+     * the session keeps playing on the lock, so the engine may not be stopped for its interruption.
+     */
+    CORE_HAPTICS_AUDIO,
     IMPACT,
     NOTIFY_SILENT_SOUND,
     NOTIFY_NO_SOUND,
     VIBRATOR,
+
+    /**
+     * An alert on the running Live Activity with a silent sound (`pulse.live_activity`): the system plays the sound's
+     * haptic on the lock screen, like a notification's, without a notification. Needs `mode.live_activity` on.
+     */
+    LIVE_ACTIVITY_ALERT,
+
+    /** Two alerts on the Live Activity 300 ms apart: a longer beat, if iOS gives both their haptic. */
+    LIVE_ACTIVITY_ALERT_DOUBLE,
+
+    /**
+     * A notification whose silent sound is a ringtone (`UNNotificationSound.ringtoneSoundNamed`): iOS vibrates it
+     * with the ringtone's pattern, longer than a notification's.
+     */
+    NOTIFY_SILENT_RINGTONE,
     ;
 
     val key: String get() = name.lowercase()
 
     /** A notification: at most one every few seconds, or iOS piles them up. */
-    val isNotification: Boolean get() = this == NOTIFY_SILENT_SOUND || this == NOTIFY_NO_SOUND
+    val isNotification: Boolean get() =
+        this == NOTIFY_SILENT_SOUND || this == NOTIFY_NO_SOUND || this == NOTIFY_SILENT_RINGTONE ||
+            this == LIVE_ACTIVITY_ALERT || this == LIVE_ACTIVITY_ALERT_DOUBLE
 }
 
 /** [result]: `played`, `error` ([error]), `skipped` (the platform won't in this state, [error] says why). */

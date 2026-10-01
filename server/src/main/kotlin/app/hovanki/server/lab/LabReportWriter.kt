@@ -1,12 +1,10 @@
 package app.hovanki.server.lab
 
-import app.hovanki.server.radio.RadioCalibrationRepository
 import app.hovanki.shared.lab.LabReport
 import app.hovanki.shared.lab.LabReportBuilder
 import app.hovanki.shared.lab.LabReportDevice
 import app.hovanki.shared.lab.LabReportInput
 import app.hovanki.shared.lab.LabRunScripts
-import app.hovanki.shared.lab.ModelOffsets
 import app.hovanki.shared.protocol.LabRunKind
 import app.hovanki.shared.protocol.protocolJson
 import org.slf4j.LoggerFactory
@@ -42,8 +40,6 @@ class LabReportWriter(
     private val repository: LabRunRepository,
     private val properties: LabProperties,
     private val clock: Clock,
-    /** What real games' catches sounded like by model: the report's `calib.model` (ADR 0017 §2.3). */
-    private val calibration: RadioCalibrationRepository,
     /** A game's run: its field report (docs/adr/0018-field-test-build.md §6) instead of the lab's. */
     private val fieldReports: FieldReportService,
     private val field: FieldProperties,
@@ -160,8 +156,7 @@ class LabReportWriter(
             // The events a phone's clock put far outside the run are left out: a day around it is plenty.
             val from = run.createdAt.minus(SLACK).toEpochMilli()
             val to = (run.finishedAt ?: clock.instant()).plus(properties.uploadGrace).plus(SLACK).toEpochMilli()
-            val offsets = ModelOffsets.fromCatches(calibration.catches())
-            LabReportBuilder.build(runId, script, inputs, clock.millis(), from..to, offsets)
+            LabReportBuilder.build(runId, script, inputs, clock.millis(), from..to)
         }
         val body = protocolJson.encodeToString(LabReport.serializer(), report)
         repository.upsertReport(runId, report.version, clock.instant(), body)

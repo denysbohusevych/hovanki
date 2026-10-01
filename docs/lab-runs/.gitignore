@@ -1,0 +1,4 @@
+# Raw lab logs stay out of the repository (CLAUDE.md, GDPR: admins only, 90 days); the reports' numbers go in.
+*.jsonl
+*.txt
+merged/

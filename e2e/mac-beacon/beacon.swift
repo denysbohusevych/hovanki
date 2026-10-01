@@ -164,10 +164,10 @@ final class Beacon: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDeleg
                Array(bytes[4..<20]) == uuid {
                 return (hex(Data(bytes[20..<24])), "ibeacon")
             }
-            // An Android hider's `.mfr` layout: the test company 0xFFFF, «48 01», the game's UUID, the token.
-            if bytes.count >= 24, bytes[0] == 0xFF, bytes[1] == 0xFF, bytes[2] == 0x48, bytes[3] == 0x01,
-               Array(bytes[4..<20]) == uuid {
-                let token = hex(Data(bytes[20..<24]))
+            // An Android hider's `.mfr` layout (`ServiceDataChannel.Mfr`): the test company 0xFFFF, the game's UUID,
+            // the token.
+            if bytes.count >= 22, bytes[0] == 0xFF, bytes[1] == 0xFF, Array(bytes[2..<18]) == uuid {
+                let token = hex(Data(bytes[18..<22]))
                 if isToken(token) { return (token, "mfr") }
             }
         }

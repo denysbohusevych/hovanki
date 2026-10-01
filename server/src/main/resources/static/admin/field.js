@@ -476,8 +476,6 @@ export function createFieldTab(ctx) {
     const r = report.radar ?? {};
     const rules = r.shadowRules ?? {};
     const t = r.techniques;
-    const verdictText = { keep: "оставить", drop: "выбросить", too_little_data: "мало данных" };
-    const verdictClass = { keep: "cover-ok", drop: "cover-none", too_little_data: "cover-weak" };
     return [
       el("h2", {}, "Радар"),
       el("p", { class: "muted small" }, "Расстояния — по GPS обоих телефонов в ту же секунду (между точками интерполяция); RSSI — медианы секунд."),
@@ -508,34 +506,39 @@ export function createFieldTab(ctx) {
         ["Подтверждённых поимок", `${num(rules.catches)}, правило близости отказало бы: ${num(rules.catchesShadowWouldRefuse)}`],
         ["Смен полосы радара", `${num(rules.bandChanges)}, в тени полоса другая: ${num(rules.bandShifted)}`],
         ["Сдвиги полосы", counts(rules.shifts)]),
-      t ? techniques(t, verdictText, verdictClass) : null,
+      t ? techniques(t) : null,
     ];
   }
 
-  function techniques(t, verdictText, verdictClass) {
-    const dbm = (value) => (value == null ? "—" : `${value} дБм`);
-    const db = (value) => (value == null ? "—" : `${fmt.number(value, 1)} дБ`);
+  function techniques(t) {
+    const dbm = (rssi, key) => (rssi?.[key] == null ? "—" : `${rssi[key]} дБм`);
+    const touches = t.touches ?? [];
+    const pressed = touches.filter((x) => x.markAtMillis != null).length;
     return [
-      el("h3", {}, "Техники"),
+      el("h3", {}, "Техники радиолабы"),
       t.computed === false ? el("p", { class: "muted" }, t.note ?? "Событий слишком много, техники не считались.") : null,
-      el("p", { class: "muted small" }, "Карточки из радиолабы (ADR 0017 §2.3). В игре нет расстояний по шагам: карточкам, которым они нужны, " +
-        "пишется «мало данных»; считаются касания, детектор и «без канала»."),
-      empty(t.cards) ?? wide(table(["Техника", "Группа", "Вердикт", "Критерий", "Цифры"], t.cards.map((c) => el("tr", {},
-        el("td", { class: "mono" }, c.id), el("td", { class: "small" }, c.group),
-        el("td", { class: verdictClass[c.verdict] ?? null }, verdictText[c.verdict] ?? c.verdict),
-        el("td", { class: "small" }, c.criterion), el("td", { class: "small" }, c.numbers))))),
-      t.touchDetector ? el("p", {}, `Касаний кнопкой: ${fmt.number(t.touchDetector.buttonTouches)}, детектор нашёл ${fmt.number(t.touchDetector.found)}, ` +
-        `ложных ${fmt.number(t.touchDetector.falseAlarms)}.`) : null,
-      t.touchPairs?.length ? table(["Пара", "Касаний", "Поправка a→b", "Поправка b→a", "Разброс", "Дрейф"], t.touchPairs.map((p) => el("tr", {},
-        el("td", { class: "mono" }, `${p.a} · ${p.b}`), el("td", {}, fmt.number(p.touches)), el("td", {}, db(p.offsetAToB)),
-        el("td", {}, db(p.offsetBToA)), el("td", {}, db(p.spreadDb)), el("td", {}, db(p.driftDb))))) : null,
-      t.touches?.length ? wide(table(["Пара", "Время", "Источник", "RSSI a→b", "RSSI b→a"], t.touches.map((x) => el("tr", {},
-        el("td", { class: "mono" }, `${x.a} · ${x.b}`), el("td", {}, clock(x.atMillis)), el("td", {}, x.source),
-        el("td", {}, dbm(x.rssiAToB)), el("td", {}, dbm(x.rssiBToA)))))) : null,
+      el("p", { class: "muted small" }, "Детектор касаний и «без канала» радиолабы (ADR 0017 §3, §7) на журналах игры. " +
+        "Карточек и ошибок полос нет: в игре нет расстояний по шагам."),
+      el("p", {}, `Касаний нашёл детектор: ${fmt.number(touches.length)}, из них отмечено кнопкой: ${fmt.number(pressed)}; ` +
+        `нажатий без касания в журнале: ${fmt.number(t.missedTouches ?? 0)}.`),
+      touches.length ? wide(table(["Пара", "Время", "RSSI по направлениям", "Удары, g", "Кнопка"], touches.map((x) => {
+        const [a, b] = x.pair.split("|");
+        return el("tr", {},
+          el("td", { class: "mono" }, `${a} · ${b}`), el("td", {}, clock(x.atMillis)),
+          el("td", {}, `${a}→${b}: ${dbm(x.rssi, `${a}|${b}`)}, ${b}→${a}: ${dbm(x.rssi, `${b}|${a}`)}`),
+          el("td", {}, Object.entries(x.peaksG ?? {}).map(([d, g]) => `${d} ${g}`).join(", ") || "—"),
+          el("td", {}, x.markAtMillis == null ? "—" : clock(x.markAtMillis)));
+      }))) : null,
+      t.touchSpreads?.length ? table(["Пара", "Направление", "Касаний", "Разброс, дБ", "Дрейф, дБ"], t.touchSpreads.map((p) => el("tr", {},
+        el("td", { class: "mono" }, p.pair), el("td", { class: "mono" }, p.direction), el("td", {}, fmt.number(p.touches)),
+        el("td", { class: p.spreadDb > 6 ? "cover-none" : null }, fmt.number(p.spreadDb)), el("td", {}, fmt.number(p.driftDb))))) : null,
       t.without?.length ? [el("h3", {}, "Без канала"),
-        table(["Канал", "Направлений", "Секунд", "Полоса та же", "Слышал только он, с"], t.without.map((w) => el("tr", {},
-          el("td", { class: "mono" }, w.tech), el("td", {}, fmt.number(w.directions)), el("td", {}, fmt.number(w.seconds)),
-          el("td", {}, pct(w.equalPercent, 1)), el("td", {}, fmt.number(w.aloneSeconds ?? 0)))))] : null,
+        el("p", { class: "muted small" }, "Пар-секунд, где у пары была полоса со всеми каналами или без этого; в скольких полоса та же; " +
+          "в скольких слышал только этот канал."),
+        table(["Канал", "Пар-секунд", "Полоса та же", "Слышал только он"], t.without.map((w) => el("tr", {},
+          el("td", { class: "mono" }, w.tech), el("td", {}, fmt.number(w.seconds)),
+          el("td", {}, `${fmt.number(w.same)} (${pct(w.seconds ? (100 * w.same) / w.seconds : null, 1)})`),
+          el("td", {}, fmt.number(w.onlyChannel)))))] : null,
     ];
   }
 

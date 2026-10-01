@@ -42,6 +42,8 @@
 	<string>Lets a round go on when Hovanki is in the background. Your location goes to the game server; after the round the game’s players see your way, and its recording is kept for them for 90 days.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>During a round the game server receives your location, also while the screen is locked (blue indicator in the status bar), to check the game zone and confirm catches. After the round the game’s players see everybody’s way; the recording is kept 90 days for those of them with an account.</string>
+	<key>NSNearbyInteractionUsageDescription</key>
+	<string>Measures the distance to another player’s iPhone when both look at the radar; nothing leaves the phone.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
