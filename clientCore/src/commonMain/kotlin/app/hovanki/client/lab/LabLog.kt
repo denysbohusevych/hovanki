@@ -553,6 +553,9 @@ class LabLog(
         put("low_power", lowPower)
     }
 
+    /** The phone's thermal state by name (`nominal`, `fair`, `serious`, `critical`; Android's `none`, `light`…). */
+    fun thermal(state: String) = event(FieldKinds.THERMAL) { put("state", state) }
+
     /** A GPS fix: its accuracy and how old it was. Never where. */
     fun gps(accuracyMeters: Double, ageMillis: Long) = event("gps") {
         put("acc", round(accuracyMeters, 1))

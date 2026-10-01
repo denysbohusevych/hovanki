@@ -23,16 +23,25 @@ import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_close
 import app.hovanki.client.resources.ic_close
+import app.hovanki.client.ui.field.TrackScreen
 import org.jetbrains.compose.resources.stringResource
 
 /**
  * A full-screen panel over a screen (a group, the lobby's invitations, the chat), drawn in the same window: not a
  * dialog or a bottom sheet, whose separate window UI automation on Android can't look into. The close button
  * ([TestTags.PANEL_CLOSE]) and the system back action run [onClose]. [content] fills the rest; wrap it in a
- * [ScreenColumn] to scroll.
+ * [ScreenColumn] to scroll. [screen]: its name for the field log (`ui` events), a plain word.
  */
 @Composable
-fun Panel(title: String, onClose: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+fun Panel(
+    title: String,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+    screen: String? = null,
+    content: @Composable () -> Unit,
+) {
+    // The field test build's log hears which panel is open, by [screen]'s plain name (nothing elsewhere).
+    if (screen != null) TrackScreen(screen)
     SystemBackHandler(enabled = true, onBack = onClose)
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize()) {

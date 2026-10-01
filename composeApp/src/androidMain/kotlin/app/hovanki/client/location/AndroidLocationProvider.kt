@@ -52,6 +52,8 @@ class AndroidLocationProvider(private val context: Context) : LocationProvider {
             accuracyMeters = if (hasAccuracy()) accuracy.toDouble() else UNKNOWN_ACCURACY_METERS,
             timestampMillis = System.currentTimeMillis() - ageMillis.coerceAtLeast(0),
             isMock = isMocked(),
+            speedMetersPerSecond = if (hasSpeed()) speed.toDouble() else null,
+            bearingDegrees = if (hasBearing()) bearing.toDouble() else null,
         )
     }
 

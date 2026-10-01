@@ -90,6 +90,7 @@ fun BoardPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
         title = stringResource(Res.string.board_title),
         onClose = viewModel::closeBoard,
         modifier = Modifier.testTag(TestTags.BOARD_PANEL),
+        screen = "board",
     ) {
         ScreenColumn {
             SecondaryText(stringResource(Res.string.board_hint))

@@ -98,12 +98,19 @@ class WebSocketGameConnection(
                 val sentAt = timeSource.markNow()
                 // A poke while the answer is on its way may be about something newer than the answer.
                 var poked = false
+                var lastText = ""
+                var replyText = ""
                 val answer = withTimeoutOrNull(SocketLimits.REPLY_TIMEOUT_MILLIS) {
                     var reply: ServerFrame? = null
                     while (reply == null) {
-                        when (val frame = socket.nextFrame()) {
+                        when (val frame = socket.nextFrame { lastText = it }) {
                             ServerFrame.Poke -> poked = true
-                            is ServerFrame.Snapshot -> if (frame.seq == sent) reply = frame
+
+                            is ServerFrame.Snapshot -> if (frame.seq == sent) {
+                                reply = frame
+                                replyText = lastText
+                            }
+
                             is ServerFrame.Error -> if (frame.seq == sent) reply = frame
                         }
                     }
@@ -120,7 +127,13 @@ class WebSocketGameConnection(
                         answered = true
                         errorPauseMillis = PollingGameConnection.MIN_BACKOFF_MILLIS
                         onAnswer()
-                        emit(ConnectionEvent.Snapshot(answer.snapshot, Transport.SOCKET))
+                        emit(
+                            ConnectionEvent.Snapshot(
+                                answer.snapshot,
+                                Transport.SOCKET,
+                                replyText.encodeToByteArray().size,
+                            ),
+                        )
                         pauseAfter(answer.snapshot, intervalMillis)
                     }
 
@@ -180,10 +193,13 @@ class WebSocketGameConnection(
     private class SocketClosed : Exception("The socket closed")
 
     /** The next frame this app can read; a newer server's frame of another type is skipped. */
-    private suspend fun GameSocket.nextFrame(): ServerFrame {
+    private suspend fun GameSocket.nextFrame(onText: (String) -> Unit = {}): ServerFrame {
         while (true) {
             val text = receive() ?: throw SocketClosed()
-            decode(text)?.let { return it }
+            decode(text)?.let {
+                onText(text)
+                return it
+            }
         }
     }
 

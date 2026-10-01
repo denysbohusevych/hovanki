@@ -29,6 +29,9 @@ interface GameTrace {
     /** A sync goes out now. The connection's thread. */
     fun onSyncSent() = Unit
 
+    /** The size in bytes of the answer the next [onSynced] is about, where the connection measured it. */
+    fun onSyncBytes(bytes: Int) = Unit
+
     /** The sync came back with [snapshot] by [transport] (applied already). */
     fun onSynced(transport: Transport, snapshot: GameSnapshot) = Unit
 
@@ -38,6 +41,28 @@ interface GameTrace {
     /** Something failed underneath that the game goes on without: the radio, the location, a command ([where]). */
     fun onError(where: String, error: Throwable) = Unit
 
+    /**
+     * The player did [action] (a word of [FieldActions], never a text or an id): a command goes out now, whatever the
+     * server will say of it.
+     */
+    fun onAction(action: String) = Unit
+
     /** Nobody writes anything down. */
     object None : GameTrace
+}
+
+/** The key actions of a player the field log writes down (`ui` events of kind `tap`): closed words, no data. */
+object FieldActions {
+    const val START = "start_game"
+    const val SETTINGS_SAVED = "settings_saved"
+    const val CATCH_CLAIM = "catch_claim"
+    const val CATCH_SCAN = "catch_scan"
+    const val CATCH_CONFIRM = "catch_confirm"
+    const val CATCH_DISPUTE = "catch_dispute"
+    const val VOTE = "vote"
+    const val CHAT_SEND = "chat_send"
+    const val CHECKPOINT_SCAN = "checkpoint_scan"
+    const val PERK_USE = "perk_use"
+    const val QUEST_DONE = "quest_done"
+    const val LEAVE = "leave"
 }

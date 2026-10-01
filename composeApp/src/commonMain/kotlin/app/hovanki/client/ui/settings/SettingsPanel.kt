@@ -43,6 +43,7 @@ fun SettingsPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
         title = stringResource(Res.string.settings_title),
         onClose = viewModel::closeSettings,
         modifier = Modifier.testTag(TestTags.SETTINGS_PANEL),
+        screen = "settings",
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {

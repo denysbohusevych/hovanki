@@ -72,6 +72,20 @@ class HttpGameApiTest {
     }
 
     @Test
+    fun syncMeasuredTellsTheSizeOfTheAnswer() = runTest {
+        val snapshot = testSnapshot(serverTimeMillis = 42)
+        val api = api { jsonOf(snapshot) }
+
+        val measured = api.syncMeasured(testSession, SyncRequest(listOf(testSample(7))))
+
+        assertEquals(snapshot, measured.snapshot)
+        val text = protocolJson.encodeToString(app.hovanki.shared.protocol.GameSnapshot.serializer(), snapshot)
+        assertEquals(text.encodeToByteArray().size, measured.bytes)
+        assertEquals("/api/v1/games/game1/sync", recorded.single().path)
+        assertEquals("Bearer secret-token", recorded.single().authorization)
+    }
+
+    @Test
     fun theBoardsRoutes() = runTest {
         val api = api { jsonOf(testSnapshot()) }
         val point = GeoPoint(50.45, 30.52)

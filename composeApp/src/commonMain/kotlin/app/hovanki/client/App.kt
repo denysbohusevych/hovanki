@@ -32,6 +32,9 @@ import app.hovanki.client.ui.common.appSafeDrawingPadding
 import app.hovanki.client.ui.debug.DiagnosticsOverlay
 import app.hovanki.client.ui.field.FieldConsentScreen
 import app.hovanki.client.ui.field.FieldMarkLayer
+import app.hovanki.client.ui.field.FieldScreenTrail
+import app.hovanki.client.ui.field.FieldUi
+import app.hovanki.client.ui.field.LocalFieldUi
 import app.hovanki.client.ui.game.GameScreen
 import app.hovanki.client.ui.invite.InviteBanner
 import app.hovanki.client.ui.lobby.LobbyScreen
@@ -66,6 +69,9 @@ fun App() {
         val fieldSession = koinInject<FieldSession>()
         val consentAt by fieldSession.consentAt.collectAsStateWithLifecycle()
         val needsFieldConsent = fieldSession.isFieldBuild && consentAt == null
+        val fieldUi = remember(fieldSession) { FieldUi(fieldSession) }
+        // The screens the app shows, for the field log (the same words as the crash trail); the log is on only in a game.
+        FieldScreenTrail(crashScreen, fieldUi)
         val clock = koinInject<ServerClock>()
         val buildInfo = koinInject<BuildInfo>()
         // The precision radar works only while both players look at their phones: the server hears when we do.
@@ -77,7 +83,7 @@ fun App() {
         val playing = state.session != null
         LaunchedEffect(playing) { if (playing) spectatorManager.stop() }
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            CompositionLocalProvider(LocalLocationConsent provides locationConsent) {
+            CompositionLocalProvider(LocalLocationConsent provides locationConsent, LocalFieldUi provides fieldUi) {
                 if (needsFieldConsent) {
                     FieldConsentScreen(onAgree = {
                         fieldSession.giveConsent(clock.now())

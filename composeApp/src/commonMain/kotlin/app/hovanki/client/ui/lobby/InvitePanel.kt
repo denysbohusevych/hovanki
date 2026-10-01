@@ -47,6 +47,7 @@ fun InvitePanel(state: LobbyUiState, viewModel: LobbyViewModel) {
         title = stringResource(Res.string.invite_title),
         onClose = viewModel::closeInvites,
         modifier = Modifier.testTag(TestTags.INVITE_PANEL),
+        screen = "invite",
     ) {
         ScreenColumn {
             if (groupList.isNotEmpty()) {

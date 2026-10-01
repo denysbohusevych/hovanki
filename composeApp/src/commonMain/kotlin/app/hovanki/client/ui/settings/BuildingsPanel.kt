@@ -73,6 +73,7 @@ fun BuildingsPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
         title = stringResource(Res.string.settings_buildings_title),
         onClose = viewModel::closeBuildings,
         modifier = Modifier.testTag(TestTags.BUILDINGS_PANEL),
+        screen = "buildings",
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             GameMap(

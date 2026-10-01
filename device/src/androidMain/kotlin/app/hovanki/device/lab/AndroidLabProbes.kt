@@ -161,6 +161,29 @@ class AndroidLabProbes(private val context: Context) : LabProbes {
         }
     }
 
+    override fun thermal(): Flow<String> = callbackFlow {
+        val manager = power
+        if (manager == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            close()
+            return@callbackFlow
+        }
+        trySend(thermalName(manager.currentThermalStatus))
+        val listener = PowerManager.OnThermalStatusChangedListener { status -> trySend(thermalName(status)) }
+        manager.addThermalStatusListener(context.mainExecutor, listener)
+        awaitClose { manager.removeThermalStatusListener(listener) }
+    }
+
+    private fun thermalName(status: Int): String = when (status) {
+        PowerManager.THERMAL_STATUS_NONE -> "none"
+        PowerManager.THERMAL_STATUS_LIGHT -> "light"
+        PowerManager.THERMAL_STATUS_MODERATE -> "moderate"
+        PowerManager.THERMAL_STATUS_SEVERE -> "severe"
+        PowerManager.THERMAL_STATUS_CRITICAL -> "critical"
+        PowerManager.THERMAL_STATUS_EMERGENCY -> "emergency"
+        PowerManager.THERMAL_STATUS_SHUTDOWN -> "shutdown"
+        else -> "unknown"
+    }
+
     private companion object {
         const val SAMPLING_PERIOD_MICROS = 100_000
         const val NEAR_CM = 3.0

@@ -48,6 +48,9 @@ object FieldKinds {
     /** The battery: level, state, low power. */
     const val BATTERY = "battery"
 
+    /** How hot the phone says it is: `state`, written on a change (the field log's own kind). */
+    const val THERMAL = "thermal"
+
     /** Who the device is: model, OS, build. */
     const val SESSION = "session"
 
@@ -129,6 +132,9 @@ object PermFields {
     const val NOTIFICATIONS = "notifications"
     const val CAMERA = "camera"
     const val POWER_SAVER = "power_saver"
+
+    /** Android: `on` when the system may put the app to sleep to save the battery (the game wants `off`). */
+    const val BATTERY_OPTIMIZATION = "battery_opt"
 }
 
 /** `err`. */

@@ -2,7 +2,9 @@ package app.hovanki.client.di
 
 import app.hovanki.client.BuildInfo
 import app.hovanki.client.automation.LaunchOptionsHolder
+import app.hovanki.client.field.IosAppPermissions
 import app.hovanki.client.iosBuildInfo
+import app.hovanki.client.lab.AppPermissions
 import app.hovanki.client.lab.IosLabFiles
 import app.hovanki.client.lab.LabFiles
 import app.hovanki.client.location.IosLocationProvider
@@ -50,6 +52,7 @@ actual val platformModule: Module = module {
         val launchOptions = get<LaunchOptionsHolder>()
         IosLocationProvider(allowSimulatedLocation = { launchOptions.options.value?.allowSimulatedLocation == true })
     }
+    single<AppPermissions> { IosAppPermissions() }
     single<BackgroundTracker> { IosBackgroundTracker() }
     single<ShareSheet> { IosShareSheet() }
     // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md); the precision radar by UWB is not implemented yet.
