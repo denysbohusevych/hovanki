@@ -208,4 +208,19 @@ internal object AirHex {
 
     /** Two bytes, most significant first. */
     fun u16(value: Int): String = (value and 0xffff).toString(16).padStart(4, '0')
+
+    /**
+     * A scan record's fields (the packet and the scan response, as Android's `ScanRecord.getBytes` gives them) without
+     * the zeros its buffer is padded with: up to the first field of length 0, as `ScanRecord.parseFromBytes` reads it.
+     * Not by cutting the trailing zeros, which would cut a token or a measured power that ends in `00` too.
+     */
+    fun recordFields(record: ByteArray): ByteArray {
+        var end = 0
+        while (end < record.size) {
+            val length = record[end].toInt() and 0xff
+            if (length == 0) break
+            end += 1 + length
+        }
+        return record.copyOf(minOf(end, record.size))
+    }
 }

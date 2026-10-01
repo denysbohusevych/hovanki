@@ -138,6 +138,18 @@ class ChannelCodecsTest {
         assertEquals(ForeignFrame(ForeignKind.MASK, setOf(96)), RadarCatalog.foreign(foreign))
     }
 
+    @Test
+    fun aRecordsRawBytesEndAtItsLastFieldNotItsLastNonZeroByte() {
+        // A 128-bit UUID (zeros inside a field are data), its service data with a token ending in 00, the padding.
+        val uuid = "1107" + "00".repeat(16)
+        val data = "1521" + "00".repeat(16) + "c0ffee00"
+        val record = AirHex.bytes(uuid + data + "00".repeat(20))
+        assertEquals(uuid + data, AirHex.of(AirHex.recordFields(record)))
+        // A last field longer than the buffer: everything there is.
+        assertEquals("05ff4c00", AirHex.of(AirHex.recordFields(AirHex.bytes("05ff4c00"))))
+        assertEquals("", AirHex.of(AirHex.recordFields(ByteArray(31))))
+    }
+
     /** An Android hider with [layout]: with a journal, the player's number picks it. */
     private fun layoutAdvert(layout: RadarChannel): Advert {
         val options = RadioOptions(playerNumber = RadarCatalog.hiderLayouts.indexOf(layout))
