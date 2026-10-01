@@ -1,6 +1,7 @@
 package app.hovanki.shared.lab
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
 
@@ -40,6 +41,15 @@ object LabSchema {
     /** [event] without [COORDINATES]: what a lab run keeps of a line that has them. */
     fun withoutCoordinates(event: JsonObject): JsonObject =
         if (hasCoordinates(event)) JsonObject(event.filterKeys { it !in COORDINATES }) else event
+
+    /**
+     * [event] as a run keeps it: a field run's ([fieldRun]) `gps` events with their [COORDINATES], every other event
+     * of any run without them.
+     */
+    fun keptInRun(event: JsonObject, fieldRun: Boolean): JsonObject {
+        if (fieldRun && (event[LabFields.K] as? JsonPrimitive)?.content == FieldKinds.GPS) return event
+        return withoutCoordinates(event)
+    }
 
     /** `20260929T171530Z` */
     fun fileStamp(millis: Long): String {

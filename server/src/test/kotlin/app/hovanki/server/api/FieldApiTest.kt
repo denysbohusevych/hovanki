@@ -100,8 +100,12 @@ class FieldApiTest(
         switch(ServerFeature.RADIO_LAB, false)
     }
 
+    /** The switches live in the database every test context shares: back off for the others. */
     @AfterTest
-    fun fieldOff() = switch(ServerFeature.FIELD_LOG, false)
+    fun fieldOff() {
+        switch(ServerFeature.FIELD_LOG, false)
+        switch(ServerFeature.RADIO_LAB, false)
+    }
 
     @Test
     fun theFieldLogIsOffUntilTheOperatorTurnsItOn() {
@@ -171,7 +175,13 @@ class FieldApiTest(
         assertEquals(0L, byToken)
 
         // The phones upload their logs, coordinates and the player's marks included.
-        upload(a, listOf(gps(a, 1), mark(a, 2, "radar silent"))).ok<LabEventsResponse>()
+        // A position anywhere else than in `gps` is not kept.
+        val strayPosition = event(a.runId, 3, FieldKinds.MARK) {
+            put(MarkFields.BY, MarkFields.PLAYER)
+            put(GpsFields.LAT, park.lat)
+            put(GpsFields.LON, park.lon)
+        }
+        upload(a, listOf(gps(a, 1), mark(a, 2, "radar silent"), strayPosition)).ok<LabEventsResponse>()
         upload(g, listOf(gps(g, 1))).ok<LabEventsResponse>()
         // A lab phone's token isn't a game's, and a field token isn't for another run.
         upload(g, listOf(gps(g, 2)), runId = LabRunId("elsewhere")).error(403, ErrorCode.FORBIDDEN)
@@ -194,9 +204,14 @@ class FieldApiTest(
         val files = unzip(raw.bytes)
         val aliceLog = files.entries.single { it.key.endsWith("${a.deviceId}.jsonl") }.value.lines()
             .filter { it.isNotBlank() }.map { Json.parseToJsonElement(it).jsonObject }
-        assertEquals(listOf(FieldKinds.GPS, FieldKinds.MARK), aliceLog.map { it["k"].toString().trim('"') })
+        assertEquals(
+            listOf(FieldKinds.GPS, FieldKinds.MARK, FieldKinds.MARK),
+            aliceLog.map { it["k"].toString().trim('"') },
+        )
         assertTrue(LabSchema.hasCoordinates(aliceLog[0]), "${aliceLog[0]}")
         assertEquals("\"radar silent\"", aliceLog[1][MarkFields.TEXT].toString())
+        assertFalse(LabSchema.hasCoordinates(aliceLog[2]), "${aliceLog[2]}")
+        assertEquals("\"${MarkFields.PLAYER}\"", aliceLog[2][MarkFields.BY].toString())
     }
 
     @Test

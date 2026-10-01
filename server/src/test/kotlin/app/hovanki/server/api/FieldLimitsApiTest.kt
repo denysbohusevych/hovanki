@@ -104,6 +104,7 @@ class FieldLimitsApiTest(
     @AfterTest
     fun switchesOff() {
         features.set(ServerFeature.FIELD_LOG, false, "test", clock.instant())
+        features.set(ServerFeature.RADIO_LAB, false, "test", clock.instant())
     }
 
     private fun register(): AccountSession {

@@ -101,8 +101,8 @@ class LabRawLogs(val fileName: String, val writeTo: (OutputStream) -> Unit)
  *
  * A game's field log (docs/adr/0018-field-test-build.md §3, [LabRunKind.GAME]) is opened by [FieldRunService]; its
  * phones upload here like the lab's ([acceptChunk]), behind [ServerFeature.FIELD_LOG] and with the limits of
- * [FieldProperties]. Only its events may say where somebody was ([LabSchema.COORDINATES]): a lab run's chunks are
- * stored without them.
+ * [FieldProperties]. Only its `gps` events may say where somebody was ([LabSchema.COORDINATES]): every other line, and
+ * every line of a lab run, is stored without them.
  */
 @Service
 class LabRunService(
@@ -231,8 +231,8 @@ class LabRunService(
      * than [LabProperties.maxChunkBytes] of it. A chunk whose first event is stored already (a retried upload) is not
      * stored again; the answer then acknowledges only what the server has, so a retry that grew meanwhile sends its
      * new events again from there. Every line must be an event of the batch (`k`, `dt`, and `seq` within the bounds);
-     * the server keeps it gzipped. A lab run's lines lose their coordinates ([LabSchema.withoutCoordinates]): only a
-     * game's field log keeps them. A game's run has the limits of [FieldProperties] and its own switch.
+     * the server keeps it gzipped. Lines lose their coordinates ([LabSchema.keptInRun]) unless they are the `gps` of a
+     * game's field log. A game's run has the limits of [FieldProperties] and its own switch.
      */
     fun acceptChunk(
         device: LabDeviceRef,
@@ -259,9 +259,11 @@ class LabRunService(
             received
         }
         val parsed = events(plain, bounds)
-        // Only a game's field log may say where somebody was: a lab run keeps its lines without it.
-        val stripped = device.kind == LabRunKind.LAB && parsed.any(LabSchema::hasCoordinates)
-        val events = if (stripped) parsed.map(LabSchema::withoutCoordinates) else parsed
+        // Only a game's field log may say where somebody was, and only in its `gps` events: every other line is kept
+        // without it (refused, a buggy uploader would stall on it).
+        val fieldRun = device.kind == LabRunKind.GAME
+        val events = parsed.map { LabSchema.keptInRun(it, fieldRun) }
+        val stripped = events.indices.any { events[it] !== parsed[it] }
         val stored = when {
             stripped -> LabChunks.gzip(events.joinToString("") { "$it\n" }.toByteArray(Charsets.UTF_8))
             gzipped -> received

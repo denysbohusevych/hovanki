@@ -42,6 +42,26 @@ class FieldSchemaTest {
     }
 
     @Test
+    fun onlyAFieldRunsGpsKeepsItsCoordinates() {
+        val fix = buildJsonObject {
+            put(LabFields.K, FieldKinds.GPS)
+            put(GpsFields.LAT, 50.45)
+            put(GpsFields.LON, 30.52)
+        }
+        val mark = buildJsonObject {
+            put(LabFields.K, FieldKinds.MARK)
+            put(GpsFields.LAT, 50.45)
+            put(MarkFields.TEXT, "here")
+        }
+        assertSame(fix, LabSchema.keptInRun(fix, fieldRun = true))
+        assertFalse(LabSchema.hasCoordinates(LabSchema.keptInRun(fix, fieldRun = false)))
+        assertEquals(setOf(LabFields.K, MarkFields.TEXT), LabSchema.keptInRun(mark, fieldRun = true).keys)
+        assertEquals(setOf(LabFields.K, MarkFields.TEXT), LabSchema.keptInRun(mark, fieldRun = false).keys)
+        val tick = buildJsonObject { put(LabFields.K, FieldKinds.TICK) }
+        assertSame(tick, LabSchema.keptInRun(tick, fieldRun = false))
+    }
+
+    @Test
     fun theFieldLogsEventsAreReadLikeTheLabs() {
         val line = """{"t":5,"dt":5,"mono":1,"dev":"p1","k":"gps","app":"active","seq":1,"run":"r","lat":1.5,""" +
             """"lon":2.5,"acc":7.0,"accepted":true}"""
