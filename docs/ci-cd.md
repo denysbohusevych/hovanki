@@ -242,7 +242,7 @@ CI на push не играет партии, поэтому перед PR их �
 | Любой код | `./gradlew spotlessApply` и `./gradlew check` (или быстрый цикл `./gradlew :shared:jvmTest :radar:jvmTest :device:jvmTest :clientCore:jvmTest :server:test`) | локально |
 | Правила игры, протокол, поведение клиент–сервер, аккаунты, друзья, чат (`:shared`, `:server`, `:clientCore`, `:e2e`) | `./gradlew :e2e:test` (~6 мин, работает и в облачном контейнере без KVM; PostgreSQL поднимается сам); что трогает синхронизацию или события игры — ещё и `-Pe2e.transport=socket` (боты на живом канале) | локально |
 | UI, платформенный код (`:composeApp`, `androidApp`, `iosApp`), Maestro-флоу, `run-devices.sh` | `./gradlew :e2e:devices` на своих эмуляторах ([e2e-local.md](e2e-local.md)) или ночной workflow вручную на своей ветке: `suite=devices`, нужный сценарий | локально с Android Studio / GitHub Actions, 15–20 мин |
-| Workflow (`.github/workflows/`), `deploy/` | `actionlint .github/workflows/*.yml` (`pip install actionlint-py`; он же проверяет `run:` через shellcheck) и `docker compose config --quiet` в папке с `compose.yaml`, `.env` и `rds-ca.pem`. Шаги, которые видят только раннеры (загрузка в Play и TestFlight, подпись), локально не проверить: ручной запуск workflow на своей ветке собирает всё без публикации | локально, GitHub Actions |
+| Workflow (`.github/workflows/`), `deploy/` | `actionlint .github/workflows/*.yml` (`pip install actionlint-py shellcheck-py`: без shellcheck в PATH `run:` он не проверяет) и `docker compose config --quiet` в папке с `compose.yaml`, `.env` и `rds-ca.pem`. Шаги, которые видят только раннеры (загрузка в Play и TestFlight, подпись), локально не проверить: ручной запуск workflow на своей ветке собирает всё без публикации | локально, GitHub Actions |
 
 В описании PR — что из этого запускалось (чеклист в шаблоне PR).
 
@@ -492,7 +492,7 @@ Settings → Secrets and variables → Actions. Переменные (вклад
 
 | Имя | Вид | Кто читает | Что это |
 |---|---|---|---|
-| `STAGING_SERVER_URL` | переменная | `preview.yml`; `release.yml` (проверка) | Адрес [staging](deploy.md#staging): `https://hovanki-staging.duckdns.org`. Задана — тестовые сборки Android и iOS ходят туда. Нет — они собираются на основной сервер и пишут предупреждение в сводке запуска. Только `https://`. В `release.yml` по ней проверяют, что в сборке для App Store нет staging |
+| `STAGING_SERVER_URL` | переменная | `preview.yml`; `release.yml` (проверка) | Адрес [staging](deploy.md#staging): `https://hovanki-staging.duckdns.org`. Задана — тестовые сборки Android и iOS ходят туда. Нет — они собираются на основной сервер и пишут предупреждение в сводке запуска. Только `https://` (иначе job падает с понятной ошибкой, пробелы и `/` в конце срезаются). В `release.yml` по ней проверяют, что в сборке для App Store нет staging |
 | `SENTRY_DSN` | секрет | `preview.yml` | DSN проекта Sentry приложения (регион EU), только для тестовых сборок; пустой или не задан — Sentry в сборке выключен. DSN сервера — в `.env` staging, [`deploy/.env.staging.example`](../deploy/.env.staging.example) |
 | `PLAY_SERVICE_ACCOUNT_JSON` | секрет | `preview.yml` | Ключ сервисного аккаунта Google Play: весь JSON-файл как текст ([Google Play](#google-play-внутреннее-тестирование)). Нет — загрузка в Play пропускается с сообщением в сводке |
 | `PLAY_RELEASE_STATUS` | переменная, необязательно | `preview.yml` | Статус релиза в Play: по умолчанию `completed`, `draft` — если Play ещё не принимает `completed` ([Если загрузка не проходит](#если-загрузка-не-проходит)) |
