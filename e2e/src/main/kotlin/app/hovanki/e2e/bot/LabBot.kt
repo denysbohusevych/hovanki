@@ -8,6 +8,7 @@ import app.hovanki.client.lab.LabClockSync
 import app.hovanki.client.lab.LabController
 import app.hovanki.client.lab.LabFollowState
 import app.hovanki.client.lab.LabLog
+import app.hovanki.client.lab.LabRadioTrace
 import app.hovanki.client.lab.LabRunFollower
 import app.hovanki.client.lab.LabUploader
 import app.hovanki.client.lab.NoopLabFiles
@@ -62,7 +63,10 @@ class LabBot(
 
     /** Where the phone is: in the hand unless the scenario puts it away. */
     val carry = MutableStateFlow(Carry.IN_HAND)
-    val radio = FakeRadio(radioWorld, platform, { gps.truePosition }, { carry.value }, clock::now)
+    val log = LabLog(isEnabled = true, deviceTimeMillis = clock::now)
+
+    /** The radio writes into the lab's log as the app's does ([LabRadioTrace]): its advertisement, frames, the air. */
+    val radio = FakeRadio(radioWorld, platform, { gps.truePosition }, { carry.value }, clock::now, LabRadioTrace(log))
     val backgroundTracker = FakeBackgroundTracker()
 
     /** The app's "main thread": the lab's parts are confined to it, as on the phone. */
@@ -71,7 +75,6 @@ class LabBot(
     private val httpClient = createHttpClient(OkHttp.create(), logRequests = false)
     private val url = ServerUrl(serverUrl)
 
-    val log = LabLog(isEnabled = true, deviceTimeMillis = clock::now)
     private val bench = DiagnosticsBench(
         radio,
         gps,

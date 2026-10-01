@@ -1,13 +1,14 @@
 // The radar's Bluetooth on a Mac, for `e2e beacon` (docs/e2e-local.md, «Ноутбук вместо второго телефона»): the bot
 // on the laptop plays through the app's client code, and this helper is its phone's Bluetooth. It advertises the
 // bot's token the way an iPhone hider does (the game's service with the token as the name, which Android and iOS
-// phones both scan for) and reports every radar token it hears: an Android hider's service data, an iPhone hider's
-// name (bare, or after the first apps' «hv»), a seeker's iBeacon frame when macOS shows it.
+// phones both scan for) and reports every radar token it hears: an Android hider's service data (the `.scan_response`
+// and `.bare` layouts) or manufacturer data (`.mfr`, docs/adr/0017-radar-techniques-and-big-run.md §2.3), an iPhone
+// hider's name (bare, or after the first apps' «hv»), a seeker's iBeacon frame when macOS shows it.
 //
 // Lines on stdin: `advertise <token>` (as an iPhone hider), `ibeacon <token>` (as a seeker: an iBeacon frame, if macOS
 // lets an app send one), `stop`, `sniff on|off`. Lines on stdout: `state on|off|denied|unsupported`,
-// `heard <token> <rssi> <how> <peer>` (how: `name` an iPhone hider, `ibeacon` a seeker, `service-data` an Android
-// hider; peer: macOS's id of the sender), `log <text>`; while sniffing (the radio lab, docs/radio-lab.md §6) also
+// `heard <token> <rssi> <how> <peer>` (how: `name` an iPhone hider, `ibeacon` a seeker, `service-data` or `mfr` an
+// Android hider; peer: macOS's id of the sender), `log <text>`; while sniffing (the radio lab, docs/radio-lab.md §6) also
 // `raw <hex> <rssi> <peer>`, every frame of Apple's manufacturer data after the company id, and
 // `overflow <uuid,uuid,...> <rssi> <peer>`, the overflow area's UUIDs when macOS lists them. Closing stdin ends it.
 // Built by e2e/mac-beacon/run.sh.
@@ -162,6 +163,12 @@ final class Beacon: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDeleg
             if bytes.count >= 25, bytes[0] == 0x4C, bytes[1] == 0x00, bytes[2] == 0x02, bytes[3] == 0x15,
                Array(bytes[4..<20]) == uuid {
                 return (hex(Data(bytes[20..<24])), "ibeacon")
+            }
+            // An Android hider's `.mfr` layout: the test company 0xFFFF, «48 01», the game's UUID, the token.
+            if bytes.count >= 24, bytes[0] == 0xFF, bytes[1] == 0xFF, bytes[2] == 0x48, bytes[3] == 0x01,
+               Array(bytes[4..<20]) == uuid {
+                let token = hex(Data(bytes[20..<24]))
+                if isToken(token) { return (token, "mfr") }
             }
         }
         // An iPhone hider on the screen: the token as the name, only with the game's service next to it.
