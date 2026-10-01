@@ -33,12 +33,16 @@ object NoopCrashReporter : CrashReporter {
 
 /**
  * Whatever [CrashReporting] has installed at the moment of the call: what Koin binds, so that an entry point that
- * installs its reporter after Koin started (iOS: Swift, before the first screen) is still heard.
+ * installs its reporter after Koin started (iOS: Swift, before the first screen) is still heard. Nothing while the
+ * tester's consent isn't there ([CrashReporting.isAllowed]).
  */
 internal object CurrentCrashReporter : CrashReporter {
-    override fun capture(t: Throwable): String? = CrashReporting.reporter.capture(t)
+    override fun capture(t: Throwable): String? =
+        if (CrashReporting.isAllowed) CrashReporting.reporter.capture(t) else null
 
-    override fun breadcrumb(screen: String) = CrashReporting.reporter.breadcrumb(screen)
+    override fun breadcrumb(screen: String) {
+        if (CrashReporting.isAllowed) CrashReporting.reporter.breadcrumb(screen)
+    }
 }
 
 /** This reporter as the seam of `:clientCore` (the field journal's `err` event carries the id [capture] returns). */
@@ -61,6 +65,20 @@ object CrashReporting {
     @Volatile
     var reporter: CrashReporter = NoopCrashReporter
         private set
+
+    /**
+     * Whether reports may go out: only while the tester's consent to the field test build stands
+     * (docs/adr/0018-field-test-build.md §3.4, §7). False until the app knows ([allow]: at Koin's start from the stored
+     * consent, then with every change of it), so a crash before that, or after the consent was taken back, is not
+     * sent. The platform glue's `beforeSend` drops every event while it is false (the SDK's own crash reports too).
+     */
+    @Volatile
+    var isAllowed: Boolean = false
+        private set
+
+    fun allow(allowed: Boolean) {
+        isAllowed = allowed
+    }
 
     /** Category of the breadcrumbs the app adds itself (the screens); the glue's `beforeBreadcrumb` keeps these only. */
     val screenCategory: String get() = SentryScrubber.SCREEN_CATEGORY

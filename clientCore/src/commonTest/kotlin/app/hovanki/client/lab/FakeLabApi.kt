@@ -31,7 +31,7 @@ internal class FakeLabApi(
     var plan = LabPlanState()
         private set
 
-    class Upload(val batch: LabBatch, val body: ByteArray, val gzip: Boolean) {
+    class Upload(val batch: LabBatch, val body: ByteArray, val gzip: Boolean, val runId: LabRunId) {
         val lines: List<String> get() = batch.jsonl.decodeToString().lines().filter { it.isNotEmpty() }
     }
 
@@ -55,6 +55,9 @@ internal class FakeLabApi(
 
     /** Every field join from now on is refused with this (404: the server has FIELD_LOG off). */
     var fieldRefusal: Exception? = null
+
+    /** Each field join gets a run of its own (`field-<n>`), as every game has; else [runId]. */
+    var fieldRunPerJoin = false
 
     /** The account tokens the lab's joins came with. */
     val joinAccounts = mutableListOf<String?>()
@@ -80,7 +83,7 @@ internal class FakeLabApi(
         fieldJoins += Triple(gameId, playerToken, request)
         fieldRefusal?.let { throw it }
         return FieldJoinResponse(
-            runId = runId,
+            runId = if (fieldRunPerJoin) LabRunId("field-${fieldJoins.size}") else runId,
             deviceId = "device-${fieldJoins.size}",
             token = TOKEN,
             label = "player-1",
@@ -110,7 +113,7 @@ internal class FakeLabApi(
         gzip: Boolean,
     ): LabEventsResponse {
         check(token == TOKEN)
-        uploads += Upload(batch, body, gzip)
+        uploads += Upload(batch, body, gzip, runId)
         refusal?.let { throw it }
         if (failures > 0) {
             failures--

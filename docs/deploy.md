@@ -302,7 +302,7 @@ docker compose down postgres
 | Имя | `hovanki.duckdns.org` | `hovanki-staging.duckdns.org` |
 | База и роль | `hovanki` / `hovanki` | `hovanki_staging` / `hovanki_staging` |
 | Профиль Spring | нет | `staging` (`SPRING_PROFILES_ACTIVE` в `.env`): в игру входит до 60 человек вместо 30 |
-| Возможности | как решит админ | `FIELD_LOG`, `RADIO_LAB`, `LIVE_SOCKET` и всё, что проверяет тест, включает админ на самом staging |
+| Возможности | как решит админ; `FIELD_LOG` здесь не включается никогда (`hovanki.field.allowed` выключен: сервер отказывает и не считает его включённым, даже если флаг в базе стоит) | `FIELD_LOG`, `RADIO_LAB`, `LIVE_SOCKET` и всё, что проверяет тест, включает админ на самом staging; полевой журнал разрешает профиль `staging` |
 | Автообновление | всегда | обычно да; **на день теста выключено** |
 | Приложения | App Store, Google Play, релизные сборки | `preview`: «Hovanki β» на Android, сборки TestFlight из `preview.yml`; адрес — переменная репозитория `STAGING_SERVER_URL` ([ci-cd.md](ci-cd.md#переменные-и-секреты)) |
 
@@ -319,6 +319,11 @@ docker compose down postgres
 - Free plan AWS ограничивает типы машин ([Сколько стоит](#сколько-стоит)): `t3.medium` может быть недоступен, пока аккаунт не переведён на Paid plan (при запуске EC2 скажет, что тип не подходит; проверено не было). Тогда на день теста нужен Paid plan или `t3.small` с `SERVER_MEM_LIMIT=1g` и партия поменьше. Кредиты Free plan общие на обе машины: две машины и RDS стоят около $50 в месяц.
 
 Что учесть про общий RDS: полевой журнал ([ADR 0018, §3](adr/0018-field-test-build.md#3-полевой-журнал)) пишется в базу staging, а диск RDS один на обе базы (20 ГБ, растёт сам до 50). Цифру даст репетиция ([field-test.md](field-test.md), шаг 9), оценка — 150–200 МБ на партию в 50 человек. Перед тестом проверить RDS → Monitoring → Free storage space, после — размер базы: `SELECT pg_size_pretty(pg_database_size('hovanki_staging'));`. Если журнал окажется заметно больше оценки, база staging переезжает на отдельный RDS или сырьё уходит в S3 (вопрос ADR 0018).
+
+Чтобы staging не съел диск основного сервера:
+
+- **Потолок журналов на сервере.** Все полевые журналы вместе — не больше `hovanki.field.max-total-bytes` (5 ГБ, сжатыми). Дальше новые телефоны в журнал не входят, пачки не принимаются (`LIMIT_REACHED`), пока срок хранения или админ («Радиолаба» → прогон игры → «Удалить») не освободят место. Поднять — `HOVANKI_FIELD_MAXTOTALBYTES=8GB` в `environment` сервера в `compose.yaml` staging. Вход в журнал ограничен ещё и по IP (`field-join-per-ip`, 300 в час): скрипт, который создаёт игры ради журналов, упрётся в лимит.
+- **Тревога на свободное место.** CloudWatch → Alarms → Create alarm → Select metric → RDS → Per-Database Metrics → `hovanki` → `FreeStorageSpace`; Statistic: Minimum, Period: 5 minutes; условие **Lower than 5000000000** (5 ГБ); Notification: новая тема SNS с своим email (подтвердить письмо). Тревога приходит раньше, чем запись в базу встанет у обоих серверов. Автомасштабирование диска RDS (до 50 ГБ) не заменяет тревогу: оно растёт не чаще раза в 6 часов.
 
 ### Что понадобится
 
@@ -352,9 +357,19 @@ docker compose down postgres
    \password hovanki_staging
    GRANT hovanki_staging TO hovanki_admin;
    CREATE DATABASE hovanki_staging OWNER hovanki_staging;
+   -- PostgreSQL пускает любую роль (PUBLIC) в любую базу: каждая база — только своей роли.
+   REVOKE CONNECT, TEMPORARY ON DATABASE hovanki FROM PUBLIC;
+   GRANT CONNECT, TEMPORARY ON DATABASE hovanki TO hovanki;
+   REVOKE CONNECT, TEMPORARY ON DATABASE hovanki_staging FROM PUBLIC;
+   GRANT CONNECT, TEMPORARY ON DATABASE hovanki_staging TO hovanki_staging;
    \q
    ```
-   Роль `hovanki_staging` владеет только своей базой: настоящих данных она не видит.
+   Роль `hovanki_staging` владеет только своей базой и в базу `hovanki` не входит: ни таблиц, ни их названий и размеров она не видит. `hovanki_admin` входит в обе через членство в ролях. Проверка — подключение под staging к основной базе должно отказать (`permission denied for database "hovanki"`):
+   ```bash
+   docker run --rm -it -v /opt/hovanki/rds-ca.pem:/rds-ca.pem:ro postgres:17-alpine \
+     psql "host=$DB_HOST dbname=hovanki user=hovanki_staging sslmode=verify-full sslrootcert=/rds-ca.pem" -c 'SELECT 1'
+   ```
+   Если staging подняли раньше, без строк `REVOKE`/`GRANT`, — выполнить их один раз так же, под `hovanki_admin`.
 6. **Файлы и `.env`.** С компьютера, из корня репозитория:
    ```bash
    scp -i ~/Downloads/hovanki.pem deploy/compose.yaml deploy/hovanki-* deploy/.env.staging.example ubuntu@<IP staging>:/opt/hovanki/
@@ -388,7 +403,7 @@ docker compose down postgres
    ```
    Дальше вход в `https://hovanki-staging.duckdns.org/admin` — как в [Админке](#админка), шаг 3.
 9. **Возможности.** Админка staging → «Возможности»: включить то, что проверяет тест. Для полевого теста: `FIELD_LOG`, `RADIO_LAB`, `LIVE_SOCKET`, радар и `ACTIVITY` ([field-test.md](field-test.md), «Чек-лист дня»). Строки появляются в списке вместе с кодом ([ADR 0018](adr/0018-field-test-build.md)): чего ещё нет в этой версии образа, того в админке не видно. Флаги хранятся в базе staging, новая база начинает с «всё выключено».
-10. **Адрес в сборках.** GitHub → Settings → Secrets and variables → Actions → Variables → `STAGING_SERVER_URL` = `https://hovanki-staging.duckdns.org`. Со следующего push в `main` тестовые сборки ходят туда ([ci-cd.md](ci-cd.md#переменные-и-секреты)). Без переменной они собираются на основной сервер и пишут об этом в сводке запуска.
+10. **Адрес в сборках.** GitHub → Settings → Secrets and variables → Actions → Variables → `STAGING_SERVER_URL` = `https://hovanki-staging.duckdns.org`. Со следующего push в `main` тестовые сборки ходят туда и публикуются ([ci-cd.md](ci-cd.md#переменные-и-секреты)). Без переменной они только собираются и проверяются: ни pre-release, ни Google Play, ни TestFlight — тестовая сборка с журналом и Sentry не должна попасть к тестерам с адресом основного сервера.
 
 ### Обновление staging
 
@@ -433,7 +448,7 @@ docker compose down postgres
    `DROP DATABASE` не выполнится, пока к базе кто-то подключён: сервер должен быть остановлен.
 3. EC2 → Instances → `hovanki-staging` → Terminate. EC2 → Elastic IPs → Release (непривязанный адрес тоже стоит денег). Удалить группу безопасности `hovanki-staging` и группу `ec2-rds-…`, которую создал для этой машины «Set up EC2 connection» (EC2 → Instances → `hovanki-staging` → Security покажет обе), вместе с правилом для неё в группе базы `rds-ec2-…`.
 4. На duckdns.org удалить поддомен `hovanki-staging`.
-5. Тестовые сборки переключить: переменную `STAGING_SERVER_URL` в GitHub **удалить только когда тестовые сборки больше не раздаются**. Пока она задана, а сервера нет, `preview` ходит в никуда. Без переменной `preview` собирается на основной сервер и пишет об этом в сводке.
+5. Тестовые сборки переключить: переменную `STAGING_SERVER_URL` в GitHub **удалить только когда тестовые сборки больше не раздаются**. Пока она задана, а сервера нет, `preview` ходит в никуда. Без переменной `preview` только собирается и проверяется, но никуда не публикуется: уже установленные сборки остаются со старым адресом.
 
 Журналы тестеров на живом staging и так удаляются через 90 дней после игры ([ADR 0018, §9](adr/0018-field-test-build.md#9-приватность)): `DROP DATABASE` — способ не ждать.
 

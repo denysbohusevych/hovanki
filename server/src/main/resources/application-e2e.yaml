@@ -27,3 +27,6 @@ hovanki:
   # Big games: lobbies open and rounds start within a second of their time.
   big-games:
     tick: 1s
+  # The bots keep the field log of their games (FieldLogTest): an e2e server may have it, like the test server.
+  field:
+    allowed: true

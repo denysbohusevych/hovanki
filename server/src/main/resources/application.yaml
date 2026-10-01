@@ -118,6 +118,10 @@ hovanki:
     # counts too), and a lab device's uploads (one every 5 s, more right away while it catches up).
     lab-join-per-ip: { count: 20, window: 1h }
     lab-events-per-device: { count: 60, window: 1m }
+    # A game's field log (docs/adr/0018-field-test-build.md §3.1): joins per player, and per client IP generously (a
+    # whole game may come from behind one carrier's NAT or the venue's Wi-Fi, rejoins included).
+    field-join-per-player: { count: 20, window: 1h }
+    field-join-per-ip: { count: 300, window: 1h }
   # Staff admin, the /admin page (docs/adr/0008-admin.md). Off without a secret key: HOVANKI_ADMIN_SECRET_KEY in .env
   # (deploy/compose.yaml passes it on), base64 of 32 random bytes (openssl rand -base64 32); it encrypts the staff's
   # authenticator secrets.
@@ -190,8 +194,13 @@ hovanki:
   # test server only): the field build of a tester who agreed joins its game's run with the game token and uploads its
   # log, coordinates included. A game's run is finished when its game is gone and deleted whole 90 days later.
   field:
+    # Production never has the field log: FIELD_LOG stays off whatever its switch says, and the admin can't turn it on.
+    # Only the test server (application-staging.yaml) and the e2e profile set it.
+    allowed: false
     max-devices: 100
     max-run-bytes: 2GB
+    # All games' logs together: the database's disk is production's too (docs/deploy.md, «Staging»).
+    max-total-bytes: 5GB
     join-window: 24h
     upload-grace: 30m
     retention: 90d

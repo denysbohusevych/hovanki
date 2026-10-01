@@ -24,7 +24,8 @@ import org.koin.compose.koinInject
 
 /**
  * The tester takes the field test build's consent back (docs/adr/0018-field-test-build.md §3.4): the log stops, and the
- * agreement comes again, because the build can't be played without it. A button on the profile; nothing in other builds.
+ * agreement comes again, because the build can't be played without it. A button on the profile and on the welcome
+ * screen (guests have no profile); nothing in other builds.
  */
 @Composable
 fun FieldConsentWithdraw(modifier: Modifier = Modifier) {

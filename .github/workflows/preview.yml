@@ -4,8 +4,10 @@ name: Preview
 # Android APK on the floating pre-release `preview`, the same build as an AAB on the internal track of Google Play
 # (app.hovanki.preview) and an iOS build in TestFlight. They talk to the staging server (the repository variable
 # STAGING_SERVER_URL, docs/deploy.md), never to production: so the TestFlight build of this workflow must not go to the
-# App Store, the App Store build is the one of release.yml. Build number = run number on both platforms. Without
-# the signing and upload secrets the jobs still build (unsigned), skip publishing and list in the log what to add.
+# App Store, the App Store build is the one of release.yml. Without STAGING_SERVER_URL the builds are made and checked
+# but published nowhere: a tester build with the field log and Sentry must never reach testers talking to production.
+# Build number = run number on both platforms. Without the signing and upload secrets the jobs still build (unsigned),
+# skip publishing and list in the log what to add.
 on:
   push:
     branches: [main]
@@ -32,6 +34,8 @@ jobs:
       contents: read
     outputs:
       signed: ${{ steps.signing.outputs.signed }}
+      # true: the build talks to the staging server, so it may be published.
+      staging: ${{ steps.server.outputs.staging }}
       version: ${{ steps.apk.outputs.version }}
       subject: ${{ steps.apk.outputs.subject }}
       server: ${{ steps.apk.outputs.server }}
@@ -79,8 +83,9 @@ jobs:
 
       # The tester build talks to the staging server: its address is the repository variable STAGING_SERVER_URL
       # (docs/ci-cd.md, «Переменные и секреты»). Without it the build keeps the production address of
-      # gradle.properties and says so loudly.
+      # gradle.properties, says so loudly and is not published (the jobs android-release and android-play skip).
       - name: Server address
+        id: server
         env:
           STAGING_SERVER_URL: ${{ vars.STAGING_SERVER_URL }}
         run: |
@@ -103,6 +108,7 @@ jobs:
               echo "STAGING_URL=$staging"
               echo "FORBIDDEN_SERVER_URL=$production"
             } >> "$GITHUB_ENV"
+            echo "staging=true" >> "$GITHUB_OUTPUT"
             {
               echo "### Android preview build"
               echo "Server: $staging"
@@ -112,12 +118,13 @@ jobs:
               echo "SERVER_URL=$production"
               echo "FORBIDDEN_SERVER_URL="
             } >> "$GITHUB_ENV"
-            echo "::warning title=Preview talks to production::The repository variable STAGING_SERVER_URL is not set, so the tester build keeps the production address of gradle.properties. Setup: docs/ci-cd.md, «Переменные и секреты»."
+            echo "staging=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Preview not published::The repository variable STAGING_SERVER_URL is not set, so the tester build would talk to production: it is built and checked, and published nowhere (no pre-release, no Google Play). Setup: docs/ci-cd.md, «Переменные и секреты»."
             {
-              echo "### Android preview build goes to the production server"
+              echo "### Android preview build not published: no staging server"
               echo "The repository variable \`STAGING_SERVER_URL\` is not set (Settings → Secrets and variables → Actions → Variables)."
-              echo "The build keeps \`hovanki.serverUrl\` of \`gradle.properties\`: $production."
-              echo "Do not hand it to field testers; see docs/ci-cd.md, «Переменные и секреты»."
+              echo "The build keeps \`hovanki.serverUrl\` of \`gradle.properties\` ($production), so it is only built and checked:"
+              echo "no pre-release and no Google Play upload. See docs/ci-cd.md, «Переменные и секреты»."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -216,7 +223,9 @@ jobs:
   android-release:
     name: Android pre-release
     needs: android
-    if: needs.android.outputs.signed == 'true' && github.ref == 'refs/heads/main'
+    if: >-
+      needs.android.outputs.signed == 'true' && needs.android.outputs.staging == 'true' &&
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -246,7 +255,7 @@ jobs:
           | Build | [run $BUILD_NUMBER]($server/actions/runs/$GITHUB_RUN_ID) |
           | Game server | $GAME_SERVER |
 
-          Application id \`app.hovanki.preview\` ("Hovanki β"): installs next to a store release. The start screen shows the same version and commit at the bottom. The game server is the staging one while the repository variable STAGING_SERVER_URL is set: its accounts and games are separate from production.
+          Application id \`app.hovanki.preview\` ("Hovanki β"): installs next to a store release. The start screen shows the same version and commit at the bottom. The game server is the staging one: its accounts and games are separate from production.
 
           Direct link to the newest APK: $server/releases/download/preview/hovanki-preview.apk
           EOF
@@ -260,11 +269,14 @@ jobs:
   # Google Play internal testing (docs/ci-cd.md, «Google Play: внутреннее тестирование»): the second way to the same
   # tester build, with updates by themselves and no GitHub account for the tester. A separate app in Play Console,
   # `app.hovanki.preview`; the track `internal` takes up to 100 testers and needs no review. Only from main, only the
-  # signed AAB, only with the service account secret: without it the job says what to add and stays green.
+  # signed AAB of a build that talks to staging, only with the service account secret: without it the job says what to
+  # add and stays green.
   android-play:
     name: Google Play internal
     needs: android
-    if: needs.android.outputs.signed == 'true' && github.ref == 'refs/heads/main'
+    if: >-
+      needs.android.outputs.signed == 'true' && needs.android.outputs.staging == 'true' &&
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Nothing from the repository is read: the bundle comes as an artifact of this run.
@@ -304,10 +316,11 @@ jobs:
       # `completed` publishes the build to the internal testers at once. Play refuses it for an app that has not had
       # a first release yet («Only releases with status draft may be created on draft app»): the repository variable
       # PLAY_RELEASE_STATUS=draft makes the build a draft to roll out by hand in Play Console, until the first
-      # manual release is done (docs/ci-cd.md).
+      # manual release is done (docs/ci-cd.md). A third-party action that gets the service account's key: pinned to a
+      # commit, never a tag that can be moved; updated on purpose, after reading the change (docs/ci-cd.md).
       - name: Upload to the internal track
         if: steps.play.outputs.configured == 'true'
-        uses: r0adkll/upload-google-play@v1
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: app.hovanki.preview
@@ -341,8 +354,9 @@ jobs:
     with:
       channel: preview
       server-url: ${{ vars.STAGING_SERVER_URL }}
-      # Only main publishes; a manual run on another branch just builds.
-      publish: ${{ github.ref == 'refs/heads/main' }}
+      # Only main publishes, and only a build that talks to staging; a manual run on another branch just builds.
+      # ios-testflight.yml refuses a preview without a server address too.
+      publish: ${{ github.ref == 'refs/heads/main' && vars.STAGING_SERVER_URL != '' }}
     secrets:
       IOS_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
       IOS_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}

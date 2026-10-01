@@ -137,6 +137,12 @@ object FieldUpload {
     const val RX_EVERY_MILLIS = 1_000L
     const val FRAME_EVERY_MILLIS = 10_000L
     const val GPS_EVERY_MILLIS = 1_000L
+
+    /**
+     * 2026-01-01T00:00Z, before the field build existed: a consent time earlier than this is a phone's clock far behind,
+     * which the server refuses and the phone stamps again by the server's clock.
+     */
+    const val EARLIEST_CONSENT_MILLIS = 1_767_225_600_000L
 }
 
 /** The upload was stored: every event up to [ackedSeq] is on the server. */

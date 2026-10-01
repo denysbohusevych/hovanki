@@ -6,10 +6,19 @@ import app.hovanki.server.account.uniqueName
 import app.hovanki.server.features.FeatureFlags
 import app.hovanki.server.game.GameJanitor
 import app.hovanki.server.game.GameRegistry
+import app.hovanki.server.game.GameService
+import app.hovanki.server.game.IdGenerator
+import app.hovanki.server.lab.FieldProperties
+import app.hovanki.server.lab.FieldRunService
+import app.hovanki.server.lab.LabLive
+import app.hovanki.server.lab.LabRunRecord
+import app.hovanki.server.lab.LabRunRepository
 import app.hovanki.server.mail.EmailSender
 import app.hovanki.server.mail.RecordingEmailSender
+import app.hovanki.server.ratelimit.RateLimiter
 import app.hovanki.shared.lab.FieldKinds
 import app.hovanki.shared.lab.GpsFields
+import app.hovanki.shared.lab.LabPlanState
 import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.lab.MarkFields
 import app.hovanki.shared.protocol.AccountSession
@@ -60,8 +69,10 @@ import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
+import org.springframework.transaction.PlatformTransactionManager
 import java.io.ByteArrayOutputStream
 import java.time.Duration
+import java.time.Instant
 import java.util.zip.GZIPOutputStream
 import java.util.zip.ZipInputStream
 import kotlin.test.AfterTest
@@ -89,6 +100,13 @@ class FieldApiTest(
     @Autowired private val features: FeatureFlags,
     @Autowired private val janitor: GameJanitor,
     @Autowired private val registry: GameRegistry,
+    @Autowired private val labRuns: LabRunRepository,
+    @Autowired private val games: GameService,
+    @Autowired private val rateLimiter: RateLimiter,
+    @Autowired private val live: LabLive,
+    @Autowired private val fieldProperties: FieldProperties,
+    @Autowired private val ids: IdGenerator,
+    @Autowired private val transactionManager: PlatformTransactionManager,
 ) {
     private val admin = AdminTestClient(mvc, emailSender as RecordingEmailSender, clock, jdbc)
     private val park = GeoPoint(50.4501, 30.5234)
@@ -137,13 +155,13 @@ class FieldApiTest(
         val host = game.session
         val guest = join(game.snapshot.joinCode, token = null).session
 
-        // No token, a wrong one, another game's; no consent, a consent from the future; no JSON.
+        // No token, a wrong one, another game's; no consent, a consent from before the field build; no JSON.
         fieldJoinRaw(host.gameId.value, token = null, body = "{}").error(401, ErrorCode.UNAUTHORIZED)
         fieldJoinRaw(host.gameId.value, token = "nonsense", body = "{}").error(401, ErrorCode.UNAUTHORIZED)
         val other = createGame(token = null).session
         fieldJoin(other.copy(gameId = host.gameId)).error(403, ErrorCode.FORBIDDEN)
         fieldJoin(host, consentAt = null).error(400, ErrorCode.BAD_REQUEST)
-        fieldJoin(host, consentAt = clock.millis() + Duration.ofDays(2).toMillis()).error(400, ErrorCode.BAD_REQUEST)
+        fieldJoin(host, consentAt = FieldUpload.EARLIEST_CONSENT_MILLIS - 1).error(400, ErrorCode.BAD_REQUEST)
         fieldJoinRaw(host.gameId.value, token = host.token, body = "not json").error(400, ErrorCode.BAD_REQUEST)
 
         val consent = clock.millis() - 60_000
@@ -212,6 +230,60 @@ class FieldApiTest(
         assertEquals("\"radar silent\"", aliceLog[1][MarkFields.TEXT].toString())
         assertFalse(LabSchema.hasCoordinates(aliceLog[2]), "${aliceLog[2]}")
         assertEquals("\"${MarkFields.PLAYER}\"", aliceLog[2][MarkFields.BY].toString())
+    }
+
+    @Test
+    fun aPhoneWhoseClockIsAheadAgreedByNow() {
+        // The consent screen comes before the app knows the server's clock: two days ahead is kept as now.
+        val host = createGame(token = null).session
+        val phone = fieldJoin(host, consentAt = clock.millis() + Duration.ofDays(2).toMillis()).ok<FieldJoinResponse>()
+        val consentAt = jdbc.sql("SELECT consent_at FROM lab_devices WHERE id = :id").param("id", phone.deviceId)
+            .query { rs, _ -> rs.getTimestamp(1).time }.single()
+        assertEquals(clock.millis(), consentAt)
+    }
+
+    @Test
+    fun aServerFinishesOnlyItsOwnRunsAndThoseLeftByARestart() {
+        // Another server process on the same database (a test context, a local server pointed at staging's) has games
+        // this one never sees: their runs stay open. A run opened before this process started is a previous one's.
+        fun openRun(game: String, createdAt: Instant): String {
+            val run = LabRunRecord(
+                id = "run-$game",
+                code = "game:$game",
+                title = "Game $game",
+                scenarioId = "game",
+                scenarioVersion = 0,
+                plan = LabPlanState(status = LabRunStatus.RUNNING),
+                createdByName = null,
+                createdAt = createdAt,
+                startedAt = createdAt,
+                salt = "00",
+                kind = LabRunKind.GAME,
+                gameId = game,
+            )
+            assertTrue(labRuns.insertGameRunIfAbsent(run))
+            return run.id
+        }
+        val suffix = uniqueName("gone")
+        val leftover = openRun("left-$suffix", clock.instant().minus(Duration.ofHours(1)))
+        val restarted = FieldRunService(
+            labRuns, games, features, rateLimiter, live, fieldProperties, ids, clock, transactionManager,
+        )
+        val others = openRun("other-$suffix", clock.instant())
+        try {
+            val ours = setOf("left-$suffix", "other-$suffix")
+            restarted.closeRunsOfGoneGames { it.value !in ours }
+            assertEquals("FINISHED", runColumn(LabRunId(leftover), "status"))
+            assertEquals("RUNNING", runColumn(LabRunId(others), "status"))
+            // Only right after the start: later the other process's run stays open, here and in the context's own.
+            restarted.closeRunsOfGoneGames { it.value !in ours }
+            janitor.removeExpiredGames()
+            assertEquals("RUNNING", runColumn(LabRunId(others), "status"))
+            assertNull(runColumn(LabRunId(others), "finished_at"))
+        } finally {
+            labRuns.deleteRun(leftover)
+            labRuns.deleteRun(others)
+        }
     }
 
     @Test

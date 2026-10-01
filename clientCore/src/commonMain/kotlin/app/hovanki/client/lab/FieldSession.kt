@@ -13,6 +13,7 @@ import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.lab.SyncFields
 import app.hovanki.shared.protocol.FieldJoinRequest
 import app.hovanki.shared.protocol.FieldJoinResponse
+import app.hovanki.shared.protocol.FieldUpload
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSnapshot
@@ -33,6 +34,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.concurrent.Volatile
+import kotlin.random.Random
 
 /** Where this phone's field log is ([FieldSession.state]). */
 data class FieldState(
@@ -92,7 +94,10 @@ class FieldSession(
     private val about: () -> LabAbout = { LabAbout(null, null, null, null) },
     private val capabilities: () -> LabCapabilities = { LabCapabilities() },
     private val probes: LabProbes = NoopLabProbes(),
-    /** Measures the clock against the server's at the join and every [LabClockSync.EVERY_MILLIS]; null: the join's. */
+    /**
+     * Measures the clock against the server's soon after the join and every [LabClockSync.EVERY_MILLIS], each phone at
+     * its own moment within [clockJitterMillis] ([random]); null: the join's answer only.
+     */
     private val clockSync: LabClockSync? = null,
     /** The app's permissions now, by name (`app.hovanki.shared.lab.PermFields`): written at the join. */
     private val permissions: () -> Map<String, String> = { emptyMap() },
@@ -102,6 +107,8 @@ class FieldSession(
      */
     private val errorReporter: ErrorReporter = NoopErrorReporter,
     private val retryMillis: Long = RETRY_MILLIS,
+    private val clockJitterMillis: Long = CLOCK_JITTER_MILLIS,
+    private val random: Random = Random.Default,
 ) : GameTrace {
     private val mutableState = MutableStateFlow(FieldState())
     val state: StateFlow<FieldState> = mutableState.asStateFlow()
@@ -120,7 +127,10 @@ class FieldSession(
     private var uploader: LabUploader? = null
     private var thinning: FieldThinning? = null
     private val jobs = ArrayList<Job>()
+
+    /** The last game's rest going up ([flushingUploader], stopped when it is done or cancelled). */
     private var flushing: Job? = null
+    private var flushingUploader: LabUploader? = null
 
     /** When the join may be tried again after a failure (monotonic). */
     private var retryAt = Long.MIN_VALUE
@@ -131,7 +141,11 @@ class FieldSession(
     private var lastPhase: GamePhase? = null
     private var ticks = 0L
 
-    /** The tester agrees at [atMillis] (server time as the phone knows it, `ServerClock.now()`): kept on the phone. */
+    /**
+     * The tester agrees at [atMillis] (server time as the phone knows it, `ServerClock.now()`): kept on the phone. The
+     * consent screen comes before the app ever asked the server's clock: the first snapshot stamps it again by the
+     * server's when the phone's clock was ahead or far behind ([onSnapshot]).
+     */
     fun giveConsent(atMillis: Long) {
         if (!isFieldBuild) return
         storage.saveFieldConsent(atMillis)
@@ -152,6 +166,7 @@ class FieldSession(
 
     override fun onSnapshot(session: PlayerSession, snapshot: GameSnapshot) {
         if (!isFieldBuild) return
+        stampConsentAgain(snapshot.serverTimeMillis)
         val current = mutableState.value
         if (current.gameId != null && current.gameId != snapshot.gameId) {
             leave()
@@ -233,7 +248,8 @@ class FieldSession(
      * server's answer, whose text may quote the server's JSON (nicknames): only the log has it.
      */
     override fun onError(where: String, error: Throwable) {
-        val sentryId = if (where in REPORTED) errorReporter.capture(error) else null
+        // Only what the tester agreed to: nothing goes out before the consent or after it was taken back.
+        val sentryId = if (where in REPORTED && mutableConsentAt.value != null) errorReporter.capture(error) else null
         exception(where, error, sentryId)
     }
 
@@ -282,9 +298,12 @@ class FieldSession(
         jobs.forEach { it.cancel() }
         jobs.clear()
         if (!sendRest) {
-            // A last game's rest still going up stops too.
+            // A last game's rest still going up stops too, its uploader's own loop with it: left running, it would
+            // send the next game's log to the last game's run.
             flushing?.cancel()
             flushing = null
+            flushingUploader?.stop()
+            flushingUploader = null
         }
         when (state.status) {
             FieldStatus.ON -> {
@@ -293,10 +312,16 @@ class FieldSession(
                 this.uploader = null
                 thinning = null
                 if (sendRest) {
-                    // On the app's scope: the last upload goes on whatever the screen does.
+                    // On the app's scope: the last upload goes on whatever the screen does. Stopped whatever happens
+                    // to it, cancelled too (and above, should it be cancelled before it ran).
+                    flushingUploader = uploader
                     flushing = scope.launch {
-                        uploader?.flush()
-                        uploader?.stop()
+                        try {
+                            uploader?.flush()
+                        } finally {
+                            uploader?.stop()
+                            if (flushingUploader === uploader) flushingUploader = null
+                        }
                     }
                 } else {
                     uploader?.stop()
@@ -311,12 +336,25 @@ class FieldSession(
         }
     }
 
+    /**
+     * The consent's time, kept as the phone's clock said, is stamped again by the server's [serverNow] when it is ahead
+     * of it or before the field build existed (a phone's clock off): the tester agreed by now at the latest, and the
+     * server refuses a consent from before 2026.
+     */
+    private fun stampConsentAgain(serverNow: Long) {
+        val at = mutableConsentAt.value ?: return
+        // A server's time from before the field build says nothing (only tests' snapshots have one).
+        if (serverNow < FieldUpload.EARLIEST_CONSENT_MILLIS) return
+        if (at in FieldUpload.EARLIEST_CONSENT_MILLIS..serverNow) return
+        storage.saveFieldConsent(serverNow)
+        mutableConsentAt.value = serverNow
+    }
+
     private fun join(session: PlayerSession, consent: Long) {
         mutableState.value = FieldState(FieldStatus.JOINING, gameId = session.gameId)
         scope.launch {
             // The last game's log goes up before this one clears it.
             flushing?.join()
-            val estimate = clockSync?.let { withTimeoutOrNull(CLOCK_TIMEOUT_MILLIS) { it.measure() } }
             val about = about()
             val request = FieldJoinRequest(about.model, about.os, about.build, about.commit, capabilities(), consent)
             val response = try {
@@ -330,7 +368,7 @@ class FieldSession(
             // The phone left the game while the answer was on its way.
             val now = mutableState.value
             if (now.status != FieldStatus.JOINING || now.gameId != session.gameId) return@launch
-            start(session.gameId, response, estimate)
+            start(session.gameId, response)
         }
     }
 
@@ -344,15 +382,13 @@ class FieldSession(
         mutableState.value = state.copy(status = if (final) FieldStatus.REFUSED else FieldStatus.OFF, error = reason)
     }
 
-    private fun start(gameId: GameId, response: FieldJoinResponse, estimate: ClockEstimate?) {
+    private fun start(gameId: GameId, response: FieldJoinResponse) {
         val thinning = FieldThinning(response.rxEveryMillis, response.frameEveryMillis, response.gpsEveryMillis)
         this.thinning = thinning
         log.appState = probes::appState
         log.startField(response.runId.value, response.salt, response.label, thinning)
-        // The server's clock: measured, or the join's answer (half its way unknown) until it is.
-        log.setClock(
-            estimate ?: ClockEstimate(response.serverTimeMillis - log.deviceNow(), 0, 0, log.monoNow()),
-        )
+        // The server's clock: the join's answer (half its way unknown) until it is measured (clockLoop).
+        log.setClock(ClockEstimate(response.serverTimeMillis - log.deviceNow(), 0, 0, log.monoNow()))
         val about = about()
         log.session(about.model, about.os, about.build, about.commit, mode = MODE)
         permissions().takeIf { it.isNotEmpty() }?.let(log::perm)
@@ -390,13 +426,22 @@ class FieldSession(
         }
     }
 
+    /**
+     * The server's clock, measured soon after the join and every [LabClockSync.EVERY_MILLIS] after that. The phones of a
+     * game start their round together, often from behind one address (the venue's Wi-Fi, a carrier's NAT): each asks
+     * at its own moment within [clockJitterMillis], never all in one burst nor in step afterwards.
+     */
     private suspend fun clockLoop(sync: LabClockSync) {
+        var wait = jitter()
         while (currentCoroutineContext().isActive) {
-            delay(LabClockSync.EVERY_MILLIS)
+            delay(wait)
             val estimate = withTimeoutOrNull(CLOCK_TIMEOUT_MILLIS) { sync.measure() }
             if (estimate == null) log.clockEvent(failed = true) else log.setClock(estimate)
+            wait = LabClockSync.EVERY_MILLIS + jitter()
         }
     }
+
+    private fun jitter(): Long = if (clockJitterMillis > 0) random.nextLong(clockJitterMillis) else 0L
 
     private suspend fun quietly(block: suspend () -> Unit) {
         try {
@@ -426,6 +471,9 @@ class FieldSession(
 
         /** A join that failed on the way (no network) is tried again with a snapshot after this. */
         const val RETRY_MILLIS = 15_000L
+
+        /** The window in which a phone measures the server's clock after the join, and the spread of the later ones. */
+        const val CLOCK_JITTER_MILLIS = 20_000L
         private const val CLOCK_TIMEOUT_MILLIS = 10_000L
         private const val TOO_MANY_REQUESTS = 429
     }

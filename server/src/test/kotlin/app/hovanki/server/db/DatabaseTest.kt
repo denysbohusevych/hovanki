@@ -169,6 +169,34 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
     }
 
     @Test
+    fun aFieldLogKeepsItsChunksForItsOwnRetention() {
+        // The operator keeps field logs longer than the lab's chunks: a game's run is the field log's, whole.
+        val retention = DataRetention(
+            jdbc,
+            AccountProperties(),
+            ModerationProperties(),
+            HistoryProperties(),
+            AdminProperties(),
+            BigGameProperties(),
+            LabProperties(chunkRetention = Duration.ofDays(30)),
+            LabRunRepository(jdbc),
+            FieldProperties(retention = Duration.ofDays(180)),
+            Clock.fixed(now, ZoneOffset.UTC),
+        )
+        fun daysAgo(days: Double) = now.minusSeconds((days * 86_400).toLong())
+        val game = insertLabRun(createdAt = daysAgo(91.1), finishedAt = daysAgo(91.0), kind = "GAME")
+        val lab = insertLabRun(createdAt = daysAgo(31.1), finishedAt = daysAgo(31.0))
+
+        retention.run()
+
+        fun chunks(run: String): Int = jdbc.sql(
+            "SELECT count(*) FROM lab_chunks c JOIN lab_devices d ON d.id = c.device_id WHERE d.run_id = :a",
+        ).param("a", run).query(Int::class.java).single()
+        assertEquals(1, chunks(game))
+        assertEquals(0, chunks(lab))
+    }
+
+    @Test
     fun retentionDeletesOnlyWhatIsOld() {
         val accounts = AccountProperties()
         val retention = DataRetention(

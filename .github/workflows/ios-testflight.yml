@@ -135,12 +135,15 @@ jobs:
             # The other address the app must not talk to; the production one unless the caller says otherwise.
             [ -n "$FORBIDDEN_URL" ] || FORBIDDEN_URL="$production"
           elif [ "$CHANNEL" = preview ]; then
-            echo "::warning title=Preview talks to production::The repository variable STAGING_SERVER_URL is not set, so the iOS tester build keeps the production address of gradle.properties. Setup: docs/ci-cd.md, «Переменные и секреты»."
+            # A tester build (field log, Sentry) that talks to production never reaches TestFlight, whatever the caller
+            # asked: built and checked only.
+            echo "PREVIEW_WITHOUT_STAGING=true" >> "$GITHUB_ENV"
+            echo "::warning title=iOS preview not published::The repository variable STAGING_SERVER_URL is not set, so the iOS tester build would talk to production: it is built and checked, and not uploaded to TestFlight. Setup: docs/ci-cd.md, «Переменные и секреты»."
             {
-              echo "### iOS preview build goes to the production server"
+              echo "### iOS preview build not published: no staging server"
               echo "The repository variable \`STAGING_SERVER_URL\` is not set (Settings → Secrets and variables → Actions → Variables)."
-              echo "The build keeps \`hovanki.serverUrl\` of \`gradle.properties\`: $production."
-              echo "Do not hand it to field testers; see docs/ci-cd.md, «Переменные и секреты»."
+              echo "The build keeps \`hovanki.serverUrl\` of \`gradle.properties\` ($production), so it is only built and checked:"
+              echo "no TestFlight upload. See docs/ci-cd.md, «Переменные и секреты»."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
           # Sentry is for the tester build only; an empty DSN means no Sentry.
@@ -356,7 +359,7 @@ jobs:
           PY
 
       - name: Upload to TestFlight
-        if: steps.signing.outputs.signed == 'true' && env.PUBLISH == 'true'
+        if: steps.signing.outputs.signed == 'true' && env.PUBLISH == 'true' && env.PREVIEW_WITHOUT_STAGING != 'true'
         env:
           ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}

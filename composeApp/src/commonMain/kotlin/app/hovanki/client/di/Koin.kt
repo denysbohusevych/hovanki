@@ -6,6 +6,7 @@ import app.hovanki.client.automation.LaunchOptions
 import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.bigGames.BigGameManager
 import app.hovanki.client.crash.CrashReporter
+import app.hovanki.client.crash.CrashReporting
 import app.hovanki.client.crash.CurrentCrashReporter
 import app.hovanki.client.crash.asErrorReporter
 import app.hovanki.client.defaultServerUrl
@@ -89,9 +90,14 @@ import org.koin.mp.KoinPlatformTools
  */
 fun initKoin(appDeclaration: KoinAppDeclaration = {}) {
     if (KoinPlatformTools.defaultContext().getOrNull() != null) return
-    startKoin {
+    val koin = startKoin {
         appDeclaration()
         modules(commonModule, platformModule)
+    }.koin
+    // Crash reports (the field test build only) only with the tester's consent, as soon as it is known; FieldSession
+    // keeps it up to date.
+    if (koin.get<BuildInfo>().isFieldBuild) {
+        CrashReporting.allow(runCatching { koin.get<ClientStorage>().fieldConsentAt != null }.getOrDefault(false))
     }
 }
 
@@ -196,11 +202,12 @@ val commonModule: Module = module {
         val deviceInfo = get<DeviceInfo>()
         val radio = get<ProximityRadio>()
         val locationProvider = get<LocationProvider>()
+        val scope = MainScope()
         FieldSession(
             log = log,
             api = get<LabApi>(),
             storage = get(),
-            scope = MainScope(),
+            scope = scope,
             isFieldBuild = buildInfo.isFieldBuild,
             about = {
                 LabAbout(
@@ -219,7 +226,12 @@ val commonModule: Module = module {
                 )
             },
             probes = probes,
-            clockSync = LabClockSync({ api.serverTime() }, log::deviceNow, log::monoNow),
+            clockSync = LabClockSync(
+                { api.serverTime() },
+                log::deviceNow,
+                log::monoNow,
+                spacingMillis = FIELD_CLOCK_SPACING_MILLIS,
+            ),
             permissions = {
                 mapOf(
                     PermFields.LOCATION to if (locationProvider.hasPermission()) "on" else "denied",
@@ -227,7 +239,10 @@ val commonModule: Module = module {
                 )
             },
             errorReporter = get(),
-        )
+        ).also { session ->
+            // Crash reports go out only while the tester's consent stands (docs/adr/0018-field-test-build.md §7).
+            if (session.isFieldBuild) scope.launch { session.consentAt.collect { CrashReporting.allow(it != null) } }
+        }
     }
     single { FieldMarks() }
     single { AccountManager(get(), get(), get()) }
@@ -278,6 +293,9 @@ val commonModule: Module = module {
 fun offerLaunchOptions(options: LaunchOptions) {
     KoinPlatformTools.defaultContext().get().get<LaunchOptionsHolder>().offer(options)
 }
+
+/** The field log's clock questions a quarter of a second apart (docs/adr/0018-field-test-build.md §3). */
+private const val FIELD_CLOCK_SPACING_MILLIS = 250L
 
 /** [onAppStart] ran in this process. Main thread only. */
 private var appStarted = false

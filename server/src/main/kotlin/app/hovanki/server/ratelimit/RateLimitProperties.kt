@@ -58,6 +58,12 @@ enum class RateLimit {
 
     /** Joining a game's field log ([app.hovanki.shared.protocol.ApiRoutes.GAME_FIELD_JOIN]) per player. */
     FIELD_JOIN_PER_PLAYER,
+
+    /**
+     * ... and per client IP, high enough for a whole game behind one carrier's NAT: a script making games to open
+     * field logs is held back here too.
+     */
+    FIELD_JOIN_PER_IP,
 }
 
 /** `hovanki.rate-limits.*`. Tests and the `e2e` profile turn them off ([enabled]); one test context turns them on. */
@@ -83,6 +89,7 @@ data class RateLimitProperties(
     val labJoinPerIp: Limit = Limit(20, Duration.ofHours(1)),
     val labEventsPerDevice: Limit = Limit(60, Duration.ofMinutes(1)),
     val fieldJoinPerPlayer: Limit = Limit(20, Duration.ofHours(1)),
+    val fieldJoinPerIp: Limit = Limit(300, Duration.ofHours(1)),
 ) {
     /** At most [count] events per key within any [window]. */
     data class Limit(val count: Int, val window: Duration)
@@ -105,5 +112,6 @@ data class RateLimitProperties(
         RateLimit.LAB_JOIN_PER_IP -> labJoinPerIp
         RateLimit.LAB_EVENTS_PER_DEVICE -> labEventsPerDevice
         RateLimit.FIELD_JOIN_PER_PLAYER -> fieldJoinPerPlayer
+        RateLimit.FIELD_JOIN_PER_IP -> fieldJoinPerIp
     }
 }

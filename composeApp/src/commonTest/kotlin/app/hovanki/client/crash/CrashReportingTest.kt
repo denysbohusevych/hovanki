@@ -19,6 +19,7 @@ import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.rules.shrinkingZone
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -65,13 +66,47 @@ class CrashReportingTest {
         // Installed after the binding was made, as iOS does from Swift.
         try {
             CrashReporting.install(installed)
+            CrashReporting.allow(true)
             assertEquals("event-2", CurrentCrashReporter.capture(IllegalStateException("boom")))
             CurrentCrashReporter.breadcrumb("lobby")
             assertEquals(listOf("lobby"), screens)
         } finally {
             CrashReporting.install(NoopCrashReporter)
+            CrashReporting.allow(false)
         }
         assertNull(CurrentCrashReporter.capture(IllegalStateException("boom")))
+    }
+
+    @Test
+    fun nothingGoesOutWithoutTheTestersConsent() {
+        val captured = mutableListOf<Throwable>()
+        val screens = mutableListOf<String>()
+        val installed = object : CrashReporter {
+            override fun capture(t: Throwable): String? {
+                captured += t
+                return "event-3"
+            }
+
+            override fun breadcrumb(screen: String) {
+                screens += screen
+            }
+        }
+        try {
+            CrashReporting.install(installed)
+            // Not known yet, not given, or taken back: the same.
+            assertFalse(CrashReporting.isAllowed)
+            assertNull(CurrentCrashReporter.capture(IllegalStateException("before")))
+            CurrentCrashReporter.breadcrumb("welcome")
+            CrashReporting.allow(true)
+            assertEquals("event-3", CurrentCrashReporter.asErrorReporter().capture(IllegalStateException("agreed")))
+            CrashReporting.allow(false)
+            assertNull(CurrentCrashReporter.capture(IllegalStateException("taken back")))
+            assertEquals(listOf("agreed"), captured.map { it.message })
+            assertTrue(screens.isEmpty())
+        } finally {
+            CrashReporting.install(NoopCrashReporter)
+            CrashReporting.allow(false)
+        }
     }
 
     @Test

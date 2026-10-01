@@ -9,6 +9,7 @@ import app.hovanki.shared.protocol.FieldJoinRequest
 import app.hovanki.shared.protocol.FieldJoinResponse
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.protocolJson
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -28,6 +29,7 @@ class FieldController(private val fields: FieldRunService, private val registry:
         @PathVariable gameId: String,
         @RequestBody(required = false) body: String?,
         webRequest: NativeWebRequest,
+        http: HttpServletRequest,
     ): FieldJoinResponse {
         fields.requireEnabled()
         val token = webRequest.bearerToken() ?: throw GameException(ErrorCode.UNAUTHORIZED, "Missing bearer token")
@@ -38,6 +40,6 @@ class FieldController(private val fields: FieldRunService, private val registry:
         } catch (e: IllegalArgumentException) {
             throw GameException(ErrorCode.BAD_REQUEST, "Malformed request body")
         }
-        return fields.join(player, GameId(gameId), request)
+        return fields.join(player, GameId(gameId), request, http.remoteAddr)
     }
 }

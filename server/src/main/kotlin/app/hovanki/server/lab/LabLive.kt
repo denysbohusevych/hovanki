@@ -1,6 +1,7 @@
 package app.hovanki.server.lab
 
 import app.hovanki.shared.lab.LabFields
+import app.hovanki.shared.lab.RxFields
 import app.hovanki.shared.protocol.LabLiveDevice
 import app.hovanki.shared.protocol.LabLivePair
 import app.hovanki.shared.protocol.LabLiveView
@@ -19,20 +20,24 @@ import java.util.concurrent.ConcurrentHashMap
  * [IDLE_MILLIS] (a run left behind). Bounded whatever the phones send: the readings older than
  * [LabProperties.liveWindow] are dropped as new ones come, those dated ahead of the server's clock by more than
  * [AHEAD_MILLIS] are never kept, and a run keeps at most [MAX_READINGS]. A sender nobody in the run advertised is
- * shown as `?`, never by its token (it may be a real game's).
+ * shown as `?`, never by its token (it may be a real game's). A summary of readings (a field log's `rx`, its count in
+ * `n`) counts as that many. A game's field log shows its devices only: its senders' tokens are the game's, which
+ * change with the clock and which no device of the run has, so its readings are not kept (who heard whom: the report,
+ * docs/field-test.md step 6).
  */
 @Component
 class LabLive(private val properties: LabProperties) {
     private val runs = ConcurrentHashMap<String, RunLive>()
 
     /**
-     * The events of one upload of [deviceId] in [runId], in their order. The caller holds the run's lock, so a run
-     * that finishes or is deleted meanwhile is dropped after this, never before.
+     * The events of one upload of [deviceId] in [runId], in their order; [pairs]: its readings are kept for who heard
+     * whom (a lab run's, not a game's). The caller holds the run's lock, so a run that finishes or is deleted meanwhile
+     * is dropped after this, never before.
      */
-    fun accept(runId: String, deviceId: String, events: List<JsonObject>, nowMillis: Long) {
+    fun accept(runId: String, deviceId: String, events: List<JsonObject>, nowMillis: Long, pairs: Boolean = true) {
         evictIdle(nowMillis)
         val run = runs.computeIfAbsent(runId) { RunLive() }
-        run.accept(deviceId, events, nowMillis - properties.liveWindow.toMillis(), nowMillis)
+        run.accept(deviceId, events, nowMillis - properties.liveWindow.toMillis(), nowMillis, pairs)
     }
 
     /** What [devices] of the run said last and heard lately, at [nowMillis]; senders by their radar tokens. */
@@ -62,7 +67,15 @@ class LabLive(private val properties: LabProperties) {
         var step: Int? = null
     }
 
-    private class Reading(val t: Long, val listener: String, val token: String?, val channel: String, val rssi: Int)
+    /** [count] readings of [rssi] (their median when a summary). */
+    private class Reading(
+        val t: Long,
+        val listener: String,
+        val token: String?,
+        val channel: String,
+        val rssi: Int,
+        val count: Int,
+    )
 
     private class RunLive {
         private val devices = HashMap<String, DeviceLive>()
@@ -74,7 +87,7 @@ class LabLive(private val properties: LabProperties) {
             private set
 
         @Synchronized
-        fun accept(deviceId: String, events: List<JsonObject>, keepAfter: Long, nowMillis: Long) {
+        fun accept(deviceId: String, events: List<JsonObject>, keepAfter: Long, nowMillis: Long, pairs: Boolean) {
             acceptedAt = nowMillis
             val device = devices.getOrPut(deviceId) { DeviceLive() }
             for (event in events) {
@@ -93,10 +106,12 @@ class LabLive(private val properties: LabProperties) {
                     "step" -> event.int("index")?.let { device.step = it }
 
                     "rx" -> {
-                        val rssi = event.int("rssi") ?: continue
+                        if (!pairs) continue
+                        val rssi = event.int(RxFields.RSSI) ?: continue
                         if (t <= keepAfter) continue
-                        val channel = "${event.string("api")}/${event.string("via")}"
-                        readings.addLast(Reading(t, deviceId, event.string("token"), channel, rssi))
+                        val count = event.int(RxFields.COUNT)?.coerceIn(1, MAX_COUNT) ?: 1
+                        val channel = "${event.string(RxFields.API)}/${event.string(RxFields.VIA)}"
+                        readings.addLast(Reading(t, deviceId, event.string(RxFields.TOKEN), channel, rssi, count))
                         if (readings.size > MAX_READINGS) readings.removeFirst()
                     }
                 }
@@ -114,13 +129,14 @@ class LabLive(private val properties: LabProperties) {
             val pairs = readings
                 .groupBy { Triple(sender(it.token, byToken), labels[it.listener] ?: "?", it.channel) }
                 .map { (key, list) ->
-                    val recent = list.filter { it.t > recentAfter }.map { it.rssi }.sorted()
+                    val recent = list.filter { it.t > recentAfter }.sortedBy { it.rssi }
+                    val heard = recent.sumOf { it.count }
                     LabLivePair(
                         from = key.first,
                         to = key.second,
                         channel = key.third,
-                        heardInLast10s = recent.size,
-                        medianRssi = recent.getOrNull((recent.size - 1) / 2),
+                        heardInLast10s = heard,
+                        medianRssi = weightedMedian(recent, heard),
                     )
                 }
                 .sortedWith(compareBy({ it.from }, { it.to }, { it.channel }))
@@ -146,6 +162,18 @@ class LabLive(private val properties: LabProperties) {
         }
 
         private fun sender(token: String?, byToken: Map<String, String>): String = token?.let(byToken::get) ?: "?"
+
+        /** The median of [sorted]'s readings, each counted [Reading.count] times ([total] of them); null: none. */
+        private fun weightedMedian(sorted: List<Reading>, total: Int): Int? {
+            if (total == 0) return null
+            val middle = (total - 1) / 2
+            var seen = 0
+            for (reading in sorted) {
+                seen += reading.count
+                if (seen > middle) return reading.rssi
+            }
+            return sorted.lastOrNull()?.rssi
+        }
     }
 
     internal companion object {
@@ -159,6 +187,9 @@ class LabLive(private val properties: LabProperties) {
 
         /** Readings kept per run: a minute of eight phones hearing each other ten times a second, and more. */
         const val MAX_READINGS = 50_000
+
+        /** A summary counts as at most this many readings: a second of a phone's scans, and more. */
+        const val MAX_COUNT = 1_000
 
         private fun JsonObject.primitive(key: String): JsonPrimitive? = this[key] as? JsonPrimitive
 

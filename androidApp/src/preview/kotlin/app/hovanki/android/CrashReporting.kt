@@ -18,7 +18,8 @@ import io.sentry.protocol.SentryId
  * `preview` build type only; debug and release have a no-op twin of this function (`src/withoutSentry`) and no SDK.
  *
  * Starts the SDK when the build carries a DSN (`hovanki.sentryDsn`, CI's secret) and installs the reporter for Koin.
- * Called first in [HovankiApplication.onCreate], so a crash during start-up is reported too. The SDK's own start by
+ * Called first in [HovankiApplication.onCreate]; events go out only once the tester's consent is known to stand
+ * ([CrashReporting.isAllowed], set when Koin starts). The SDK's own start by
  * the manifest is off (`src/preview/AndroidManifest.xml`).
  */
 internal fun installCrashReporting(app: Application) {
@@ -53,7 +54,11 @@ private fun configureSentry(options: SentryAndroidOptions, dsn: String, release:
     options.isEnableAppComponentBreadcrumbs = false
     options.isEnableNetworkEventBreadcrumbs = false
     options.maxBreadcrumbs = MAX_BREADCRUMBS
-    options.beforeSend = SentryOptions.BeforeSendCallback { event, _ -> SentryEventScrubber.scrub(event) }
+    // Nothing without the tester's consent (CrashReporting.isAllowed): before it is known at start, before the tester
+    // agreed, after they took it back. A crash is filtered here when it happens, before the SDK keeps it for later.
+    options.beforeSend = SentryOptions.BeforeSendCallback { event, _ ->
+        if (CrashReporting.isAllowed) SentryEventScrubber.scrub(event) else null
+    }
     options.beforeBreadcrumb = SentryOptions.BeforeBreadcrumbCallback { breadcrumb, _ ->
         SentryEventScrubber.scrubBreadcrumb(breadcrumb)
     }
@@ -79,8 +84,10 @@ private fun releaseName(app: Application): String {
 private const val MAX_BREADCRUMBS = 30
 
 private object SentryCrashReporter : CrashReporter {
-    override fun capture(t: Throwable): String? =
-        Sentry.captureException(t).takeIf { it != SentryId.EMPTY_ID }?.toString()
+    override fun capture(t: Throwable): String? {
+        if (!CrashReporting.isAllowed) return null
+        return Sentry.captureException(t).takeIf { it != SentryId.EMPTY_ID }?.toString()
+    }
 
     override fun breadcrumb(screen: String) {
         val name = CrashReporting.screenName(screen) ?: return

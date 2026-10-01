@@ -52,6 +52,28 @@ class ProfileConfigTest {
     }
 
     @Test
+    fun onlyTheTestServersHaveTheFieldLog() {
+        // Production never keeps a field log, whatever the admin's switch says (docs/adr/0018-field-test-build.md §9).
+        assertEquals("false", load("application.yaml").text("hovanki.field.allowed"))
+        assertEquals("true", load("application-staging.yaml").text("hovanki.field.allowed"))
+        assertEquals("true", load("application-e2e.yaml").text("hovanki.field.allowed"))
+    }
+
+    @Test
+    fun stagingLetsAGameFromBehindOneAddressAskTheClock() {
+        // 60 field build phones on one Wi-Fi: 5 requests each at the join and every 5 minutes.
+        val staging = load("application-staging.yaml")
+        val production = load("application.yaml")
+        assertTrue(assertNotNull(staging.text("hovanki.rate-limits.time-per-ip.count")).toInt() >= 60 * 5 * 2)
+        for (limit in listOf("time-per-ip", "login-per-ip", "register-per-ip")) {
+            val key = "hovanki.rate-limits.$limit.count"
+            val more = assertNotNull(staging.text(key)).toInt()
+            assertTrue(more > assertNotNull(production.text(key)).toInt(), "$limit on staging: $more")
+        }
+        assertNull(staging.text("hovanki.rate-limits.enabled"), "staging keeps the rate limits on")
+    }
+
+    @Test
     fun stagingChangesNothingOfTheE2eProfile() {
         // The observer endpoints, recorded emails, no rate limits, the test admin key and the fake map are the e2e
         // profile's alone: staging has real players and real mail. The test is against the e2e file itself, so a setting
@@ -59,12 +81,21 @@ class ProfileConfigTest {
         val staging = load("application-staging.yaml")
         val e2e = load("application-e2e.yaml")
         val overlap = staging.propertyNames.filter { name ->
-            e2e.propertyNames.any { other -> name == other || name.startsWith("$other.") || other.startsWith("$name.") }
+            name !in BOTH_TEST_SERVERS &&
+                e2e.propertyNames.any { other ->
+                    name == other || name.startsWith("$other.") ||
+                        other.startsWith("$name.")
+                }
         }
         assertTrue(overlap.isEmpty(), "staging sets what the e2e profile sets: $overlap")
         assertTrue(
             staging.propertyNames.none { it.startsWith("spring.profiles") },
             "staging turns no other profile on (the e2e one in particular)",
         )
+    }
+
+    private companion object {
+        /** What both a test server and an e2e server have, and production never: the field log. */
+        val BOTH_TEST_SERVERS = setOf("hovanki.field.allowed")
     }
 }

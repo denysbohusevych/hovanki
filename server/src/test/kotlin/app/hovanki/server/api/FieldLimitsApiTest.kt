@@ -4,8 +4,12 @@ import app.hovanki.server.MutableClock
 import app.hovanki.server.account.AccountTestConfig
 import app.hovanki.server.account.uniqueName
 import app.hovanki.server.features.FeatureFlags
+import app.hovanki.server.lab.LabDeviceRecord
+import app.hovanki.server.lab.LabRunRecord
+import app.hovanki.server.lab.LabRunRepository
 import app.hovanki.server.mail.EmailSender
 import app.hovanki.server.mail.RecordingEmailSender
+import app.hovanki.shared.lab.LabPlanState
 import app.hovanki.shared.protocol.AccountSession
 import app.hovanki.shared.protocol.AdminLabRun
 import app.hovanki.shared.protocol.AdminLabRunRequest
@@ -21,6 +25,8 @@ import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LabEventsResponse
 import app.hovanki.shared.protocol.LabJoinRequest
 import app.hovanki.shared.protocol.LabJoinResponse
+import app.hovanki.shared.protocol.LabRunKind
+import app.hovanki.shared.protocol.LabRunStatus
 import app.hovanki.shared.protocol.LabUpload
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.RegisterRequest
@@ -50,6 +56,7 @@ import kotlin.test.assertTrue
     properties = [
         "hovanki.field.max-devices=2",
         "hovanki.field.max-run-bytes=4KB",
+        "hovanki.field.max-total-bytes=1MB",
         "hovanki.lab.join-staff-only=true",
     ],
 )
@@ -61,6 +68,7 @@ class FieldLimitsApiTest(
     @Autowired private val clock: MutableClock,
     @Autowired private val jdbc: JdbcClient,
     @Autowired private val features: FeatureFlags,
+    @Autowired private val labRuns: LabRunRepository,
 ) {
     private val admin = AdminTestClient(mvc, emailSender as RecordingEmailSender, clock, jdbc)
     private val settings = GameSettings(zone = shrinkingZone(GeoPoint(50.4501, 30.5234)))
@@ -85,6 +93,52 @@ class FieldLimitsApiTest(
         }
         assertTrue(answers.count { it.status == 200 } >= 2, "${answers.map { it.status }}")
         answers.last().error(409, ErrorCode.WRONG_STATE, ErrorReason.LIMIT_REACHED)
+    }
+
+    @Test
+    fun allTheGamesLogsTogetherTakeOnlySoMuch() {
+        features.set(ServerFeature.FIELD_LOG, true, "test", clock.instant())
+        val first = post(ApiRoutes.GAMES, CreateGameRequest("Host", settings).asJson()).ok<SessionResponse>()
+        val phone = fieldJoin(first.session).ok<FieldJoinResponse>()
+        upload(phone, 1, 3).ok<LabEventsResponse>()
+
+        // Another game's log fills what all of them may take (the disk is production's too).
+        val full = LabRunRecord(
+            id = "run-full-${phone.deviceId}",
+            code = "game:full-${phone.deviceId}",
+            title = "Game full",
+            scenarioId = "game",
+            scenarioVersion = 0,
+            plan = LabPlanState(status = LabRunStatus.FINISHED),
+            createdByName = null,
+            createdAt = clock.instant(),
+            finishedAt = clock.instant(),
+            salt = "00",
+            kind = LabRunKind.GAME,
+            gameId = "full-${phone.deviceId}",
+        )
+        labRuns.insertGameRunIfAbsent(full)
+        labRuns.insertDevice(
+            LabDeviceRecord(
+                id = "dev-${full.id}",
+                runId = full.id,
+                label = "p",
+                radarToken = "",
+                joinedAt = full.createdAt,
+            ),
+            tokenHash = "hash-${full.id}",
+        )
+        jdbc.sql("UPDATE lab_devices SET bytes = :bytes WHERE run_id = :run")
+            .param("bytes", 1024L * 1024).param("run", full.id).update()
+        try {
+            upload(phone, 4, 6).error(409, ErrorCode.WRONG_STATE, ErrorReason.LIMIT_REACHED)
+            val second = post(ApiRoutes.GAMES, CreateGameRequest("Host", settings).asJson()).ok<SessionResponse>()
+            fieldJoin(second.session).error(409, ErrorCode.WRONG_STATE, ErrorReason.LIMIT_REACHED)
+        } finally {
+            labRuns.deleteRun(full.id)
+        }
+        // Room again (the retention, an admin's delete): the phone goes on.
+        upload(phone, 4, 6).ok<LabEventsResponse>()
     }
 
     @Test

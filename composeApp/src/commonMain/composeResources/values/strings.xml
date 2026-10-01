@@ -824,7 +824,7 @@
   <string name="explain_running">running</string>
   <string name="lobby_map_drawn">Zone %1$s</string>
   <string name="field_consent_title">This is a test build</string>
-  <string name="field_consent_text">While you play, the app writes everything: where you are, what happens with the phone and the game, whom Bluetooth hears. It is kept for 90 days on the test server, only the developers see it, and it is deleted with your account.</string>
+  <string name="field_consent_text">While you play, the app writes everything: where you are, what happens with the phone and the game, whom Bluetooth hears, and the app’s crashes and errors. It is kept for 90 days on the test server, and only the developers see it. With an account it is deleted with the account; a guest’s goes after the 90 days, or sooner if you ask the test’s organizers. You can withdraw the consent on the start screen or in the profile.</string>
   <string name="field_consent_agree">I agree, let me play</string>
   <string name="field_consent_decline">No, thanks</string>
   <string name="field_declined_title">Can’t play without it</string>

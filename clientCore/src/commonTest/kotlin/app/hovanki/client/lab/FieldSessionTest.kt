@@ -39,9 +39,12 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -63,6 +66,8 @@ class FieldSessionTest {
         isFieldBuild: Boolean = true,
         api: FakeLabApi = FakeLabApi(),
         errorReporter: ErrorReporter = NoopErrorReporter,
+        clockSync: LabClockSync? = null,
+        random: Random = Random.Default,
     ): Phone {
         val log = LabLog(isEnabled = false, { DEVICE + currentTime }, { currentTime })
         val field = FieldSession(
@@ -73,15 +78,20 @@ class FieldSessionTest {
             isFieldBuild = isFieldBuild,
             about = { LabAbout("Pixel 8", "Android 16", "1.0 (1) preview", "abc1234") },
             capabilities = { LabCapabilities(platform = Platform.ANDROID) },
+            clockSync = clockSync,
             permissions = { mapOf("location" to "always") },
             errorReporter = errorReporter,
             retryMillis = 5_000,
+            random = random,
         )
         return Phone(field, log, api)
     }
 
     private fun Phone.round(phase: GamePhase = GamePhase.SEEKING, gameId: GameId = testSession.gameId) =
-        field.onSnapshot(testSession.copy(gameId = gameId), testSnapshot(phase = phase).copy(gameId = gameId))
+        field.onSnapshot(
+            testSession.copy(gameId = gameId),
+            testSnapshot(phase = phase, serverTimeMillis = SERVER).copy(gameId = gameId),
+        )
 
     @Test
     fun onlyTheFieldBuildWithConsentWritesAnything() = runTest {
@@ -103,8 +113,8 @@ class FieldSessionTest {
         assertFalse(preview.field.somethingWrong("nothing"))
         assertTrue(preview.log.lines().isEmpty())
 
-        preview.field.giveConsent(1_234L)
-        assertEquals(1_234L, storage.fieldConsentAt)
+        preview.field.giveConsent(CONSENT)
+        assertEquals(CONSENT, storage.fieldConsentAt)
         // The lobby is no round yet.
         preview.round(GamePhase.LOBBY)
         runCurrent()
@@ -113,7 +123,7 @@ class FieldSessionTest {
         runCurrent()
         val (gameId, token, request) = preview.api.fieldJoins.single()
         assertEquals(testSession.gameId to testSession.token, gameId to token)
-        assertEquals(1_234L, request.consentAtMillis)
+        assertEquals(CONSENT, request.consentAtMillis)
         assertEquals("Pixel 8" to Platform.ANDROID, request.model to request.capabilities.platform)
         assertEquals(FieldStatus.ON, preview.field.state.value.status)
         // Every snapshot after that changes nothing.
@@ -253,6 +263,113 @@ class FieldSessionTest {
         val (radio, command) = phone.events.filter { it.kind == FieldKinds.ERR }
         assertEquals("radio" to "e1", radio.string(ErrFields.WHERE) to radio.string(ErrFields.SENTRY_ID))
         assertEquals("command" to null, command.string(ErrFields.WHERE) to command.string(ErrFields.SENTRY_ID))
+
+        // The consent taken back: the game saved before goes on behind the consent screen, and its failures go nowhere.
+        phone.field.withdrawConsent()
+        phone.field.onError("location", IllegalStateException("no fix"))
+        assertEquals(1, reported.size)
+    }
+
+    @Test
+    fun withoutConsentNoFailureIsReported() = runTest {
+        val reported = ArrayList<Throwable>()
+        val phone = phone(errorReporter = { t ->
+            reported += t
+            "e"
+        })
+        phone.field.onError("radio", IllegalStateException("advertiser failed"))
+        assertTrue(reported.isEmpty())
+    }
+
+    @Test
+    fun aConsentStampedByAClockOffIsStampedAgainByTheServers() = runTest {
+        // The consent screen comes before the app knows the server's clock: a phone two days ahead.
+        val phone = phone()
+        phone.field.giveConsent(SERVER + 2 * 86_400_000L)
+        phone.round(GamePhase.LOBBY)
+        assertEquals(SERVER, storage.fieldConsentAt)
+        assertEquals(SERVER, phone.field.consentAt.value)
+        phone.round()
+        runCurrent()
+        assertEquals(SERVER, phone.api.fieldJoins.single().third.consentAtMillis)
+
+        // Far behind, before the field build existed: the server would refuse it.
+        phone.field.giveConsent(1_000L)
+        phone.round(GamePhase.LOBBY)
+        assertEquals(SERVER, storage.fieldConsentAt)
+        // A clock that was right stays as it said.
+        phone.field.giveConsent(CONSENT)
+        phone.round(GamePhase.LOBBY)
+        assertEquals(CONSENT, storage.fieldConsentAt)
+    }
+
+    @Test
+    fun theLastGamesUploadStopsWithTheConsentTakenBackAndNeverSendsTheNextGame() = runTest {
+        val api = FakeLabApi().apply { fieldRunPerJoin = true }
+        val phone = phone(api = api)
+        phone.field.giveConsent(CONSENT)
+        phone.round(gameId = GameId("gameA"))
+        runCurrent()
+        val runA = assertNotNull(phone.field.state.value.runId)
+        phone.field.onFix(fix(DEVICE + currentTime))
+
+        // A weak network: the last upload keeps trying after the player left, and the consent is taken back meanwhile.
+        api.failures = 1_000
+        phone.field.onSessionEnded()
+        runCurrent()
+        advanceTimeBy(2_000)
+        phone.field.withdrawConsent()
+        runCurrent()
+
+        // The network is back; the tester agrees again and plays the next game.
+        api.failures = 0
+        phone.field.giveConsent(CONSENT)
+        phone.round(gameId = GameId("gameB"))
+        runCurrent()
+        val runB = assertNotNull(phone.field.state.value.runId)
+        assertNotEquals(runA, runB)
+        val before = api.uploads.size
+        phone.field.onFix(fix(DEVICE + currentTime))
+        advanceTimeBy(60_000)
+        runCurrent()
+
+        val after = api.uploads.drop(before)
+        assertTrue(after.isNotEmpty())
+        assertEquals(setOf(runB), after.map { it.runId }.toSet())
+    }
+
+    @Test
+    fun eachPhoneAsksTheServersClockAtItsOwnMoment() = runTest {
+        var asked = 0
+        val sync = LabClockSync(
+            serverTime = {
+                asked++
+                SERVER
+            },
+            deviceTimeMillis = { DEVICE + currentTime },
+            monotonicMillis = { currentTime },
+        )
+        // This phone's moment: 7 s after the join, then 7 s after every 5 minutes.
+        val phone = phone(clockSync = sync, random = FixedRandom(7_000))
+        phone.field.giveConsent(CONSENT)
+        phone.round()
+        runCurrent()
+        assertTrue(phone.field.isActive)
+        // The join's answer until then: no burst of questions with every other phone of the game.
+        assertEquals(0, asked)
+        advanceTimeBy(6_999)
+        runCurrent()
+        assertEquals(0, asked)
+        advanceTimeBy(2)
+        runCurrent()
+        assertEquals(LabClockSync.SAMPLES, asked)
+        // Measured at 7 s: the next at 7 s + 5 min + 7 s.
+        advanceTimeBy(LabClockSync.EVERY_MILLIS + 6_998)
+        runCurrent()
+        assertEquals(LabClockSync.SAMPLES, asked)
+        advanceTimeBy(2)
+        runCurrent()
+        assertEquals(2 * LabClockSync.SAMPLES, asked)
     }
 
     @Test
@@ -314,8 +431,21 @@ class FieldSessionTest {
 
     private fun fix(atDeviceMillis: Long) = LocationSample(GeoPoint(50.4501, 30.5234), 6.0, atDeviceMillis)
 
+    /** A random source that always picks [value]. */
+    private class FixedRandom(private val value: Long) : Random() {
+        override fun nextBits(bitCount: Int): Int = 0
+
+        override fun nextLong(until: Long): Long = value.coerceAtMost(until - 1)
+    }
+
     private companion object {
         const val DEVICE = 1_790_000_000_000L
+
+        /** The server's clock in the snapshots: after the field build existed. */
+        const val SERVER = 1_790_000_000_000L
+
+        /** When the tester agreed, by a clock that was right. */
+        const val CONSENT = SERVER - 60_000L
     }
 }
 

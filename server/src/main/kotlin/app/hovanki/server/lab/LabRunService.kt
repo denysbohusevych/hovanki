@@ -232,7 +232,8 @@ class LabRunService(
      * stored again; the answer then acknowledges only what the server has, so a retry that grew meanwhile sends its
      * new events again from there. Every line must be an event of the batch (`k`, `dt`, and `seq` within the bounds);
      * the server keeps it gzipped. Lines lose their coordinates ([LabSchema.keptInRun]) unless they are the `gps` of a
-     * game's field log. A game's run has the limits of [FieldProperties] and its own switch.
+     * game's field log. A game's run has the limits of [FieldProperties] (its own and all games' together,
+     * [FieldProperties.maxTotalBytes]) and its own switch.
      */
     fun acceptChunk(
         device: LabDeviceRef,
@@ -280,6 +281,13 @@ class LabRunService(
                 if (repository.runBytes(device.runId) + stored.size > maxRunBytes.toBytes()) {
                     throw tooBig("The run has all the logs it may have")
                 }
+                // All games' logs together: the database's disk is production's too. Not under one lock: two runs'
+                // uploads may pass it at once, by a chunk each.
+                if (device.kind == LabRunKind.GAME &&
+                    repository.gameRunsBytes() + stored.size > field.maxTotalBytes.toBytes()
+                ) {
+                    throw tooBig("The field logs have all the room they may have")
+                }
                 inserted = repository.insertChunk(
                     deviceId = device.deviceId,
                     seqFrom = bounds.seqFrom,
@@ -291,7 +299,10 @@ class LabRunService(
                     receivedAt = now,
                 )
                 // Under the run's lock: a finish or a delete drops the live view after this, never before.
-                if (inserted && !finished) live.accept(device.runId, device.deviceId, events, now.toEpochMilli())
+                // A game's senders are its rotating tokens, no device's: its live view has no pairs.
+                if (inserted && !finished) {
+                    live.accept(device.runId, device.deviceId, events, now.toEpochMilli(), pairs = !fieldRun)
+                }
             }
             // What the server has: a retry cut differently than the stored chunk goes on after it.
             repository.lastSeq(device.deviceId) ?: (bounds.seqFrom - 1)

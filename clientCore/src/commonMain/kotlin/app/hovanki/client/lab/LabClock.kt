@@ -1,6 +1,7 @@
 package app.hovanki.client.lab
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 
 /**
  * One question to the server's clock: sent at [sentAtMillis] (device clock) and [sentMono], answered with
@@ -25,11 +26,14 @@ class LabClockSync(
     private val serverTime: suspend () -> Long,
     private val deviceTimeMillis: () -> Long,
     private val monotonicMillis: () -> Long,
+    /** A pause between two questions: a game's phones behind one address don't ask in one burst (the field log). */
+    private val spacingMillis: Long = 0,
 ) {
     /** [count] questions; null when none was answered (no network). */
     suspend fun measure(count: Int = SAMPLES): ClockEstimate? {
         val samples = ArrayList<ClockSample>(count)
-        repeat(count) {
+        repeat(count) { index ->
+            if (index > 0 && spacingMillis > 0) delay(spacingMillis)
             val sentAt = deviceTimeMillis()
             val sentMono = monotonicMillis()
             try {

@@ -248,6 +248,13 @@ class LabRunRepository(private val jdbc: JdbcClient) {
         jdbc.sql("SELECT coalesce(sum(bytes), 0) FROM lab_devices WHERE run_id = :runId").param("runId", runId)
             .query(Long::class.java).single()
 
+    /** What the chunks of all games' field runs take together, gzipped as stored (the server-wide budget). */
+    fun gameRunsBytes(): Long = jdbc.sql(
+        """
+        SELECT coalesce(sum(d.bytes), 0) FROM lab_devices d JOIN lab_runs r ON r.id = d.run_id WHERE r.kind = 'GAME'
+        """.trimIndent(),
+    ).query(Long::class.java).single()
+
     // Chunks
 
     /** Stores a chunk unless the device has one from [seqFrom] already (a retried upload); true: stored. */
@@ -326,13 +333,14 @@ class LabRunRepository(private val jdbc: JdbcClient) {
             .optional().orElse(null) ?: ByteArray(0)
 
     /**
-     * The chunks of runs finished before [finishedBefore], and of runs never finished that were made before
-     * [createdBefore] (the join window after that); the runs, devices and reports stay.
+     * The chunks of the lab's runs finished before [finishedBefore], and of those never finished that were made before
+     * [createdBefore] (the join window after that); the runs, devices and reports stay. A game's run has its own
+     * retention and goes whole ([deleteGameRunsFinishedBefore]).
      */
     fun deleteChunksOfRunsFinishedBefore(finishedBefore: Instant, createdBefore: Instant): Int = jdbc.sql(
         """
         DELETE FROM lab_chunks c USING lab_devices d, lab_runs r
-        WHERE c.device_id = d.id AND d.run_id = r.id
+        WHERE c.device_id = d.id AND d.run_id = r.id AND r.kind = 'LAB'
           AND (r.finished_at < :finishedBefore OR (r.finished_at IS NULL AND r.created_at < :createdBefore))
         """.trimIndent(),
     )

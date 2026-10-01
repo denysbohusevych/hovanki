@@ -12,10 +12,22 @@ import java.time.Duration
  */
 @ConfigurationProperties("hovanki.field")
 data class FieldProperties(
+    /**
+     * This server may have the field log at all: the test server (application-staging.yaml), the e2e profile and the
+     * tests. Off, as on production (docs/adr/0018-field-test-build.md §9): FIELD_LOG stays off whatever its switch in
+     * the database says, and the admin can't turn it on ([app.hovanki.server.features.FeatureFlags]).
+     */
+    val allowed: Boolean = false,
     /** Devices per game's run, rejoins of the same phone included. */
     val maxDevices: Int = 100,
     /** What a game's chunks may take on the server, gzipped as they are stored. */
     val maxRunBytes: DataSize = DataSize.ofGigabytes(2),
+    /**
+     * What the chunks of all games' runs may take together: the database's disk is production's too (docs/deploy.md,
+     * «Staging»). Reached: no new phones, no more chunks ([app.hovanki.shared.protocol.ErrorReason.LIMIT_REACHED])
+     * until the retention or an admin deletes runs.
+     */
+    val maxTotalBytes: DataSize = DataSize.ofGigabytes(5),
     /** A game's run takes joins and uploads until this long after it was opened: no game lasts a day. */
     val joinWindow: Duration = Duration.ofHours(24),
     /** A finished run (its game gone) still takes the phones' last uploads this long. */

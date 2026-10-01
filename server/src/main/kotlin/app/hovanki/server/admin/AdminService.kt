@@ -250,11 +250,15 @@ class AdminService(
     fun features(): AdminFeatures = AdminFeatures(
         ServerFeature.entries.map { feature ->
             val record = features.all().firstOrNull { it?.feature == feature }
-            AdminFeature(feature, record?.enabled == true, record?.updatedAt?.toEpochMilli(), record?.updatedBy)
+            // What the server does: a switch on in the database is off where the server may not have the feature.
+            AdminFeature(feature, features.isEnabled(feature), record?.updatedAt?.toEpochMilli(), record?.updatedBy)
         },
     )
 
-    /** Turns a feature on or off for everybody on the server. Admins; the audit log gets it. */
+    /**
+     * Turns a feature on or off for everybody on the server. Admins; the audit log gets it. The field log is turned on
+     * only where the server may have it (FeatureFlags.isAllowed, the test server): elsewhere 409.
+     */
     fun setFeature(staff: Staff, feature: ServerFeature, request: AdminFeatureRequest): AdminFeatures {
         requireAdmin(staff)
         val why = validReason(request.reason)

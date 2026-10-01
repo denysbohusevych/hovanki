@@ -15,7 +15,7 @@
 
 Серверов два ([ADR 0018](adr/0018-field-test-build.md), [deploy.md](deploy.md)): основной `https://hovanki.duckdns.org` для релизных сборок и [staging](deploy.md#staging) `https://hovanki-staging.duckdns.org` для тестовых. Поля адреса в приложении нет: адрес зашит в сборку, аккаунты и игры основного сервера и staging разные ([ADR 0004](adr/0004-accounts-friends-chat.md)).
 
-- **Тестовая сборка** (`preview.yml`: «Hovanki β» на Android, TestFlight на iPhone) ходит на staging, пока в репозитории задана переменная `STAGING_SERVER_URL` ([Переменные и секреты](#переменные-и-секреты)). Без неё она собирается на основной сервер и пишет об этом предупреждением в сводке запуска: такую сборку тестерам не раздают.
+- **Тестовая сборка** (`preview.yml`: «Hovanki β» на Android, TestFlight на iPhone) ходит на staging, пока в репозитории задана переменная `STAGING_SERVER_URL` ([Переменные и секреты](#переменные-и-секреты)). Без неё она только собирается и проверяется: никуда не публикуется (ни pre-release, ни Google Play, ни TestFlight), в сводке запуска — предупреждение.
 - **Релизная сборка** (`release.yml`, App Store и Google Play) ходит на основной сервер.
 - **Debug-сборка** на телефоне без параметров тоже ходит на основной сервер (`hovanki.serverUrl`), с [панелью диагностики](architecture.md#диагностика-debug-сборки) (GPS, dBm Bluetooth, синхронизации).
 - Туннель к своему компьютеру нужен, чтобы сыграть на своей версии сервера: с debug-сборкой или с тестовой, собранной под адрес туннеля.
@@ -81,7 +81,7 @@ hovanki.serverUrl=https://hovanki.duckdns.org
 - Debug-сборка на телефоне ходит на этот же адрес. В эмуляторе и симуляторе — на компьютер разработчика (`http://10.0.2.2:8080` в эмуляторе, `http://localhost:8080` в симуляторе); параметр запуска `server` ведёт куда угодно.
 - Для одной сборки: `./gradlew :androidApp:assemblePreview -Phovanki.serverUrl=https://…`.
 
-**Как `preview.yml` ставит staging** (`-Phovanki.serverUrl` из переменной репозитория `STAGING_SERVER_URL`; если она пуста, остаётся адрес из `gradle.properties` и в сводке запуска — предупреждение):
+**Как `preview.yml` ставит staging** (`-Phovanki.serverUrl` из переменной репозитория `STAGING_SERVER_URL`; если она пуста, остаётся адрес из `gradle.properties`, сборка только проверяется и не публикуется, в сводке запуска — предупреждение):
 
 - **Android:** обычные флаги Gradle: `-Phovanki.serverUrl=…`, `-Phovanki.channel=preview`, `-Phovanki.sentryDsn=…` (DSN Sentry из секрета `SENTRY_DSN`, пустой — без Sentry).
 - **iOS:** Gradle запускает не job, а build phase «Compile Kotlin Framework» проекта Xcode (`./gradlew :composeApp:embedAndSignAppleFrameworkForXcode`), поэтому флаги job'а до него не доходят. Job пишет те же три свойства в `gradle.properties` домашней папки Gradle (`$GRADLE_USER_HOME` или `~/.gradle`): его читает каждый запуск Gradle на раннере, в том числе из Xcode, и он главнее `gradle.properties` проекта. Переменная окружения `ORG_GRADLE_PROJECT_hovanki.serverUrl` не годится: точка в имени, а оболочки скрипт-фаз Xcode не обещают её передать. Раннер чистый, ничего после себя не оставляет.
@@ -156,7 +156,7 @@ Push в `main` (кроме правок только в `*.md` и `docs/`) и р
 |---|---|---|
 | `Android preview APK` | `ubuntu-latest` | `./gradlew :androidApp:assemblePreview :androidApp:bundlePreview` с `-Phovanki.versionCode=<номер>`, `-Phovanki.channel=preview`, `-Phovanki.sentryDsn=…` и `-Phovanki.serverUrl=<STAGING_SERVER_URL>` (если переменная задана, [иначе предупреждение](#переменные-и-секреты)) и keystore из [секретов релиза](#секреты-для-подписи-android); проверка APK (`aapt2`): пакет и `versionCode`, не debuggable, без cleartext и debug deep link `hovanki://`, в нём зашит нужный адрес сервера; проверка AAB: манифест `app.hovanki.preview`; APK — артефакт `android-preview`, подписанный AAB — `android-preview-aab` (14 дней) |
 | `Android pre-release` | `ubuntu-latest` | Только из `main` и только подписанный APK: удаляет и заново создаёт pre-release с тегом `preview` на текущем коммите; в описании — версия, commit, адрес сервера, ссылка на запуск |
-| `Google Play internal` | `ubuntu-latest` | Только из `main` и только подписанный AAB: загружает его в трек `internal` приложения `app.hovanki.preview` (`r0adkll/upload-google-play@v1`, секрет `PLAY_SERVICE_ACCOUNT_JSON`). Без секрета пропускает загрузку с сообщением в сводке, job зелёный; секрет не похож на ключ сервисного аккаунта — job красный. Настройка — [Google Play](#google-play-внутреннее-тестирование) |
+| `Google Play internal` | `ubuntu-latest` | Только из `main` и только подписанный AAB: загружает его в трек `internal` приложения `app.hovanki.preview` (`r0adkll/upload-google-play`, закреплён на коммите `e738b9d…` = v1.1.5, секрет `PLAY_SERVICE_ACCOUNT_JSON`). Только для сборки на staging: без `STAGING_SERVER_URL` job пропускается, как и `Android pre-release`. Без секрета пропускает загрузку с сообщением в сводке, job зелёный; секрет не похож на ключ сервисного аккаунта — job красный. Настройка — [Google Play](#google-play-внутреннее-тестирование) |
 | `iOS TestFlight` | `macos-26` | Вызывает общий workflow `ios-testflight.yml` с адресом staging: Release-архив, проверка бандла и адреса сервера, загрузка в TestFlight (только из `main`), см. [iOS: TestFlight](#ios-testflight) |
 
 Сборка `preview` на Android:
@@ -468,7 +468,8 @@ Job проверяет профиль до сборки: тип App Store (бе�
 6. **Тестеры**: Internal testing → вкладка Testers → Create email list (до 100 адресов Google-аккаунтов) или Google Group → Save. Рядом **Copy link**: ссылка-приглашение вида `https://play.google.com/apps/internaltest/…`, её и раздают ([Инструкция тестеру](#инструкция-тестеру)).
 7. **Сервисный аккаунт для CI**:
    - Google Cloud Console → проект (создать новый) → IAM → Service Accounts → Create → имя `hovanki-play-upload`, роли не нужны. Включить API «Google Play Android Developer API». Keys → Add key → JSON: файл скачивается один раз.
-   - Play Console → Users and permissions → Invite new users → e-mail сервисного аккаунта (`…@….iam.gserviceaccount.com`). Права на уровне приложения «Hovanki β»: «Release to testing tracks» (и «View app information»). В старом интерфейсе — Setup → API access: привязать проект Google Cloud и выдать доступ.
+   - Play Console → Users and permissions → Invite new users → e-mail сервисного аккаунта (`…@….iam.gserviceaccount.com`). Права — только на уровне приложения «Hovanki β» (`app.hovanki.preview`), не на весь аккаунт разработчика: «Release to testing tracks» (и «View app information»), без «Release to production» и без прав на другие приложения. Ключ попадает в стороннее действие загрузки: если он утечёт, им можно выпустить только тестовую сборку этого приложения. В старом интерфейсе — Setup → API access: привязать проект Google Cloud и выдать доступ.
+   - Действие загрузки (`r0adkll/upload-google-play`) закреплено в `preview.yml` на полном SHA коммита, а не на теге: тег можно перевесить на чужой код, и он получил бы ключ. Обновлять — сознательно: прочитать изменения новой версии, взять SHA её тега (`git ls-remote --tags https://github.com/r0adkll/upload-google-play`) и поправить строку `uses:` с комментарием версии.
    - Секрет: `gh secret set PLAY_SERVICE_ACCOUNT_JSON < hovanki-play-upload.json` (весь файл как текст, не base64). Файл потом убрать с компьютера в менеджер паролей.
    - Права доходят до API не сразу, иногда несколько часов: первая загрузка CI может ответить отказом в доступе.
 8. **Проверка**: Actions → Preview → Run workflow на `main`. В сводке job'а `Google Play internal` — «build N … uploaded to the internal track», в Play Console → Internal testing → Releases — новая версия.
@@ -492,7 +493,7 @@ Settings → Secrets and variables → Actions. Переменные (вклад
 
 | Имя | Вид | Кто читает | Что это |
 |---|---|---|---|
-| `STAGING_SERVER_URL` | переменная | `preview.yml`; `release.yml` (проверка) | Адрес [staging](deploy.md#staging): `https://hovanki-staging.duckdns.org`. Задана — тестовые сборки Android и iOS ходят туда. Нет — они собираются на основной сервер и пишут предупреждение в сводке запуска. Только `https://` (иначе job падает с понятной ошибкой, пробелы и `/` в конце срезаются). В `release.yml` по ней проверяют, что в сборке для App Store нет staging |
+| `STAGING_SERVER_URL` | переменная | `preview.yml`; `release.yml` (проверка) | Адрес [staging](deploy.md#staging): `https://hovanki-staging.duckdns.org`. Задана — тестовые сборки Android и iOS ходят туда и публикуются. Нет — они только собираются и проверяются, никуда не публикуются, в сводке запуска — предупреждение. Только `https://` (иначе job падает с понятной ошибкой, пробелы и `/` в конце срезаются). В `release.yml` по ней проверяют, что в сборке для App Store нет staging |
 | `SENTRY_DSN` | секрет | `preview.yml` | DSN проекта Sentry приложения (регион EU), только для тестовых сборок; пустой или не задан — Sentry в сборке выключен. DSN сервера — в `.env` staging, [`deploy/.env.staging.example`](../deploy/.env.staging.example) |
 | `PLAY_SERVICE_ACCOUNT_JSON` | секрет | `preview.yml` | Ключ сервисного аккаунта Google Play: весь JSON-файл как текст ([Google Play](#google-play-внутреннее-тестирование)). Нет — загрузка в Play пропускается с сообщением в сводке |
 | `PLAY_RELEASE_STATUS` | переменная, необязательно | `preview.yml` | Статус релиза в Play: по умолчанию `completed`, `draft` — если Play ещё не принимает `completed` ([Если загрузка не проходит](#если-загрузка-не-проходит)) |
@@ -505,7 +506,7 @@ gh secret set SENTRY_DSN --body '<DSN>'
 gh secret set PLAY_SERVICE_ACCOUNT_JSON < hovanki-play-upload.json
 ```
 
-Без `STAGING_SERVER_URL` тестовые сборки не ломаются, а ходят на основной сервер: `preview.yml` пишет `::warning` и в сводке запуска «preview build goes to the production server». Такую сборку полевым тестерам не раздают.
+Без `STAGING_SERVER_URL` тестовые сборки не ломаются, но и не публикуются: `preview.yml` собирает и проверяет их с адресом основного сервера, пишет `::warning` и в сводке запуска «preview build not published: no staging server»; `Android pre-release` и `Google Play internal` пропускаются, `ios-testflight.yml` не загружает сборку `preview` без адреса, даже если его попросили. Сборка с полевым журналом и Sentry не должна попасть к тестерам с адресом основного сервера. Сервер со своей стороны тоже не даст: `FIELD_LOG` работает только там, где `hovanki.field.allowed` (профиль `staging`), на основном админ его не включит.
 
 ## Инструкция тестеру
 
