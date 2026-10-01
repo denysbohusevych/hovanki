@@ -164,19 +164,21 @@ class LabRunRepository(private val jdbc: JdbcClient) {
         jdbc.sql("SELECT count(*) FROM lab_runs WHERE code = :code").param("code", code).query(Long::class.java)
             .single() > 0
 
-    /** Newest first, with their devices, bytes and whether the report is there. */
-    fun listRuns(limit: Int): List<LabRunRow> = jdbc.sql(
+    /** Newest first, with their devices, bytes and whether the report is there; [kind]: this kind's only. */
+    fun listRuns(limit: Int, kind: LabRunKind? = null): List<LabRunRow> = jdbc.sql(
         """
         SELECT r.*,
                (SELECT count(*) FROM lab_devices d WHERE d.run_id = r.id) AS device_count,
                (SELECT coalesce(sum(d.bytes), 0) FROM lab_devices d WHERE d.run_id = r.id) AS run_bytes,
                EXISTS (SELECT 1 FROM lab_reports p WHERE p.run_id = r.id) AS report_ready
         FROM lab_runs r
+        WHERE (:kind::text IS NULL OR r.kind = :kind)
         ORDER BY r.created_at DESC, r.id
         LIMIT :limit
         """.trimIndent(),
     )
         .param("limit", limit)
+        .param("kind", kind?.name)
         .query { rs, n ->
             LabRunRow(
                 run = runs.mapRow(rs, n),

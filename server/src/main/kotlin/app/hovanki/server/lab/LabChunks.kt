@@ -51,22 +51,25 @@ internal object LabChunks {
     /**
      * A device's log from its [chunks], line by line: every event once, in the order of `seq`; a chunk that overlaps
      * the ones before it (a retried upload cut differently) adds only its events after them. The bodies are read one
-     * chunk at a time ([body]), as the lines are taken, so a whole log is never in memory.
+     * chunk at a time ([body]), as the lines are taken, so a whole log is never in memory. [after]: only the events
+     * after this `seq` (the live report reads what came since it last looked).
      */
-    fun lines(chunks: List<LabChunk>, body: (LabChunk) -> ByteArray): Sequence<String> = sequence {
-        var last = Long.MIN_VALUE
-        for (chunk in chunks.sortedBy { it.seqFrom }) {
-            if (chunk.seqTo <= last) continue
-            val bytes = body(chunk)
-            if (bytes.isNotEmpty()) {
-                GZIPInputStream(bytes.inputStream()).bufferedReader(Charsets.UTF_8).useLines { lines ->
-                    val kept = lines.filter { it.isNotBlank() }
-                    yieldAll(if (chunk.seqFrom > last) kept else kept.filter { (seqOf(it) ?: Long.MIN_VALUE) > last })
+    fun lines(chunks: List<LabChunk>, body: (LabChunk) -> ByteArray, after: Long = Long.MIN_VALUE): Sequence<String> =
+        sequence {
+            var last = after
+            for (chunk in chunks.sortedBy { it.seqFrom }) {
+                if (chunk.seqTo <= last) continue
+                val bytes = body(chunk)
+                if (bytes.isNotEmpty()) {
+                    GZIPInputStream(bytes.inputStream()).bufferedReader(Charsets.UTF_8).useLines { lines ->
+                        val kept = lines.filter { it.isNotBlank() }
+                        val seen = last
+                        yieldAll(if (chunk.seqFrom > seen) kept else kept.filter { (seqOf(it) ?: MIN) > seen })
+                    }
                 }
+                last = chunk.seqTo
             }
-            last = chunk.seqTo
         }
-    }
 
     /** Writes a device's log ([lines]) to [out]. */
     fun write(chunks: List<LabChunk>, body: (LabChunk) -> ByteArray, out: OutputStream) {
@@ -81,4 +84,5 @@ internal object LabChunks {
     }.getOrNull()
 
     private const val BUFFER = 64 * 1024
+    private const val MIN = Long.MIN_VALUE
 }

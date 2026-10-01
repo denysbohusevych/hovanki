@@ -4,6 +4,7 @@ import app.hovanki.client.network.createHttpClient
 import app.hovanki.e2e.bot.BotAccount
 import app.hovanki.e2e.observer.EmailPurpose
 import app.hovanki.e2e.observer.Observer
+import app.hovanki.shared.lab.FieldReport
 import app.hovanki.shared.lab.LabReport
 import app.hovanki.shared.protocol.AdminBigGame
 import app.hovanki.shared.protocol.AdminBigGameRequest
@@ -13,6 +14,7 @@ import app.hovanki.shared.protocol.AdminEnrollment
 import app.hovanki.shared.protocol.AdminFeature
 import app.hovanki.shared.protocol.AdminFeatureRequest
 import app.hovanki.shared.protocol.AdminFeatures
+import app.hovanki.shared.protocol.AdminFieldGames
 import app.hovanki.shared.protocol.AdminLabAdvanceRequest
 import app.hovanki.shared.protocol.AdminLabRun
 import app.hovanki.shared.protocol.AdminLabRunRequest
@@ -133,6 +135,9 @@ class StaffConsole(serverUrl: String, private val observer: Observer) : AutoClos
 
     suspend fun labRuns(): AdminLabRuns = get(ApiRoutes.ADMIN_LAB_RUNS)
 
+    /** The field runs of games (docs/adr/0018-field-test-build.md §6): the lab's list has the lab's runs only. */
+    suspend fun fieldGames(): AdminFieldGames = get(ApiRoutes.ADMIN_FIELD_GAMES)
+
     suspend fun createLabRun(title: String, scenarioId: String, reason: String): AdminLabRun =
         call(ApiRoutes.ADMIN_LAB_RUNS, AdminLabRunRequest(title, scenarioId, reason))
 
@@ -151,6 +156,13 @@ class StaffConsole(serverUrl: String, private val observer: Observer) : AutoClos
     /** The raw logs as the page downloads them: a zip with one JSONL file per device. */
     suspend fun downloadLabRaw(id: LabRunId, reason: String): ByteArray =
         call(ApiRoutes.adminLabRun(id, "raw"), AdminReasonRequest(reason))
+
+    /** A game's field report as stored ([AdminRejected] 404 until the server has computed it). */
+    suspend fun fieldReport(id: LabRunId): FieldReport = get(ApiRoutes.adminLabRun(id, "report"))
+
+    /** A field game's export (`report.md`, `digest.jsonl`) as text, with a reason. */
+    suspend fun fieldExport(id: LabRunId, export: String, reason: String): String =
+        call<ByteArray>(ApiRoutes.adminFieldGame(id, export), AdminReasonRequest(reason)).decodeToString()
 
     suspend fun deleteLabRun(id: LabRunId, reason: String) {
         call<Unit>(ApiRoutes.adminLabRun(id, "delete"), AdminReasonRequest(reason))

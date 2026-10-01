@@ -47,4 +47,20 @@ data class FieldProperties(
     val serverQueue: Int = 20_000,
     /** How often the server writes its numbers (`srv`) into every field run of a game in memory (ADR 0018 §2). */
     val srvEvery: Duration = Duration.ofSeconds(10),
+    /**
+     * The game's report (docs/field-test.md step 6, [FieldReportService]): computed again at most this often while
+     * new logs come (live during the game, whole once it is over and for its last uploads).
+     */
+    val reportEvery: Duration = Duration.ofMinutes(2),
+    /** The whole report reads the logs this much of the game at a time: the heap holds one window's events. */
+    val reportWindow: Duration = Duration.ofMinutes(10),
+    /**
+     * The live report's windows, and how far behind the clock it stays: the phones upload every 10 s, a window is
+     * read once the uploads of its time are in.
+     */
+    val liveWindow: Duration = Duration.ofMinutes(1),
+    val liveLag: Duration = Duration.ofMinutes(1),
+    /** The readings and touches kept for the lab's techniques in a game's report, at most (the live one: [liveTechniqueEvents]). */
+    val maxTechniqueEvents: Int = 200_000,
+    val liveTechniqueEvents: Int = 50_000,
 )

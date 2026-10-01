@@ -114,11 +114,33 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
         "mask" -> "mask bits ${maskBits(event).sorted()} decoded ${maskDecoded(event)} ${event.int("rssi")} dBm " +
             "${event.string("api")}"
 
-        else ->
-            "${event.k} " + event.fields
-                .filterKeys { it !in COMMON }
-                .entries.joinToString(" ") { (key, value) -> "$key=${text(value)}" }
+        ServerKinds.BAND -> if (isServer(event)) {
+            "server band ${event.string(ServerFields.HEARD)} → ${event.string(ServerFields.OBSERVER)} " +
+                "${event.string(ServerFields.FROM)} → ${event.string(ServerFields.BAND)} " +
+                "(shadow ${event.string(ServerFields.SHADOW_BAND)})"
+        } else {
+            generic(event)
+        }
+
+        ServerKinds.CLAIM -> if (isServer(event)) {
+            listOfNotNull(
+                "CLAIM ${event.string(ServerFields.SEEKER)} → ${event.string(ServerFields.HIDER)}",
+                event.string(ServerFields.OUTCOME),
+                event.double(ServerFields.DISTANCE)?.let { "GPS ≥ $it m" },
+                event.boolean(ServerFields.SHADOW_ACCEPT)?.let {
+                    "proximity in the shadow: ${if (it) "yes" else "no"}"
+                },
+            ).joinToString(" · ")
+        } else {
+            generic(event)
+        }
+
+        else -> generic(event)
     }
+
+    private fun generic(event: LabEvent): String = "${event.k} " + event.fields
+        .filterKeys { it !in COMMON }
+        .entries.joinToString(" ") { (key, value) -> "$key=${text(value)}" }
 
     /** The stretches between marks, and in each, every direction: who heard whom, how often, how loud, the gaps. */
     fun summary(): String = buildString {
@@ -172,13 +194,26 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
                         "${direction.minRssi} | ${direction.maxRssi} | $gap | ${direction.during.ifEmpty { "-" }} |",
                 )
             }
-            val bands = events.filter { it.k == "band" && it.t >= segment.start && it.t < segment.end }
+            val inSegment = events.filter { it.k == "band" && it.t >= segment.start && it.t < segment.end }
+            // The phone's `band` is the lab's smoothing of a token; the server's, a game's pair (ADR 0018 §3.3).
+            val (serverBands, bands) = inSegment.partition(::isServer)
             if (bands.isNotEmpty()) {
                 appendLine()
                 val last = bands.groupBy { it.dev to it.string("token") }.map { (key, list) ->
                     "${sender(key.second)} → ${key.first}: ${list.last().string("band")}"
                 }
                 appendLine("Bands at the end (the lab's smoothing): ${last.joinToString("; ")}")
+            }
+            if (serverBands.isNotEmpty()) {
+                appendLine()
+                val last = serverBands.groupBy {
+                    it.string(ServerFields.HEARD) to it.string(ServerFields.OBSERVER)
+                }.map { (key, list) ->
+                    val band = list.last()
+                    "${key.first} → ${key.second}: ${band.string(ServerFields.BAND)} " +
+                        "(shadow ${band.string(ServerFields.SHADOW_BAND)})"
+                }
+                appendLine("Bands at the end (the game's server): ${last.joinToString("; ")}")
             }
         }
         appendLine()
@@ -459,6 +494,12 @@ class LabMerge(sources: Sequence<LabLogSource>, devs: List<String?> = emptyList(
                 OverflowArea.bitsOf(ByteArray(hex.length / 2) { hex.substring(2 * it, 2 * it + 2).toInt(16).toByte() })
             }
             ?: event.ints("bits").toSet()
+
+        /**
+         * Whether [event] is the game server's own (docs/adr/0018-field-test-build.md §3.3): its kinds share names with
+         * the phones' (`band`, `mark`…) and mean other things, so a reader tells them apart by the device.
+         */
+        fun isServer(event: LabEvent): Boolean = event.dev == FieldKinds.SERVER_DEVICE
 
         /** The tokens a mask carries, decoded again from [maskBits]. */
         fun maskDecoded(event: LabEvent): List<String> = OverflowCode.decode(maskBits(event))

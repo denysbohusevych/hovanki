@@ -24,6 +24,7 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import java.io.ByteArrayOutputStream
@@ -95,6 +96,26 @@ class AdminTestClient(
 
     inline fun <reified T> post(path: String, body: T, staff: StaffLogin): TestResponse =
         postRaw(path, body.asJson(), staff).also(staff::follow)
+
+    inline fun <reified T> delete(path: String, body: T, staff: StaffLogin): TestResponse =
+        deleteRaw(path, body.asJson(), staff).also(staff::follow)
+
+    fun deleteRaw(path: String, json: String, staff: StaffLogin): TestResponse {
+        val response = mvc.delete(path) {
+            contentType = MediaType.APPLICATION_JSON
+            content = json
+            header(ApiRoutes.ADMIN_HEADER, "1")
+            cookie(Cookie(ApiRoutes.ADMIN_COOKIE, staff.token))
+        }.andReturn().response
+        return TestResponse(
+            response.status,
+            response.getContentAsString(Charsets.UTF_8),
+            response.getHeader(HttpHeaders.SET_COOKIE),
+            response.contentAsByteArray,
+            response.contentType,
+            response.getHeader(HttpHeaders.CONTENT_DISPOSITION),
+        )
+    }
 
     fun postRaw(path: String, json: String?, staff: StaffLogin?): TestResponse {
         val response = mvc.post(path) {

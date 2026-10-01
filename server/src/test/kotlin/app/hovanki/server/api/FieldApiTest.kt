@@ -14,12 +14,14 @@ import app.hovanki.server.lab.FieldRunService
 import app.hovanki.server.lab.FieldServerSampler
 import app.hovanki.server.lab.LabChunks
 import app.hovanki.server.lab.LabLive
+import app.hovanki.server.lab.LabReportWriter
 import app.hovanki.server.lab.LabRunRecord
 import app.hovanki.server.lab.LabRunRepository
 import app.hovanki.server.mail.EmailSender
 import app.hovanki.server.mail.RecordingEmailSender
 import app.hovanki.server.ratelimit.RateLimiter
 import app.hovanki.shared.lab.FieldKinds
+import app.hovanki.shared.lab.FieldReport
 import app.hovanki.shared.lab.GpsFields
 import app.hovanki.shared.lab.LabPlanState
 import app.hovanki.shared.lab.LabSchema
@@ -27,7 +29,12 @@ import app.hovanki.shared.lab.MarkFields
 import app.hovanki.shared.lab.ServerFields
 import app.hovanki.shared.lab.ServerKinds
 import app.hovanki.shared.lab.SrvFields
+import app.hovanki.shared.lab.SyncFields
 import app.hovanki.shared.protocol.AccountSession
+import app.hovanki.shared.protocol.AdminFieldGameView
+import app.hovanki.shared.protocol.AdminFieldGames
+import app.hovanki.shared.protocol.AdminFieldMarkRequest
+import app.hovanki.shared.protocol.AdminFieldRawRequest
 import app.hovanki.shared.protocol.AdminLabRun
 import app.hovanki.shared.protocol.AdminLabRunRequest
 import app.hovanki.shared.protocol.AdminLabRunView
@@ -62,6 +69,7 @@ import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.UserRole
+import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.shrinkingZone
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -119,6 +127,7 @@ class FieldApiTest(
     @Autowired private val transactionManager: PlatformTransactionManager,
     @Autowired private val fieldEventWriter: FieldEventWriter,
     @Autowired private val fieldSampler: FieldServerSampler,
+    @Autowired private val labReports: LabReportWriter,
 ) {
     private val admin = AdminTestClient(mvc, emailSender as RecordingEmailSender, clock, jdbc)
     private val park = GeoPoint(50.4501, 30.5234)
@@ -217,9 +226,12 @@ class FieldApiTest(
         // A lab phone's token isn't a game's, and a field token isn't for another run.
         upload(g, listOf(gps(g, 2)), runId = LabRunId("elsewhere")).error(403, ErrorCode.FORBIDDEN)
 
-        // The admin sees the game's run among the lab's, without a code to join by, and its raw logs.
+        // The admin sees the game's run in the field list (not the lab's), without a code to join by, and its raw logs.
         val staff = admin.staff(UserRole.ADMIN)
-        val listed = admin.get(ApiRoutes.ADMIN_LAB_RUNS, staff).ok<AdminLabRuns>().runs.single { it.id == a.runId }
+        assertTrue(admin.get(ApiRoutes.ADMIN_LAB_RUNS, staff).ok<AdminLabRuns>().runs.none { it.id == a.runId })
+        val listed = admin.get(ApiRoutes.ADMIN_FIELD_GAMES, staff).ok<AdminFieldGames>().runs.single {
+            it.id == a.runId
+        }
         assertEquals(LabRunKind.GAME to host.gameId.value, listed.kind to listed.gameId)
         assertEquals("", listed.code)
         assertTrue(listed.qr.isEmpty())
@@ -280,7 +292,7 @@ class FieldApiTest(
         val suffix = uniqueName("gone")
         val leftover = openRun("left-$suffix", clock.instant().minus(Duration.ofHours(1)))
         val restarted = FieldRunService(
-            labRuns, games, features, rateLimiter, live, fieldProperties, ids, clock, transactionManager,
+            labRuns, games, features, rateLimiter, live, labReports, fieldProperties, ids, clock, transactionManager,
         )
         val others = openRun("other-$suffix", clock.instant())
         try {
@@ -352,6 +364,12 @@ class FieldApiTest(
         upload(phone, listOf(gps(phone, 2))).ok<LabEventsResponse>()
         clock.advance(Duration.ofMinutes(31))
         upload(phone, listOf(gps(phone, 3))).error(409, ErrorCode.WRONG_STATE, ErrorReason.LAB_RUN_CLOSED)
+        // An organizer's mark too: the run is closed for everybody.
+        admin.post(
+            ApiRoutes.adminFieldGame(phone.runId, "marks"),
+            AdminFieldMarkRequest("too late", "a test"),
+            admin.staff(UserRole.ADMIN),
+        ).error(409, ErrorCode.WRONG_STATE, ErrorReason.LAB_RUN_CLOSED)
     }
 
     @Test
@@ -400,6 +418,182 @@ class FieldApiTest(
         assertEquals((0L until lines.size).toList(), lines.map { it["seq"].toString().toLong() })
         assertTrue(lines.all { it["run"].toString() == "\"${phone.runId.value}\"" })
         assertTrue(lines.none(LabSchema::hasCoordinates), "no position in the server's events")
+    }
+
+    @Test
+    fun theGamesReportIsComputedAndExportedWithoutNamesOrPlaces() {
+        val game = createGame(token = null)
+        val host = game.session
+        val guest = join(game.snapshot.joinCode, token = null).session
+        val hostPhone = fieldJoin(host).ok<FieldJoinResponse>()
+        // The players are P1, P2… in the order their phones joined.
+        clock.advance(Duration.ofMillis(1))
+        val guestPhone = fieldJoin(guest).ok<FieldJoinResponse>()
+        post(ApiRoutes.start(host.gameId), StartGameRequest(listOf(host.playerId)).asJson(), host.token).expect(200)
+        fieldEventWriter.awaitIdle()
+        for (i in 1L..3L) {
+            clock.advance(Duration.ofSeconds(20))
+            upload(hostPhone, listOf(gps(hostPhone, 2 * i - 1), sync(hostPhone, 2 * i))).ok<LabEventsResponse>()
+            upload(guestPhone, listOf(gps(guestPhone, i))).ok<LabEventsResponse>()
+        }
+        upload(guestPhone, listOf(mark(guestPhone, 4, "radar silent"))).ok<LabEventsResponse>()
+        labReports.awaitIdle()
+        // While the game plays, its live report.
+        val running = labRuns.findReport(hostPhone.runId.value)?.let {
+            protocolJson.decodeFromString(FieldReport.serializer(), it)
+        }
+        assertNotNull(running, "the live report")
+        assertFalse(running.final)
+
+        // The game ends: the whole report, players by alias, its server's phases.
+        registry.removeIf { it.id == host.gameId }
+        janitor.removeExpiredGames()
+        fieldEventWriter.awaitIdle()
+        labReports.awaitIdle()
+        val staff = admin.staff(UserRole.ADMIN)
+        val stored = admin.get(ApiRoutes.adminLabRun(hostPhone.runId, "report"), staff).expect(200).body
+        val report = protocolJson.decodeFromString(FieldReport.serializer(), stored)
+        assertTrue(report.final)
+        assertEquals(listOf("P1", "P2"), report.players.map { it.alias })
+        assertEquals(listOf(host.playerId.value, guest.playerId.value), report.players.map { it.label })
+        assertEquals(3, report.players[0].gps.fixes)
+        assertEquals(3, report.players[0].sync.count)
+        assertTrue(report.timeline.any { it.kind == ServerKinds.PHASE }, "${report.timeline}")
+        assertEquals("radar silent", report.marks.single().text)
+
+        // The exports: admins only, with a reason, audited; no ids, no coordinates.
+        val markdownRoute = ApiRoutes.adminFieldGame(hostPhone.runId, "report.md")
+        admin.post(
+            markdownRoute,
+            AdminReasonRequest("why"),
+            admin.staff(UserRole.MODERATOR),
+        ).error(403, ErrorCode.FORBIDDEN)
+        admin.post(markdownRoute, AdminReasonRequest(" "), staff).error(400, ErrorCode.BAD_REQUEST)
+        admin.post(ApiRoutes.adminFieldGame(LabRunId("nope"), "report.md"), AdminReasonRequest("why"), staff)
+            .error(404, ErrorCode.NOT_FOUND)
+        val markdown = admin.post(markdownRoute, AdminReasonRequest("for the AI"), staff).expect(200)
+        val digest = admin.post(
+            ApiRoutes.adminFieldGame(hostPhone.runId, "digest.jsonl"),
+            AdminReasonRequest("AI"),
+            staff,
+        )
+            .expect(200)
+        for (text in listOf(markdown.body, digest.body)) {
+            for (secret in listOf(host.playerId.value, guest.playerId.value, park.lat.toString(), "\"lat\"")) {
+                assertFalse(secret in text, "«$secret» in an export")
+            }
+        }
+        assertTrue("| P1 |" in markdown.body, markdown.body)
+        val lines = digest.body.lines().filter { it.isNotBlank() }.map { Json.parseToJsonElement(it).jsonObject }
+        assertEquals("\"digest\"", lines.first()["k"].toString())
+        assertTrue(lines.any { it["k"].toString() == "\"minute\"" && it["p"].toString() == "\"P1\"" }, digest.body)
+        assertTrue(lines.any { it["k"].toString() == "\"${ServerKinds.PHASE}\"" }, digest.body)
+
+        // The raw logs, a slice: the host's phone only.
+        val raw = admin.post(
+            ApiRoutes.adminFieldGame(hostPhone.runId, "raw.zip"),
+            AdminFieldRawRequest("check", devices = listOf(host.playerId.value)),
+            staff,
+        ).expect(200)
+        assertEquals(
+            listOf("hovanki-lab-${host.playerId.value}-${hostPhone.deviceId}.jsonl"),
+            unzip(raw.bytes).keys.toList(),
+        )
+        val audited = jdbc.sql("SELECT count(*) FROM admin_audit WHERE action = 'FIELD_EXPORT' AND target LIKE :t")
+            .param("t", "%${hostPhone.runId.value}%").query(Long::class.java).single()
+        assertEquals(2L, audited)
+    }
+
+    @Test
+    fun theFieldTabsRoutesListShowMarkAndDeleteAGame() {
+        val game = createGame(token = null)
+        val host = game.session
+        join(game.snapshot.joinCode, token = null)
+        val phone = fieldJoin(host).ok<FieldJoinResponse>()
+        post(ApiRoutes.start(host.gameId), StartGameRequest(listOf(host.playerId)).asJson(), host.token).expect(200)
+        fieldEventWriter.awaitIdle()
+        clock.advance(Duration.ofSeconds(20))
+        upload(phone, listOf(gps(phone, 1), sync(phone, 2))).ok<LabEventsResponse>()
+        val admins = admin.staff(UserRole.ADMIN)
+        val moderator = admin.staff(UserRole.MODERATOR)
+        val game0 = ApiRoutes.adminFieldGame(phone.runId)
+        val marks = ApiRoutes.adminFieldGame(phone.runId, "marks")
+
+        // Admins only, whatever the route.
+        admin.get(ApiRoutes.ADMIN_FIELD_GAMES, moderator).error(403, ErrorCode.FORBIDDEN)
+        admin.get(game0, moderator).error(403, ErrorCode.FORBIDDEN)
+        admin.get(ApiRoutes.adminFieldGame(phone.runId, "report"), moderator).error(403, ErrorCode.FORBIDDEN)
+        admin.post(marks, AdminFieldMarkRequest("a text", "a reason"), moderator).error(403, ErrorCode.FORBIDDEN)
+        admin.delete(game0, AdminReasonRequest("clean up"), moderator).error(403, ErrorCode.FORBIDDEN)
+
+        // The list and the run: its phone and the server's log, the live view with the phone's last sync.
+        val listed = admin.get(ApiRoutes.ADMIN_FIELD_GAMES, admins).ok<AdminFieldGames>().runs.single {
+            it.id ==
+                phone.runId
+        }
+        assertEquals(host.gameId.value, listed.gameId)
+        val view = admin.get(game0, admins).ok<AdminFieldGameView>()
+        assertEquals(LabRunKind.GAME, view.run.kind)
+        assertTrue(view.devices.any { it.id == phone.deviceId })
+        val livePhone = view.live.devices.single { it.deviceId == phone.deviceId }
+        assertEquals(true, livePhone.syncOk, "${view.live}")
+        assertNotNull(livePhone.lastEventAtMillis)
+        assertTrue(view.live.pairs.isEmpty(), "a game's live view has no pairs")
+        // A lab run is not a field game.
+        val lab = admin.post(ApiRoutes.ADMIN_LAB_RUNS, AdminLabRunRequest("Park", "e2e", "a test"), admins)
+            .ok<AdminLabRun>()
+        admin.get(ApiRoutes.adminFieldGame(lab.id), admins).error(404, ErrorCode.NOT_FOUND)
+        admin.get(ApiRoutes.adminFieldGame(LabRunId("nope")), admins).error(404, ErrorCode.NOT_FOUND)
+
+        // An organizer's mark: text and reason; the run holds the text, never the admin's name.
+        admin.post(marks, AdminFieldMarkRequest(" ", "a reason"), admins).error(400, ErrorCode.BAD_REQUEST)
+        admin.post(marks, AdminFieldMarkRequest("hider in the shop", " "), admins).error(400, ErrorCode.BAD_REQUEST)
+        admin.post(ApiRoutes.adminFieldGame(lab.id, "marks"), AdminFieldMarkRequest("x", "y"), admins)
+            .error(404, ErrorCode.NOT_FOUND)
+        admin.post(marks, AdminFieldMarkRequest("hider in the shop", "the hider went in"), admins).expect(204)
+        clock.advance(Duration.ofSeconds(1))
+        admin.post(marks, AdminFieldMarkRequest("hider is out", "went out"), admins).expect(204)
+        val staffDevice = labRuns.devicesOf(phone.runId.value).single { it.label == MarkFields.STAFF }
+        assertEquals(2L, staffDevice.events)
+        val staffLog = LabChunks.lines(labRuns.chunksOf(staffDevice.id), labRuns::chunkBody).toList()
+        assertEquals(2, staffLog.size)
+        val first = Json.parseToJsonElement(staffLog[0]).jsonObject
+        assertEquals("\"${FieldKinds.MARK}\"", first["k"].toString())
+        assertEquals("\"hider in the shop\"", first[MarkFields.TEXT].toString())
+        assertEquals("\"${MarkFields.STAFF}\"", first["dev"].toString())
+        assertTrue(staffLog.none { admins.account.user.nickname in it }, "the admin's name is not in the run")
+        val audit = jdbc.sql("SELECT actor_name, reason FROM admin_audit WHERE action = 'FIELD_MARK' ORDER BY id")
+            .query { rs, _ -> rs.getString(1) to rs.getString(2) }.list()
+        assertEquals(
+            listOf(
+                admins.account.user.nickname to "the hider went in",
+                admins.account.user.nickname to "went out",
+            ),
+            audit,
+        )
+        // It is in the report's marks (the live report reads up to its lag behind the clock).
+        clock.advance(fieldProperties.liveLag + Duration.ofMinutes(1))
+        labReports.compute(phone.runId.value)
+        labReports.awaitIdle()
+        val report = protocolJson.decodeFromString(
+            FieldReport.serializer(),
+            admin.get(ApiRoutes.adminFieldGame(phone.runId, "report"), admins).expect(200).body,
+        )
+        assertEquals(listOf("hider in the shop", "hider is out"), report.marks.map { it.text })
+        assertTrue(report.marks.all { it.by == MarkFields.STAFF })
+        assertTrue(report.players.none { it.label == MarkFields.STAFF }, "the staff is no player")
+
+        // The delete: a reason, then the run and everything of it are gone.
+        admin.delete(game0, AdminReasonRequest(" "), admins).error(400, ErrorCode.BAD_REQUEST)
+        admin.delete(ApiRoutes.adminFieldGame(lab.id), AdminReasonRequest("not a game"), admins)
+            .error(404, ErrorCode.NOT_FOUND)
+        admin.delete(game0, AdminReasonRequest("the test is over"), admins).expect(204)
+        admin.get(game0, admins).error(404, ErrorCode.NOT_FOUND)
+        admin.get(ApiRoutes.adminFieldGame(phone.runId, "report"), admins).error(404, ErrorCode.NOT_FOUND)
+        assertTrue(labRuns.devicesOf(phone.runId.value).isEmpty())
+        val deleted = jdbc.sql("SELECT count(*) FROM admin_audit WHERE action = 'LAB_RUN_DELETE' AND reason = :r")
+            .param("r", "the test is over").query(Long::class.java).single()
+        assertEquals(1L, deleted)
     }
 
     @Test
@@ -516,6 +710,12 @@ class FieldApiTest(
         put(GpsFields.LON, park.lon)
         put(GpsFields.ACC, 4.0)
         put(GpsFields.ACCEPTED, true)
+    }
+
+    private fun sync(phone: FieldJoinResponse, seq: Long): JsonObject = event(phone.runId, seq, FieldKinds.SYNC) {
+        put(SyncFields.TRANSPORT, SyncFields.POLL)
+        put(SyncFields.OK, true)
+        put(SyncFields.MILLIS, 80)
     }
 
     private fun mark(phone: FieldJoinResponse, seq: Long, text: String): JsonObject =

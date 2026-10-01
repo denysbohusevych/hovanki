@@ -204,3 +204,12 @@ hovanki:
     join-window: 24h
     upload-grace: 30m
     retention: 90d
+    # The game's report (docs/field-test.md step 6): computed again at most this often as logs come, live while the
+    # game plays (windows of live-window, live-lag behind the clock), whole after it, reading report-window of the
+    # game at a time; the lab's techniques read at most max-technique-events readings and touches.
+    report-every: 2m
+    report-window: 10m
+    live-window: 1m
+    live-lag: 1m
+    max-technique-events: 200000
+    live-technique-events: 50000

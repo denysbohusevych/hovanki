@@ -341,6 +341,12 @@ enum class AdminAction {
 
     /** A run deleted with its devices, logs and report. */
     LAB_RUN_DELETE,
+
+    /** A field game's report or digest taken out (docs/adr/0018-field-test-build.md §6); its raw logs are [LAB_RUN_DOWNLOAD]. */
+    FIELD_EXPORT,
+
+    /** An organizer's mark written into a field game's log (docs/adr/0018-field-test-build.md §6). */
+    FIELD_MARK,
 }
 
 /**
