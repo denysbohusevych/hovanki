@@ -9,6 +9,9 @@ import kotlin.test.assertTrue
 
 /** The technique cards on made-up reports: the numbers decide the verdict. */
 class LabCardsTest {
+    /** The bands judge a smoothing or a calibration over two distances or more. */
+    private val twoDistances = CardFacts(distances = listOf(mapOf("A|B" to 1.0), mapOf("A|B" to 5.0)))
+
     private fun cards(report: LabReport, facts: CardFacts = CardFacts()) =
         TechniqueCards.build(report, facts).associateBy { it.tech }
 
@@ -69,17 +72,41 @@ class LabCardsTest {
                     bands(Smoothings.RATE, Calibrations.TOUCH, exact = 95),
                 ),
             ),
+            twoDistances,
         )
         assertEquals(Verdict.KEEP, cards.getValue(Smoothings.P80).verdict)
         assertEquals(Verdict.DROP, cards.getValue(Smoothings.EMA).verdict)
         assertEquals(Verdict.DROP, cards.getValue(Smoothings.RATE).verdict)
         assertTrue(cards.getValue(Smoothings.EMA).numbers.any { "70.0 %" in it }, "the winner's numbers beside")
 
-        // A tie keeps the game's.
+        // A tie keeps the game's, and drops nobody: the others are no worse.
         val tie = cards(
             report(bands = Smoothings.ALL.map { bands(it, Calibrations.NONE, exact = 60) }),
+            twoDistances,
         )
         assertEquals(Verdict.KEEP, tie.getValue(Smoothings.EMA).verdict)
+        assertEquals(Verdict.INSUFFICIENT, tie.getValue(Smoothings.P80).verdict)
+        assertEquals(Verdict.INSUFFICIENT, tie.getValue(Smoothings.RATE).verdict)
+        assertEquals("ничья с ${Smoothings.EMA}", tie.getValue(Smoothings.RATE).missing)
+    }
+
+    @Test
+    fun oneDistanceJudgesNoSmoothingAndNoCalibration() {
+        // The run of 2026-09-30: every second at 1 m, the model's calibration 11 points worse.
+        val cards = cards(
+            report(
+                bands = Smoothings.ALL.map { bands(it, Calibrations.NONE, exact = 43) } +
+                    bands(Smoothings.EMA, Calibrations.MODEL, exact = 32),
+                calibrations = listOf(LabReportCalibration(Calibrations.MODEL, mapOf("A|B" to -16.0))),
+            ),
+            CardFacts(distances = listOf(mapOf("A|B" to 1.0), mapOf("A|B" to 1.0))),
+        )
+        for (id in Smoothings.ALL + Calibrations.ALL) {
+            val card = cards.getValue(id)
+            assertEquals(Verdict.INSUFFICIENT, card.verdict, id)
+            assertEquals("все секунды на одном расстоянии (1.0 м): нужно хотя бы 2", card.missing, id)
+        }
+        assertTrue(cards.getValue(Calibrations.MODEL).numbers.any { "32.0 %" in it })
     }
 
     @Test
@@ -106,6 +133,7 @@ class LabCardsTest {
                 spreads = spreads,
                 calibrations = offsets,
             ),
+            twoDistances,
         )
 
         val kept = touch(exact = 65)
@@ -134,6 +162,7 @@ class LabCardsTest {
                 ),
                 calibrations = listOf(LabReportCalibration(Calibrations.MODEL, mapOf("A|B" to 3.0))),
             ),
+            twoDistances,
         )
         assertEquals(Verdict.KEEP, cards.getValue(Calibrations.MODEL).verdict)
         assertEquals(Verdict.DROP, cards.getValue(Calibrations.NONE).verdict)
@@ -212,12 +241,24 @@ class LabCardsTest {
         assertEquals(Verdict.KEEP, none.verdict)
         assertTrue(none.numbers.any { "ни один iPhone не блокировался" in it }, "${none.numbers}")
         assertNull(none.missing)
+
+        // A seeker nobody heard at all: the locked silence judges nothing.
+        val unheard = cards(
+            report(),
+            facts.copy(
+                techs = setOf(TechniqueCards.IBEACON),
+                lockedRanging = listOf(LockedRanging("A", "S", 10_000, null, 300_000)),
+            ),
+        ).getValue(TechniqueCards.IBEACON)
+        assertEquals(Verdict.INSUFFICIENT, unheard.verdict, "$unheard")
+        assertTrue(unheard.numbers.any { "iBeacon S не услышал никто" in it }, "${unheard.numbers}")
     }
 
     @Test
     fun theRegionsEnterWithinThirtySeconds() {
-        fun region(vararg waits: Long?) = cards(
-            report(),
+        val heard = report(steps = listOf(step(direction("S", "B", TechniqueCards.IBEACON, 25))))
+        fun region(vararg waits: Long?, report: LabReport = heard) = cards(
+            report,
             CardFacts(
                 regionWaits = waits.mapIndexed { index, wait -> RegionWait(index, "S", "H", 5.0, 1_000, wait) } +
                     RegionWait(0, "S", "far", 40.0, 1_000, null),
@@ -227,6 +268,11 @@ class LabCardsTest {
         assertEquals(Verdict.DROP, region(12_000, 45_000).verdict)
         assertEquals(Verdict.DROP, region(null).verdict)
         assertEquals(Verdict.INSUFFICIENT, region().verdict, "only the case 40 m away")
+
+        // The run of 2026-09-30: the Mac's iBeacon, heard by nobody, maybe never on the air.
+        val unheard = region(null, report = report())
+        assertEquals(Verdict.INSUFFICIENT, unheard.verdict, "$unheard")
+        assertTrue(unheard.numbers.any { "iBeacon S не услышал никто" in it }, "${unheard.numbers}")
     }
 
     @Test
@@ -269,6 +315,22 @@ class LabCardsTest {
         val short = cards(report(carry = rows(LabMerge.CARRY_V1, 60, 40) + rows(LabMerge.CARRY_V2, 20, 10)))
         assertEquals(Verdict.INSUFFICIENT, short.getValue(LabMerge.CARRY_V2).verdict, "30 s of v2")
         assertEquals(Verdict.INSUFFICIENT, short.getValue(LabMerge.CARRY_V1).verdict)
+
+        // The run of 2026-09-30: the phone on the table only, never in the pocket.
+        fun table(tech: String, said: String, seconds: Int) = LabReportCarry("A", "not_pocket", said, seconds, tech)
+        val onTable = cards(
+            report(
+                carry = listOf(
+                    table(LabMerge.CARRY_V1, "unknown", 348),
+                    table(LabMerge.CARRY_V1, "none", 215),
+                    table(LabMerge.CARRY_V2, "in_hand", 214),
+                    table(LabMerge.CARRY_V2, "unknown", 345),
+                ),
+            ),
+        )
+        assertEquals(Verdict.INSUFFICIENT, onTable.getValue(LabMerge.CARRY_V2).verdict)
+        assertEquals(Verdict.INSUFFICIENT, onTable.getValue(LabMerge.CARRY_V1).verdict)
+        assertEquals("в кармане по разметке меньше 60 с (0 с)", onTable.getValue(LabMerge.CARRY_V1).missing)
 
         val onlyV1 = cards(report(carry = rows(LabMerge.CARRY_V1, 60, 40)))
         assertEquals(Verdict.INSUFFICIENT, onlyV1.getValue(LabMerge.CARRY_V1).verdict)

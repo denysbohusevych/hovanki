@@ -57,6 +57,24 @@ class LabControllerTest {
     }
 
     @Test
+    fun clearingTheLogWritesTheCarryAgain() = runTest {
+        val lab = Lab(this)
+        lab.controller.start()
+        lab.carry.state.value = Carry.IN_HAND
+        runCurrent()
+        lab.controller.clear()
+        runCurrent()
+
+        val kinds = lab.kinds()
+        assertEquals(listOf("session", "carry"), kinds.take(2), "$kinds")
+        assertEquals(
+            "in_hand",
+            lab.events().first { it["k"]!!.jsonPrimitive.content == "carry" }["state"]!!.jsonPrimitive.content,
+        )
+        lab.controller.stop()
+    }
+
+    @Test
     fun anEngineStopIsWrittenWithItsReason() = runTest {
         val lab = Lab(this)
         lab.controller.start()
