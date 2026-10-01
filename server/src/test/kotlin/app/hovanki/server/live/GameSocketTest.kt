@@ -23,6 +23,7 @@ import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.shrinkingZone
+import io.micrometer.core.instrument.MeterRegistry
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.springframework.beans.factory.annotation.Autowired
@@ -57,6 +58,7 @@ class GameSocketTest(
     @Autowired private val features: FeatureFlags,
     @Autowired private val sockets: GameSockets,
     @Autowired private val clock: Clock,
+    @Autowired private val meters: MeterRegistry,
 ) {
     private val http = HttpClient.newHttpClient()
     private val park = GeoPoint(50.4501, 30.5234)
@@ -77,6 +79,8 @@ class GameSocketTest(
 
     @Test
     fun aSyncOverTheSocketIsTheSyncOfPost() {
+        val socketSyncsBefore = syncsTimed("socket")
+        val pollSyncsBefore = syncsTimed("poll")
         val host = create()
         val socket = open(host.session)
         val fix = LocationSample(park, accuracyMeters = 5.0, timestampMillis = clock.millis())
@@ -97,6 +101,9 @@ class GameSocketTest(
         socket.sendText("""{"type":"hello","seq":3}""")
         socket.send(ClientFrame.Sync(4, SyncRequest()))
         assertEquals(4, assertIs<ServerFrame.Snapshot>(socket.next()).seq)
+        // The metrics tell the two ways apart (hovanki.game.sync{transport}): three frames of the socket, one POST.
+        assertEquals(3, syncsTimed("socket") - socketSyncsBefore)
+        assertEquals(1, syncsTimed("poll") - pollSyncsBefore)
         socket.close()
     }
 
@@ -220,6 +227,9 @@ class GameSocketTest(
         }
         eventually { sockets.count(host.session.gameId) == 0 }
     }
+
+    private fun syncsTimed(transport: String): Long =
+        meters.find("hovanki.game.sync").tag("transport", transport).timer()?.count() ?: 0
 
     private fun GameSnapshot.withoutTimes() =
         copy(serverTimeMillis = 0, players = players.map { it.copy(lastSeenMillis = null) })

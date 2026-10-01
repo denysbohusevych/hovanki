@@ -963,4 +963,27 @@ class GameTest {
         assertTrue(result.survivedSeconds!! <= ((eliminatedBy - zoneStartedAt) / 1000).toInt())
         assertEquals(1, assertNotNull(game.finishedRecord()).hidersEliminated)
     }
+
+    @Test
+    fun anOrdinaryGameTakesThirtyPlayersByDefault() {
+        assertEquals(30, game.maxPlayers)
+        repeat(Game.MAX_PLAYERS) { game.addPlayer(PlayerId("p$it"), "P$it", now) }
+
+        val error = assertFailsWith<GameException> { game.addPlayer(PlayerId("p31"), "P31", now) }
+        assertEquals(ErrorCode.WRONG_STATE, error.code)
+        assertEquals(Game.MAX_PLAYERS, game.playerCount())
+    }
+
+    @Test
+    fun theLimitIsTheGamesOwn() {
+        val field = Game(GameId("field"), "FLD234", host, settings, now, maxPlayers = 60)
+        // 31 players: one over the default.
+        repeat(Game.MAX_PLAYERS + 1) { field.addPlayer(PlayerId("p$it"), "P$it", now) }
+        assertEquals(Game.MAX_PLAYERS + 1, field.playerCount())
+
+        repeat(29) { field.addPlayer(PlayerId("q$it"), "Q$it", now) }
+        assertEquals(60, field.playerCount())
+        val error = assertFailsWith<GameException> { field.addPlayer(PlayerId("q30"), "Q30", now) }
+        assertEquals(ErrorCode.WRONG_STATE, error.code)
+    }
 }

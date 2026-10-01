@@ -7,6 +7,8 @@ import app.hovanki.server.features.FeatureFlags
 import app.hovanki.server.history.HistoryWriter
 import app.hovanki.server.map.StreetZoneLoader
 import app.hovanki.server.map.TerrainLoader
+import app.hovanki.server.metrics.ServerMetrics
+import app.hovanki.server.metrics.SyncTransport
 import app.hovanki.server.moderation.NewReport
 import app.hovanki.server.moderation.ReportRepository
 import app.hovanki.server.moderation.SanctionService
@@ -95,6 +97,8 @@ class GameService(
     private val friends: FriendRepository,
     private val pokeSink: PokeSink,
     private val deadlines: GameDeadlines,
+    private val limits: GameLimitsProperties,
+    private val metrics: ServerMetrics,
 ) {
     /**
      * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
@@ -109,7 +113,15 @@ class GameService(
         val hostId = ids.playerId()
         var game: Game
         do {
-            game = Game(ids.gameId(), ids.joinCode(), hostId, request.settings, now, capacity.norms())
+            game = Game(
+                ids.gameId(),
+                ids.joinCode(),
+                hostId,
+                request.settings,
+                now,
+                capacity.norms(),
+                maxPlayers = limits.maxPlayers,
+            )
         } while (!registry.add(game))
         return synchronized(game) {
             game.addPlayer(hostId, name, now, user?.userId)
@@ -401,7 +413,13 @@ class GameService(
         return synchronized(game) { game.streetZoneFor(caller.playerId) }
     }
 
-    fun sync(caller: PlayerRef, gameId: GameId, request: SyncRequest): GameSnapshot {
+    /** [transport]: how the phone asked, only for the timer of the metrics (`hovanki.game.sync`). */
+    fun sync(
+        caller: PlayerRef,
+        gameId: GameId,
+        request: SyncRequest,
+        transport: SyncTransport = SyncTransport.POLL,
+    ): GameSnapshot = metrics.timeSync(transport) {
         if (request.samples.size > MAX_SAMPLES_PER_SYNC) throw GameException(ErrorCode.BAD_REQUEST, "Too many samples")
         if (request.nearby.size >
             MAX_SIGHTINGS_PER_SYNC
@@ -409,7 +427,7 @@ class GameService(
             throw GameException(ErrorCode.BAD_REQUEST, "Too many sightings")
         }
         // The game pokes whom what the phone reported concerns (the lobby's abilities, the radar's pairs).
-        return update(caller, gameId, request.chatAfter, pokeEveryone = false) { game, now ->
+        update(caller, gameId, request.chatAfter, pokeEveryone = false) { game, now ->
             request.device?.let { game.recordDevice(caller.playerId, it, now) }
             game.recordLocations(caller.playerId, request.samples, now)
             if (request.nearby.isNotEmpty()) game.recordSightings(caller.playerId, request.nearby, now)

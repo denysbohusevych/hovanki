@@ -1,0 +1,30 @@
+# The field test's server (docs/adr/0018-field-test-build.md, section 2): the same image as production, started with
+# SPRING_PROFILES_ACTIVE=staging (deploy/compose.yaml passes it on from .env). Only what differs from application.yaml.
+# Not the e2e profile: no observer endpoints, real emails, rate limits on.
+
+hovanki:
+  game:
+    # An ordinary game takes up to 60 players (production: 30, Game.MAX_PLAYERS).
+    max-players: 60
+
+management:
+  # Everything under /actuator (health, restarthold, prometheus) moves to this port, which deploy/compose.yaml does not
+  # publish and Caddy does not proxy: the internet reaches the game's port only, where /actuator/* answers 404. From the
+  # VM, through the container's address on the compose network, like deploy/hovanki-update.sh does for
+  # :8081/actuator/restarthold. The environment variable MANAGEMENT_SERVER_PORT overrides the port.
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,info,restarthold,prometheus
+
+logging:
+  # One JSON object per line (Elastic Common Schema) instead of the pattern: `docker compose logs server | jq`.
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        name: hovanki-server
+        environment: staging
