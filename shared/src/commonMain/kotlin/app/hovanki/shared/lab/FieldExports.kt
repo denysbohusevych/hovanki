@@ -9,10 +9,11 @@ import kotlinx.serialization.json.longOrNull
  * `digest.jsonl` (docs/adr/0018-field-test-build.md §6): one JSON object per line for an AI to read, written by
  * [FieldReportBuilder] as it reads the game: a header (`k` = `digest`: the run and its players by alias, model and
  * system), then in time order the game's events by the server (`phase`, `claim`, `catch`, `dispute`, `reveal`, `glow`,
- * `srv`), every `mark`, `survey`, `anomaly`, and a [MINUTE] row per player and minute: `gps` fixes, `acc` (their
- * median accuracy, m), `gaps`, `sync` with `sync_p50`/`sync_p95` (ms) and `sync_err`, `battery` (0…1), `bg_s`
- * (seconds not on the screen within the minute; a silent minute has no row), `peers` (whom the radio heard), `bands`
- * (the phone's own bands by name). Players are P1…Pn, never a nickname or an id; no coordinates.
+ * `srv`), every `mark`, `survey`, `anomaly` (one found after the lines of its time went out has the time it was found
+ * as `t` and its start in `since`, so `t` never goes back), and a [MINUTE] row per player and minute: `gps`
+ * fixes, `acc` (their median accuracy, m), `gaps`, `sync` with `sync_p50`/`sync_p95` (ms) and `sync_err`, `battery`
+ * (0…1), `bg_s` (seconds not on the screen within the minute; a silent minute has no row), `peers` (whom the radio
+ * heard), `bands` (the phone's own bands by name). Players are P1…Pn, never a nickname or an id; no coordinates.
  */
 object FieldDigest {
     const val SCHEMA = 1

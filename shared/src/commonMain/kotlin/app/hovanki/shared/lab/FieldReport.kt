@@ -20,14 +20,17 @@ data class FieldReport(
     val summary: FieldReportSummary = FieldReportSummary(),
     /** The game: phases, claims, catches, disputes, reveals, glows, marks, the server's bad moments; in time order. */
     val timeline: List<FieldReportEntry> = emptyList(),
-    /** Entries beyond [FieldReportBuilder.MAX_TIMELINE], left out. */
+    /** Entries of the noisy kinds beyond [FieldReportBuilder.MAX_TIMELINE_PER_KIND] each, left out. */
     val timelineDropped: Int = 0,
     /** «Something is wrong» and the organizers' marks, each with what happened 30 s around it. */
     val marks: List<FieldReportMark> = emptyList(),
     val players: List<FieldReportPlayer> = emptyList(),
     val server: FieldReportServer = FieldReportServer(),
     val radar: FieldReportRadar = FieldReportRadar(),
-    /** The detectors' findings ([FieldAnomalies]), at most [FieldReportBuilder.MAX_ANOMALIES]; all of them counted. */
+    /**
+     * The detectors' findings ([FieldAnomalies]), at most [FieldReportBuilder.MAX_ANOMALIES_PER_KIND] of a kind; all of
+     * them counted.
+     */
     val anomalies: List<FieldReportAnomaly> = emptyList(),
     val anomalyCounts: Map<String, Int> = emptyMap(),
     val problems: List<String> = emptyList(),

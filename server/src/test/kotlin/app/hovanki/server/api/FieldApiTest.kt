@@ -43,6 +43,7 @@ import app.hovanki.shared.protocol.AdminReasonRequest
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.CreateGameRequest
+import app.hovanki.shared.protocol.DeleteAccountRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.FieldJoinRequest
@@ -451,7 +452,9 @@ class FieldApiTest(
         fieldEventWriter.awaitIdle()
         labReports.awaitIdle()
         val staff = admin.staff(UserRole.ADMIN)
-        val stored = admin.get(ApiRoutes.adminLabRun(hostPhone.runId, "report"), staff).expect(200).body
+        val stored = admin.get(ApiRoutes.adminFieldGame(hostPhone.runId, "report"), staff).expect(200).body
+        // The lab's report route is the lab runs' only: a game's report has another shape.
+        admin.get(ApiRoutes.adminLabRun(hostPhone.runId, "report"), staff).error(404, ErrorCode.NOT_FOUND)
         val report = protocolJson.decodeFromString(FieldReport.serializer(), stored)
         assertTrue(report.final)
         assertEquals(listOf("P1", "P2"), report.players.map { it.alias })
@@ -502,6 +505,57 @@ class FieldApiTest(
         val audited = jdbc.sql("SELECT count(*) FROM admin_audit WHERE action = 'FIELD_EXPORT' AND target LIKE :t")
             .param("t", "%${hostPhone.runId.value}%").query(Long::class.java).single()
         assertEquals(2L, audited)
+    }
+
+    @Test
+    fun aDeletedAccountLeavesTheGamesReportAndItsExports() {
+        val account = register()
+        val game = createGame(token = account.token)
+        val host = game.session
+        val guest = join(game.snapshot.joinCode, token = null).session
+        val hostPhone = fieldJoin(host).ok<FieldJoinResponse>()
+        clock.advance(Duration.ofMillis(1))
+        val guestPhone = fieldJoin(guest).ok<FieldJoinResponse>()
+        post(ApiRoutes.start(host.gameId), StartGameRequest(listOf(host.playerId)).asJson(), host.token).expect(200)
+        fieldEventWriter.awaitIdle()
+        for (i in 1L..2L) {
+            clock.advance(Duration.ofSeconds(20))
+            upload(hostPhone, listOf(gps(hostPhone, i))).ok<LabEventsResponse>()
+            upload(guestPhone, listOf(gps(guestPhone, i))).ok<LabEventsResponse>()
+        }
+        upload(hostPhone, listOf(mark(hostPhone, 3, "the host's own words"))).ok<LabEventsResponse>()
+        registry.removeIf { it.id == host.gameId }
+        janitor.removeExpiredGames()
+        fieldEventWriter.awaitIdle()
+        labReports.awaitIdle()
+        val staff = admin.staff(UserRole.ADMIN)
+        val reportRoute = ApiRoutes.adminFieldGame(hostPhone.runId, "report")
+        val before = protocolJson.decodeFromString(
+            FieldReport.serializer(),
+            admin.get(reportRoute, staff).expect(200).body,
+        )
+        assertTrue(before.final)
+        assertTrue(before.players.any { it.label == host.playerId.value })
+
+        // The host deletes their account: their device and log go, and the report built from them is built again.
+        post(ApiRoutes.ME_DELETE, DeleteAccountRequest(PASSWORD).asJson(), account.token).expect(204)
+        labReports.awaitIdle()
+        val after = protocolJson.decodeFromString(
+            FieldReport.serializer(),
+            admin.get(reportRoute, staff).expect(200).body,
+        )
+        assertEquals(listOf(guest.playerId.value), after.players.map { it.label })
+        assertTrue(after.marks.isEmpty(), "${after.marks}")
+        val stored = assertNotNull(labRuns.findReport(hostPhone.runId.value))
+        for (secret in listOf(host.playerId.value, "the host's own words")) {
+            assertFalse(secret in stored, "«$secret» in the stored report")
+        }
+        val markdown = admin.post(
+            ApiRoutes.adminFieldGame(hostPhone.runId, "report.md"),
+            AdminReasonRequest("for the AI"),
+            staff,
+        ).expect(200).body
+        assertFalse("the host's own words" in markdown, markdown)
     }
 
     @Test

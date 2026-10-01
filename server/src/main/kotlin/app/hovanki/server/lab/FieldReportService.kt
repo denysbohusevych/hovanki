@@ -23,6 +23,7 @@ import java.io.OutputStream
 import java.time.Clock
 import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Semaphore
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -55,6 +56,9 @@ class FieldReportService(
 
     /** The live reports of the runs in play: touched by the report thread only ([store]); [drop] from anywhere. */
     private val live = ConcurrentHashMap<String, Live>()
+
+    /** The whole reports computed now: one at a time ([compute]). */
+    private val computing = Semaphore(1, true)
 
     // Computing (the report thread)
 
@@ -97,6 +101,17 @@ class FieldReportService(
      * windows are read (null: none).
      */
     fun compute(run: LabRunRecord, digest: ((List<String>) -> Unit)? = null): FieldReport {
+        // One whole report at a time: a window's events of 50 phones are 100+ MB of the heap; an export asked while the
+        // report thread (or another export) computes one waits for it.
+        computing.acquire()
+        try {
+            return computeNow(run, digest)
+        } finally {
+            computing.release()
+        }
+    }
+
+    private fun computeNow(run: LabRunRecord, digest: ((List<String>) -> Unit)?): FieldReport {
         val devices = repository.devicesOf(run.id)
         val builder = FieldReportBuilder(
             runId = run.id,
@@ -144,10 +159,8 @@ class FieldReportService(
         val seqs = HashMap<String, Long>()
     }
 
-    private fun problems(stream: FieldReportStream, builder: FieldReportBuilder) {
-        if (stream.badLines > 0) builder.problem("${stream.badLines} lines that are no events")
-        if (stream.outside > 0) builder.problem("${stream.outside} events outside the game's time, left out")
-    }
+    private fun problems(stream: FieldReportStream, builder: FieldReportBuilder) =
+        builder.streamCounts(stream.badLines, stream.outside)
 
     /** The events a phone's clock put far outside the game are left out: a day around it is plenty. */
     private fun timeOf(run: LabRunRecord): LongRange {
@@ -167,7 +180,11 @@ class FieldReportService(
         val stored = repository.findReport(run.id)?.let {
             runCatching { protocolJson.decodeFromString(FieldReport.serializer(), it) }.getOrNull()
         }
-        val report = stored?.takeIf { it.final && run.plan.status == LabRunStatus.FINISHED } ?: compute(run)
+        // A player whose account went since (their device with it) is in no export: such a report is computed anew.
+        val labels = repository.devicesOf(run.id).mapTo(HashSet()) { it.label }
+        val report = stored?.takeIf {
+            it.final && run.plan.status == LabRunStatus.FINISHED && it.players.all { p -> p.label in labels }
+        } ?: compute(run)
         val text = FieldReportMarkdown.render(report)
         return FieldExport("${name(run)}-report.md", MARKDOWN) { it.write(text.toByteArray(Charsets.UTF_8)) }
     }

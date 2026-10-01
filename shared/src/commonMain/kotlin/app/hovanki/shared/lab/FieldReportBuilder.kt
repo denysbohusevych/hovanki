@@ -74,10 +74,21 @@ class FieldReportBuilder(
 
     private val timeline = ArrayList<FieldReportEntry>()
     private var timelineDropped = 0
+
+    /** The timeline's entries kept by kind: the noisy kinds stop at [MAX_TIMELINE_PER_KIND]. */
+    private val timelineKinds = HashMap<String, Int>()
     private val marks = ArrayList<FieldReportMark>()
+
+    /** Per mark (same index): what the caps left out of the timeline and the anomalies within its ±30 s. */
+    private val markDropped = ArrayList<MutableList<Pair<Long, String>>>()
+
+    /** The last of what the caps left out, for a mark read after it ([MAX_RECENT_DROPPED]). */
+    private val recentDropped = ArrayDeque<Pair<Long, String>>()
     private val anomalies = ArrayList<FieldReportAnomaly>()
     private val anomalyCounts = LinkedHashMap<String, Int>()
     private val problems = LinkedHashSet<String>()
+    private var badLines = 0L
+    private var outside = 0L
 
     private val server = ServerState()
     private val shadow = ShadowState()
@@ -111,6 +122,9 @@ class FieldReportBuilder(
     private val digestLines = ArrayList<DigestLine>()
     private var digestOrder = 0L
 
+    /** The digest's lines went out up to here: a later line found for an earlier time is stamped here. */
+    private var digestEmittedBefore = Long.MIN_VALUE
+
     /**
      * The events of `[start, end)` on the server's clock (and the late ones of a phone that uploaded late), in time
      * order. The window before it is finished now that its next fixes are in.
@@ -126,9 +140,18 @@ class FieldReportBuilder(
         current = null
     }
 
-    /** Lines the logs had that are no events, and events outside the run's time: the report's problems. */
+    /** Something wrong with the logs that the report should say: a problem, once. */
     fun problem(text: String) {
         problems += text
+    }
+
+    /**
+     * Lines the logs had that are no events, and events outside the run's time, read so far ([FieldReportStream]'s
+     * counters): the report's problems, the latest counts replacing the earlier ones.
+     */
+    fun streamCounts(badLines: Long, outside: Long) {
+        this.badLines = badLines
+        this.outside = outside
     }
 
     /** The report so far ([final]: the game is over and its whole log read: what waits is done, the digest closed). */
@@ -523,7 +546,9 @@ class FieldReportBuilder(
         val text = event.string(MarkFields.TEXT) ?: event.string(MarkFields.LABEL)
         val scrubbed = text?.let(SentryScrubber::text)
         val by = event.string(MarkFields.BY) ?: if (p == null) MarkFields.STAFF else MarkFields.PLAYER
-        marks += FieldReportMark(event.t, p?.alias, by, scrubbed)
+        val mark = FieldReportMark(event.t, p?.alias, by, scrubbed)
+        marks += mark
+        markDropped += recentDropped.filterTo(ArrayList()) { it.first in aroundOf(mark) }
         entry(FieldReportEntry(event.t, FieldKinds.MARK, p?.alias, "«${scrubbed ?: "something is wrong"}» ($by)"))
         digestLine(event.t) {
             put("k", FieldKinds.MARK)
@@ -787,7 +812,7 @@ class FieldReportBuilder(
             summary = summary,
             timeline = timeline.sortedWith(compareBy({ it.atMillis }, { it.kind })),
             timelineDropped = timelineDropped,
-            marks = marks.sortedBy { it.atMillis }.map { it.copy(around = around(it)) },
+            marks = marks.indices.sortedBy { marks[it].atMillis }.map { marks[it].copy(around = around(it)) },
             players = playerList.map { it.toReport(deviceCount[it.label] ?: 1, dropped[it.alias]) },
             server = server.toReport(),
             radar = FieldReportRadar(
@@ -819,21 +844,32 @@ class FieldReportBuilder(
             anomalies = anomalies.sortedWith(compareBy({ it.atMillis }, { it.kind }, { it.player ?: "" })),
             anomalyCounts = anomalyCounts.toMap(),
             problems = problems.toList() +
-                listOfNotNull("The live report: the last minutes may be missing".takeIf { !final }),
+                listOfNotNull(
+                    "$badLines lines that are no events".takeIf { badLines > 0 },
+                    "$outside events outside the game's time, left out".takeIf { outside > 0 },
+                    "The live report: the last minutes may be missing".takeIf { !final },
+                ),
         )
     }
 
-    /** The timeline and the anomalies within [AROUND_MARK_MILLIS] of a mark. */
-    private fun around(mark: FieldReportMark): List<String> {
-        val range = mark.atMillis - AROUND_MARK_MILLIS..mark.atMillis + AROUND_MARK_MILLIS
+    private fun aroundOf(mark: FieldReportMark): LongRange =
+        mark.atMillis - AROUND_MARK_MILLIS..mark.atMillis + AROUND_MARK_MILLIS
+
+    /**
+     * The timeline and the anomalies within [AROUND_MARK_MILLIS] of mark [index]: those kept, and those the caps left
+     * out that were seen near it ([markDropped]).
+     */
+    private fun around(index: Int): List<String> {
+        val mark = marks[index]
+        val range = aroundOf(mark)
         val entries = timeline.filter {
             it.atMillis in range &&
                 !(it.kind == FieldKinds.MARK && it.atMillis == mark.atMillis)
         }
-            .map { it.atMillis to "${it.kind} ${it.player?.let { p -> "$p " } ?: ""}${it.text}" }
-        val found = anomalies.filter { it.atMillis in range }
-            .map { it.atMillis to "${it.kind} ${it.player?.let { p -> "$p " } ?: ""}${it.detail}" }
-        return (entries + found).sortedBy { it.first }.take(MAX_AROUND).map { (t, text) ->
+            .map { it.atMillis to it.line() }
+        val found = anomalies.filter { it.atMillis in range }.map { it.atMillis to it.line() }
+        val dropped = markDropped[index].filter { it.first in range }
+        return (entries + found + dropped).distinct().sortedBy { it.first }.take(MAX_AROUND).map { (t, text) ->
             val offset = (t - mark.atMillis) / 1000
             "${if (offset >= 0) "+" else ""}${offset}s $text"
         }
@@ -890,20 +926,49 @@ class FieldReportBuilder(
     }
 
     private fun anomaly(anomaly: FieldReportAnomaly) {
-        anomalyCounts[anomaly.kind] = (anomalyCounts[anomaly.kind] ?: 0) + 1
-        if (anomalies.size < MAX_ANOMALIES) anomalies += anomaly
-        digestLine(anomaly.atMillis) {
+        val count = (anomalyCounts[anomaly.kind] ?: 0) + 1
+        anomalyCounts[anomaly.kind] = count
+        // Per kind: a phone's flapping GPS early on crowds out no later stall (the counts keep them all).
+        if (count <= MAX_ANOMALIES_PER_KIND) anomalies += anomaly else dropped(anomaly.atMillis, anomaly.line())
+        // Found late (a stall is seen when it ends): stamped where the digest is, its start in `since`.
+        val t = maxOf(anomaly.atMillis, digestEmittedBefore)
+        digestLine(t) {
             put("k", "anomaly")
             put("kind", anomaly.kind)
             put("p", anomaly.player)
+            if (t != anomaly.atMillis) put("since", anomaly.atMillis)
             anomaly.untilMillis?.let { put("until", it) }
             put("detail", anomaly.detail)
         }
     }
 
+    /** Into the timeline: the game's moments and the marks always, the noisy kinds up to [MAX_TIMELINE_PER_KIND]. */
     private fun entry(entry: FieldReportEntry) {
-        if (timeline.size < MAX_TIMELINE) timeline += entry else timelineDropped++
+        val count = (timelineKinds[entry.kind] ?: 0) + 1
+        val cap = if (entry.kind in STRUCTURAL_KINDS) MAX_STRUCTURAL_TIMELINE else MAX_TIMELINE_PER_KIND
+        if (count <= cap) {
+            timelineKinds[entry.kind] = count
+            timeline += entry
+        } else {
+            timelineDropped++
+            dropped(entry.atMillis, entry.line())
+        }
     }
+
+    /** Left out by a cap: still in the ±30 s of the marks near it, those read so far and those read soon. */
+    private fun dropped(t: Long, line: String) {
+        val item = t to line
+        for ((index, mark) in marks.withIndex()) {
+            val near = markDropped[index]
+            if (t in aroundOf(mark) && near.size < MAX_AROUND) near += item
+        }
+        recentDropped.addLast(item)
+        if (recentDropped.size > MAX_RECENT_DROPPED) recentDropped.removeFirst()
+    }
+
+    private fun FieldReportEntry.line() = "$kind ${player?.let { "$it " } ?: ""}$text"
+
+    private fun FieldReportAnomaly.line() = "$kind ${player?.let { "$it " } ?: ""}$detail"
 
     /** The minutes before [before] as lines, with the other lines of that time, in time order. */
     private fun emitDigest(before: Long) {
@@ -918,6 +983,7 @@ class FieldReportBuilder(
         val ready = digestLines.filter { it.t < before }
         digestLines.removeAll { it.t < before }
         lines += ready
+        if (before > digestEmittedBefore) digestEmittedBefore = before
         if (lines.isEmpty()) return
         lines.sortWith(compareBy({ it.t }, { it.order }))
         sink(lines.map { it.line })
@@ -998,9 +1064,7 @@ class FieldReportBuilder(
             index = -index - 1
             val before = fixes.getOrNull(index - 1)
             val after = fixes.getOrNull(index)
-            if (before != null && after != null && t - before.t <= INTERPOLATE_MILLIS &&
-                after.t - t <= INTERPOLATE_MILLIS
-            ) {
+            if (before != null && after != null && after.t - before.t <= INTERPOLATE_MILLIS) {
                 val share = (t - before.t).toDouble() / (after.t - before.t)
                 return (before.x + (after.x - before.x) * share) to (before.y + (after.y - before.y) * share)
             }
@@ -1309,13 +1373,19 @@ class FieldReportBuilder(
     }
 
     companion object {
-        /** A window of the full report ([FieldReportStream]): about 10 minutes of a game's logs in memory at once. */
-        const val WINDOW_MILLIS = 10 * 60_000L
+        /**
+         * A window of the full report ([FieldReportStream]): 2 minutes of a game's logs in memory at once. The window
+         * after it only has to reach [INTERPOLATE_MILLIS] and [ZERO_AFTER_MILLIS] on, so a shorter one counts the same.
+         */
+        const val WINDOW_MILLIS = 2 * 60_000L
 
         /** A gap between two GPS fixes counted in the player's section. */
         const val GPS_GAP_MILLIS = 30_000L
 
-        /** Fixes this far apart are interpolated between for a pair's distance; else the nearest within [NEAREST_MILLIS]. */
+        /**
+         * Fixes at most this far apart are interpolated between for a pair's distance; else the nearest within
+         * [NEAREST_MILLIS].
+         */
         const val INTERPOLATE_MILLIS = 10_000L
         const val NEAREST_MILLIS = 3_000L
 
@@ -1331,8 +1401,24 @@ class FieldReportBuilder(
         /** The battery's pace needs this long between its first and last level. */
         const val BATTERY_SPAN_MILLIS = 10 * 60_000L
 
-        const val MAX_TIMELINE = 3_000
-        const val MAX_ANOMALIES = 2_000
+        /** The timeline's noisy kinds (reveals, glows, fixes, the server's anomalies) keep this many each. */
+        const val MAX_TIMELINE_PER_KIND = 1_000
+
+        /** The game's moments and the marks: all of them, but a game of millions is no game. */
+        const val MAX_STRUCTURAL_TIMELINE = 20_000
+
+        /** Kinds of the timeline never capped short of [MAX_STRUCTURAL_TIMELINE]. */
+        val STRUCTURAL_KINDS = setOf(
+            ServerKinds.PHASE,
+            ServerKinds.CLAIM,
+            ServerKinds.CATCH,
+            ServerKinds.DISPUTE,
+            FieldKinds.MARK,
+        )
+
+        /** The anomalies listed per kind; the counts have them all. */
+        const val MAX_ANOMALIES_PER_KIND = 300
+        private const val MAX_RECENT_DROPPED = 2_000
         const val AROUND_MARK_MILLIS = 30_000L
         const val MAX_AROUND = 40
 

@@ -455,7 +455,8 @@ class LabRunService(
     /** The report's JSON (`app.hovanki.shared.lab.LabReport`); 404 until it is computed. */
     fun report(staff: Staff, id: LabRunId): String {
         requireAdmin(staff)
-        repository.findRun(id.value) ?: throw noSuchRun()
+        // A game's run has a field report of another shape: that is [fieldReport]'s.
+        repository.findRun(id.value)?.takeIf { it.kind == LabRunKind.LAB } ?: throw noSuchRun()
         return repository.findReport(id.value) ?: throw GameException(ErrorCode.NOT_FOUND, "No report yet")
     }
 

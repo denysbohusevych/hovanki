@@ -371,6 +371,21 @@ class LabRunRepository(private val jdbc: JdbcClient) {
             .update()
     }
 
+    /** The games' field runs with a device of account [userId]: their reports were built from that player's log. */
+    fun gameRunsOfUser(userId: String): List<String> = jdbc.sql(
+        """
+        SELECT DISTINCT d.run_id FROM lab_devices d JOIN lab_runs r ON r.id = d.run_id
+        WHERE d.user_id = :userId AND r.kind = 'GAME'
+        """.trimIndent(),
+    )
+        .param("userId", userId)
+        .query(String::class.java)
+        .list()
+        .filterNotNull()
+
+    fun deleteReport(runId: String): Boolean =
+        jdbc.sql("DELETE FROM lab_reports WHERE run_id = :runId").param("runId", runId).update() > 0
+
     /** The report's JSON; null until computed. */
     fun findReport(runId: String): String? =
         jdbc.sql("SELECT body FROM lab_reports WHERE run_id = :runId").param("runId", runId)

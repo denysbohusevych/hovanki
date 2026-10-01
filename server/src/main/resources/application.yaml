@@ -208,7 +208,7 @@ hovanki:
     # game plays (windows of live-window, live-lag behind the clock), whole after it, reading report-window of the
     # game at a time; the lab's techniques read at most max-technique-events readings and touches.
     report-every: 2m
-    report-window: 10m
+    report-window: 2m
     live-window: 1m
     live-lag: 1m
     max-technique-events: 200000

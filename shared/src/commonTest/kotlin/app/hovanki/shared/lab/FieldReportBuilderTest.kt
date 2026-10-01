@@ -464,13 +464,113 @@ class FieldReportBuilderTest {
             val (windowed, digest) = compute(gameAgain(), window)
             assertEquals(whole.copy(windows = 0), windowed.copy(windows = 0), "windows of $window ms")
             assertTrue(windowed.windows > 1)
+            // An anomaly found after its time went out is stamped later, its start in `since`: the same line else.
+            val unshifted = digest.map(::unshifted)
             assertEquals(
                 wholeDigest.sorted(),
-                digest.sorted(),
-                "the digest in windows of $window ms: only one pass ${(wholeDigest - digest.toSet()).take(5)}, " +
-                    "only windows ${(digest - wholeDigest.toSet()).take(5)}",
+                unshifted.sorted(),
+                "the digest in windows of $window ms: only one pass ${(wholeDigest - unshifted.toSet()).take(5)}, " +
+                    "only windows ${(unshifted - wholeDigest.toSet()).take(5)}",
             )
+            val times = digest.drop(1).map { line ->
+                kotlinx.serialization.json.Json.parseToJsonElement(line).jsonObject.getValue("t").jsonPrimitive.content
+                    .toLong()
+            }
+            assertEquals(times.sorted(), times, "the digest's `t` never goes back (windows of $window ms)")
         }
+    }
+
+    /** A digest line as one pass writes it: an anomaly's `since` back as its `t`. */
+    private fun unshifted(line: String): String {
+        val json = kotlinx.serialization.json.Json.parseToJsonElement(line).jsonObject
+        val since = json["since"] ?: return line
+        return kotlinx.serialization.json.JsonObject(
+            json.entries.filter { it.key != "since" }
+                .associate { (key, value) -> key to if (key == "t") since else value },
+        ).toString()
+    }
+
+    @Test
+    fun theCapsKeepTheGamesEndAndEveryKindOfAnomaly() {
+        phone(a, "Pixel 8", "Android 16", "aaaa0001", "scan_response")
+        server.event(T0, ServerKinds.PHASE, "active", ServerFields.PHASE to "HIDING", ServerFields.FROM to "LOBBY")
+        // A long and noisy game: more reveals and slow seconds of the server than the timeline and the list take.
+        val noisy = 1_500
+        for (i in 0 until noisy) {
+            val t = T0 + 60_000 + i * 2_000L
+            server.event(t, ServerKinds.REVEAL, "active", ServerFields.PLAYER to A_ID, ServerFields.EVENT to "start")
+            server.event(t + 1, FieldKinds.SRV, "active", SrvFields.SYNC_P95 to 2_000)
+        }
+        val end = T0 + 60_000 + noisy * 2_000L
+        // Late in it: the phone's syncs stall, its player marks, the game ends.
+        a.sync(end - 40_000, ok = false)
+        a.sync(end - 5_000, ok = true, millis = 100)
+        a.event(end - 10_000, FieldKinds.MARK, "active", MarkFields.BY to MarkFields.PLAYER, MarkFields.TEXT to "hm")
+        server.event(end, ServerKinds.PHASE, "active", ServerFields.PHASE to "FINISHED", ServerFields.FROM to "HIDING")
+        val (report, _) = compute(listOf(a, b, c, server))
+
+        assertTrue(report.timeline.any { it.text == "HIDING → FINISHED" }, "the game's end is in the timeline")
+        assertEquals(
+            FieldReportBuilder.MAX_TIMELINE_PER_KIND,
+            report.timeline.count { it.kind == ServerKinds.REVEAL },
+        )
+        assertTrue(report.timelineDropped > 0)
+        assertEquals(
+            FieldReportBuilder.MAX_ANOMALIES_PER_KIND,
+            report.anomalies.count { it.kind == FieldAnomalies.SERVER_SLOW },
+        )
+        assertEquals(noisy, report.anomalyCounts[FieldAnomalies.SERVER_SLOW])
+        assertTrue(report.anomalies.any { it.kind == FieldAnomalies.SYNC_STALL }, "the late stall is listed")
+        // Around the late mark: what the caps left out of the lists, too.
+        val around = report.marks.single().around
+        assertTrue(around.any { "${ServerKinds.REVEAL} P1 P1 start" in it }, "$around")
+        assertTrue(around.any { FieldAnomalies.SERVER_SLOW in it }, "$around")
+    }
+
+    @Test
+    fun theLiveReportsProblemsAreTheLatestCounts() {
+        val builder = FieldReportBuilder(RUN, "game-1", devices)
+        builder.streamCounts(badLines = 3, outside = 0)
+        builder.report(NOW, final = false)
+        builder.streamCounts(badLines = 5, outside = 2)
+        val problems = builder.report(NOW, final = false).problems
+        assertEquals(
+            listOf(
+                "5 lines that are no events",
+                "2 events outside the game's time, left out",
+                "The live report: the last minutes may be missing",
+            ),
+            problems,
+        )
+    }
+
+    @Test
+    fun aDistanceIsInterpolatedOnlyBetweenFixesCloseTogether() {
+        fun catchMeters(fixGapMillis: Long): Double? {
+            val seeker = Log(A_ID)
+            val hider = Log(B_ID)
+            val srv = Log(FieldKinds.SERVER_DEVICE)
+            val start = T0 + MINUTE
+            srv.event(T0, ServerKinds.PHASE, "active", ServerFields.PHASE to "SEEKING", ServerFields.FROM to "HIDING")
+            for (t in start - 1_000..start + fixGapMillis + 1_000 step 1_000) hider.fix(t, ORIGIN)
+            seeker.fix(start, ORIGIN.moveBy(eastMeters = 0.0, northMeters = 10.0))
+            seeker.fix(start + fixGapMillis, ORIGIN.moveBy(eastMeters = 0.0, northMeters = 30.0))
+            srv.event(
+                start + fixGapMillis / 2,
+                ServerKinds.CATCH,
+                "active",
+                ServerFields.CATCH to "c1",
+                ServerFields.SEEKER to A_ID,
+                ServerFields.HIDER to B_ID,
+                ServerFields.OUTCOME to "confirmed",
+            )
+            val (report, _) = compute(listOf(seeker, hider, Log(C_ID), srv))
+            return report.radar.zeroPoints.single { it.kind == FieldReportBuilder.CATCH_ZERO }.gpsMeters
+        }
+        val between = assertNotNull(catchMeters(8_000), "8 s apart: between the fixes")
+        assertTrue(between in 19.5..20.5, "$between m")
+        // 19 s apart, the catch 9.5 s from either: where the seeker was is no guess.
+        assertNull(catchMeters(19_000))
     }
 
     /** The same game's logs once more (the logs are made by [game] of fresh ones). */

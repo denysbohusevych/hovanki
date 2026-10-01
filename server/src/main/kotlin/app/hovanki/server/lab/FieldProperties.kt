@@ -53,7 +53,7 @@ data class FieldProperties(
      */
     val reportEvery: Duration = Duration.ofMinutes(2),
     /** The whole report reads the logs this much of the game at a time: the heap holds one window's events. */
-    val reportWindow: Duration = Duration.ofMinutes(10),
+    val reportWindow: Duration = Duration.ofMinutes(2),
     /**
      * The live report's windows, and how far behind the clock it stays: the phones upload every 10 s, a window is
      * read once the uploads of its time are in.
