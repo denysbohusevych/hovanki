@@ -1,6 +1,8 @@
 name: Release
 
-# Builds a signed Android release (APK + AAB) and the server Docker image.
+# Builds a signed Android release (APK + AAB), the iOS App Store build (uploaded to TestFlight, from where it is
+# submitted for review) and the server Docker image. The app builds talk to the production server (hovanki.serverUrl of
+# gradle.properties); the tester builds of preview.yml talk to staging and never go to the App Store.
 # A `v*` tag push also creates a GitHub Release. See docs/ci-cd.md.
 on:
   push:
@@ -63,6 +65,7 @@ jobs:
           ./gradlew :androidApp:assembleRelease :androidApp:bundleRelease
           -Phovanki.versionName="$VERSION"
           -Phovanki.versionCode=${{ github.run_number }}
+          -Phovanki.channel=release
 
       - name: Collect outputs
         run: |
@@ -82,6 +85,31 @@ jobs:
       - name: Remove keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"
+
+  # The App Store build: the production server, the version of the tag, TestFlight. It is the only iOS build that may
+  # be submitted for review. Its build number is above every tester build of preview.yml (docs/ci-cd.md,
+  # «Номера сборок»). A manual run builds and checks without uploading. It does not block the GitHub Release: if
+  # Apple is down, re-run only this job.
+  ios:
+    name: iOS App Store build
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ios-testflight.yml
+    with:
+      channel: release
+      # The staging server must not be in this build.
+      forbidden-url: ${{ vars.STAGING_SERVER_URL }}
+      build-number-offset: 100000
+      version-from-tag: true
+      publish: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    # No Sentry DSN here: the App Store build has no Sentry.
+    secrets:
+      IOS_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+      IOS_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+      IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_BASE64 }}
 
   server-image:
     name: Server image

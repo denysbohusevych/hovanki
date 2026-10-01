@@ -1,6 +1,6 @@
 # Деплой сервера (AWS)
 
-Одна виртуальная машина EC2: сервер в Docker, перед ним Caddy с сертификатом Let's Encrypt. База — отдельно от машины, в Amazon RDS for PostgreSQL в том же регионе. Сервер обновляется сам после каждого push в `main` ([Автообновление](#автообновление)), бэкапы базы делает RDS ([Бэкапы](#бэкапы)). Файлы лежат в [`deploy/`](../deploy/): `aws-user-data.sh` готовит машину при первом запуске, `compose.yaml` запускает сервер и Caddy, `hovanki-update.sh` с `hovanki-update.service` и `hovanki-update.timer` обновляют сервер.
+Одна виртуальная машина EC2: сервер в Docker, перед ним Caddy с сертификатом Let's Encrypt. База — отдельно от машины, в Amazon RDS for PostgreSQL в том же регионе. Сервер обновляется сам после каждого push в `main` ([Автообновление](#автообновление)), бэкапы базы делает RDS ([Бэкапы](#бэкапы)). Файлы лежат в [`deploy/`](../deploy/): `aws-user-data.sh` готовит машину при первом запуске, `compose.yaml` запускает сервер и Caddy, `hovanki-update.sh` с `hovanki-update.service` и `hovanki-update.timer` обновляют сервер, `.env.staging.example` — настройки второго сервера для полевого теста ([Staging](#staging)).
 
 ## Почему так
 
@@ -105,6 +105,10 @@
 | `SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD` | Логин и пароль SMTP |
 | `HOVANKI_MAIL_FROM` | Адрес отправителя писем |
 | `HOVANKI_ADMIN_SECRET_KEY` | Ключ админки: base64 от 32 случайных байт ([Админка](#админка)). Пусто или нет — админка выключена |
+| `DATABASE_NAME`, `DATABASE_USER` | Только для [staging](#staging): база и роль на RDS (`hovanki_staging`). По умолчанию `hovanki` и `hovanki` — на основной машине их не задают |
+| `SPRING_PROFILES_ACTIVE` | Только для staging: `staging`. На основной машине не задают |
+| `SERVER_MEM_LIMIT` | Лимит памяти контейнера сервера, куча — 75 % от него. По умолчанию `640m` (машина в 1 ГБ); на staging `1g` или `2g` |
+| `SENTRY_DSN` | Только для staging, необязательно: DSN Sentry сервера. На основной машине не задают |
 
 `compose.yaml` передаёт их серверу как `SPRING_DATASOURCE_*` (база `hovanki`, пользователь `hovanki`, TLS с проверкой сертификата по `rds-ca.pem`), `SPRING_MAIL_*` и `HOVANKI_MAIL_FROM` и включает настоящую отправку писем (`HOVANKI_MAIL_SENDER=smtp`). Без `DOMAIN`, `DATABASE_HOST`, `DATABASE_PASSWORD`, `SPRING_MAIL_HOST` или `HOVANKI_MAIL_FROM` `docker compose` не запускается и пишет, какой переменной не хватает; без файла `rds-ca.pem` рядом не запускается сервер. Проверить `.env`, ничего не запуская: `docker compose config --quiet` (молчит, если всё на месте). После правки `.env` — `docker compose up -d`.
 
@@ -285,12 +289,147 @@ docker compose down postgres
 - **Новый `hovanki-update.sh` сам на машину не попадает**: таймер обновляет только образ. После изменений в `deploy/` скопировать файл, как в шаге 8 [первого запуска](#первый-запуск): `scp -i ~/Downloads/hovanki.pem deploy/hovanki-update.sh ubuntu@<IP>:/opt/hovanki/`. Старый скрипт просто не ждёт больших игр.
 - **Миграции.** Новый сервер при старте применяет миграции Flyway. Если миграция испортила данные, RDS восстанавливает базу на момент до обновления: время — в строке «New server image … at …» ([Восстановление](#восстановление)).
 - **Закрепить версию**: `HOVANKI_TAG=sha-<коммит>` в `.env`, затем `docker compose up -d`. Таймер продолжит работать, но этот тег не меняется. Вернуть автообновление — `HOVANKI_TAG=main`.
-- **Выключить**: `sudo systemctl disable --now hovanki-update.timer`.
+- **Выключить**: `sudo systemctl disable --now hovanki-update.timer`. Вернуть: `sudo systemctl enable --now hovanki-update.timer`. На staging так делают в день теста ([День теста](#день-теста)).
 - **Проверить**: `systemctl list-timers hovanki-update.timer` — когда следующий запуск; `journalctl -u hovanki-update -n 50` — что было при последних. Обновление пишет «New server image …» и «Server updated», ожидание большой игры — «… waits for a big game until …». Ошибка `unauthorized` значит, что истёк PAT: создать новый и повторить `docker login ghcr.io`.
 
-## Staging (план)
+## Staging
 
-Для полевого теста ([ADR 0018, §2](adr/0018-field-test-build.md#2-staging)) — второй сервер тем же способом: своя EC2 (t3.small, на день теста t3.medium), своё имя DuckDNS, база `hovanki_staging` на том же RDS, флаги `FIELD_LOG`, `RADIO_LAB`, `LIVE_SOCKET`; в день теста автообновление выключено. Сборки `preview` ходят туда. Пошагово — [field-test.md](field-test.md), шаг 1.
+Второй сервер для полевого теста ([ADR 0018, §2](adr/0018-field-test-build.md#2-staging)): к нему ходят тестовые сборки `preview` (Android и TestFlight), а настоящие игры и аккаунты остаются на основном сервере. Тот же образ и тот же `compose.yaml`, но своя машина, свой `.env` ([`deploy/.env.staging.example`](../deploy/.env.staging.example)) и своя база на том же RDS.
+
+| | Основной сервер | Staging |
+|---|---|---|
+| Машина | `hovanki`, `t3.micro` | `hovanki-staging`, `t3.small`; на сутки теста `t3.medium` (отчёт по игре считается в памяти) |
+| Имя | `hovanki.duckdns.org` | `hovanki-staging.duckdns.org` |
+| База и роль | `hovanki` / `hovanki` | `hovanki_staging` / `hovanki_staging` |
+| Профиль Spring | нет | `staging` (`SPRING_PROFILES_ACTIVE` в `.env`): в игру входит до 60 человек вместо 30 |
+| Возможности | как решит админ | `FIELD_LOG`, `RADIO_LAB`, `LIVE_SOCKET` и всё, что проверяет тест, включает админ на самом staging |
+| Автообновление | всегда | обычно да; **на день теста выключено** |
+| Приложения | App Store, Google Play, релизные сборки | `preview`: «Hovanki β» на Android, сборки TestFlight из `preview.yml`; адрес — переменная репозитория `STAGING_SERVER_URL` ([ci-cd.md](ci-cd.md#переменные-и-секреты)) |
+
+Аккаунты, друзья, игры и журналы тестеров живут только на staging: тестер не входит в свой настоящий аккаунт, а удалить всё одной командой — `DROP DATABASE` ([Удалить staging](#удалить-staging)).
+
+### Сколько стоит
+
+Порядок величины для `eu-central-1`, как в [Сколько стоит](#сколько-стоит):
+
+- `t3.small`, публичный IPv4, диск 10 ГБ — около $21 в месяц;
+- `t3.medium` на сутки теста — ещё около $0,5;
+- остановленная машина (Instance state → Stop) стоит около $5 в месяц: диск и адрес. Между тестами её можно останавливать, а сервер снова поднимается сам (`restart: unless-stopped`);
+- RDS общий с основным сервером: отдельного счёта за базу нет.
+- Free plan AWS ограничивает типы машин ([Сколько стоит](#сколько-стоит)): `t3.medium` может быть недоступен, пока аккаунт не переведён на Paid plan (при запуске EC2 скажет, что тип не подходит; проверено не было). Тогда на день теста нужен Paid plan или `t3.small` с `SERVER_MEM_LIMIT=1g` и партия поменьше. Кредиты Free plan общие на обе машины: две машины и RDS стоят около $50 в месяц.
+
+Что учесть про общий RDS: полевой журнал ([ADR 0018, §3](adr/0018-field-test-build.md#3-полевой-журнал)) пишется в базу staging, а диск RDS один на обе базы (20 ГБ, растёт сам до 50). Цифру даст репетиция ([field-test.md](field-test.md), шаг 9), оценка — 150–200 МБ на партию в 50 человек. Перед тестом проверить RDS → Monitoring → Free storage space, после — размер базы: `SELECT pg_size_pretty(pg_database_size('hovanki_staging'));`. Если журнал окажется заметно больше оценки, база staging переезжает на отдельный RDS или сырьё уходит в S3 (вопрос ADR 0018).
+
+### Что понадобится
+
+То же, что для основного сервера ([Что понадобится](#что-понадобится)): аккаунт AWS, GitHub PAT с `read:packages`, почтовый ящик (можно тот же, настройки почты повторяются в `.env`). Новое:
+
+- второе имя на [duckdns.org](https://www.duckdns.org): `hovanki-staging`;
+- доступ к админской базе RDS (`hovanki_admin`, [Создать базу](#создать-базу)).
+
+### Первый запуск staging
+
+1. **Имя.** На duckdns.org добавить поддомен `hovanki-staging`. IP впишется в шаге 3.
+2. **Машина.** EC2 → Launch instance, как в [первом запуске](#первый-запуск), шаг 3:
+   - Name: `hovanki-staging`;
+   - Ubuntu Server 24.04 LTS (x86), Instance type: `t3.small`;
+   - Key pair: тот же `hovanki`;
+   - Network settings: **новая** группа безопасности `hovanki-staging`: SSH только с **My IP**, HTTPS и HTTP из интернета;
+   - Configure storage: 10 GiB, gp3;
+   - Advanced details → User data: содержимое [`deploy/aws-user-data.sh`](../deploy/aws-user-data.sh), тот же файл.
+3. **Постоянный IP.** Elastic IPs → Allocate → Associate с машиной `hovanki-staging`. На duckdns.org вписать этот IP в `hovanki-staging`. Проверка: `dig +short hovanki-staging.duckdns.org`.
+4. **Доступ к базе.** RDS → Databases → `hovanki` → Actions → **Set up EC2 connection** → машина `hovanki-staging`. Без этого база не пустит новую машину (в логе сервера будет `Connection attempt timed out`).
+5. **База и роль.** Как в [Создать базу](#создать-базу), шаг 2, только на машине `hovanki-staging` (там уже лежит `rds-ca.pem`) и с другими именами. Пароль — `openssl rand -hex 24`, в менеджер паролей; он же пойдёт в `DATABASE_PASSWORD`:
+   ```bash
+   cd /opt/hovanki
+   DB_HOST=hovanki.xxxxxxxxxxxx.eu-central-1.rds.amazonaws.com    # Endpoint основной базы: RDS одна
+   docker run --rm -it -v /opt/hovanki/rds-ca.pem:/rds-ca.pem:ro postgres:17-alpine \
+     psql "host=$DB_HOST dbname=postgres user=hovanki_admin sslmode=verify-full sslrootcert=/rds-ca.pem"
+   ```
+   В psql (`\password` спросит пароль дважды):
+   ```sql
+   CREATE ROLE hovanki_staging LOGIN;
+   \password hovanki_staging
+   GRANT hovanki_staging TO hovanki_admin;
+   CREATE DATABASE hovanki_staging OWNER hovanki_staging;
+   \q
+   ```
+   Роль `hovanki_staging` владеет только своей базой: настоящих данных она не видит.
+6. **Файлы и `.env`.** С компьютера, из корня репозитория:
+   ```bash
+   scp -i ~/Downloads/hovanki.pem deploy/compose.yaml deploy/hovanki-* deploy/.env.staging.example ubuntu@<IP staging>:/opt/hovanki/
+   ssh -i ~/Downloads/hovanki.pem ubuntu@<IP staging>
+   ```
+   На машине:
+   ```bash
+   cloud-init status --wait     # должно быть "status: done"
+   cd /opt/hovanki
+   cp .env.staging.example .env
+   nano .env                    # DATABASE_HOST, DATABASE_PASSWORD, почта; остальное уже для staging
+   chmod 600 .env
+   docker compose config --quiet     # молчит, если всё на месте
+   docker login ghcr.io -u denysbohusevych     # пароль — PAT с read:packages
+   docker compose up -d
+   sudo cp hovanki-update.service hovanki-update.timer /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now hovanki-update.timer
+   ```
+   Что значат переменные — в самом файле и в [Настройки](#настройки-env). Ключ админки: `echo "HOVANKI_ADMIN_SECRET_KEY=$(openssl rand -base64 32)"` — вписать в `.env` вместо пустого значения, потом `docker compose up -d server`. Ключ у staging свой.
+7. **Проверка.** На машине: `docker compose ps` — `server` и `caddy` в `running`; `docker compose logs server | grep -iE "flyway|profile"` — миграции применены, профиль `staging` включён. С компьютера: `curl https://hovanki-staging.duckdns.org/actuator/health` → `{"status":"UP",…}`. Метрики сервера наружу не отдаются: `curl -s -o /dev/null -w '%{http_code}\n' https://hovanki-staging.duckdns.org/actuator/prometheus` должен ответить не `200`. Если сервер не поднимается — таблица [Если сервер не подключается](#если-сервер-не-подключается), только с базой и ролью `hovanki_staging`.
+8. **Админ.** Зарегистрироваться в тестовой сборке, которая ходит на staging (или любой сборкой с `-Phovanki.serverUrl=https://hovanki-staging.duckdns.org`), потом в консоли базы staging (как в [Обслуживание](#обслуживание), но `dbname=hovanki_staging user=hovanki_staging` и пароль из `.env`):
+   ```sql
+   UPDATE users SET role = 'ADMIN' WHERE email_key = lower('you@example.com');
+   ```
+   Дальше вход в `https://hovanki-staging.duckdns.org/admin` — как в [Админке](#админка), шаг 3.
+9. **Возможности.** Админка staging → «Возможности»: включить то, что проверяет тест. Для полевого теста: `FIELD_LOG`, `RADIO_LAB`, `LIVE_SOCKET`, радар и `ACTIVITY` ([field-test.md](field-test.md), «Чек-лист дня»). Строки появляются в списке вместе с кодом ([ADR 0018](adr/0018-field-test-build.md)): чего ещё нет в этой версии образа, того в админке не видно. Флаги хранятся в базе staging, новая база начинает с «всё выключено».
+10. **Адрес в сборках.** GitHub → Settings → Secrets and variables → Actions → Variables → `STAGING_SERVER_URL` = `https://hovanki-staging.duckdns.org`. Со следующего push в `main` тестовые сборки ходят туда ([ci-cd.md](ci-cd.md#переменные-и-секреты)). Без переменной они собираются на основной сервер и пишут об этом в сводке запуска.
+
+### Обновление staging
+
+Тот же образ `main`, тот же `hovanki-update.timer`, что и на основном сервере ([Автообновление](#автообновление)): через 5–10 минут после push в `main` сервер перезапускается. Большую игру он ждёт через `restarthold`, **обычную игру перезапуск обрывает**. Поэтому на staging автообновление работает, пока идёт разработка, и выключается в день теста.
+
+Новые файлы из `deploy/` на машину сами не попадают: `scp`, как в шаге 6.
+
+### День теста
+
+Команды — на машине `hovanki-staging`, в `/opt/hovanki`. Полный чек-лист дня, включая телефоны и людей, — [field-test.md](field-test.md), шаг 9.
+
+**Накануне** (игры при этом обрываются: делать, когда на staging никто не играет):
+
+1. Автообновление выключить и закрепить проверенный образ:
+   ```bash
+   sudo systemctl disable --now hovanki-update.timer
+   # В .env: HOVANKI_TAG=sha-<коммит> — тот, на котором прошла репетиция (так же закрепляет версию Автообновление)
+   ```
+   `disable --now` держит таймер выключенным и после перезагрузки машины; простой `systemctl stop` после перезагрузки включился бы снова.
+2. Машина `t3.medium`: EC2 → Instances → `hovanki-staging` → Instance state → Stop; Actions → Instance settings → Change instance type → `t3.medium`; Start. Elastic IP остаётся, простой — пара минут.
+3. В `.env` поднять память: `SERVER_MEM_LIMIT=2g`, затем `docker compose up -d`. Куча — 75 % от лимита.
+4. Проверка: `curl https://hovanki-staging.duckdns.org/actuator/health`; `systemctl list-timers hovanki-update.timer` — таймера в списке нет; флаги в админке включены; RDS → Free storage space — запас есть.
+
+**В день:** `docker compose logs -f server` (сервер координат и токенов не логирует), `docker stats` — память и процессор; RDS → Monitoring — подключения и нагрузка. Игру при сбое не перезапускать без нужды: рестарт обрывает все игры.
+
+**После теста:**
+
+1. Забрать из админки отчёт и выгрузки: после `DROP DATABASE` их нет ([field-test.md](field-test.md), шаг 6).
+2. Вернуть автообновление: `HOVANKI_TAG=main` в `.env`, `sudo systemctl enable --now hovanki-update.timer`, `docker compose up -d`.
+3. Вернуть `t3.small`: `SERVER_MEM_LIMIT=1g` в `.env`, Stop → Change instance type → Start, `docker compose up -d`. Или остановить машину до следующего теста: сервер поднимется сам, когда её запустят, а таймер обновит образ.
+
+### Удалить staging
+
+Когда тестов больше не будет. Данные тестеров удаляются целиком; сначала забрать то, что нужно (отчёты, выгрузки для AI, дамп базы, если нужен: [Бэкапы](#бэкапы), с `dbname=hovanki_staging`).
+
+1. Остановить сервер: `docker compose down` на машине `hovanki-staging`.
+2. Удалить базу и роль. Подключиться под `hovanki_admin` (`dbname=postgres`, как в шаге 5):
+   ```sql
+   DROP DATABASE hovanki_staging;
+   DROP ROLE hovanki_staging;
+   ```
+   `DROP DATABASE` не выполнится, пока к базе кто-то подключён: сервер должен быть остановлен.
+3. EC2 → Instances → `hovanki-staging` → Terminate. EC2 → Elastic IPs → Release (непривязанный адрес тоже стоит денег). Удалить группу безопасности `hovanki-staging` и группу `ec2-rds-…`, которую создал для этой машины «Set up EC2 connection» (EC2 → Instances → `hovanki-staging` → Security покажет обе), вместе с правилом для неё в группе базы `rds-ec2-…`.
+4. На duckdns.org удалить поддомен `hovanki-staging`.
+5. Тестовые сборки переключить: переменную `STAGING_SERVER_URL` в GitHub **удалить только когда тестовые сборки больше не раздаются**. Пока она задана, а сервера нет, `preview` ходит в никуда. Без переменной `preview` собирается на основной сервер и пишет об этом в сводке.
+
+Журналы тестеров на живом staging и так удаляются через 90 дней после игры ([ADR 0018, §9](adr/0018-field-test-build.md#9-приватность)): `DROP DATABASE` — способ не ждать.
 
 ## Большие игры
 
