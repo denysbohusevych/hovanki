@@ -15,9 +15,11 @@ import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.device.ActivityMonitor
 import app.hovanki.device.AndroidActivityMonitor
 import app.hovanki.device.AndroidCarryMonitor
+import app.hovanki.device.AndroidImpactMonitor
 import app.hovanki.device.AndroidDeviceInfo
 import app.hovanki.device.AndroidPocketPulse
 import app.hovanki.device.CarryMonitor
+import app.hovanki.device.ImpactMonitor
 import app.hovanki.device.DeviceInfo
 import app.hovanki.device.PocketPulse
 import app.hovanki.device.lab.AndroidLabHaptics
@@ -52,6 +54,7 @@ actual val platformModule: Module = module {
     single<ActivityMonitor> { AndroidActivityMonitor(androidContext()) }
     single<PocketPulse> { AndroidPocketPulse(androidContext()) }
     single<CarryMonitor> { AndroidCarryMonitor(androidContext()) }
+    single<ImpactMonitor> { AndroidImpactMonitor(androidContext()) }
     // The radio lab (docs/radio-lab.md), reached from the debug build's diagnostics only.
     single<LabProbes> { AndroidLabProbes(androidContext()) }
     single<LabAir> { AndroidLabAir(androidContext()) }
