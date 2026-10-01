@@ -5,9 +5,13 @@ import app.hovanki.client.account.AccountManager
 import app.hovanki.client.automation.LaunchOptions
 import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.bigGames.BigGameManager
+import app.hovanki.client.crash.CrashReporter
+import app.hovanki.client.crash.CurrentCrashReporter
+import app.hovanki.client.crash.asErrorReporter
 import app.hovanki.client.defaultServerUrl
 import app.hovanki.client.diagnostics.Diagnostics
 import app.hovanki.client.diagnostics.DiagnosticsBench
+import app.hovanki.client.errors.ErrorReporter
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.lab.HttpLabApi
 import app.hovanki.client.lab.LabAbout
@@ -94,6 +98,10 @@ val commonModule: Module = module {
     // onAppStart).
     single { ServerUrl(defaultServerUrl(get())) }
     single { LaunchOptionsHolder() }
+    // Crash reports of the field test build only (docs/adr/0018-field-test-build.md §7): the platform's entry point
+    // installs the Sentry glue (before the first screen), in that build and with a DSN; everywhere else this is the no-op.
+    single<CrashReporter> { CurrentCrashReporter }
+    single<ErrorReporter> { get<CrashReporter>().asErrorReporter() }
     single { createHttpClient(get()) }
     single<GameApi> { HttpGameApi(get(), get()) }
     single<AccountApi> { HttpAccountApi(get(), get()) }

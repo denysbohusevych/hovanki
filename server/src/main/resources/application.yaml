@@ -55,6 +55,19 @@ management:
       percentiles:
         "[http.server.requests]": 0.5,0.95,0.99
 
+# Errors of the staging server (docs/adr/0018-field-test-build.md §7). Sentry's starter starts only when the property
+# sentry.dsn is set (environment variable SENTRY_DSN, in the staging .env): production sets none, and nothing below
+# does anything. Do not write `dsn:` here, not even an empty one: a present property starts the starter.
+# Events go through ServerEventScrubber (no user, request, extras, tags, breadcrumbs); no performance traces.
+sentry:
+  environment: ${SENTRY_ENVIRONMENT:staging}
+  send-default-pii: false
+  max-request-body-size: none
+  attach-server-name: false
+  logging:
+    minimum-event-level: error
+    minimum-breadcrumb-level: error
+
 hovanki:
   accounts:
     bcrypt-strength: 10

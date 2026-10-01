@@ -30,6 +30,10 @@ dependencies {
     implementation(libs.spring.security.crypto)
     implementation(libs.jts.core)
     implementation(libs.kotlin.reflect)
+    // Errors of the staging server (docs/adr/0018-field-test-build.md §7). Inert without the property `sentry.dsn`
+    // (SENTRY_DSN): production sets none. The logback appender turns logged errors into events.
+    implementation(libs.sentry.spring.boot.starter)
+    implementation(libs.sentry.logback)
     runtimeOnly(libs.flyway.database.postgresql)
     runtimeOnly(libs.postgresql)
 
