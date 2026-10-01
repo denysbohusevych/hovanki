@@ -829,4 +829,37 @@
   </plurals>
   <string name="explain_running">біжить</string>
   <string name="lobby_map_drawn">Зона %1$s</string>
+  <string name="field_consent_title">Це тестова збірка</string>
+  <string name="field_consent_text">Поки ти граєш, застосунок записує все: де ти, що відбувається з телефоном і грою, кого чує Bluetooth. Це зберігається 90 днів на тестовому сервері, бачать лише розробники, видаляється разом з акаунтом.</string>
+  <string name="field_consent_agree">Згоден, грати</string>
+  <string name="field_consent_decline">Ні, дякую</string>
+  <string name="field_declined_title">Без цього не пограти</string>
+  <string name="field_declined_text">У тестовій збірці не можна грати без журналу. Встанови звичайну версію, коли вона з’явиться.</string>
+  <string name="field_declined_back">Назад до згоди</string>
+  <string name="field_withdraw">Відкликати згоду на тестову збірку</string>
+  <string name="field_withdraw_title">Відкликати згоду?</string>
+  <string name="field_withdraw_text">Журнал зупиниться зараз. У тестовій збірці без нього не пограти, тож знову з’явиться згода.</string>
+  <string name="field_wrong_menu">Щось не так</string>
+  <string name="field_wrong_title">Щось не так</string>
+  <string name="field_wrong_text">Ми подивимось у журналі хвилину навколо цього моменту. Кілька слів допоможуть, якщо хочеш.</string>
+  <string name="field_wrong_hint">Що сталося?</string>
+  <string name="field_wrong_send">Надіслати</string>
+  <string name="field_survey_title">Три питання про цю гру</string>
+  <string name="field_survey_rating">Як минуло?</string>
+  <string name="field_survey_broken">Що зламалося?</string>
+  <string name="field_survey_carry">Де був телефон?</string>
+  <string name="field_survey_text_hint">Розкажи докладніше, якщо хочеш</string>
+  <string name="field_survey_send">Надіслати</string>
+  <string name="field_survey_thanks">Дякуємо, це дуже допомагає.</string>
+  <string name="field_broken_crash">Застосунок вилетів або завис</string>
+  <string name="field_broken_gps">Мапа або GPS</string>
+  <string name="field_broken_radar">Радар або пульс</string>
+  <string name="field_broken_catch">Упіймання</string>
+  <string name="field_broken_connection">Зв’язок</string>
+  <string name="field_broken_battery">Батарея</string>
+  <string name="field_broken_other">Щось інше</string>
+  <string name="field_carry_hand">У руці</string>
+  <string name="field_carry_pocket">У кишені</string>
+  <string name="field_carry_bag">У сумці</string>
+  <string name="field_carry_mixed">По-різному</string>
 </resources>

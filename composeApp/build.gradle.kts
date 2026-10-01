@@ -13,6 +13,9 @@ plugins {
 val generateBuildConstants by tasks.registering(GenerateBuildConstants::class) {
     // The server of non-debug builds (preview, TestFlight, release): there is no address field in the app.
     serverUrl.set(providers.gradleProperty("hovanki.serverUrl").orElse(""))
+    // The channel of the build: `preview` is the field test build (docs/adr/0018-field-test-build.md §1), anything
+    // else the release one. Debug builds are told apart at run time (`BuildInfo.channel`).
+    channel.set(providers.gradleProperty("hovanki.channel").orElse("release"))
     // Shown on the start screen next to the version. Asked from git when the task runs, not while configuring.
     commit.set(
         providers.gradleProperty("hovanki.commit").orElse(
@@ -113,6 +116,9 @@ abstract class GenerateBuildConstants : DefaultTask() {
     @get:Input
     abstract val commit: Property<String>
 
+    @get:Input
+    abstract val channel: Property<String>
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
@@ -127,6 +133,10 @@ abstract class GenerateBuildConstants : DefaultTask() {
                     "-Phovanki.serverUrl=https://...), got '$url'",
             )
         }
+        val channelName = channel.get().trim()
+        if (channelName != "release" && channelName != "preview") {
+            throw GradleException("hovanki.channel must be release or preview, got '$channelName'")
+        }
         val file = outputDirectory.file("app/hovanki/client/BuildConstants.kt").get().asFile
         file.parentFile.mkdirs()
         file.writeText(
@@ -140,6 +150,9 @@ abstract class GenerateBuildConstants : DefaultTask() {
             |
             |    /** Commit the app was built from; `-dirty` when it had uncommitted changes. */
             |    const val COMMIT: String = "${commit.get().escaped()}"
+            |
+            |    /** Gradle property `hovanki.channel`: `release` (the default) or `preview`, the field test build. */
+            |    const val CHANNEL: String = "$channelName"
             |}
             |
             """.trimMargin(),

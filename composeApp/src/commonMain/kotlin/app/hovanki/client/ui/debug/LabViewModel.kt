@@ -2,6 +2,7 @@ package app.hovanki.client.ui.debug
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.hovanki.client.BuildInfo
 import app.hovanki.client.diagnostics.BenchRadio
 import app.hovanki.client.lab.ClockEstimate
 import app.hovanki.client.lab.LabController
@@ -46,7 +47,14 @@ class LabViewModel(
     private val sessionManager: GameSessionManager,
     private val radio: ProximityRadio,
     private val locationProvider: LocationProvider,
+    buildInfo: BuildInfo,
 ) : ViewModel() {
+    /**
+     * The log can be shared as files: debug builds only. The field test build's lab (the staff's) keeps its log in the
+     * run on the server and nowhere else (docs/adr/0018-field-test-build.md §4.D).
+     */
+    val canExport: Boolean = buildInfo.isDebug
+
     val running: StateFlow<Boolean> = lab.running
     val label: StateFlow<String> = lab.log.label
     val clock: StateFlow<ClockEstimate?> = lab.log.clock
@@ -190,6 +198,7 @@ class LabViewModel(
     fun stopRun() = runner.stop()
 
     fun export() {
+        if (!canExport) return
         viewModelScope.launch { lab.export() }
     }
 

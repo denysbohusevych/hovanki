@@ -45,6 +45,7 @@ import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.field.FieldConsentWithdraw
 import app.hovanki.client.ui.history.HistoryButton
 import app.hovanki.client.ui.history.HistoryViewModel
 import app.hovanki.client.ui.history.RoutesCard
@@ -149,6 +150,9 @@ fun ProfileTab(verify: VerifyEmailViewModel, history: HistoryViewModel, viewMode
             onDismiss = viewModel::dismissMessage,
             infoTag = TestTags.PROFILE_PASSWORD_CHANGED,
         )
+
+        // The field test build's consent can be taken back here (nothing in other builds).
+        FieldConsentWithdraw()
 
         Spacer(Modifier.height(24.dp))
         BuildLabel(viewModel.buildLabel)

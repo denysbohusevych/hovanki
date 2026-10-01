@@ -823,4 +823,37 @@
   </plurals>
   <string name="explain_running">running</string>
   <string name="lobby_map_drawn">Zone %1$s</string>
+  <string name="field_consent_title">This is a test build</string>
+  <string name="field_consent_text">While you play, the app writes everything: where you are, what happens with the phone and the game, whom Bluetooth hears. It is kept for 90 days on the test server, only the developers see it, and it is deleted with your account.</string>
+  <string name="field_consent_agree">I agree, let me play</string>
+  <string name="field_consent_decline">No, thanks</string>
+  <string name="field_declined_title">Can’t play without it</string>
+  <string name="field_declined_text">This test build can’t be played without the log. Install the regular version when it comes out.</string>
+  <string name="field_declined_back">Back to the agreement</string>
+  <string name="field_withdraw">Withdraw the test build consent</string>
+  <string name="field_withdraw_title">Withdraw the consent?</string>
+  <string name="field_withdraw_text">The log stops now. The test build can’t be played without it, so the agreement comes back.</string>
+  <string name="field_wrong_menu">Something is wrong</string>
+  <string name="field_wrong_title">Something is wrong</string>
+  <string name="field_wrong_text">We will look at the minute around now in your log. A few words help, if you like.</string>
+  <string name="field_wrong_hint">What happened?</string>
+  <string name="field_wrong_send">Send</string>
+  <string name="field_survey_title">Three questions about this game</string>
+  <string name="field_survey_rating">How was it?</string>
+  <string name="field_survey_broken">What broke?</string>
+  <string name="field_survey_carry">Where was the phone?</string>
+  <string name="field_survey_text_hint">Tell us more, if you like</string>
+  <string name="field_survey_send">Send</string>
+  <string name="field_survey_thanks">Thank you, this helps a lot.</string>
+  <string name="field_broken_crash">The app crashed or froze</string>
+  <string name="field_broken_gps">Map or GPS</string>
+  <string name="field_broken_radar">Radar or pulse</string>
+  <string name="field_broken_catch">Catching</string>
+  <string name="field_broken_connection">Connection</string>
+  <string name="field_broken_battery">Battery</string>
+  <string name="field_broken_other">Something else</string>
+  <string name="field_carry_hand">In hand</string>
+  <string name="field_carry_pocket">In a pocket</string>
+  <string name="field_carry_bag">In a bag</string>
+  <string name="field_carry_mixed">It varied</string>
 </resources>

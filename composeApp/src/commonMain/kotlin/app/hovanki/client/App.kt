@@ -15,8 +15,10 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.account.AccountManager
 import app.hovanki.client.account.AccountState
+import app.hovanki.client.lab.FieldSession
 import app.hovanki.client.session.ConnectionStatus
 import app.hovanki.client.session.GameSessionManager
+import app.hovanki.client.session.ServerClock
 import app.hovanki.client.session.SessionState
 import app.hovanki.client.spectator.SpectatorManager
 import app.hovanki.client.ui.common.LoadingScreen
@@ -26,6 +28,8 @@ import app.hovanki.client.ui.common.LocationConsentState
 import app.hovanki.client.ui.common.ResumingScreen
 import app.hovanki.client.ui.common.appSafeDrawingPadding
 import app.hovanki.client.ui.debug.DiagnosticsOverlay
+import app.hovanki.client.ui.field.FieldConsentScreen
+import app.hovanki.client.ui.field.FieldMarkLayer
 import app.hovanki.client.ui.game.GameScreen
 import app.hovanki.client.ui.invite.InviteBanner
 import app.hovanki.client.ui.lobby.LobbyScreen
@@ -52,6 +56,12 @@ fun App() {
         val account by accountManager.state.collectAsStateWithLifecycle()
         val watching by spectatorManager.state.collectAsStateWithLifecycle()
         val locationConsent = remember { LocationConsentState() }
+        // The field test build plays only after the tester's agreement (docs/adr/0018-field-test-build.md §3.4).
+        val fieldSession = koinInject<FieldSession>()
+        val consentAt by fieldSession.consentAt.collectAsStateWithLifecycle()
+        val needsFieldConsent = fieldSession.isFieldBuild && consentAt == null
+        val clock = koinInject<ServerClock>()
+        val buildInfo = koinInject<BuildInfo>()
         // The precision radar works only while both players look at their phones: the server hears when we do.
         LifecycleResumeEffect(sessionManager) {
             sessionManager.onScreenChanged(true)
@@ -62,10 +72,18 @@ fun App() {
         LaunchedEffect(playing) { if (playing) spectatorManager.stop() }
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             CompositionLocalProvider(LocalLocationConsent provides locationConsent) {
-                Screen(state, account, isWatching = watching.isWatching, onLeave = sessionManager::leave)
-                LocationConsentLayer(locationConsent)
-                // Debug builds: the diagnostics tab over everything (nothing in other builds).
-                DiagnosticsOverlay()
+                if (needsFieldConsent) {
+                    FieldConsentScreen(onAgree = {
+                        fieldSession.giveConsent(clock.now())
+                    }, buildLabel = buildInfo.label)
+                } else {
+                    Screen(state, account, isWatching = watching.isWatching, onLeave = sessionManager::leave)
+                    LocationConsentLayer(locationConsent)
+                    // The field test build: «Something is wrong» by shaking the phone (nothing in other builds).
+                    FieldMarkLayer()
+                    // Debug builds, and the field test build for staff: the diagnostics and the lab over everything.
+                    DiagnosticsOverlay()
+                }
             }
         }
     }

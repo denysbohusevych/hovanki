@@ -19,6 +19,8 @@ internal fun androidBuildInfo(context: Context): BuildInfo {
         commit = BuildConstants.COMMIT,
         isDebug = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
         isEmulator = isEmulator(),
+        // The preview build type has its own application id (androidApp/build.gradle.kts); CI passes the channel too.
+        isPreview = BuildConstants.CHANNEL == BuildInfo.CHANNEL_PREVIEW || context.packageName.endsWith(".preview"),
     )
 }
 
