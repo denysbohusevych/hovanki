@@ -11,9 +11,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.lab.FieldSession
 import app.hovanki.client.lab.FieldStatus
@@ -30,6 +32,7 @@ import app.hovanki.device.ShakeDetector
 import app.hovanki.device.lab.LabProbes
 import app.hovanki.device.lab.LabSensorReading
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
@@ -53,22 +56,30 @@ fun FieldMarkLayer() {
     val active = state.status == FieldStatus.ON
     val haptics = rememberHaptics()
 
-    // The accelerometer is read only while the log runs, and only to count the jolts of a shake.
-    LaunchedEffect(active) {
-        if (!active) return@LaunchedEffect
-        val detector = ShakeDetector()
-        try {
-            probes.sensors().collect { reading ->
-                if (reading is LabSensorReading.Motion && detector.add(reading.atMillis, reading.magnitudeG)) {
-                    haptics(Haptic.TICK)
-                    marks.request()
+    // The accelerometer is read only while the log runs and the app is on the screen (a phone shaken in a pocket by a
+    // run is no mark, and the sensors cost the battery), and only to count the jolts of a shake.
+    val scope = rememberCoroutineScope()
+    LifecycleResumeEffect(active) {
+        val listening = if (!active) {
+            null
+        } else {
+            scope.launch {
+                val detector = ShakeDetector()
+                try {
+                    probes.sensors().collect { reading ->
+                        if (reading is LabSensorReading.Motion && detector.add(reading.atMillis, reading.magnitudeG)) {
+                            haptics(Haptic.TICK)
+                            marks.request()
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // No sensor: the menu's button still works.
                 }
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // No sensor: the menu's button still works.
         }
+        onPauseOrDispose { listening?.cancel() }
     }
     LaunchedEffect(active) { if (!active) marks.dismiss() }
 
