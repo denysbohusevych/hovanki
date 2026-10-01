@@ -8,8 +8,11 @@ import app.hovanki.server.game.GameJanitor
 import app.hovanki.server.game.GameRegistry
 import app.hovanki.server.game.GameService
 import app.hovanki.server.game.IdGenerator
+import app.hovanki.server.lab.FieldEventWriter
 import app.hovanki.server.lab.FieldProperties
 import app.hovanki.server.lab.FieldRunService
+import app.hovanki.server.lab.FieldServerSampler
+import app.hovanki.server.lab.LabChunks
 import app.hovanki.server.lab.LabLive
 import app.hovanki.server.lab.LabRunRecord
 import app.hovanki.server.lab.LabRunRepository
@@ -21,6 +24,8 @@ import app.hovanki.shared.lab.GpsFields
 import app.hovanki.shared.lab.LabPlanState
 import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.lab.MarkFields
+import app.hovanki.shared.lab.ServerFields
+import app.hovanki.shared.lab.ServerKinds
 import app.hovanki.shared.protocol.AccountSession
 import app.hovanki.shared.protocol.AdminLabRun
 import app.hovanki.shared.protocol.AdminLabRunRequest
@@ -28,6 +33,7 @@ import app.hovanki.shared.protocol.AdminLabRunView
 import app.hovanki.shared.protocol.AdminLabRuns
 import app.hovanki.shared.protocol.AdminReasonRequest
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.ClaimCatchRequest
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
@@ -45,11 +51,14 @@ import app.hovanki.shared.protocol.LabRunId
 import app.hovanki.shared.protocol.LabRunKind
 import app.hovanki.shared.protocol.LabRunStatus
 import app.hovanki.shared.protocol.LabUpload
+import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.RegisterRequest
 import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.StartGameRequest
+import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.UserRole
 import app.hovanki.shared.rules.shrinkingZone
@@ -107,6 +116,8 @@ class FieldApiTest(
     @Autowired private val fieldProperties: FieldProperties,
     @Autowired private val ids: IdGenerator,
     @Autowired private val transactionManager: PlatformTransactionManager,
+    @Autowired private val fieldEventWriter: FieldEventWriter,
+    @Autowired private val fieldSampler: FieldServerSampler,
 ) {
     private val admin = AdminTestClient(mvc, emailSender as RecordingEmailSender, clock, jdbc)
     private val park = GeoPoint(50.4501, 30.5234)
@@ -339,6 +350,41 @@ class FieldApiTest(
         upload(phone, listOf(gps(phone, 2))).ok<LabEventsResponse>()
         clock.advance(Duration.ofMinutes(31))
         upload(phone, listOf(gps(phone, 3))).error(409, ErrorCode.WRONG_STATE, ErrorReason.LAB_RUN_CLOSED)
+    }
+
+    @Test
+    fun theServerWritesItsEventsIntoTheGamesRun() {
+        val game = createGame(token = null)
+        val host = game.session
+        val guest = join(game.snapshot.joinCode, token = null).session
+        post(ApiRoutes.start(host.gameId), StartGameRequest(listOf(host.playerId)).asJson(), host.token).expect(200)
+        // Nobody logs the game yet: the server's events wait for its run.
+        fieldEventWriter.awaitIdle()
+        assertNull(labRuns.findGameRun(host.gameId.value))
+
+        val phone = fieldJoin(guest).ok<FieldJoinResponse>()
+        clock.advance(Duration.ofSeconds(settings.hidingSeconds.toLong()))
+        // The seeker's fixes, and a claim GPS refuses: the hider has sent none, the seeker's is too poor.
+        val sync = SyncRequest(samples = listOf(LocationSample(park, 500.0, clock.millis())))
+        post(ApiRoutes.sync(host.gameId), sync.asJson(), host.token).expect(200)
+        post(ApiRoutes.catches(host.gameId), ClaimCatchRequest(guest.playerId).asJson(), host.token)
+            .error(422, ErrorCode.NO_LOCATION)
+        fieldSampler.sample()
+        fieldEventWriter.awaitIdle()
+
+        val server = labRuns.devicesOf(phone.runId.value).single { it.label == FieldKinds.SERVER_DEVICE }
+        assertNull(server.userId)
+        assertNull(server.consentAt)
+        val lines = LabChunks.lines(labRuns.chunksOf(server.id), labRuns::chunkBody)
+            .map { Json.parseToJsonElement(it).jsonObject }.toList()
+        val kinds = lines.map { it["k"].toString().trim('"') }
+        assertEquals(listOf("session", "clock", ServerKinds.PHASE, ServerKinds.PHASE), kinds.take(4), "$kinds")
+        assertTrue(ServerKinds.FIXES in kinds && FieldKinds.SRV in kinds, "$kinds")
+        val claim = lines.single { it["k"].toString() == "\"${ServerKinds.CLAIM}\"" }
+        assertEquals("\"NO_LOCATION\"", claim[ServerFields.OUTCOME].toString())
+        assertEquals((0L until lines.size).toList(), lines.map { it["seq"].toString().toLong() })
+        assertTrue(lines.all { it["run"].toString() == "\"${phone.runId.value}\"" })
+        assertTrue(lines.none(LabSchema::hasCoordinates), "no position in the server's events")
     }
 
     @Test

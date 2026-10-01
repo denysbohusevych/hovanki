@@ -2,6 +2,7 @@ package app.hovanki.server.game
 
 import app.hovanki.server.config.GameProperties
 import app.hovanki.server.history.HistoryWriter
+import app.hovanki.server.lab.FieldEventWriter
 import app.hovanki.server.lab.FieldRunService
 import app.hovanki.server.social.InviteRegistry
 import app.hovanki.shared.protocol.GamePhase
@@ -25,6 +26,7 @@ class GameJanitor(
     private val invites: InviteRegistry,
     private val history: HistoryWriter,
     private val fieldRuns: FieldRunService,
+    private val fieldLogWriter: FieldEventWriter,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -32,14 +34,18 @@ class GameJanitor(
     fun removeExpiredGames() {
         val now = clock.millis()
         val finished = ArrayList<GameRecord>()
+        val fieldEvents = ArrayList<Pair<Game, FieldEvents>>()
         val removed = registry.removeIf { game ->
             synchronized(game) {
                 game.advance(now)
                 game.takeFinishedRecord()?.let(finished::add)
+                // What the time brought (the round's end) still goes to the game's field log.
+                game.takeFieldEvents()?.let { fieldEvents += game to it }
                 game.isExpired(now, properties.finishedRetention.toMillis(), properties.idleRetention.toMillis())
             }
         }
         finished.forEach(history::save)
+        fieldEvents.forEach { (game, events) -> fieldLogWriter.add(game.id, events) }
         if (removed > 0) log.info("Removed {} expired games, {} left", removed, registry.size())
         invites.sweep(now) { gameId ->
             val game = registry.get(gameId)
@@ -50,6 +56,8 @@ class GameJanitor(
 
     /** The field logs of the games no longer here (removed now, or lost with a restart) end; never stops the sweep. */
     private fun closeFieldRuns() {
+        // The server's events of the games gone are written out and forgotten (on the writer's thread, in order).
+        fieldLogWriter.forget { registry.get(it) != null }
         try {
             fieldRuns.closeRunsOfGoneGames { registry.get(it) != null }
         } catch (e: Exception) {

@@ -8,6 +8,8 @@ import app.hovanki.shared.debug.DebugPlayer
 import app.hovanki.shared.debug.DebugVote
 import app.hovanki.shared.geo.bearingTo
 import app.hovanki.shared.geo.distanceTo
+import app.hovanki.shared.lab.ServerFields
+import app.hovanki.shared.lab.ServerKinds
 import app.hovanki.shared.protocol.Activity
 import app.hovanki.shared.protocol.AdminGame
 import app.hovanki.shared.protocol.AdminLiveGame
@@ -98,8 +100,11 @@ import app.hovanki.shared.rules.hasPolygons
 import app.hovanki.shared.rules.isUsable
 import app.hovanki.shared.rules.stateAt
 import app.hovanki.shared.totp.catchCodeTotp
+import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.put
 import java.time.Duration
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * One game and all of its rules. Pure domain object: no Spring, no threads, time is passed in,
@@ -255,6 +260,26 @@ class Game(
 
     /** Up to when the moments due by the clock have been poked ([pokeDue]). */
     private var dueCheckedMillis = createdAtMillis
+
+    /**
+     * A field game (docs/adr/0018-field-test-build.md §3.3): the server's field log is on, so the game collects its
+     * [FieldEvents] and runs the rules in the shadow. [GameService] sets it; off, the game collects nothing.
+     */
+    var fieldLog: Boolean = false
+
+    /** The field events since the last [takeFieldEvents]. */
+    private var fieldEvents = FieldEvents()
+
+    /** The hiders the seekers see live now, for the field log: why, and since when. */
+    private val fieldReveals = HashMap<PlayerId, Pair<VisibilityReason, Long>>()
+
+    /** The last glow whose start, and whose end, went to the field log. */
+    private var fieldGlowStarted = 0
+    private var fieldGlowEnded = 0
+
+    /** When [trackField] last looked at the hiders. */
+    private var fieldTrackedMillis: Long? = null
+    private var fieldTrackedPhase: GamePhase? = null
 
     init {
         if (settings.zoneShape.hasPolygons) streetZoneState = StreetZoneState.LOADING
@@ -580,7 +605,7 @@ class Game(
                 if (player.role == Role.HIDER && player.status == PlayerStatus.ACTIVE) {
                     val open = catches.values.firstOrNull { it.isOpen && it.hiderId == playerId }
                     if (open != null) {
-                        resolve(open, confirmed = true, nowMillis)
+                        resolve(open, confirmed = true, nowMillis, how = "left")
                     } else {
                         player.status = PlayerStatus.ELIMINATED
                         player.outAtMillis = nowMillis
@@ -593,7 +618,7 @@ class Game(
                     }
                 } else if (player.role == Role.SEEKER) {
                     catches.values.filter { it.isOpen && it.seekerId == playerId }
-                        .forEach { resolve(it, confirmed = false, nowMillis) }
+                        .forEach { resolve(it, confirmed = false, nowMillis, how = "left") }
                     if (players.values.none { it.role == Role.SEEKER && !it.left }) finish(nowMillis)
                 }
             }
@@ -663,11 +688,17 @@ class Game(
     fun recordLocations(playerId: PlayerId, samples: List<LocationSample>, nowMillis: Long) {
         val player = player(playerId)
         val inRound = phase == GamePhase.HIDING || phase == GamePhase.SEEKING
-        for (sample in samples.sortedBy { it.timestampMillis }) {
+        // The server's verdict on each fix, for the field log: how many of this sync were taken, and why not the rest.
+        // From the round on: the lobby's fixes judge nothing.
+        val logged = fieldLog && samples.isNotEmpty() && phase != GamePhase.LOBBY
+        val verdicts = if (logged) HashMap<LocationTrack.Result, Int>() else null
+        val sorted = samples.sortedBy { it.timestampMillis }
+        for (sample in sorted) {
             // Never trust a timestamp from the future.
             val fix = sample.copy(timestampMillis = minOf(sample.timestampMillis, nowMillis))
             val result = player.track.add(fix)
             player.fixResults[result] = (player.fixResults[result] ?: 0) + 1
+            verdicts?.merge(result, 1, Int::plus)
             if (result != LocationTrack.Result.ACCEPTED) continue
             // Staleness is about location updates, not requests: an app with GPS off still syncs.
             player.lastFixReceivedMillis = nowMillis
@@ -682,6 +713,17 @@ class Game(
             if (fix.isUsable(rules) && isInRound(player, fix.timestampMillis)) player.replay.add(fix)
         }
         lastActivityMillis = nowMillis
+        if (verdicts != null) {
+            fieldEvent(nowMillis, ServerKinds.FIXES) {
+                put(ServerFields.PLAYER, playerId.value)
+                put(ServerFields.ACCEPTED, verdicts[LocationTrack.Result.ACCEPTED] ?: 0)
+                for ((result, count) in verdicts) {
+                    if (result != LocationTrack.Result.ACCEPTED) put(ServerFields.REFUSED_PREFIX + result.name, count)
+                }
+                put(ServerFields.FIX_FROM, minOf(sorted.first().timestampMillis, nowMillis))
+                put(ServerFields.FIX_TO, minOf(sorted.last().timestampMillis, nowMillis))
+            }
+        }
     }
 
     /**
@@ -734,6 +776,9 @@ class Game(
                 ::signalAdjustDb,
                 // Both phones of a pair feel it: the seeker's radar, the hider's sense.
                 onBandChange = { heard -> pokes.addAll(listOf(playerId, heard)) },
+                // A field game: the pocket stealth in the shadow (the same as the game's when it is on).
+                shadowAdjustDb = if (fieldLog) { a, b -> signalAdjustDb(a, b, stealth = true) } else null,
+                onFieldBand = { change -> fieldBandEvent(change, atMillis) },
             ) ?: continue
             val heard = player(heardId)
             calibration.add(
@@ -755,17 +800,27 @@ class Game(
      * damping evened out for every phone in a pocket, and with the pocket stealth on, a hider's pocket taken off again
      * and then some, so the seekers feel them about a band colder.
      */
-    private fun signalAdjustDb(a: PlayerId, b: PlayerId): Double {
+    private fun signalAdjustDb(a: PlayerId, b: PlayerId, stealth: Boolean = settings.features.pocketStealth): Double {
         val x = player(a)
         val y = player(b)
         var adjust = 0.0
         if (x.carry == Carry.IN_POCKET) adjust += ProximityRules.POCKET_OFFSET_DB
         if (y.carry == Carry.IN_POCKET) adjust += ProximityRules.POCKET_OFFSET_DB
-        if (settings.features.pocketStealth && x.role != y.role) {
+        if (stealth && x.role != y.role) {
             val hider = if (x.role == Role.HIDER) x else y
             if (hider.carry == Carry.IN_POCKET) adjust -= ProximityRules.STEALTH_DB
         }
         return adjust
+    }
+
+    /** A radar pair's band, or its shadow's with the pocket stealth, moved: for the field log, by the players' ids. */
+    private fun fieldBandEvent(change: Radar.BandChange, atMillis: Long) = fieldEvent(atMillis, ServerKinds.BAND) {
+        put(ServerFields.OBSERVER, change.observer.value)
+        put(ServerFields.HEARD, change.heard.value)
+        put(ServerFields.BAND, change.after.name)
+        put(ServerFields.FROM, change.before.name)
+        put(ServerFields.SHADOW_BAND, change.shadowAfter.name)
+        put(ServerFields.STEALTH, settings.features.pocketStealth)
     }
 
     /** GPS says [a] and [b] were at least [FAR_APART_METERS] apart around [atMillis], for sure. */
@@ -784,6 +839,93 @@ class Game(
      * attempt ([ErrorCode.INVALID_CODE]) and leaves the claim open for the hider to show the current code.
      */
     fun claimCatch(seekerId: PlayerId, hiderId: PlayerId, catchId: CatchId, nowMillis: Long, code: String? = null) {
+        if (!fieldLog) return claimCatchByRules(seekerId, hiderId, catchId, nowMillis, code)
+        // A field game: the claim and its outcome go to the field log, with the proximity rule's answer in the shadow,
+        // asked before the claim (it never changes what the rules decide). An open claim is logged as it opens, before
+        // the code that may come with it; a refused one here.
+        val shadow = proximityShadow(seekerId, hiderId, nowMillis)
+        try {
+            claimCatchByRules(seekerId, hiderId, catchId, nowMillis, code) { opened ->
+                fieldClaimEvent(seekerId, hiderId, opened, nowMillis, "open", shadow)
+            }
+        } catch (e: GameException) {
+            if (catchId !in catches) {
+                fieldClaimEvent(seekerId, hiderId, null, nowMillis, e.reason?.name ?: e.code.name, shadow)
+            }
+            throw e
+        }
+    }
+
+    /** What the proximity rule (docs/adr/0012-nearby-radar.md, section 2.5) says of a claim now, on or off. */
+    private class ProximityShadow(
+        val ruleOn: Boolean,
+        val bothRadar: Boolean,
+        val wouldAccept: Boolean,
+        val burningSeconds: Double,
+        val burningAgoSeconds: Double?,
+    )
+
+    private fun proximityShadow(seekerId: PlayerId, hiderId: PlayerId, nowMillis: Long): ProximityShadow? {
+        val seeker = players[seekerId] ?: return null
+        val hider = players[hiderId] ?: return null
+        val bothRadar = seeker.hasRadarOn() && hider.hasRadarOn()
+        val burning = radar.wasBurningWithin(seekerId, hiderId, nowMillis, rules.nearbyWindowSeconds * 1000L)
+        return ProximityShadow(
+            ruleOn = settings.features.proximityCatch,
+            bothRadar = bothRadar,
+            wouldAccept = !bothRadar || burning,
+            burningSeconds = radar.burningMillis(seekerId, hiderId, nowMillis) / 1000.0,
+            burningAgoSeconds = radar.lastBurningMillis(seekerId, hiderId)?.let { (nowMillis - it) / 1000.0 },
+        )
+    }
+
+    private fun fieldClaimEvent(
+        seekerId: PlayerId,
+        hiderId: PlayerId,
+        catchId: CatchId?,
+        nowMillis: Long,
+        outcome: String,
+        shadow: ProximityShadow?,
+    ) {
+        // The distances GPS gives, as the rule computes them: numbers in meters, never where anybody was.
+        val seekerFixes = players[seekerId]?.track?.recentUsableFixes(nowMillis).orEmpty()
+        val hiderFixes = players[hiderId]?.track?.recentUsableFixes(nowMillis).orEmpty()
+        val closest = seekerFixes.takeIf { it.isNotEmpty() }
+            ?.let { CatchRules.closestPossibleDistanceMeters(it, hiderFixes) }
+        val estimate = seekerFixes.takeIf { it.isNotEmpty() }
+            ?.let { CatchRules.estimatedDistanceMeters(it, hiderFixes) }
+        fieldEvent(nowMillis, ServerKinds.CLAIM) {
+            catchId?.let { put(ServerFields.CATCH, it.value) }
+            put(ServerFields.SEEKER, seekerId.value)
+            // The hider's id comes from the request: only a player's is written.
+            put(ServerFields.HIDER, if (hiderId in players) hiderId.value else "?")
+            put(ServerFields.OUTCOME, outcome)
+            closest?.let { put(ServerFields.DISTANCE, it.roundTo(1)) }
+            estimate?.let { put(ServerFields.ESTIMATE, it.roundTo(1)) }
+            if (shadow != null) {
+                put(ServerFields.PROXIMITY, shadow.ruleOn)
+                put(ServerFields.RADAR, shadow.bothRadar)
+                put(ServerFields.SHADOW_ACCEPT, shadow.wouldAccept)
+                put(ServerFields.BURNING_SECONDS, shadow.burningSeconds)
+                shadow.burningAgoSeconds?.let { put(ServerFields.BURNING_AGO_SECONDS, it) }
+            }
+        }
+    }
+
+    private fun Double.roundTo(decimals: Int): Double {
+        var scale = 1.0
+        repeat(decimals) { scale *= 10 }
+        return (this * scale).roundToInt() / scale
+    }
+
+    private fun claimCatchByRules(
+        seekerId: PlayerId,
+        hiderId: PlayerId,
+        catchId: CatchId,
+        nowMillis: Long,
+        code: String?,
+        onOpened: (CatchId) -> Unit = {},
+    ) {
         requirePhase(GamePhase.SEEKING)
         val seeker = player(seekerId)
         val hider = player(hiderId)
@@ -829,6 +971,7 @@ class Game(
         )
         seeker.catchClaims++
         lastActivityMillis = nowMillis
+        onOpened(catchId)
         if (!code.isNullOrBlank()) confirmCatch(catchId, seekerId, code, nowMillis)
     }
 
@@ -839,11 +982,11 @@ class Game(
 
         val secret = checkNotNull(player(claim.hiderId).catchCodeSecret)
         if (catchCodeTotp(secret, rules).verify(code.trim(), nowMillis)) {
-            resolve(claim, confirmed = true, nowMillis)
+            resolve(claim, confirmed = true, nowMillis, how = "code")
         } else {
             claim.failedAttempts++
             val attemptsLeft = rules.catchCodeMaxAttempts - claim.failedAttempts
-            if (attemptsLeft <= 0) resolve(claim, confirmed = false, nowMillis)
+            if (attemptsLeft <= 0) resolve(claim, confirmed = false, nowMillis, how = "attempts")
             throw GameException(ErrorCode.INVALID_CODE, "Wrong code, attempts left: ${attemptsLeft.coerceAtLeast(0)}")
         }
         lastActivityMillis = nowMillis
@@ -857,6 +1000,12 @@ class Game(
         claim.wasDisputed = true
         claim.deadlineMillis = nowMillis + rules.disputeVoteSeconds * 1000L
         lastActivityMillis = nowMillis
+        fieldEvent(nowMillis, ServerKinds.DISPUTE) {
+            put(ServerFields.CATCH, catchId.value)
+            put(ServerFields.EVENT, "open")
+            put(ServerFields.SEEKER, claim.seekerId.value)
+            put(ServerFields.HIDER, claim.hiderId.value)
+        }
         if (eligibleVoters(claim).isEmpty()) resolveDispute(claim, nowMillis)
     }
 
@@ -867,6 +1016,12 @@ class Game(
         if (voter !in eligible) throw GameException(ErrorCode.FORBIDDEN, "Players in the dispute can't vote")
         claim.votes[voter] = confirm
         lastActivityMillis = nowMillis
+        fieldEvent(nowMillis, ServerKinds.DISPUTE) {
+            put(ServerFields.CATCH, catchId.value)
+            put(ServerFields.EVENT, "vote")
+            put(ServerFields.PLAYER, voter.value)
+            put(ServerFields.VOTE, confirm)
+        }
         if (claim.votes.keys.containsAll(eligible)) resolveDispute(claim, nowMillis)
     }
 
@@ -963,6 +1118,11 @@ class Game(
 
     /** Applies everything that happens by itself as time passes. */
     fun advance(nowMillis: Long) {
+        advanceRules(nowMillis)
+        if (fieldLog) trackField(nowMillis)
+    }
+
+    private fun advanceRules(nowMillis: Long) {
         val streetZoneOverdue = nowMillis - streetZoneSinceMillis >= STREET_ZONE_PATIENCE_MILLIS
         if (streetZoneState == StreetZoneState.LOADING && streetZoneOverdue) {
             onStreetZoneUnavailable()
@@ -982,7 +1142,7 @@ class Game(
         for (claim in catches.values) {
             if (claim.status == CatchStatus.AWAITING_CODE && nowMillis >= claim.deadlineMillis) {
                 // Silence doesn't help: no reaction before the deadline counts as caught.
-                resolve(claim, confirmed = true, claim.deadlineMillis)
+                resolve(claim, confirmed = true, claim.deadlineMillis, how = "timeout")
             } else if (claim.status == CatchStatus.DISPUTED && nowMillis >= claim.deadlineMillis) {
                 resolveDispute(claim, claim.deadlineMillis)
             }
@@ -998,6 +1158,71 @@ class Game(
         }
         val seekingEnds = phaseStartedAtMillis + settings.seekingSeconds * 1000L
         if (phase == GamePhase.SEEKING && nowMillis >= seekingEnds) finish(seekingEnds)
+    }
+
+    /**
+     * The field events collected since the last call (docs/adr/0018-field-test-build.md §3.3), once; null: none. The
+     * caller hands them to the field log after releasing the game's lock.
+     */
+    fun takeFieldEvents(): FieldEvents? = fieldEvents.takeUnless { it.isEmpty }?.also { fieldEvents = FieldEvents() }
+
+    /** A field event at [atMillis], only in a field game. */
+    private inline fun fieldEvent(atMillis: Long, kind: String, crossinline fields: JsonObjectBuilder.() -> Unit) {
+        if (fieldLog) fieldEvents.add(atMillis, kind) { fields() }
+    }
+
+    /**
+     * What the field log follows by the clock (a field game only): the reveals of the hiders to the seekers, with their
+     * reason, as they start, change and end; the glows, at their own times. Looked at once a second at most.
+     */
+    private fun trackField(nowMillis: Long) {
+        if (phase == GamePhase.LOBBY) return
+        val last = fieldTrackedMillis
+        if (last != null && nowMillis - last < FIELD_TRACK_MILLIS && phase == fieldTrackedPhase) return
+        fieldTrackedMillis = nowMillis
+        fieldTrackedPhase = phase
+        for (player in players.values) {
+            val reason = revealReason(player, nowMillis)?.takeIf { it != VisibilityReason.TEAMMATE }
+            val shown = fieldReveals[player.id]
+            if (reason == shown?.first) continue
+            val event = when {
+                shown == null -> "start"
+                reason == null -> "end"
+                else -> "change"
+            }
+            // The end of the round ends every reveal then, not when somebody asks.
+            val at = if (reason == null) minOf(nowMillis, finishedAtMillis ?: nowMillis) else nowMillis
+            fieldEvent(at, ServerKinds.REVEAL) {
+                put(ServerFields.PLAYER, player.id.value)
+                put(ServerFields.EVENT, event)
+                put(ServerFields.REASON, reason?.name ?: shown?.first?.name)
+                shown?.let { put(ServerFields.SECONDS, (at - it.second) / 1000.0) }
+            }
+            if (reason == null) fieldReveals.remove(player.id) else fieldReveals[player.id] = reason to at
+        }
+        trackGlows(nowMillis)
+    }
+
+    private fun trackGlows(nowMillis: Long) {
+        val seekingStart = zoneStartedAtMillis ?: return
+        val seekingEnds = seekingStart + settings.seekingSeconds * 1000L
+        val until = minOf(nowMillis, finishedAtMillis ?: nowMillis, seekingEnds)
+        val glow = Glow.lastStarted(settings, seekingStart, until)?.takeIf { it.startMillis < seekingEnds } ?: return
+        if (glow.index > fieldGlowStarted) {
+            fieldGlowStarted = glow.index
+            fieldEvent(glow.startMillis, ServerKinds.GLOW) {
+                put(ServerFields.EVENT, "start")
+                put(ServerFields.INDEX, glow.index)
+            }
+        }
+        val over = phase == GamePhase.FINISHED || !glow.isOpenAt(until)
+        if (over && glow.index > fieldGlowEnded) {
+            fieldGlowEnded = glow.index
+            fieldEvent(minOf(glow.endMillis, until), ServerKinds.GLOW) {
+                put(ServerFields.EVENT, "end")
+                put(ServerFields.INDEX, glow.index)
+            }
+        }
     }
 
     /** Every player's phone is to sync now: something they all see changed, like a command's outcome. */
@@ -2044,12 +2269,14 @@ class Game(
             // an unknown distance (the hider sent no fixes) counts for the seeker.
             (claim.estimatedDistanceAtClaimMeters ?: 0.0) <= rules.catchMaxDistanceMeters
         }
-        resolve(claim, confirmed, atMillis)
+        resolve(claim, confirmed, atMillis, how = "dispute")
     }
 
-    private fun resolve(claim: CatchClaim, confirmed: Boolean, atMillis: Long) {
+    /** [how]: what closed it, for the field log (`code`, `timeout`, `attempts`, `dispute`). */
+    private fun resolve(claim: CatchClaim, confirmed: Boolean, atMillis: Long, how: String) {
         claim.status = if (confirmed) CatchStatus.CONFIRMED else CatchStatus.REJECTED
         claim.deadlineMillis = atMillis
+        fieldCatchEvent(claim, atMillis, how)
         pokes.addEveryone()
         if (confirmed) {
             player(claim.seekerId).catches++
@@ -2070,10 +2297,27 @@ class Game(
         if (phase == GamePhase.FINISHED) return
         enterPhase(GamePhase.FINISHED, atMillis)
         finishedAtMillis = atMillis
-        catches.values.filter { it.isOpen }.forEach { it.status = CatchStatus.REJECTED }
+        catches.values.filter { it.isOpen }.forEach {
+            it.status = CatchStatus.REJECTED
+            fieldCatchEvent(it, atMillis, how = "end")
+        }
     }
 
+    private fun fieldCatchEvent(claim: CatchClaim, atMillis: Long, how: String) =
+        fieldEvent(atMillis, ServerKinds.CATCH) {
+            put(ServerFields.CATCH, claim.id.value)
+            put(ServerFields.SEEKER, claim.seekerId.value)
+            put(ServerFields.HIDER, claim.hiderId.value)
+            put(ServerFields.OUTCOME, if (claim.status == CatchStatus.CONFIRMED) "confirmed" else "rejected")
+            put(ServerFields.REASON, how)
+        }
+
     private fun enterPhase(next: GamePhase, atMillis: Long) {
+        val from = phase
+        fieldEvent(atMillis, ServerKinds.PHASE) {
+            put(ServerFields.PHASE, next.name)
+            put(ServerFields.FROM, from.name)
+        }
         phase = next
         phaseStartedAtMillis = atMillis
         pokes.addEveryone()
@@ -2242,6 +2486,9 @@ class Game(
         private const val FAR_APART_METERS = 60.0
         private const val FAR_FIX_AGE_MILLIS = 20_000L
         private const val MAX_UWB_PEERS = 4
+
+        /** How often the field log looks at the reveals and the glows ([trackField]). */
+        private const val FIELD_TRACK_MILLIS = 1_000L
         private const val MAX_SIGHTINGS_PER_SYNC = 200
 
         /** How far beyond the first circle the host may place items: risky spots outside the shrinking zone. */
