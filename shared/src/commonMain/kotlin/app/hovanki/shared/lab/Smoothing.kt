@@ -32,11 +32,12 @@ object Smoothing {
     const val RATE_LOW = 0.4
 
     /** The band at every one of [times] (ascending) after [readings] (in time order) by [variant]. */
-    fun bands(variant: SmoothingVariant, readings: List<TimedRssi>, times: List<Long>): List<RadarBand> = when (variant) {
-        SmoothingVariant.EMA -> ema(readings, times)
-        SmoothingVariant.P80 -> p80(readings, times)
-        SmoothingVariant.RATE -> rate(readings, times)
-    }
+    fun bands(variant: SmoothingVariant, readings: List<TimedRssi>, times: List<Long>): List<RadarBand> =
+        when (variant) {
+            SmoothingVariant.EMA -> ema(readings, times)
+            SmoothingVariant.P80 -> p80(readings, times)
+            SmoothingVariant.RATE -> rate(readings, times)
+        }
 
     private fun ema(readings: List<TimedRssi>, times: List<Long>): List<RadarBand> {
         val smoother = RadarSmoother()

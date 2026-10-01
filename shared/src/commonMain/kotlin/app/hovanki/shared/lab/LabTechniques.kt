@@ -266,7 +266,9 @@ class LabTechniques(
         val all = readings.sortedBy { it.t }
         val times = secondsOf(all)
         if (times.isEmpty()) return null
-        val bands = directions.mapValues { (_, list) -> Smoothing.bands(SmoothingVariant.EMA, list.map(::timed), times) }
+        val bands = directions.mapValues { (_, list) ->
+            Smoothing.bands(SmoothingVariant.EMA, list.map(::timed), times)
+        }
         var inferred = 0
         var withTruth = 0
         var right = 0
@@ -310,7 +312,9 @@ class LabTechniques(
                     val event = own[index++]
                     when {
                         event.k == "mark" -> event.string("place")?.let { truth = LabMerge.truthOf(it) }
+
                         event.k == "carry" -> event.string("state")?.let { states[CarryTechs.V1] = it }
+
                         event.k == LabRadarKinds.SHADOW -> {
                             val tech = event.string(ShadowFields.TECH)
                             val state = event.string(ShadowFields.STATE)
@@ -377,7 +381,10 @@ class LabTechniques(
                     val seconds = near.sumOf { it.end - it.start } / 1000.0
                     if (seconds < 1) continue
                     val heard = directions[sender to listener].orEmpty()
-                        .count { reading -> reading.tech == tech && near.any { reading.t >= it.start && reading.t < it.end } }
+                        .count { reading ->
+                            reading.tech == tech &&
+                                near.any { reading.t >= it.start && reading.t < it.end }
+                        }
                     rates += "$sender→$listener" to heard / seconds
                 }
             }
@@ -406,7 +413,13 @@ class LabTechniques(
                 error.errorPercent <= best + TIE_POINTS -> LabReportCard.KEEP
                 else -> LabReportCard.DROP
             }
-            LabReportCard(error.tech, "smoothing", verdict, "the least band error against the steps' distances", error.describe())
+            LabReportCard(
+                error.tech,
+                "smoothing",
+                verdict,
+                "the least band error against the steps' distances",
+                error.describe(),
+            )
         }
     }
 
@@ -439,9 +452,11 @@ class LabTechniques(
             }
             val criterion = when (error.tech) {
                 CalibrationVariant.NONE.id -> "the baseline"
+
                 CalibrationVariant.TOUCH.id ->
                     "band error ≥ ${Calibration.MIN_GAIN_POINTS.toInt()} points lower than calib.none, " +
                         "the first three touches within ${Calibration.MAX_SPREAD_DB.toInt()} dB"
+
                 else -> "band error ≥ ${Calibration.MIN_GAIN_POINTS.toInt()} points lower than calib.none"
             }
             val numbers = listOfNotNull(
@@ -460,8 +475,10 @@ class LabTechniques(
         val detector = touches.detector
         val verdict = when {
             detector == null || detector.buttonTouches < MIN_TOUCHES -> LabReportCard.TOO_LITTLE
+
             detector.found >= DETECTOR_FOUND * detector.buttonTouches &&
                 detector.falseAlarms <= DETECTOR_FALSE * detector.buttonTouches -> LabReportCard.KEEP
+
             else -> LabReportCard.DROP
         }
         return LabReportCard(
@@ -510,7 +527,8 @@ class LabTechniques(
             id = "infer.witness",
             group = "inference",
             verdict = verdict,
-            criterion = "≥ ${WITNESS_RIGHT_PERCENT.toInt()} % of its guesses right in ≥ $MIN_WITNESS_SECONDS pair-seconds " +
+            criterion =
+            "≥ ${WITNESS_RIGHT_PERCENT.toInt()} % of its guesses right in ≥ $MIN_WITNESS_SECONDS pair-seconds " +
                 "with a distance",
             numbers = witness?.let {
                 "${it.inferredSeconds} pair-seconds guessed, ${it.right} of ${it.withTruth} with a distance right"

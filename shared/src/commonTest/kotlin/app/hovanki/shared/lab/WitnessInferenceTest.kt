@@ -13,7 +13,10 @@ class WitnessInferenceTest {
 
     @Test
     fun twoLoudWitnessesBringThePairClose() {
-        val inferred = WitnessInference.infer(listOf("A", "B", "C"), mapOf(ac to RadarBand.BURNING, bc to RadarBand.HOT))
+        val inferred = WitnessInference.infer(
+            listOf("A", "B", "C"),
+            mapOf(ac to RadarBand.BURNING, bc to RadarBand.HOT),
+        )
 
         assertEquals(mapOf(ab to RadarBand.WARM), inferred)
         assertEquals(
