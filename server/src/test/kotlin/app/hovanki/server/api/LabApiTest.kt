@@ -131,7 +131,7 @@ class LabApiTest(
         assertEquals(1, audits("LAB_RUN_CREATE", run.id, "field test"))
         val list = admin.get(ApiRoutes.ADMIN_LAB_RUNS, staff).ok<AdminLabRuns>()
         assertEquals(run.id, list.runs.first { it.id == run.id }.id)
-        assertEquals(setOf("radio", "e2e"), list.scenarios.map { it.id }.toSet())
+        assertEquals(setOf("radio", "e2e", "touch"), list.scenarios.map { it.id }.toSet())
         assertEquals(listOf("A", "B", "droid"), list.scenarios.first { it.id == "e2e" }.labels)
 
         // A wrong code, no code, a label the plan doesn't have.

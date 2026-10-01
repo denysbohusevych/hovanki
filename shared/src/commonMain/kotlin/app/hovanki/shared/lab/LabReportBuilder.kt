@@ -28,7 +28,7 @@ class LabReportInput(
  * gives the time.
  */
 object LabReportBuilder {
-    const val VERSION = 1
+    const val VERSION = 2
 
     /** The sender of a token nobody in the run advertised. */
     const val UNKNOWN_SENDER = "?"
@@ -39,15 +39,30 @@ object LabReportBuilder {
         logs: List<LabReportInput>,
         nowMillis: Long,
         window: LongRange? = null,
+        modelOffsets: ModelOffsets = ModelOffsets.NONE,
     ): LabReport {
         val sources = logs.asSequence().map { LabLogSource(it.label, it.lines()) }
         val merge = LabMerge(sources, logs.map { it.label }, window)
-        val byToken = logs.mapNotNull { input -> input.radarToken?.let { it to input.label } }
+        val byToken = logs
+            .mapNotNull { input -> input.radarToken?.takeIf { it.isNotEmpty() }?.let { it to input.label } }
             .groupBy({ it.first }, { it.second })
             .mapValues { (_, labels) -> labels.distinct().sorted().joinToString("+") }
         val sender: (String?) -> String = { token ->
             token?.let { byToken[it] ?: merge.owners[it]?.sorted()?.joinToString("+") } ?: UNKNOWN_SENDER
         }
+        val stretches = stretches(merge, script)
+        val techniques = LabTechniques(
+            events = merge.events,
+            spans = stretches.map { LabSpan(it.index, it.start, it.end) },
+            script = script,
+            sender = sender,
+            models = logs.zip(merge.devices) { input, device -> input.label to device.model }.toMap(),
+            modelOffsets = modelOffsets,
+        )
+        val calibration = techniques.calibration()
+        val smoothing = techniques.smoothing()
+        val witness = techniques.witness()
+        val carryClassifiers = techniques.carryClassifiers()
         return LabReport(
             version = VERSION,
             runId = runId,
@@ -68,7 +83,7 @@ object LabReportBuilder {
                 )
             },
             problems = merge.problems(),
-            steps = stretches(merge, script).map { stretch ->
+            steps = stretches.map { stretch ->
                 LabReportStep(
                     index = stretch.index,
                     id = stretch.id,
@@ -114,6 +129,15 @@ object LabReportBuilder {
                 val gaps = intervals.count { it > LabSchema.TICK_GAP_MILLIS }
                 LabReportTicks(label, events.size, gaps, intervals.maxOrNull() ?: 0L)
             },
+            touches = techniques.touches.rows,
+            touchPairs = techniques.touches.pairs,
+            touchDetector = techniques.touches.detector,
+            calibration = calibration,
+            smoothing = smoothing,
+            without = techniques.without(),
+            witness = witness,
+            carryClassifiers = carryClassifiers,
+            cards = techniques.cards(calibration, smoothing, witness, carryClassifiers),
         )
     }
 
