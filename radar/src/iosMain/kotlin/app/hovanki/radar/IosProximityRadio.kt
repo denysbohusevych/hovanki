@@ -83,45 +83,46 @@ class IosProximityRadio(private val trace: RadioTrace = RadioTrace.None) : Proxi
         watcher?.let { mutableState.value = stateOf(it) }
     }
 
-    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean): Flow<RadioSighting> = callbackFlow {
-        val listener = Listener(
-            onState = { central -> mutableState.value = stateOf(central) },
-            onHeard = { token, rssi, api, via, peer ->
-                if (RadarToken.isWellFormed(token)) {
-                    val atMillis = (NSDate().timeIntervalSince1970 * 1000).toLong()
-                    trySend(RadioSighting(token, rssi, atMillis, api, via, peer))
+    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean, options: RadioOptions): Flow<RadioSighting> =
+        callbackFlow {
+            val listener = Listener(
+                onState = { central -> mutableState.value = stateOf(central) },
+                onHeard = { token, rssi, api, via, peer ->
+                    if (RadarToken.isWellFormed(token)) {
+                        val atMillis = (NSDate().timeIntervalSince1970 * 1000).toLong()
+                        trySend(RadioSighting(token, rssi, atMillis, api, via, peer))
+                    }
+                },
+                trace = trace,
+            )
+            val advertiser = Advertiser(if (asSeeker) "ibeacon" else "hider_name", trace) { token ->
+                if (asSeeker) {
+                    val (major, minor) = RadarToken.toMajorMinor(token)
+                    val beacon = CLBeaconRegion(
+                        uUID = NSUUID(SERVICE_UUID),
+                        major = major.toUShort(),
+                        minor = minor.toUShort(),
+                        identifier = BEACON_REGION_ID,
+                    )
+                    val dictionary = beacon.peripheralDataWithMeasuredPower(null)
+                    dictionary.allKeys.associateWith<Any?, Any?> { dictionary.objectForKey(it) }
+                } else {
+                    // The bare token: next to a 128-bit service iOS keeps 8 characters of the name, which is exactly it.
+                    mapOf(
+                        CBAdvertisementDataServiceUUIDsKey to listOf(CBUUID.UUIDWithString(SERVICE_UUID)),
+                        CBAdvertisementDataLocalNameKey to token,
+                    )
                 }
-            },
-            trace = trace,
-        )
-        val advertiser = Advertiser(if (asSeeker) "ibeacon" else "hider_name", trace) { token ->
-            if (asSeeker) {
-                val (major, minor) = RadarToken.toMajorMinor(token)
-                val beacon = CLBeaconRegion(
-                    uUID = NSUUID(SERVICE_UUID),
-                    major = major.toUShort(),
-                    minor = minor.toUShort(),
-                    identifier = BEACON_REGION_ID,
-                )
-                val dictionary = beacon.peripheralDataWithMeasuredPower(null)
-                dictionary.allKeys.associateWith<Any?, Any?> { dictionary.objectForKey(it) }
-            } else {
-                // The bare token: next to a 128-bit service iOS keeps 8 characters of the name, which is exactly it.
-                mapOf(
-                    CBAdvertisementDataServiceUUIDsKey to listOf(CBUUID.UUIDWithString(SERVICE_UUID)),
-                    CBAdvertisementDataLocalNameKey to token,
-                )
+            }
+            val tokenJob = tokens.onEach { advertiser.advertise(it) }.launchIn(this)
+            // Both are the delegates of their managers, which hold them only weakly: referenced here, they live as long
+            // as the radio runs (a delegate the garbage collector took would leave the phone deaf without a word).
+            awaitClose {
+                tokenJob.cancel()
+                advertiser.close()
+                listener.close()
             }
         }
-        val tokenJob = tokens.onEach { advertiser.advertise(it) }.launchIn(this)
-        // Both are the delegates of their managers, which hold them only weakly: referenced here, they live as long
-        // as the radio runs (a delegate the garbage collector took would leave the phone deaf without a word).
-        awaitClose {
-            tokenJob.cancel()
-            advertiser.close()
-            listener.close()
-        }
-    }
 
     private fun stateOf(central: CBCentralManager): BluetoothState = when {
         central.state == CBManagerStateUnsupported -> BluetoothState.UNSUPPORTED

@@ -74,90 +74,92 @@ class AndroidProximityRadio(private val context: Context, private val trace: Rad
     }
 
     @SuppressLint("MissingPermission")
-    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean): Flow<RadioSighting> = callbackFlow {
-        refresh()
-        if (mutableState.value != BluetoothState.ON) {
-            awaitClose()
-            return@callbackFlow
-        }
-        val adapter = checkNotNull(adapter)
-        val scanner: BluetoothLeScanner? = adapter.bluetoothLeScanner
-        val advertiser: BluetoothLeAdvertiser? = adapter.bluetoothLeAdvertiser
-        val scanCallback = object : ScanCallback() {
-            override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val (token, via) = result.scanRecord?.let(::tokenOf) ?: return
-                if (!RadarToken.isWellFormed(token)) return
-                // The reading's time in device-clock terms, from the monotonic stamp.
-                val ageMillis = (SystemClock.elapsedRealtimeNanos() - result.timestampNanos) / 1_000_000
-                val atMillis = System.currentTimeMillis() - ageMillis.coerceAtLeast(0)
-                trySend(RadioSighting(token, result.rssi, atMillis, RadioApi.ANDROID_LE, via, result.device?.address))
+    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean, options: RadioOptions): Flow<RadioSighting> =
+        callbackFlow {
+            refresh()
+            if (mutableState.value != BluetoothState.ON) {
+                awaitClose()
+                return@callbackFlow
             }
+            val adapter = checkNotNull(adapter)
+            val scanner: BluetoothLeScanner? = adapter.bluetoothLeScanner
+            val advertiser: BluetoothLeAdvertiser? = adapter.bluetoothLeAdvertiser
+            val scanCallback = object : ScanCallback() {
+                override fun onScanResult(callbackType: Int, result: ScanResult) {
+                    val (token, via) = result.scanRecord?.let(::tokenOf) ?: return
+                    if (!RadarToken.isWellFormed(token)) return
+                    // The reading's time in device-clock terms, from the monotonic stamp.
+                    val ageMillis = (SystemClock.elapsedRealtimeNanos() - result.timestampNanos) / 1_000_000
+                    val atMillis = System.currentTimeMillis() - ageMillis.coerceAtLeast(0)
+                    val peer = result.device?.address
+                    trySend(RadioSighting(token, result.rssi, atMillis, RadioApi.ANDROID_LE, via, peer))
+                }
 
-            override fun onScanFailed(errorCode: Int) {
-                Log.w(TAG, "Scan failed: $errorCode")
-                trace.scan("failed", RadioApi.ANDROID_LE, error = "code $errorCode")
+                override fun onScanFailed(errorCode: Int) {
+                    Log.w(TAG, "Scan failed: $errorCode")
+                    trace.scan("failed", RadioApi.ANDROID_LE, error = "code $errorCode")
+                }
             }
-        }
-        val mode = if (asSeeker) "ibeacon" else "hider_service_data"
-        val advertiseCallback = object : AdvertiseCallback() {
-            override fun onStartFailure(errorCode: Int) {
-                Log.w(TAG, "Advertising failed: $errorCode")
-                trace.advertise("failed", mode, tokens.value, "code $errorCode")
+            val mode = if (asSeeker) "ibeacon" else "hider_service_data"
+            val advertiseCallback = object : AdvertiseCallback() {
+                override fun onStartFailure(errorCode: Int) {
+                    Log.w(TAG, "Advertising failed: $errorCode")
+                    trace.advertise("failed", mode, tokens.value, "code $errorCode")
+                }
             }
-        }
-        val filters = listOf(
-            ScanFilter.Builder().setServiceUuid(SERVICE_PARCEL).build(),
-            ScanFilter.Builder().setManufacturerData(APPLE_COMPANY_ID, BEACON_PREFIX, BEACON_PREFIX_MASK).build(),
-        )
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .setReportDelay(0)
-            .build()
-        scanner?.startScan(filters, settings, scanCallback)
-        trace.scan("start", RadioApi.ANDROID_LE, "game service, iBeacon of the game")
-
-        var advertising = false
-        fun advertise(token: String?) {
-            if (advertising) {
-                advertiser?.stopAdvertising(advertiseCallback)
-                advertising = false
-                trace.advertise("stop", mode, null)
-            }
-            if (token == null || advertiser == null) return
-            val data = if (asSeeker) {
-                AdvertiseData.Builder()
-                    .addManufacturerData(APPLE_COMPANY_ID, beaconFrame(token))
-                    .setIncludeDeviceName(false)
-                    .setIncludeTxPowerLevel(false)
-                    .build()
-            } else {
-                AdvertiseData.Builder()
-                    .addServiceUuid(SERVICE_PARCEL)
-                    .addServiceData(SERVICE_PARCEL, token.hexToBytes())
-                    .setIncludeDeviceName(false)
-                    .build()
-            }
-            val advertiseSettings = AdvertiseSettings.Builder()
-                .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-                .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
-                .setConnectable(false)
+            val filters = listOf(
+                ScanFilter.Builder().setServiceUuid(SERVICE_PARCEL).build(),
+                ScanFilter.Builder().setManufacturerData(APPLE_COMPANY_ID, BEACON_PREFIX, BEACON_PREFIX_MASK).build(),
+            )
+            val settings = ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setReportDelay(0)
                 .build()
-            advertiser.startAdvertising(advertiseSettings, data, advertiseCallback)
-            advertising = true
-            trace.advertise("start", mode, token)
-        }
-        // The token changes every few minutes: advertise the current one.
-        val tokenJob = tokens.onEach { advertise(it) }.launchIn(this)
-        awaitClose {
-            tokenJob.cancel()
-            if (advertising) {
-                advertiser?.stopAdvertising(advertiseCallback)
-                trace.advertise("stop", mode, null)
+            scanner?.startScan(filters, settings, scanCallback)
+            trace.scan("start", RadioApi.ANDROID_LE, "game service, iBeacon of the game")
+
+            var advertising = false
+            fun advertise(token: String?) {
+                if (advertising) {
+                    advertiser?.stopAdvertising(advertiseCallback)
+                    advertising = false
+                    trace.advertise("stop", mode, null)
+                }
+                if (token == null || advertiser == null) return
+                val data = if (asSeeker) {
+                    AdvertiseData.Builder()
+                        .addManufacturerData(APPLE_COMPANY_ID, beaconFrame(token))
+                        .setIncludeDeviceName(false)
+                        .setIncludeTxPowerLevel(false)
+                        .build()
+                } else {
+                    AdvertiseData.Builder()
+                        .addServiceUuid(SERVICE_PARCEL)
+                        .addServiceData(SERVICE_PARCEL, token.hexToBytes())
+                        .setIncludeDeviceName(false)
+                        .build()
+                }
+                val advertiseSettings = AdvertiseSettings.Builder()
+                    .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+                    .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
+                    .setConnectable(false)
+                    .build()
+                advertiser.startAdvertising(advertiseSettings, data, advertiseCallback)
+                advertising = true
+                trace.advertise("start", mode, token)
             }
-            scanner?.stopScan(scanCallback)
-            trace.scan("stop", RadioApi.ANDROID_LE)
+            // The token changes every few minutes: advertise the current one.
+            val tokenJob = tokens.onEach { advertise(it) }.launchIn(this)
+            awaitClose {
+                tokenJob.cancel()
+                if (advertising) {
+                    advertiser?.stopAdvertising(advertiseCallback)
+                    trace.advertise("stop", mode, null)
+                }
+                scanner?.stopScan(scanCallback)
+                trace.scan("stop", RadioApi.ANDROID_LE)
+            }
         }
-    }
 
     /** The token in a scan record: a hider's service data, a seeker's iBeacon frame, or an iPhone hider's name. */
     private fun tokenOf(record: ScanRecord): Pair<String, SightingVia>? {

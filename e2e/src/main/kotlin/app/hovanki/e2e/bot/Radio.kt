@@ -4,6 +4,7 @@ import app.hovanki.device.CarryMonitor
 import app.hovanki.device.DeviceInfo
 import app.hovanki.device.PocketPulse
 import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.RadioOptions
 import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.BluetoothState
@@ -134,19 +135,22 @@ class FakeRadio(
     /** Every token this phone ever heard. */
     val heardTokens: Set<String> get() = synchronized(tokensHeard) { tokensHeard.toSet() }
 
-    override fun run(tokens: kotlinx.coroutines.flow.StateFlow<String?>, asSeeker: Boolean): Flow<RadioSighting> =
-        callbackFlow {
-            this@FakeRadio.asSeeker = asSeeker
-            sink = channel
-            val tokenJob = tokens.onEach { token = it }.launchIn(this)
-            world.register(this@FakeRadio)
-            awaitClose {
-                tokenJob.cancel()
-                world.unregister(this@FakeRadio)
-                sink = null
-                token = null
-            }
+    override fun run(
+        tokens: kotlinx.coroutines.flow.StateFlow<String?>,
+        asSeeker: Boolean,
+        options: RadioOptions,
+    ): Flow<RadioSighting> = callbackFlow {
+        this@FakeRadio.asSeeker = asSeeker
+        sink = channel
+        val tokenJob = tokens.onEach { token = it }.launchIn(this)
+        world.register(this@FakeRadio)
+        awaitClose {
+            tokenJob.cancel()
+            world.unregister(this@FakeRadio)
+            sink = null
+            token = null
         }
+    }
 
     internal fun hears(token: String, rssi: Int) {
         tokensHeard += token

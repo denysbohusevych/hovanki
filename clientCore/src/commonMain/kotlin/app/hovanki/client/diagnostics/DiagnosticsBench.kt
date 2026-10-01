@@ -64,7 +64,15 @@ class DiagnosticsBench(
             try {
                 radio.run(MutableStateFlow(token), asSeeker).collect { sighting ->
                     diagnostics.onSighting(sighting.token, sighting.rssi, sighting.atMillis, via = sighting.via)
-                    lab.rx(sighting.token, sighting.rssi, sighting.api, sighting.via, sighting.peer, sighting.atMillis)
+                    lab.rx(
+                        sighting.token,
+                        sighting.rssi,
+                        sighting.api,
+                        sighting.via,
+                        sighting.peer,
+                        sighting.atMillis,
+                        sighting.tech,
+                    )
                 }
             } catch (e: CancellationException) {
                 throw e

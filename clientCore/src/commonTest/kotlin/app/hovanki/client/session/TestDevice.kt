@@ -8,6 +8,7 @@ import app.hovanki.device.CarryMonitor
 import app.hovanki.device.DeviceInfo
 import app.hovanki.device.PocketPulse
 import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.RadioOptions
 import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.Carry
@@ -67,16 +68,22 @@ class FakeRadio(
         private set
     private val sightings = MutableSharedFlow<RadioSighting>(extraBufferCapacity = 64)
 
-    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean): Flow<RadioSighting> = sightings
-        .onStart {
-            this@FakeRadio.tokens = tokens
-            this@FakeRadio.asSeeker = asSeeker
-            collectors++
-        }
-        .onCompletion {
-            collectors--
-            if (collectors == 0) this@FakeRadio.tokens = null
-        }
+    /** What the running collection was told besides the token: the player's number. */
+    var options: RadioOptions? = null
+        private set
+
+    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean, options: RadioOptions): Flow<RadioSighting> =
+        sightings
+            .onStart {
+                this@FakeRadio.tokens = tokens
+                this@FakeRadio.asSeeker = asSeeker
+                this@FakeRadio.options = options
+                collectors++
+            }
+            .onCompletion {
+                collectors--
+                if (collectors == 0) this@FakeRadio.tokens = null
+            }
 
     /** Another phone's [token] heard at [rssi] dBm, at [atMillis] of the device's clock. */
     fun hears(token: String, rssi: Int, atMillis: Long) {

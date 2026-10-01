@@ -7,8 +7,9 @@ import kotlin.test.fail
 
 /**
  * The borders of `:radar` (docs/adr/0017-radar-techniques-and-big-run.md, section 1), read from the sources of every
- * main source set: a technique's package `app.hovanki.radar.<x>` imports no other technique's `app.hovanki.radar.<y>`
- * (the root package `app.hovanki.radar` is common ground: anyone may import it), and nothing here imports the phone
+ * main source set: a technique's package (`app.hovanki.radar.<x>`, and for the channels `app.hovanki.radar.channel.<id>`)
+ * imports no other technique's (the root package `app.hovanki.radar` is common ground: anyone may import it); of the
+ * root package only the catalog (`RadarCatalog.kt`) knows the techniques by name; and nothing here imports the phone
  * itself (`:device`), the game's client (`:clientCore`, `:composeApp`) or Compose. `:device` has the same test.
  */
 class ModuleBoundariesTest {
@@ -24,17 +25,28 @@ class ModuleBoundariesTest {
     @Test
     fun thereAreSourcesToCheck() {
         assertTrue(sources.any { it.name == "ProximityRadio.kt" }, "$sources")
+        assertTrue(sources.any { it.name == CATALOG }, "$sources")
     }
 
     @Test
     fun techniquesDoNotImportEachOther() {
         val crossings = sources.flatMap { file ->
             val own = techniqueOf(packageOf(file) + ".File")
+            // The catalog lists every technique: the one file of the root package that may name them.
+            if (own == null && file.name == CATALOG) return@flatMap emptyList()
             importsOf(file)
                 .filter { import -> techniqueOf(import)?.let { it != own } == true }
                 .map { "${file.path}: $it" }
         }
         assertTrue(crossings.isEmpty(), crossings.joinToString("\n"))
+    }
+
+    @Test
+    fun everyChannelIsATechniqueOfItsOwn() {
+        val channels = sources.map {
+            techniqueOf(packageOf(it) + ".File")
+        }.filter { it?.startsWith("channel.") == true }
+        assertTrue(channels.distinct().size >= 4, "the channels' packages: ${channels.distinct()}")
     }
 
     @Test
@@ -56,18 +68,29 @@ class ModuleBoundariesTest {
 
     /**
      * The technique's package of an imported name: `lab` for `app.hovanki.radar.lab.AirFrame` (and anything below
-     * `lab`); null for the root package's names (`app.hovanki.radar.RadioApi`, a nested `….RadioApi.Companion`) and
-     * for anything outside this module.
+     * `lab`), `channel.overflow` for `app.hovanki.radar.channel.overflow.OverflowChannel` (every channel is a technique
+     * of its own); null for the root package's names (`app.hovanki.radar.RadioApi`, a nested `….RadioApi.Companion`)
+     * and for anything outside this module.
      */
     private fun techniqueOf(name: String): String? {
         if (!name.startsWith("$ROOT.")) return null
         val parts = name.removePrefix("$ROOT.").split('.')
-        return parts.first().takeIf { parts.size >= 2 && it.first().isLowerCase() }
+        if (parts.size < 2 || !parts.first().first().isLowerCase()) return null
+        if (parts.first() in KINDS && parts.size >= 3 &&
+            parts[1].first().isLowerCase()
+        ) {
+            return "${parts[0]}.${parts[1]}"
+        }
+        return parts.first()
     }
 
     private companion object {
         const val MODULE = "radar"
         const val ROOT = "app.hovanki.radar"
+        const val CATALOG = "RadarCatalog.kt"
+
+        /** Packages that hold techniques of one kind, each in a package of its own: `channel.<id>`. */
+        val KINDS = setOf("channel")
         val FORBIDDEN = listOf("app.hovanki.device", "app.hovanki.client", "androidx.compose")
     }
 }
