@@ -183,3 +183,15 @@ hovanki:
     # production); a bigger run's raw logs are merged on a computer.
     max-report-events: 500000
     live-window: 30s
+    # A test server whose field build (release code) has the lab's screen for staff: only staff join a run, with
+    # their account token (docs/adr/0018-field-test-build.md §4.D). Production: off (debug builds, anybody with the code).
+    join-staff-only: false
+  # The field log of real games (docs/adr/0018-field-test-build.md §3), while the server feature FIELD_LOG is on (the
+  # test server only): the field build of a tester who agreed joins its game's run with the game token and uploads its
+  # log, coordinates included. A game's run is finished when its game is gone and deleted whole 90 days later.
+  field:
+    max-devices: 100
+    max-run-bytes: 2GB
+    join-window: 24h
+    upload-grace: 30m
+    retention: 90d

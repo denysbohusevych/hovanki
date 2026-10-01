@@ -5,8 +5,16 @@ package app.hovanki.client.lab
 import app.hovanki.device.lab.MotionFeatures
 import app.hovanki.radar.RadioApi
 import app.hovanki.radar.SightingVia
+import app.hovanki.shared.lab.ErrFields
+import app.hovanki.shared.lab.FieldKinds
+import app.hovanki.shared.lab.GpsFields
 import app.hovanki.shared.lab.LabFields
 import app.hovanki.shared.lab.LabSchema
+import app.hovanki.shared.lab.MarkFields
+import app.hovanki.shared.lab.RxFields
+import app.hovanki.shared.lab.SurveyFields
+import app.hovanki.shared.lab.SyncFields
+import app.hovanki.shared.lab.UiFields
 import app.hovanki.shared.protocol.LabUpload
 import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.rules.RadarSmoother
@@ -34,10 +42,15 @@ import kotlin.time.TimeSource
  * [LabFields.SEQ] (a counter of this log's events that never goes back, [nextSeq]) and, while the device is in a run
  * on the server ([setRun]), [LabFields.RUN] (schema 2, [LabSchema.VERSION]).
  *
- * Never a coordinate: `gps` is an accuracy and an age. In memory only, a ring of [capacity] events; the developer
- * exports it by hand ([export]), and in a run on the server the lab uploads it ([pending], `LabUploader`). Debug builds
- * only: disabled ([isEnabled] false) it records nothing, and it records only while the lab runs ([isRecording]). Main
- * thread.
+ * Never a coordinate in the lab: `gps` is an accuracy and an age. In memory only, a ring of [capacity] events; the
+ * developer exports it by hand ([export]), and in a run on the server the lab uploads it ([pending], `LabUploader`).
+ * Debug builds only: disabled ([isEnabled] false) it records nothing, and it records only while the lab runs
+ * ([isRecording]). Main thread.
+ *
+ * The field log (docs/adr/0018-field-test-build.md §3.2, [startField]) is the same log in a real game of the field
+ * build, whatever [isEnabled] says: only there `gps` carries the coordinates ([fix]), the radio's readings are thinned
+ * to one event per peer and second ([FieldThinning]), and the game's own kinds come in ([sync], [ui], [perm], [err],
+ * [playerMark], [survey]).
  */
 class LabLog(
     val isEnabled: Boolean,
@@ -71,6 +84,15 @@ class LabLog(
 
     /** The run on the server this device is in ([setRun]); null: none. */
     val runId: String? get() = run
+
+    /** The field log's thinning while in a game's run ([startField]); null: the lab's log, every reading. */
+    private var thinning: FieldThinning? = null
+
+    /** In a game's field run ([startField]): coordinates allowed, readings thinned. */
+    val isField: Boolean get() = thinning != null
+
+    /** Events are written now: the lab enabled (or a field run) and recording. */
+    private val writing: Boolean get() = (isEnabled || thinning != null) && isRecording
 
     private val mutableLabel = MutableStateFlow(DEFAULT_LABEL)
 
@@ -127,9 +149,39 @@ class LabLog(
         salt = saltHex?.takeIf { runId != null }?.let(::saltOf) ?: ownSalt
     }
 
+    /**
+     * A game's field run (docs/adr/0018-field-test-build.md §3): from now on the log records whatever [isEnabled]
+     * says, in the run [runId] with its salt [saltHex], as [label] (the player), thinned by [thinning], and [fix]
+     * writes the coordinates. The log is cleared first: nothing of before goes into the game's run.
+     */
+    fun startField(runId: String, saltHex: String, label: String, thinning: FieldThinning) {
+        clear()
+        this.thinning = thinning
+        setRun(runId, saltHex)
+        setLabel(label)
+        isRecording = true
+    }
+
+    /**
+     * Out of the game's run: the readings still in their windows are written, then nothing more is recorded (unless
+     * the lab of a debug build records) and coordinates are dropped again. The log is kept for the last upload.
+     */
+    fun stopField() {
+        if (thinning == null) return
+        flushReadings(all = true)
+        thinning = null
+        setRun(null, null)
+        isRecording = false
+    }
+
     /** Writes an event of kind [k] with the common fields and [fields]. */
     fun event(k: String, fields: JsonObjectBuilder.() -> Unit = {}) {
-        if (!isEnabled || !isRecording) return
+        if (!writing) return
+        val field = thinning
+        if (field != null && k in FieldKinds.THROTTLED) {
+            val peer = (buildJsonObject(fields)[RxFields.PEER] as? JsonPrimitive)?.content
+            if (!field.allowThrottled(k, peer, deviceTimeMillis())) return
+        }
         val dt = deviceTimeMillis()
         val t = dt + (mutableClock.value?.offsetMillis ?: 0L)
         val seq = nextSeq++
@@ -242,9 +294,13 @@ class LabLog(
 
     fun life(event: String) = event("life") { put("event", event) }
 
-    /** Once a second while the process lives: a gap in the ticks is the app suspended. */
+    /**
+     * Once a second while the process lives: a gap in the ticks is the app suspended. In the field, the readings'
+     * windows that are over are written too.
+     */
     fun tick(n: Long) {
-        if (!isEnabled || !isRecording) return
+        if (!writing) return
+        flushReadings()
         val mono = monotonicMillis()
         val last = lastTickMono
         if (last != null && mono - last > LabSchema.TICK_GAP_MILLIS && tickGaps.size < MAX_TICK_GAPS) {
@@ -280,18 +336,25 @@ class LabLog(
     /**
      * Every reading, not thinned out: [token] (null when the sender carried none we could read), [rssi], by [api] via
      * [via], from [peer] (the OS's id; hashed here). [atMillis]: when the platform heard it, device clock. A reading
-     * with a token moves the lab's smoothed band for it ([band] on a change).
+     * with a token moves the lab's smoothed band for it ([band] on a change). In the field one `rx` per peer and
+     * window ([FieldThinning]): the count, the median and the loudest.
      */
     fun rx(token: String?, rssi: Int, api: RadioApi, via: SightingVia, peer: String? = null, atMillis: Long? = null) {
-        if (!isEnabled || !isRecording) return
+        if (!writing) return
         val now = deviceTimeMillis()
-        event("rx") {
-            put("token", token)
-            put("rssi", rssi)
-            put("api", api.key)
-            put("via", via.key)
-            put("peer", peer?.let(::peerId))
-            if (atMillis != null && now - atMillis > 0) put("ago", now - atMillis)
+        val field = thinning
+        if (field != null) {
+            val key = FieldThinning.RxKey(token, api.key, via.key, peer?.let(::peerId))
+            field.rx(key, rssi, atMillis ?: now).forEach(::writeReadings)
+        } else {
+            event("rx") {
+                put("token", token)
+                put("rssi", rssi)
+                put("api", api.key)
+                put("via", via.key)
+                put("peer", peer?.let(::peerId))
+                if (atMillis != null && now - atMillis > 0) put("ago", now - atMillis)
+            }
         }
         if (token != null) {
             lastHeard[token] = now
@@ -383,6 +446,118 @@ class LabLog(
     fun gps(accuracyMeters: Double, ageMillis: Long) = event("gps") {
         put("acc", round(accuracyMeters, 1))
         put("age", ageMillis)
+    }
+
+    // The field log (docs/adr/0018-field-test-build.md §3.2): written only in a game's run, or by the lab where it
+    // makes sense there too; every field optional.
+
+    /**
+     * A GPS fix of the game: in a field run where it was ([lat], [lon]), its [speed] and [bearing] where the phone
+     * says; outside of one (the lab) only its accuracy and age, as [gps]. [accepted] / [rejected]: what the game made
+     * of it, when known; [mock]: the OS says it was simulated. At most one per `gpsEveryMillis` (the caller's).
+     */
+    fun fix(
+        lat: Double,
+        lon: Double,
+        accuracyMeters: Double,
+        ageMillis: Long,
+        speed: Double? = null,
+        bearing: Double? = null,
+        accepted: Boolean? = null,
+        rejected: String? = null,
+        mock: Boolean = false,
+    ) {
+        val where = isField
+        event(FieldKinds.GPS) {
+            if (where) {
+                put(GpsFields.LAT, round(lat, COORDINATE_DIGITS))
+                put(GpsFields.LON, round(lon, COORDINATE_DIGITS))
+            }
+            put(GpsFields.ACC, round(accuracyMeters, 1))
+            put(GpsFields.AGE, ageMillis)
+            put(GpsFields.SPEED, speed?.let { round(it, 1) })
+            put(GpsFields.BEARING, bearing?.let { round(it, 0) })
+            put(GpsFields.ACCEPTED, accepted)
+            put(GpsFields.REJECTED, rejected)
+            if (mock) put(GpsFields.MOCK, true)
+        }
+    }
+
+    /**
+     * A sync with the game's server by [transport] (`poll` / `socket`): whether it went through ([ok]), how long it
+     * took ([millis]), the refusal's [code] (HTTP status or the socket's close code) and [error], the answer's [bytes]
+     * where known, and the game's [phase] when it changed with this answer (from [from]).
+     */
+    fun sync(
+        transport: String,
+        ok: Boolean,
+        millis: Long? = null,
+        code: Int? = null,
+        error: String? = null,
+        bytes: Int? = null,
+        phase: String? = null,
+        from: String? = null,
+    ) = event(FieldKinds.SYNC) {
+        put(SyncFields.TRANSPORT, transport)
+        put(SyncFields.OK, ok)
+        put(SyncFields.MILLIS, millis)
+        put(SyncFields.CODE, code)
+        put(SyncFields.ERROR, error)
+        put(SyncFields.BYTES, bytes)
+        put(SyncFields.PHASE, phase)
+        put(SyncFields.FROM, from)
+    }
+
+    /** A [screen] opened or closed ([what]: `open`, `close`, `tap`), a tap meaning [action] (`catch_claim`): no text. */
+    fun ui(screen: String, what: String, action: String? = null) = event(FieldKinds.UI) {
+        put(UiFields.SCREEN, screen)
+        put(UiFields.EVENT, what)
+        put(UiFields.ACTION, action)
+    }
+
+    /** The app's permissions now, by name ([PermFields]): `always`, `when_in_use`, `denied`, `on`, `off`… */
+    fun perm(states: Map<String, String>) = event(FieldKinds.PERM) {
+        for ((name, state) in states) put(name, state)
+    }
+
+    /** An exception caught [where]: its class and message (cut short), the Sentry event's id if it went there. */
+    fun err(where: String, type: String, message: String?, sentryId: String? = null) = event(FieldKinds.ERR) {
+        put(ErrFields.WHERE, where)
+        put(ErrFields.CLASS, type)
+        put(ErrFields.MESSAGE, message?.take(MAX_TEXT))
+        put(ErrFields.SENTRY_ID, sentryId)
+    }
+
+    /** «Something is wrong» from the player, with their few words if any (cut short). */
+    fun playerMark(text: String?) = event(FieldKinds.MARK) {
+        put(MarkFields.BY, MarkFields.PLAYER)
+        put(MarkFields.TEXT, text?.trim()?.take(MAX_TEXT)?.ifEmpty { null })
+    }
+
+    /** The three questions after the game: [rating] 1–5, what [broken] (from the list) and in words, where [carry]. */
+    fun survey(rating: Int?, broken: List<String>, text: String?, carry: String?) = event(FieldKinds.SURVEY) {
+        put(SurveyFields.RATING, rating)
+        put(SurveyFields.BROKEN, JsonArray(broken.map(::JsonPrimitive)))
+        put(SurveyFields.TEXT, text?.trim()?.take(MAX_TEXT)?.ifEmpty { null })
+        put(SurveyFields.CARRY, carry)
+    }
+
+    /** The readings' windows over by now (all of them with [all]) as `rx` events: the field log only. */
+    private fun flushReadings(all: Boolean = false) {
+        val field = thinning ?: return
+        field.flush(deviceTimeMillis(), all).forEach(::writeReadings)
+    }
+
+    private fun writeReadings(summary: FieldThinning.RxSummary) = event(FieldKinds.RX) {
+        put(RxFields.TOKEN, summary.key.token)
+        put(RxFields.API, summary.key.api)
+        put(RxFields.VIA, summary.key.via)
+        put(RxFields.PEER, summary.key.peer)
+        put(RxFields.COUNT, summary.count)
+        put(RxFields.RSSI, summary.median)
+        put(RxFields.MAX, summary.max)
+        val ago = deviceTimeMillis() - summary.toMillis
+        if (ago > 0) put("ago", ago)
     }
 
     fun note(text: String) = event("note") { put("text", text) }
@@ -507,6 +682,12 @@ class LabLog(
         const val DEFAULT_LABEL = "A"
 
         private const val MAX_TICK_GAPS = 1_000
+
+        /** A player's words, an exception's message: this long at most. */
+        const val MAX_TEXT = 200
+
+        /** About 1 cm: more than GPS knows. */
+        private const val COORDINATE_DIGITS = 7
 
         private const val FNV_OFFSET = -3750763034362895579L // 0xcbf29ce484222325
         private const val FNV_PRIME = 1099511628211L

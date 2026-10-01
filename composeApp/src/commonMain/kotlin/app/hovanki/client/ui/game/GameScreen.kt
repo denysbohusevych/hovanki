@@ -61,6 +61,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.catchcode.CatchCodeScanner
 import app.hovanki.client.catchcode.QrCodeImage
+import app.hovanki.client.lab.FieldSession
+import app.hovanki.client.lab.FieldStatus
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_cancel
 import app.hovanki.client.resources.action_confirm
@@ -81,6 +83,7 @@ import app.hovanki.client.resources.checkpoint_taken
 import app.hovanki.client.resources.claim_disputed_mine
 import app.hovanki.client.resources.claim_enter_code
 import app.hovanki.client.resources.claim_time_left
+import app.hovanki.client.resources.field_wrong_menu
 import app.hovanki.client.resources.hider_claim_hint
 import app.hovanki.client.resources.hider_claim_title
 import app.hovanki.client.resources.hider_code_next
@@ -150,6 +153,7 @@ import app.hovanki.client.ui.common.formatCountdown
 import app.hovanki.client.ui.common.rememberHaptics
 import app.hovanki.client.ui.common.rememberReduceMotion
 import app.hovanki.client.ui.common.rememberToastVisible
+import app.hovanki.client.ui.field.FieldMarks
 import app.hovanki.client.ui.invite.InviteBannerViewModel
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
@@ -166,6 +170,7 @@ import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.Role
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -221,6 +226,10 @@ private fun GameContent(
     onGoToInvite: (GameInvite) -> Unit,
 ) {
     var showLeaveDialog by rememberSaveable { mutableStateOf(false) }
+    // The field test build's «Something is wrong» in the menu, while its log runs (nothing in other builds).
+    val fieldSession = koinInject<FieldSession>()
+    val fieldMarks = koinInject<FieldMarks>()
+    val fieldState by fieldSession.state.collectAsStateWithLifecycle()
     var recenter by remember { mutableIntStateOf(0) }
     val reduceMotion = rememberReduceMotion()
     GameHaptics(state)
@@ -532,6 +541,14 @@ private fun GameContent(
                             color = Palette.PinkInk,
                             style = MaterialTheme.typography.titleSmall,
                         )
+                    }
+                    if (fieldState.status == FieldStatus.ON) {
+                        TextButton(
+                            onClick = {
+                                showLeaveDialog = false
+                                fieldMarks.request()
+                            },
+                        ) { Text(stringResource(Res.string.field_wrong_menu)) }
                     }
                 }
             },

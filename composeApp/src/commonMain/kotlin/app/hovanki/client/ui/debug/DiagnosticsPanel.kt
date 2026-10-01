@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.BuildInfo
+import app.hovanki.client.account.AccountManager
 import app.hovanki.client.diagnostics.BenchRadio
 import app.hovanki.client.diagnostics.Diagnostics
 import app.hovanki.client.diagnostics.DiagnosticsState
@@ -65,35 +66,47 @@ import kotlin.time.ExperimentalTime
 // other builds, so the texts are plain English here rather than translated resources.
 
 /**
- * A small «DBG» tab at the screen's left edge, over every screen of a debug build; it opens the diagnostics panel.
- * Other builds: nothing.
+ * A small «DBG» tab at the screen's left edge, over every screen of a debug build; it opens the diagnostics panel. The
+ * field test build has a «LAB» tab for staff accounts with lab access (docs/adr/0018-field-test-build.md §4.D): the
+ * lab only, no diagnostics. Other builds: nothing.
  */
 @Composable
 fun DiagnosticsOverlay(modifier: Modifier = Modifier) {
     val buildInfo = koinInject<BuildInfo>()
-    if (!buildInfo.isDebug) return
+    val account by koinInject<AccountManager>().state.collectAsStateWithLifecycle()
+    // The field test build's tester doesn't see the lab; the organizers' accounts do (the server sets `labAccess`).
+    val staffLab = buildInfo.isFieldBuild && account.user?.labAccess == true
+    if (!buildInfo.isDebug && !staffLab) return
     var open by remember { mutableStateOf(false) }
     Box(modifier = modifier.fillMaxSize()) {
         if (open) {
-            DiagnosticsPanel(
-                onClose = { open = false },
-                modifier = Modifier.appSafeDrawingPadding(),
-            )
+            if (buildInfo.isDebug) {
+                DiagnosticsPanel(onClose = { open = false }, modifier = Modifier.appSafeDrawingPadding())
+            } else {
+                LabOnlyPanel(onClose = { open = false }, modifier = Modifier.appSafeDrawingPadding())
+            }
         } else {
-            DebugTab(
-                onClick = { open = true },
-                modifier = Modifier.align(Alignment.CenterStart).appSafeDrawingPadding(),
-            )
+            val tabModifier = Modifier.align(Alignment.CenterStart).appSafeDrawingPadding()
+            if (buildInfo.isDebug) {
+                DebugTab(onClick = { open = true }, modifier = tabModifier)
+            } else {
+                DebugTab(onClick = { open = true }, label = "LAB", accuracy = null, modifier = tabModifier)
+            }
         }
     }
 }
 
+/** The debug build's tab with the latest fix's accuracy right on it. */
 @Composable
 private fun DebugTab(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val viewModel = koinViewModel<DiagnosticsViewModel>()
     val measured by viewModel.measured.collectAsStateWithLifecycle()
     // The latest fix's accuracy right on the tab: the one number worth a glance during a round.
-    val accuracy = measured.gps?.accuracyMeters?.let { "±${it.roundToInt()}" }
+    DebugTab(onClick, label = "DBG", accuracy = measured.gps?.accuracyMeters?.let { "±${it.roundToInt()}" }, modifier)
+}
+
+@Composable
+private fun DebugTab(onClick: () -> Unit, label: String, accuracy: String?, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(topEnd = 10.dp, bottomEnd = 10.dp))
@@ -102,8 +115,16 @@ private fun DebugTab(onClick: () -> Unit, modifier: Modifier = Modifier) {
             .padding(horizontal = 6.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("DBG", color = Palette.Lime, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(label, color = Palette.Lime, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         if (accuracy != null) Text(accuracy, color = Color.White, fontSize = 10.sp)
+    }
+}
+
+/** The staff's panel of the field test build: the radio lab and nothing else (and no «Export»: the log goes up only). */
+@Composable
+private fun LabOnlyPanel(onClose: () -> Unit, modifier: Modifier = Modifier) {
+    Panel(title = "Lab", onClose = onClose, modifier = modifier) {
+        ScreenColumn { LabContent() }
     }
 }
 

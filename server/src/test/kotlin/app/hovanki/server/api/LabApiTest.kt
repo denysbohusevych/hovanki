@@ -73,7 +73,11 @@ class LabApiTest(
     private val admin = AdminTestClient(mvc, emailSender as RecordingEmailSender, clock, jdbc)
 
     @BeforeTest
-    fun labOn() = lab(true)
+    fun labOn() {
+        lab(true)
+        // The field log's switch opens the upload route too (FieldApiTest): off here, the lab's alone.
+        features.set(ServerFeature.FIELD_LOG, false, "test", clock.instant())
+    }
 
     @Test
     fun theLabIsOffUntilTheOperatorTurnsItOn() {
@@ -84,12 +88,15 @@ class LabApiTest(
         val runs = admin.get(ApiRoutes.ADMIN_LAB_RUNS, staff).ok<AdminLabRuns>()
         assertContains(runs.runs.map { it.id }, run.id)
         join(run.code, "A").error(404, ErrorCode.NOT_FOUND)
-        // Not even a body that isn't one says the route is there.
+        // Not even a body that isn't one, or an account token nobody knows, says the route is there.
         joinBody("{}").error(404, ErrorCode.NOT_FOUND)
         joinBody(null).error(404, ErrorCode.NOT_FOUND)
+        join(run.code, "A", accountToken = "no such account").error(404, ErrorCode.NOT_FOUND)
 
         lab(true)
         joinBody("{}").error(400, ErrorCode.BAD_REQUEST)
+        // Anybody with the code joins here: a stale account token (a development database made anew) doesn't count.
+        join(run.code, "B", accountToken = "no such account").ok<LabJoinResponse>()
         val phone = joined(run.code, "A")
         lab(false)
         phoneGet(ApiRoutes.labState(phone.runId), phone.token).error(404, ErrorCode.NOT_FOUND)
@@ -373,7 +380,12 @@ class LabApiTest(
 
     private fun lab(on: Boolean) = features.set(ServerFeature.RADIO_LAB, on, "test", clock.instant())
 
-    private fun join(code: String, label: String, platform: Platform = Platform.IOS): TestResponse {
+    private fun join(
+        code: String,
+        label: String,
+        platform: Platform = Platform.IOS,
+        accountToken: String? = null,
+    ): TestResponse {
         val request = LabJoinRequest(
             code = code,
             label = label,
@@ -386,6 +398,7 @@ class LabApiTest(
         val response = mvc.post(ApiRoutes.LAB_JOIN) {
             contentType = MediaType.APPLICATION_JSON
             content = request.asJson()
+            if (accountToken != null) header(HttpHeaders.AUTHORIZATION, "${ApiRoutes.AUTH_SCHEME} $accountToken")
         }.andReturn().response
         return TestResponse(response.status, response.getContentAsString(Charsets.UTF_8))
     }

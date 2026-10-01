@@ -2,6 +2,7 @@ package app.hovanki.server.game
 
 import app.hovanki.server.config.GameProperties
 import app.hovanki.server.history.HistoryWriter
+import app.hovanki.server.lab.FieldRunService
 import app.hovanki.server.social.InviteRegistry
 import app.hovanki.shared.protocol.GamePhase
 import org.slf4j.LoggerFactory
@@ -12,7 +13,9 @@ import java.time.Clock
 /**
  * Deletes finished and abandoned games, including all location data (see GDPR notes in the ADR), and the invitations
  * that expired or whose games left the lobby. Brings every game up to date first: a game whose time ran out while
- * nobody asked finishes, and its history is saved ([HistoryWriter], docs/adr/0007-game-history-and-routes.md).
+ * nobody asked finishes, and its history is saved ([HistoryWriter], docs/adr/0007-game-history-and-routes.md). The
+ * field logs of the games gone are finished after that, off every game's lock ([FieldRunService],
+ * docs/adr/0018-field-test-build.md §3.1).
  */
 @Component
 class GameJanitor(
@@ -21,6 +24,7 @@ class GameJanitor(
     private val clock: Clock,
     private val invites: InviteRegistry,
     private val history: HistoryWriter,
+    private val fieldRuns: FieldRunService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -40,6 +44,16 @@ class GameJanitor(
         invites.sweep(now) { gameId ->
             val game = registry.get(gameId)
             game != null && synchronized(game) { game.phase == GamePhase.LOBBY }
+        }
+        closeFieldRuns()
+    }
+
+    /** The field logs of the games no longer here (removed now, or lost with a restart) end; never stops the sweep. */
+    private fun closeFieldRuns() {
+        try {
+            fieldRuns.closeRunsOfGoneGames { registry.get(it) != null }
+        } catch (e: Exception) {
+            log.warn("Could not finish the field logs of the games gone: {}", e.javaClass.simpleName)
         }
     }
 }

@@ -4,6 +4,7 @@ import app.hovanki.server.account.AccountProperties
 import app.hovanki.server.admin.AdminProperties
 import app.hovanki.server.bigGames.BigGameProperties
 import app.hovanki.server.history.HistoryProperties
+import app.hovanki.server.lab.FieldProperties
 import app.hovanki.server.lab.LabProperties
 import app.hovanki.server.lab.LabRunRepository
 import app.hovanki.server.moderation.ModerationProperties
@@ -21,7 +22,8 @@ import java.time.Duration
  * bans and chat bans a year after their end, the audit log after a year, big games and their sign-ups 90 days after
  * their end (docs/adr/0010-big-games.md), the radio lab's logs 90 days after their run's end
  * (docs/adr/0017-radar-techniques-and-big-run.md §7; a run never finished ends with its join window) and the name of
- * the admin who made a run a year after, as the audit log's. Accounts, and
+ * the admin who made a run a year after, as the audit log's; the field logs of games whole (their devices are the
+ * players), 90 days after the game (docs/adr/0018-field-test-build.md §3.1, §9). Accounts, and
  * the history and statistics of their games, stay until their owners delete them, whether their email is confirmed or
  * not (confirming is optional). Runs once a day (`hovanki.retention.cron`); logs only counts.
  */
@@ -35,6 +37,7 @@ class DataRetention(
     private val bigGames: BigGameProperties,
     private val lab: LabProperties,
     private val labRuns: LabRunRepository,
+    private val field: FieldProperties,
     private val clock: Clock,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -52,6 +55,7 @@ class DataRetention(
         val recordings: Int = 0,
         val labChunks: Int = 0,
         val labRunNames: Int = 0,
+        val fieldRuns: Int = 0,
     )
 
     @Scheduled(cron = "\${hovanki.retention.cron:0 17 3 * * *}")
@@ -59,7 +63,13 @@ class DataRetention(
         val now = clock.instant()
         fun before(retention: Duration) = now.minus(retention).toTimestamptz()
 
+        // A game's field log goes whole, before the lab's chunks are looked at: its devices are the players.
+        val fieldRuns = labRuns.deleteGameRunsFinishedBefore(
+            finishedBefore = now.minus(field.retention),
+            createdBefore = now.minus(field.retention).minus(field.joinWindow),
+        )
         val deleted = Deleted(
+            fieldRuns = fieldRuns,
             sessions = delete(
                 "DELETE FROM account_sessions WHERE last_used_at < :t",
                 before(accounts.sessionIdleRetention),
@@ -101,7 +111,7 @@ class DataRetention(
         log.info(
             "Data retention: deleted {} idle sessions, {} reports, {} friend requests, {} expired email codes, " +
                 "{} saved routes, {} admin sessions, {} ended sanctions, {} audit entries, {} big games, " +
-                "{} game recordings, {} lab log chunks, {} lab runs' makers",
+                "{} game recordings, {} lab log chunks, {} lab runs' makers, {} field logs of games",
             deleted.sessions,
             deleted.reports,
             deleted.friendRequests,
@@ -114,6 +124,7 @@ class DataRetention(
             deleted.recordings,
             deleted.labChunks,
             deleted.labRunNames,
+            deleted.fieldRuns,
         )
         return deleted
     }

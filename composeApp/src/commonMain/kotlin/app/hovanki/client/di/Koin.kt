@@ -13,6 +13,7 @@ import app.hovanki.client.diagnostics.Diagnostics
 import app.hovanki.client.diagnostics.DiagnosticsBench
 import app.hovanki.client.errors.ErrorReporter
 import app.hovanki.client.history.HistoryManager
+import app.hovanki.client.lab.FieldSession
 import app.hovanki.client.lab.HttpLabApi
 import app.hovanki.client.lab.LabAbout
 import app.hovanki.client.lab.LabApi
@@ -51,6 +52,7 @@ import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.ui.chat.ChatViewModel
 import app.hovanki.client.ui.debug.DiagnosticsViewModel
 import app.hovanki.client.ui.debug.LabViewModel
+import app.hovanki.client.ui.field.FieldMarks
 import app.hovanki.client.ui.friends.FriendsViewModel
 import app.hovanki.client.ui.game.GameViewModel
 import app.hovanki.client.ui.groups.GroupsViewModel
@@ -68,6 +70,7 @@ import app.hovanki.device.DeviceInfo
 import app.hovanki.device.lab.LabProbes
 import app.hovanki.radar.ProximityRadio
 import app.hovanki.radar.RadioTrace
+import app.hovanki.shared.lab.PermFields
 import app.hovanki.shared.protocol.LabCapabilities
 import app.hovanki.shared.rules.AccountRules
 import kotlinx.coroutines.MainScope
@@ -119,8 +122,10 @@ val commonModule: Module = module {
     single { ServerClock() }
     // Debug builds only: the phone's measurements for the developer (a no-op in other builds).
     single { Diagnostics(isEnabled = get<BuildInfo>().isDebug) }
-    // The radio lab (docs/radio-lab.md), debug builds only too: its log records only while the lab runs.
-    single { LabLog(isEnabled = get<BuildInfo>().isDebug) }
+    // The radio lab (docs/radio-lab.md): debug builds, and the field test build for the staff's lab screen (ADR 0018
+    // §4.D). It records only while the lab runs or the field log is on, and the field log is the only thing in it that
+    // carries coordinates.
+    single { LabLog(isEnabled = get<BuildInfo>().isDebug || get<BuildInfo>().isFieldBuild) }
     single<RadioTrace> { LabRadioTrace(get()) }
     single { DiagnosticsBench(get(), get(), get(), MainScope(), lab = get()) }
     single {
@@ -162,12 +167,15 @@ val commonModule: Module = module {
         val deviceInfo = get<DeviceInfo>()
         val radio = get<ProximityRadio>()
         val locationProvider = get<LocationProvider>()
+        val account = get<AccountManager>()
         LabRunFollower(
             get(),
             get(),
             get(),
             MainScope(),
             appState = get<LabProbes>()::appState,
+            // The field test build's lab is the staff's: a test server lets only a staff account join a run.
+            accountToken = { account.accountToken },
             capabilities = {
                 LabCapabilities(
                     platform = deviceInfo.platform,
@@ -178,6 +186,49 @@ val commonModule: Module = module {
             },
         )
     }
+    // The field log of the field test build (docs/adr/0018-field-test-build.md §3): it exists in every build but does
+    // nothing outside `preview` and before the tester's consent. The game tells it what happens (GameTrace).
+    single {
+        val log = get<LabLog>()
+        val api = get<GameApi>()
+        val probes = get<LabProbes>()
+        val buildInfo = get<BuildInfo>()
+        val deviceInfo = get<DeviceInfo>()
+        val radio = get<ProximityRadio>()
+        val locationProvider = get<LocationProvider>()
+        FieldSession(
+            log = log,
+            api = get<LabApi>(),
+            storage = get(),
+            scope = MainScope(),
+            isFieldBuild = buildInfo.isFieldBuild,
+            about = {
+                LabAbout(
+                    deviceInfo.model,
+                    probes.os,
+                    "${buildInfo.version} (${buildInfo.buildNumber})",
+                    buildInfo.commit,
+                )
+            },
+            capabilities = {
+                LabCapabilities(
+                    platform = deviceInfo.platform,
+                    bluetooth = radio.state.value,
+                    uwb = deviceInfo.hasUwb,
+                    locationPermission = locationProvider.hasPermission(),
+                )
+            },
+            probes = probes,
+            clockSync = LabClockSync({ api.serverTime() }, log::deviceNow, log::monoNow),
+            permissions = {
+                mapOf(
+                    PermFields.LOCATION to if (locationProvider.hasPermission()) "on" else "denied",
+                    PermFields.BLUETOOTH to radio.state.value.name.lowercase(),
+                )
+            },
+        )
+    }
+    single { FieldMarks() }
     single { AccountManager(get(), get(), get()) }
     single { SocialManager(get(), get()) }
     single { HistoryManager(get(), get()) }
@@ -198,6 +249,7 @@ val commonModule: Module = module {
             pocketPulse = get(),
             carryMonitor = get(),
             diagnostics = get(),
+            trace = get<FieldSession>(),
         )
     }
     single { BigGameManager(get(), get()) }

@@ -35,9 +35,19 @@ data class UserRecord(
 ) {
     val emailVerified: Boolean get() = emailVerifiedAt != null
 
-    /** The account as its owner sees it. */
-    fun toProfile() =
-        UserProfile(id, nickname, email, emailVerified, createdAt.toEpochMilli(), saveRoutes = saveRoutesSince != null)
+    /**
+     * The account as its owner sees it. [labOn]: the server has the radio lab on; then staff get the lab's screen in the
+     * field build (docs/adr/0018-field-test-build.md §4.D).
+     */
+    fun toProfile(labOn: Boolean = false) = UserProfile(
+        id,
+        nickname,
+        email,
+        emailVerified,
+        createdAt.toEpochMilli(),
+        saveRoutes = saveRoutesSince != null,
+        labAccess = labOn && role.isStaff,
+    )
 
     /** The account as everyone else sees it. */
     fun toSummary() = UserSummary(id, nickname)

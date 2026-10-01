@@ -8,6 +8,9 @@ import app.hovanki.shared.lab.LabRunScripts
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
+import app.hovanki.shared.protocol.FieldJoinRequest
+import app.hovanki.shared.protocol.FieldJoinResponse
+import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.LabEventsResponse
 import app.hovanki.shared.protocol.LabJoinRequest
 import app.hovanki.shared.protocol.LabJoinResponse
@@ -47,8 +50,18 @@ internal class FakeLabApi(
     var ackedSeq = 0L
         private set
 
-    override suspend fun join(request: LabJoinRequest): LabJoinResponse {
+    /** The field log's joins: the game, the player's token and what the phone said. */
+    val fieldJoins = mutableListOf<Triple<GameId, String, FieldJoinRequest>>()
+
+    /** Every field join from now on is refused with this (404: the server has FIELD_LOG off). */
+    var fieldRefusal: Exception? = null
+
+    /** The account tokens the lab's joins came with. */
+    val joinAccounts = mutableListOf<String?>()
+
+    override suspend fun join(request: LabJoinRequest, accountToken: String?): LabJoinResponse {
         joins += request
+        joinAccounts += accountToken
         if (request.code != CODE) throw ApiException(404, ApiError(ErrorCode.NOT_FOUND, "Not found"))
         return LabJoinResponse(
             runId = runId,
@@ -60,6 +73,20 @@ internal class FakeLabApi(
             scenarioVersion = script.version,
             labels = script.labels,
             state = view(),
+        )
+    }
+
+    override suspend fun fieldJoin(gameId: GameId, playerToken: String, request: FieldJoinRequest): FieldJoinResponse {
+        fieldJoins += Triple(gameId, playerToken, request)
+        fieldRefusal?.let { throw it }
+        return FieldJoinResponse(
+            runId = runId,
+            deviceId = "device-${fieldJoins.size}",
+            token = TOKEN,
+            label = "player-1",
+            salt = SALT,
+            serverTimeMillis = serverNow(),
+            uploadIntervalMillis = FIELD_UPLOAD_MILLIS,
         )
     }
 
@@ -108,6 +135,7 @@ internal class FakeLabApi(
         const val TOKEN = "device-token"
         const val RADAR_TOKEN = "a1b2c3d4"
         const val SALT = "00ff00ff00ff00ff"
+        const val FIELD_UPLOAD_MILLIS = 10_000L
 
         fun closed() = ApiException(
             409,

@@ -136,6 +136,8 @@ class GameSessionManager(
     private val pocketPulse: PocketPulse = NoopPocketPulse,
     private val carryMonitor: CarryMonitor = NoopCarryMonitor(),
     private val diagnostics: Diagnostics = Diagnostics.Off,
+    /** Who writes the game down: the field build's log ([app.hovanki.client.lab.FieldSession]); nobody elsewhere. */
+    private val trace: GameTrace = GameTrace.None,
 ) {
     private val mutableState = MutableStateFlow(SessionState())
     val state: StateFlow<SessionState> = mutableState.asStateFlow()
@@ -457,6 +459,7 @@ class GameSessionManager(
         stopBackgroundWork()
         storage.clearSession()
         mutableState.value = SessionState()
+        if (current.session != null) trace.onSessionEnded()
         val session = current.session ?: return
         if (current.snapshot?.phase == GamePhase.FINISHED) return
         scope.launch {
@@ -525,7 +528,10 @@ class GameSessionManager(
 
     /** What else goes with the next sync: whom the phone heard since the last one, and what it says about itself. */
     private fun syncExtras(): SyncExtras = SyncExtras(heard.getAndUpdate { emptyList() }, deviceReport())
-        .also { diagnostics.onSyncSent(it.nearby.size, it.device) }
+        .also {
+            diagnostics.onSyncSent(it.nearby.size, it.device)
+            trace.onSyncSent()
+        }
 
     private fun deviceReport(): DeviceReport {
         val features = mutableState.value.snapshot?.settings?.features
@@ -563,12 +569,14 @@ class GameSessionManager(
                     it.copy(connectionStatus = ConnectionStatus.ONLINE, isResuming = false, transport = event.transport)
                 }
                 applySnapshot(event.snapshot)
+                trace.onSynced(event.transport, event.snapshot)
                 // Location updates need the game's settings: a resumed session starts them with its first snapshot.
                 if (resuming) startLocationUpdates()
             }
 
             is ConnectionEvent.Problem -> {
                 diagnostics.onSyncFailed(event.error, event.retryInMillis)
+                trace.onSyncFailed(event.error)
                 mutableState.update { it.copy(connectionStatus = ConnectionStatus.RECONNECTING) }
             }
 
@@ -588,6 +596,7 @@ class GameSessionManager(
         stopBackgroundWork()
         storage.clearSession()
         mutableState.value = SessionState(lastError = error)
+        trace.onSessionEnded()
     }
 
     private fun applySnapshot(snapshot: GameSnapshot) {
@@ -616,6 +625,7 @@ class GameSessionManager(
                 streetZone = state.streetZone?.takeIf { it.mapRevision == snapshot.mapRevision },
             )
         }
+        current.session?.let { trace.onSnapshot(it, snapshot) }
         if (snapshot.buildings == BuildingsState.READY) loadBuildings()
         if (snapshot.streetZone == StreetZoneState.READY) loadStreetZone()
         // A game with the radar: the phone looks at its Bluetooth from the lobby on, so every sync says whether it can
@@ -680,6 +690,7 @@ class GameSessionManager(
                 radio.run(radarToken, asSeeker = snapshot.me.role == Role.SEEKER).collect { sighting ->
                     val isRival = sighting.token in rivalTokens
                     diagnostics.onSighting(sighting.token, sighting.rssi, sighting.atMillis, isRival, sighting.via)
+                    trace.onSighting(sighting)
                     val atMillis = clock.toServerTime(sighting.atMillis)
                     val sample = NearbySighting(sighting.token, sighting.rssi, atMillis)
                     heard.update { kept -> keepRecent(kept + sample) }
@@ -698,6 +709,7 @@ class GameSessionManager(
             } catch (e: Exception) {
                 // Bluetooth failed underneath: the round goes on without the radar on this phone.
                 diagnostics.note("radio failed: ${e.message ?: e::class.simpleName}")
+                trace.onError("radio", e)
             }
         }
     }
@@ -866,6 +878,7 @@ class GameSessionManager(
             try {
                 locationProvider.locationUpdates(intervalMillis).collect { fix ->
                     diagnostics.onFix(fix.accuracyMeters, fix.isMock, fix.timestampMillis)
+                    trace.onFix(fix)
                     val sample = fix.copy(timestampMillis = clock.toServerTime(fix.timestampMillis))
                     mutableMyLocation.value = sample
                     sessionOutbox.add(sample)
@@ -874,6 +887,7 @@ class GameSessionManager(
                 throw e
             } catch (e: Exception) {
                 // Permission revoked or location switched off: the UI offers to turn it back on.
+                trace.onError("location", e)
             }
         }
         locationJob = job
@@ -1000,6 +1014,7 @@ class GameSessionManager(
         val message = e.error?.message ?: e.message.orEmpty()
         fail(SessionError.Rejected(e.error?.code, message, e.reason, e.retryAfterSeconds, e.error?.untilMillis))
     } catch (e: Exception) {
+        trace.onError("command", e)
         fail(SessionError.Network(e.message))
     }
 
