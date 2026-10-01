@@ -45,7 +45,9 @@ object ServerEventScrubber {
         event.exceptions?.forEach { exception ->
             val module = exception.module.orEmpty()
             val type = exception.type.orEmpty()
-            exception.value = if (dataQuoting.any { module.startsWith(it) || "$module.$type".startsWith(it) }) {
+            // The type is the full class name when the SDK did not find the class's package.
+            val className = if (module.isEmpty()) type else "$module.$type"
+            exception.value = if (dataQuoting.any { className.startsWith(it) }) {
                 null
             } else {
                 SentryScrubber.textOrNull(exception.value)

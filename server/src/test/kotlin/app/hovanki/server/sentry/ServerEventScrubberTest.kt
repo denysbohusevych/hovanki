@@ -85,6 +85,19 @@ class ServerEventScrubberTest {
     }
 
     @Test
+    fun aDatabaseExceptionWithoutAPackageIsRecognizedByItsFullName() {
+        val event = SentryEvent().apply {
+            exceptions = listOf(
+                SentryException().apply {
+                    type = "org.postgresql.util.PSQLException"
+                    value = "Detail: Key (nickname)=(Anna) already exists."
+                },
+            )
+        }
+        assertNull(ServerEventScrubber.scrub(event).exceptions!!.single().value)
+    }
+
+    @Test
     fun anEventLosesWhoWhereAndEverythingFreeForm() {
         val event = ServerEventScrubber.scrub(dirtyEvent())
 

@@ -1,5 +1,8 @@
 package app.hovanki.server.sentry
 
+import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.JoinGameRequest
+import app.hovanki.shared.protocol.protocolJson
 import io.sentry.Hint
 import io.sentry.ITransportFactory
 import io.sentry.RequestDetails
@@ -14,8 +17,12 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.TestConfiguration
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
+import org.springframework.http.MediaType
+import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.post
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -29,8 +36,9 @@ import kotlin.test.fail
  * starts, errors become events, and what leaves is what [ServerEventScrubber] allows.
  */
 @SpringBootTest(properties = ["sentry.dsn=https://publickey@o0.ingest.de.sentry.io/0"])
+@AutoConfigureMockMvc
 @Import(SentryEnabledTest.Recording::class)
-class SentryEnabledTest(@Autowired private val transport: RecordingTransport) {
+class SentryEnabledTest(@Autowired private val transport: RecordingTransport, @Autowired private val mvc: MockMvc) {
     private val token = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 
     @Test
@@ -75,6 +83,28 @@ class SentryEnabledTest(@Autowired private val transport: RecordingTransport) {
         assertNull(event.user)
     }
 
+    @Test
+    fun aClientErrorTheApiAnswersIsNotAnEvent() {
+        // An unknown code, a malformed body: players' mistakes that ApiExceptionHandler answers with 4xx, every day.
+        // Sentry's own exception resolver runs after the handler's (its order is 1), so only what nothing handled
+        // reaches it; this keeps it so.
+        val unknownCode = protocolJson.encodeToString(JoinGameRequest.serializer(), JoinGameRequest("NOPE00", "Anna"))
+        mvc.post(ApiRoutes.JOIN) {
+            contentType = MediaType.APPLICATION_JSON
+            content = unknownCode
+        }.andReturn().response.also { assertEquals(404, it.status) }
+        mvc.post(ApiRoutes.JOIN) {
+            contentType = MediaType.APPLICATION_JSON
+            content = "{not json"
+        }.andReturn().response.also { assertEquals(400, it.status) }
+
+        // The marker goes through the same queue: when it is out, anything the requests made is out too.
+        Sentry.captureException(IllegalStateException("marker-after-client-errors"))
+        transport.awaitEvent { it.exceptions?.any { e -> e.value == "marker-after-client-errors" } == true }
+        val reported = transport.events().flatMap { it.exceptions.orEmpty() }.map { it.type }
+        assertTrue("GameException" !in reported && "HttpMessageNotReadableException" !in reported, reported.toString())
+    }
+
     /** A transport that keeps what the SDK would have sent. */
     class RecordingTransport : ITransportFactory {
         private val events = CopyOnWriteArrayList<SentryEvent>()
@@ -94,6 +124,8 @@ class SentryEnabledTest(@Autowired private val transport: RecordingTransport) {
 
             override fun close() = Unit
         }
+
+        fun events(): List<SentryEvent> = events.toList()
 
         fun awaitEvent(matching: (SentryEvent) -> Boolean): SentryEvent {
             val deadline = System.currentTimeMillis() + WAIT_MILLIS

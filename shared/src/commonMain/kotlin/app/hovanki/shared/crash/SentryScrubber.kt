@@ -27,6 +27,7 @@ object SentryScrubber {
     private const val ELLIPSIS = "…"
     private const val MIN_BASE64_TOKEN = 24
     private const val MAX_SCREEN_NAME = 40
+    private const val MAX_EMAIL_LOCAL_PART = 64
 
     private val bearer = Regex("""\bbearer\s+[A-Za-z0-9._~+/=-]+""", RegexOption.IGNORE_CASE)
 
@@ -36,7 +37,10 @@ object SentryScrubber {
             """("[^"]*"|'[^']*'|(?:bearer\s+)?[^\s,;&}\])"']+)""",
         RegexOption.IGNORE_CASE,
     )
-    private val email = Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+""")
+
+    // The local part is bounded (64 is the longest there is): an open `+` makes the search quadratic in the length of
+    // a long run of such characters, and an exception's text can be one (10 000 characters take half a second).
+    private val email = Regex("""[A-Za-z0-9._%+-]{1,$MAX_EMAIL_LOCAL_PART}@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+""")
     private val hexToken = Regex("""[0-9a-fA-F]{16,}""")
     private val longToken = Regex("""[A-Za-z0-9_-]{$MIN_BASE64_TOKEN,}""")
 
@@ -61,7 +65,13 @@ object SentryScrubber {
         out = longToken.replace(out) { if (looksLikeToken(it.value)) TOKEN else it.value }
         out = namedCoordinate.replace(out) { it.groupValues[1] + it.groupValues[2] + COORDINATE }
         out = decimalCoordinate.replace(out, COORDINATE)
-        return if (out.length > MAX_TEXT_LENGTH) out.take(MAX_TEXT_LENGTH - 1) + ELLIPSIS else out
+        return if (out.length > MAX_TEXT_LENGTH) cut(out) else out
+    }
+
+    /** The first characters of [text] and the ellipsis; a pair of surrogates (an emoji) is never torn in two. */
+    private fun cut(text: String): String {
+        val head = text.take(MAX_TEXT_LENGTH - 1)
+        return (if (head.last().isHighSurrogate()) head.dropLast(1) else head) + ELLIPSIS
     }
 
     /** [text] for a value that may be missing. */

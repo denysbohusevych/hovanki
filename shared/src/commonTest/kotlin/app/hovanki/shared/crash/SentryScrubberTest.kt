@@ -5,6 +5,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 class SentryScrubberTest {
     private val token = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
@@ -87,6 +89,30 @@ class SentryScrubberTest {
         // A token that starts before the cut is gone, not half kept.
         val padded = "a".repeat(SentryScrubber.MAX_TEXT_LENGTH - 10) + " " + token
         assertFalse(token.take(12) in SentryScrubber.text(padded))
+    }
+
+    @Test
+    fun aCutNeverTearsASurrogatePair() {
+        // The emoji (two chars) starts at the last char that would be kept.
+        val out = SentryScrubber.text("x".repeat(SentryScrubber.MAX_TEXT_LENGTH - 2) + "\uD83D\uDE00 and more")
+        assertTrue(out.endsWith("x…"), out)
+        assertFalse(out.any { it in '\uD800'..'\uDFFF' })
+    }
+
+    @Test
+    fun aHugeTextOfOneKindOfCharactersIsScrubbedAtOnce() {
+        // The email search was quadratic in the length of such a run: 50 000 characters took 13 seconds.
+        val started = TimeSource.Monotonic.markNow()
+        val out = SentryScrubber.text("x".repeat(50_000) + "@" + "y".repeat(50_000))
+        assertEquals(SentryScrubber.MAX_TEXT_LENGTH, out.length)
+        assertTrue(started.elapsedNow() < 5.seconds, "took ${started.elapsedNow()}")
+    }
+
+    @Test
+    fun anEmailAfterALongRunOfWordCharactersStillGoes() {
+        val out = SentryScrubber.text("x".repeat(100) + " anna@example.com")
+        assertTrue("anna@example.com" !in out, out)
+        assertTrue(out.endsWith("[email]"), out)
     }
 
     @Test
