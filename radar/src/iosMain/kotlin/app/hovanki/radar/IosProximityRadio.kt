@@ -379,8 +379,19 @@ private class ShadowScanner(private val onFrame: (HeardFrame) -> Unit, private v
         val rssi = RSSI.intValue
         if (!isReading(rssi)) return
         val frame = frameOf(advertisementData, rssi, didDiscoverPeripheral.identifier.UUIDString)
-        // The game's scan reads everything else; this one is for the masks.
-        if (frame.overflowUuids.isNotEmpty()) onFrame(frame)
+        // Only the mask: the game's scan reads everything else. An iPhone that lists the game's service next to the
+        // table's UUIDs (one resigning with a journal) comes through both scans, and the game's channels must not
+        // read its name twice (a doubled rate of readings in the field's report).
+        if (frame.overflowUuids.isNotEmpty()) {
+            onFrame(
+                frame.copy(
+                    localName = null,
+                    serviceUuids = emptyList(),
+                    serviceData = emptyMap(),
+                    manufacturerData = emptyMap(),
+                ),
+            )
+        }
     }
 }
 
