@@ -251,6 +251,13 @@ object ApiRoutes {
     /** POST the log's lines as JSONL ([LabUpload]) with the device token: [LabEventsResponse]. */
     const val LAB_EVENTS = "$LAB_RUNS/{runId}/events"
 
+    /**
+     * POST [FieldJoinRequest] with the player's game token: [FieldJoinResponse], the game's field log
+     * (docs/adr/0018-field-test-build.md §3.1); the uploads then go to [LAB_EVENTS]. 404 while the server has
+     * [ServerFeature.FIELD_LOG] off.
+     */
+    const val GAME_FIELD_JOIN = "$GAMES/{gameId}/field/join"
+
     // The radio lab in the admin: admins only, whether the flag is on or off (old reports stay readable).
 
     /** GET: [AdminLabRuns]; POST [AdminLabRunRequest]: a new run ([AdminLabRun]). */
@@ -410,6 +417,8 @@ object ApiRoutes {
     fun labAdvance(runId: LabRunId): String = LAB_ADVANCE.fill("runId" to runId.value)
 
     fun labEvents(runId: LabRunId): String = LAB_EVENTS.fill("runId" to runId.value)
+
+    fun gameFieldJoin(gameId: GameId): String = GAME_FIELD_JOIN.fill("gameId" to gameId.value)
 
     /** [ADMIN_LAB_RUN] and the actions under it: `adminLabRun(id)`, `adminLabRun(id, "finish")`. */
     fun adminLabRun(runId: LabRunId, action: String? = null): String {

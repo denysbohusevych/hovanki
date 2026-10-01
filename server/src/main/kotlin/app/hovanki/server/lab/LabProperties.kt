@@ -26,4 +26,9 @@ data class LabProperties(
     val maxReportEvents: Long = 500_000,
     /** The live view keeps the readings of this long in memory. */
     val liveWindow: Duration = Duration.ofSeconds(30),
+    /**
+     * Only staff join a run, with their account token: a test server whose field build (release code) has the lab's
+     * screen for staff (docs/adr/0018-field-test-build.md §4.D). Off: anybody with the code, as a debug build.
+     */
+    val joinStaffOnly: Boolean = false,
 )

@@ -2,6 +2,7 @@ package app.hovanki.server.history
 
 import app.hovanki.server.account.UserRepository
 import app.hovanki.server.api.AuthenticatedUser
+import app.hovanki.server.features.FeatureFlags
 import app.hovanki.server.game.GameException
 import app.hovanki.server.game.GameRegistry
 import app.hovanki.shared.protocol.ErrorCode
@@ -12,6 +13,7 @@ import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameRoute
 import app.hovanki.shared.protocol.PlayerStats
 import app.hovanki.shared.protocol.PrivacyRequest
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.UserProfile
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
@@ -33,6 +35,7 @@ class HistoryService(
     private val registry: GameRegistry,
     private val properties: HistoryProperties,
     private val clock: Clock,
+    private val features: FeatureFlags,
     transactionManager: PlatformTransactionManager,
 ) {
     private val transactions = TransactionTemplate(transactionManager)
@@ -75,7 +78,7 @@ class HistoryService(
             if (users.lock(listOf(user.userId)).isEmpty()) throw sessionExpired()
             users.setSaveRoutes(user.userId, if (request.saveRoutes) now else null)
             if (!request.saveRoutes) history.deleteRoutes(user.userId)
-            users.findById(user.userId)?.toProfile()
+            users.findById(user.userId)?.toProfile(labOn = features.isEnabled(ServerFeature.RADIO_LAB))
         } ?: throw sessionExpired()
         if (request.saveRoutes) {
             val finished = registry.all().mapNotNull { game ->

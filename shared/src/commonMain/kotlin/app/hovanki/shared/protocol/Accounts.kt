@@ -40,6 +40,12 @@ data class UserProfile(
      * and from servers that don't know it. Changed with [PrivacyRequest].
      */
     val saveRoutes: Boolean = false,
+    /**
+     * The radio lab's screen is for this account in the field build (docs/adr/0018-field-test-build.md §4.D): staff,
+     * while the server has [ServerFeature.RADIO_LAB] on. Never set by the account itself; off from servers that don't
+     * know it. Debug builds show the lab whatever it says.
+     */
+    val labAccess: Boolean = false,
 )
 
 /** Another user as everyone may see them: no email. */

@@ -1,12 +1,15 @@
 package app.hovanki.shared.lab
 
+import kotlinx.serialization.json.JsonObject
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
 
 /**
  * The lab log's schema (docs/radio-lab.md §4): one JSON object per event (JSONL), the same on every device, the Mac
  * and the server, so a merge puts them on one timeline. Schema 2 is schema 1 plus [LabFields.RUN] (the run's id, only
- * while the device is in a run on the server) and [LabFields.SEQ] in every event, and the kinds `step` and `net`.
+ * while the device is in a run on the server) and [LabFields.SEQ] in every event, and the kinds `step` and `net`. The
+ * field log (docs/adr/0018-field-test-build.md §3.2) is schema 2 too: the kinds of [FieldKinds] and their optional
+ * fields; a reader skips a kind or a field it doesn't know.
  */
 object LabSchema {
     /** The schema's version, in every `session` event. */
@@ -24,6 +27,19 @@ object LabSchema {
         val (whole, fraction) = time.split('.').let { it[0] to (it.getOrNull(1) ?: "") }
         return "$date $whole.${fraction.padEnd(3, '0').take(3)}"
     }
+
+    /**
+     * The fields that say where somebody was: only in a field run (`LabRunKind.GAME`) and only in its `gps` events
+     * ([GpsFields]). A lab run never stores them ([withoutCoordinates]).
+     */
+    val COORDINATES: Set<String> = setOf(GpsFields.LAT, GpsFields.LON)
+
+    /** Whether [event] says where somebody was ([COORDINATES]). */
+    fun hasCoordinates(event: JsonObject): Boolean = COORDINATES.any { it in event }
+
+    /** [event] without [COORDINATES]: what a lab run keeps of a line that has them. */
+    fun withoutCoordinates(event: JsonObject): JsonObject =
+        if (hasCoordinates(event)) JsonObject(event.filterKeys { it !in COORDINATES }) else event
 
     /** `20260929T171530Z` */
     fun fileStamp(millis: Long): String {

@@ -5,6 +5,7 @@ import app.hovanki.server.db.getInstantOrNull
 import app.hovanki.server.db.toTimestamptz
 import app.hovanki.shared.lab.LabPlanState
 import app.hovanki.shared.protocol.LabCapabilities
+import app.hovanki.shared.protocol.LabRunKind
 import app.hovanki.shared.protocol.LabRunStatus
 import app.hovanki.shared.protocol.protocolJson
 import org.springframework.jdbc.core.RowMapper
@@ -27,8 +28,11 @@ data class LabRunRecord(
     val finishedAt: Instant? = null,
     /** Hex; the phones of the run hash the peers' ids in their logs with it. */
     val salt: String,
+    /** A lab run, or a game's field log (docs/adr/0018-field-test-build.md §3.1): then [gameId], no plan, no code. */
+    val kind: LabRunKind = LabRunKind.LAB,
+    val gameId: String? = null,
 ) {
-    override fun toString(): String = "LabRun($id, ${plan.status})"
+    override fun toString(): String = "LabRun($id, $kind, ${plan.status})"
 }
 
 /** A run's row with what the admin's list shows next to it. */
@@ -51,6 +55,10 @@ data class LabDeviceRecord(
     /** Stored (gzip) bytes of its chunks. */
     val bytes: Long = 0,
     val events: Long = 0,
+    /** A field log's device: its player's account (null: a guest); the device goes with the account. */
+    val userId: String? = null,
+    /** A field log's device: when its tester agreed (docs/adr/0018-field-test-build.md §3.4). */
+    val consentAt: Instant? = null,
 ) {
     // Never the radar token in logs.
     override fun toString(): String = "LabDevice($id, $label)"
@@ -65,25 +73,64 @@ class LabRunRepository(private val jdbc: JdbcClient) {
     // Runs
 
     fun insertRun(run: LabRunRecord) {
-        jdbc.sql(
-            """
-            INSERT INTO lab_runs (id, code, title, scenario_id, scenario_version, status, step_index, step_started_at,
-                                  paused_at, revision, created_by_name, created_at, started_at, finished_at, salt)
-            VALUES (:id, :code, :title, :scenarioId, :scenarioVersion, :status, :stepIndex, :stepStartedAt, :pausedAt,
-                    :revision, :createdByName, :createdAt, :startedAt, :finishedAt, :salt)
-            """.trimIndent(),
-        )
-            .param("id", run.id)
-            .param("code", run.code)
-            .param("title", run.title)
-            .param("scenarioId", run.scenarioId)
-            .param("scenarioVersion", run.scenarioVersion)
-            .param("createdByName", run.createdByName)
-            .param("createdAt", run.createdAt.toTimestamptz())
-            .param("salt", run.salt)
-            .planParams(run)
-            .update()
+        insertRunSql(run, onConflict = "").update()
     }
+
+    /**
+     * A game's field run, unless the game has one already (another phone of it joined at the same moment): true, this
+     * one was stored.
+     */
+    fun insertGameRunIfAbsent(run: LabRunRecord): Boolean {
+        require(run.kind == LabRunKind.GAME && run.gameId != null) { "Not a game's run: $run" }
+        return insertRunSql(run, onConflict = "ON CONFLICT DO NOTHING").update() > 0
+    }
+
+    private fun insertRunSql(run: LabRunRecord, onConflict: String): JdbcClient.StatementSpec = jdbc.sql(
+        """
+        INSERT INTO lab_runs (id, code, title, scenario_id, scenario_version, status, step_index, step_started_at,
+                              paused_at, revision, created_by_name, created_at, started_at, finished_at, salt, kind,
+                              game_id)
+        VALUES (:id, :code, :title, :scenarioId, :scenarioVersion, :status, :stepIndex, :stepStartedAt, :pausedAt,
+                :revision, :createdByName, :createdAt, :startedAt, :finishedAt, :salt, :kind, :gameId)
+        $onConflict
+        """.trimIndent(),
+    )
+        .param("id", run.id)
+        .param("code", run.code)
+        .param("title", run.title)
+        .param("scenarioId", run.scenarioId)
+        .param("scenarioVersion", run.scenarioVersion)
+        .param("createdByName", run.createdByName)
+        .param("createdAt", run.createdAt.toTimestamptz())
+        .param("salt", run.salt)
+        .param("kind", run.kind.name)
+        .param("gameId", run.gameId)
+        .planParams(run)
+
+    /** The field run of game [gameId], its row locked until the transaction ends; null: none yet. */
+    fun lockGameRun(gameId: String): LabRunRecord? =
+        jdbc.sql("SELECT * FROM lab_runs WHERE game_id = :gameId FOR UPDATE").param("gameId", gameId).query(runs)
+            .optional().orElse(null)
+
+    /** The field runs not finished yet: their games may be gone from the server. */
+    fun openGameRuns(): List<LabRunRecord> =
+        jdbc.sql("SELECT * FROM lab_runs WHERE kind = 'GAME' AND finished_at IS NULL").query(runs).list()
+            .filterNotNull()
+
+    /**
+     * The field runs that finished before [finishedBefore], and those never finished made before [createdBefore],
+     * whole: devices, chunks and reports (ON DELETE CASCADE). Their devices are the players.
+     */
+    fun deleteGameRunsFinishedBefore(finishedBefore: Instant, createdBefore: Instant): Int = jdbc.sql(
+        """
+        DELETE FROM lab_runs
+        WHERE kind = 'GAME'
+          AND (finished_at < :finishedBefore OR (finished_at IS NULL AND created_at < :createdBefore))
+        """.trimIndent(),
+    )
+        .param("finishedBefore", finishedBefore.toTimestamptz())
+        .param("createdBefore", createdBefore.toTimestamptz())
+        .update()
 
     /** The plan's state and the run's start and end. */
     fun updatePlan(run: LabRunRecord) {
@@ -145,11 +192,13 @@ class LabRunRepository(private val jdbc: JdbcClient) {
         jdbc.sql(
             """
             INSERT INTO lab_devices (id, run_id, label, model, os, build, commit, capabilities, token_hash,
-                                     radar_token, joined_at)
+                                     radar_token, joined_at, user_id, consent_at)
             VALUES (:id, :runId, :label, :model, :os, :build, :commit, :capabilities, :tokenHash, :radarToken,
-                    :joinedAt)
+                    :joinedAt, :userId, :consentAt)
             """.trimIndent(),
         )
+            .param("userId", device.userId)
+            .param("consentAt", device.consentAt?.toTimestamptz())
             .param("id", device.id)
             .param("runId", device.runId)
             .param("label", device.label)
@@ -163,6 +212,24 @@ class LabRunRepository(private val jdbc: JdbcClient) {
             .param("joinedAt", device.joinedAt.toTimestamptz())
             .update()
     }
+
+    /** The device of a token and the kind of its run, for the routes; null: no such device (or its run is gone). */
+    fun findDeviceRefByTokenHash(tokenHash: String): LabDeviceRef? = jdbc.sql(
+        """
+        SELECT d.id, d.run_id, d.label, r.kind FROM lab_devices d JOIN lab_runs r ON r.id = d.run_id
+        WHERE d.token_hash = :hash
+        """.trimIndent(),
+    )
+        .param("hash", tokenHash)
+        .query { rs, _ ->
+            LabDeviceRef(
+                deviceId = rs.getString("id"),
+                runId = rs.getString("run_id"),
+                label = rs.getString("label"),
+                kind = LabRunKind.valueOf(rs.getString("kind")),
+            )
+        }
+        .optional().orElse(null)
 
     fun findDeviceByTokenHash(tokenHash: String): LabDeviceRecord? =
         jdbc.sql("SELECT * FROM lab_devices WHERE token_hash = :hash").param("hash", tokenHash).query(devices)
@@ -326,6 +393,8 @@ class LabRunRepository(private val jdbc: JdbcClient) {
             startedAt = rs.getInstantOrNull("started_at"),
             finishedAt = rs.getInstantOrNull("finished_at"),
             salt = rs.getString("salt"),
+            kind = LabRunKind.valueOf(rs.getString("kind")),
+            gameId = rs.getString("game_id"),
         )
     }
 
@@ -347,6 +416,8 @@ class LabRunRepository(private val jdbc: JdbcClient) {
             lastSeq = rs.getLong("last_seq").takeUnless { rs.wasNull() },
             bytes = rs.getLong("bytes"),
             events = rs.getLong("events"),
+            userId = rs.getString("user_id"),
+            consentAt = rs.getInstantOrNull("consent_at"),
         )
     }
 }

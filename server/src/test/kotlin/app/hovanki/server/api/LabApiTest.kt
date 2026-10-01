@@ -73,7 +73,11 @@ class LabApiTest(
     private val admin = AdminTestClient(mvc, emailSender as RecordingEmailSender, clock, jdbc)
 
     @BeforeTest
-    fun labOn() = lab(true)
+    fun labOn() {
+        lab(true)
+        // The field log's switch opens the upload route too (FieldApiTest): off here, the lab's alone.
+        features.set(ServerFeature.FIELD_LOG, false, "test", clock.instant())
+    }
 
     @Test
     fun theLabIsOffUntilTheOperatorTurnsItOn() {

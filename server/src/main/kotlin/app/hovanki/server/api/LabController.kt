@@ -35,16 +35,23 @@ import org.springframework.web.method.support.ModelAndViewContainer
  */
 @RestController
 class LabController(private val labs: LabRunService) {
-    /** The body is read only after the flag's check: while the lab is off, nothing says the route exists. */
+    /**
+     * The body is read only after the flag's check: while the lab is off, nothing says the route exists. [user]: the
+     * account token the phone sends along, if any: a test server lets only staff join (`hovanki.lab.join-staff-only`).
+     */
     @PostMapping(ApiRoutes.LAB_JOIN)
-    fun join(@RequestBody(required = false) body: String?, http: HttpServletRequest): LabJoinResponse {
+    fun join(
+        user: AuthenticatedUser?,
+        @RequestBody(required = false) body: String?,
+        http: HttpServletRequest,
+    ): LabJoinResponse {
         labs.requireEnabled()
         val request = try {
             protocolJson.decodeFromString(LabJoinRequest.serializer(), body.orEmpty())
         } catch (e: IllegalArgumentException) {
             throw GameException(ErrorCode.BAD_REQUEST, "Malformed request body")
         }
-        return labs.join(request, http.remoteAddr)
+        return labs.join(request, http.remoteAddr, user)
     }
 
     @GetMapping(ApiRoutes.LAB_STATE)
@@ -90,7 +97,9 @@ class LabController(private val labs: LabRunService) {
 
 /**
  * Resolves a [LabDeviceRef] controller parameter from `Authorization: Bearer <token>`: the device token of a lab
- * join, stored only as its SHA-256. While the lab is off, 404 before anything else, like the routes themselves.
+ * join or of a game's field log ([app.hovanki.shared.protocol.ApiRoutes.GAME_FIELD_JOIN]), stored only as its
+ * SHA-256. While both the lab and the field log are off, 404 before anything else, like the routes themselves; a
+ * device whose run's switch is off (RADIO_LAB for a lab run, FIELD_LOG for a game's) gets 404 too.
  */
 class LabDeviceArgumentResolver(private val labs: LabRunService) : HandlerMethodArgumentResolver {
     override fun supportsParameter(parameter: MethodParameter): Boolean =
@@ -102,8 +111,10 @@ class LabDeviceArgumentResolver(private val labs: LabRunService) : HandlerMethod
         webRequest: NativeWebRequest,
         binderFactory: WebDataBinderFactory?,
     ): LabDeviceRef {
-        labs.requireEnabled()
+        labs.requireAnyEnabled()
         val token = webRequest.bearerToken() ?: throw GameException(ErrorCode.UNAUTHORIZED, "Missing bearer token")
-        return labs.device(token) ?: throw GameException(ErrorCode.UNAUTHORIZED, "Unknown or expired token")
+        val device = labs.device(token) ?: throw GameException(ErrorCode.UNAUTHORIZED, "Unknown or expired token")
+        labs.requireEnabled(device.kind)
+        return device
     }
 }

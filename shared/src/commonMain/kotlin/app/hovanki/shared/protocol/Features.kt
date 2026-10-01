@@ -57,6 +57,14 @@ enum class ServerFeature {
      * a game's choice: it changes nothing in a game.
      */
     RADIO_LAB,
+
+    /**
+     * The field log (docs/adr/0018-field-test-build.md §3): the field build (`preview`) of a tester who agreed writes
+     * the lab's log in a real game, coordinates included, and uploads it to the game's run on the server
+     * ([ApiRoutes.GAME_FIELD_JOIN], then [ApiRoutes.LAB_EVENTS]); off, those routes answer 404. Only on the test
+     * server (staging), never in production. Not a game's choice: it changes nothing in a game.
+     */
+    FIELD_LOG,
 }
 
 /** How a feature applies to a game: off, for the players whose phones have it, or every phone must have it. */
