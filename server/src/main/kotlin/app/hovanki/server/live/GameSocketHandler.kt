@@ -4,6 +4,7 @@ import app.hovanki.server.features.FeatureFlags
 import app.hovanki.server.game.GameException
 import app.hovanki.server.game.GameRegistry
 import app.hovanki.server.game.GameService
+import app.hovanki.server.metrics.SyncTransport
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.ClientFrame
@@ -99,7 +100,10 @@ class GameSocketHandler(
 
             else -> {
                 val reply = try {
-                    ServerFrame.Snapshot(frame.seq, games.sync(socket.ref, socket.ref.gameId, frame.request))
+                    ServerFrame.Snapshot(
+                        frame.seq,
+                        games.sync(socket.ref, socket.ref.gameId, frame.request, SyncTransport.SOCKET),
+                    )
                 } catch (e: GameException) {
                     when (e.code) {
                         ErrorCode.UNAUTHORIZED, ErrorCode.FORBIDDEN -> {

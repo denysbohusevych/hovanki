@@ -72,4 +72,10 @@ class GameRegistry {
     }
 
     fun size(): Int = games.size
+
+    /**
+     * How many players the games in memory have, without a game's lock: every player holds one token, dropped when they
+     * leave, come back on another phone or the game is removed. For the metrics.
+     */
+    fun playerCount(): Int = playersByToken.size
 }

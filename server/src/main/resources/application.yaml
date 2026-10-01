@@ -48,6 +48,12 @@ management:
     # Would open an SMTP connection on every health check, and a slow mail provider would mark the server down.
     mail:
       enabled: false
+  metrics:
+    distribution:
+      # Latencies of every route as quantiles (p50, p95, p99), read in the process (the field test's `srv` events,
+      # docs/adr/0018-field-test-build.md) and by Prometheus where /actuator/prometheus is exposed (application-staging.yaml).
+      percentiles:
+        "[http.server.requests]": 0.5,0.95,0.99
 
 hovanki:
   accounts:
