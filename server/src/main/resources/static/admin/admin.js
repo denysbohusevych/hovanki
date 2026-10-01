@@ -1353,7 +1353,8 @@ async function labRunsView() {
       el("tr", {}, ["Прогон", "Код", "Сценарий", "Статус", "Телефоны", "Журналы", "Создал", "Отчёт"].map((t) => el("th", {}, t))),
       runs.map((r) => el("tr", {},
         el("td", {}, el("a", { href: labHash(r.id) }, r.title)),
-        el("td", { class: "mono" }, r.code),
+        // A game's field log (docs/adr/0018-field-test-build.md §3) has no code: its phones join with the game.
+        el("td", { class: "mono" }, r.kind === "GAME" ? "игра" : r.code),
         el("td", {}, scenarioOf(r)?.title ?? r.scenarioId, el("div", { class: "small muted mono" }, `${r.scenarioId} v${r.scenarioVersion}`)),
         el("td", {}, labStatusTag(r.status)),
         el("td", {}, fmt.number(r.devices ?? 0)),

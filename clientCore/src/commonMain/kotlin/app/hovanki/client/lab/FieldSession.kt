@@ -1,0 +1,390 @@
+package app.hovanki.client.lab
+
+import app.hovanki.client.network.ApiException
+import app.hovanki.client.network.GameSocketException
+import app.hovanki.client.network.Transport
+import app.hovanki.client.session.GameTrace
+import app.hovanki.client.storage.ClientStorage
+import app.hovanki.device.lab.LabProbes
+import app.hovanki.device.lab.NoopLabProbes
+import app.hovanki.radar.RadioSighting
+import app.hovanki.shared.lab.SyncFields
+import app.hovanki.shared.protocol.FieldJoinRequest
+import app.hovanki.shared.protocol.FieldJoinResponse
+import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GamePhase
+import app.hovanki.shared.protocol.GameSnapshot
+import app.hovanki.shared.protocol.LabCapabilities
+import app.hovanki.shared.protocol.LabRunId
+import app.hovanki.shared.protocol.LocationSample
+import app.hovanki.shared.protocol.PlayerSession
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.concurrent.Volatile
+
+/** Where this phone's field log is ([FieldSession.state]). */
+data class FieldState(
+    val status: FieldStatus = FieldStatus.OFF,
+    /** The game the log is about (or was, or is being joined). */
+    val gameId: GameId? = null,
+    /** The game's run on the server, once joined. */
+    val runId: LabRunId? = null,
+    /** Why the last join or upload failed; null: it didn't. */
+    val error: String? = null,
+)
+
+enum class FieldStatus {
+    /** Nothing written: not the field build, no consent, no round yet, or the join failed (tried again). */
+    OFF,
+
+    /** Asking the server for the game's run. */
+    JOINING,
+
+    /** In the game's run: the log is written and uploaded. */
+    ON,
+
+    /** The server has no field log for this game (FIELD_LOG off, or it refused): not asked again in this game. */
+    REFUSED,
+
+    /** Out of the game's run (the game is over for the phone): the rest of the log went up. */
+    LEFT,
+}
+
+/**
+ * The field log of this phone (docs/adr/0018-field-test-build.md §3, docs/field-test.md step 2): the lab's [log] in a
+ * real game, uploaded to the game's run on the server. Only in the field build ([isFieldBuild]: the app passes
+ * `BuildInfo.channel == "preview"`, never `isDebug`) and only after the tester agreed ([giveConsent], kept in
+ * [storage]): otherwise nothing of it happens, whatever the server says.
+ *
+ * It is the game's [GameTrace]: when the round starts ([GamePhase.HIDING] or [GamePhase.SEEKING]) it joins the game's
+ * run with the player's game token ([LabApi.fieldJoin]; the server answers 404 while it has FIELD_LOG off, and the
+ * phone doesn't ask again in this game), turns the log on ([LabLog.startField]: the run's salt, the player as the
+ * label, the coordinates allowed, the radio thinned) and uploads it every `uploadIntervalMillis` ([LabUploader]).
+ * From then on it writes what the game tells it — GPS fixes with their coordinates (at most one per
+ * `gpsEveryMillis`), the radio's readings (thinned), every sync (how long, by which transport, the refusals' codes,
+ * the phase changing), errors — and a tick a second, the clock, the app's life and the battery ([probes]). The UI adds
+ * the screens and taps ([ui]), the permissions ([permissions]), the exceptions it caught ([exception], with the Sentry
+ * event's id), «Something is wrong» ([somethingWrong]) and the three
+ * questions after the game ([survey]). When the phone leaves the game ([GameTrace.onSessionEnded], or another game) the
+ * log stops and the rest goes up. The results screen still counts: the survey is answered there.
+ *
+ * Main thread, except [onSyncSent].
+ */
+class FieldSession(
+    private val log: LabLog,
+    private val api: LabApi,
+    private val storage: ClientStorage,
+    private val scope: CoroutineScope,
+    /** The field build (`preview`): the only build with the field log. */
+    val isFieldBuild: Boolean,
+    private val about: () -> LabAbout = { LabAbout(null, null, null, null) },
+    private val capabilities: () -> LabCapabilities = { LabCapabilities() },
+    private val probes: LabProbes = NoopLabProbes(),
+    /** Measures the clock against the server's at the join and every [LabClockSync.EVERY_MILLIS]; null: the join's. */
+    private val clockSync: LabClockSync? = null,
+    /** The app's permissions now, by name (`app.hovanki.shared.lab.PermFields`): written at the join. */
+    private val permissions: () -> Map<String, String> = { emptyMap() },
+    private val retryMillis: Long = RETRY_MILLIS,
+) : GameTrace {
+    private val mutableState = MutableStateFlow(FieldState())
+    val state: StateFlow<FieldState> = mutableState.asStateFlow()
+
+    private val mutableConsentAt = MutableStateFlow(if (isFieldBuild) storage.fieldConsentAt else null)
+
+    /** When the tester agreed (server time as the phone knew it); null: not yet, or not the field build. */
+    val consentAt: StateFlow<Long?> = mutableConsentAt.asStateFlow()
+
+    /** The field build without the tester's consent: the app shows the consent screen and plays nothing until then. */
+    val needsConsent: Boolean get() = isFieldBuild && mutableConsentAt.value == null
+
+    /** In a game's run: the log is written; the UI shows «Something is wrong» then. */
+    val isActive: Boolean get() = mutableState.value.status == FieldStatus.ON
+
+    private var uploader: LabUploader? = null
+    private var thinning: FieldThinning? = null
+    private val jobs = ArrayList<Job>()
+    private var flushing: Job? = null
+
+    /** When the join may be tried again after a failure (monotonic). */
+    private var retryAt = Long.MIN_VALUE
+
+    @Volatile
+    private var syncSentAt: Long? = null
+    private var lastTransport: Transport? = null
+    private var lastPhase: GamePhase? = null
+    private var ticks = 0L
+
+    /** The tester agrees at [atMillis] (server time as the phone knows it, `ServerClock.now()`): kept on the phone. */
+    fun giveConsent(atMillis: Long) {
+        if (!isFieldBuild) return
+        storage.saveFieldConsent(atMillis)
+        mutableConsentAt.value = atMillis
+    }
+
+    /** The tester takes it back: the log stops now and nothing more is written. */
+    fun withdrawConsent() {
+        storage.clearFieldConsent()
+        mutableConsentAt.value = null
+        leave()
+    }
+
+    // The game (GameTrace)
+
+    override fun onSnapshot(session: PlayerSession, snapshot: GameSnapshot) {
+        if (!isFieldBuild) return
+        val current = mutableState.value
+        if (current.gameId != null && current.gameId != snapshot.gameId) {
+            leave()
+            mutableState.value = FieldState()
+        }
+        if (snapshot.phase != GamePhase.HIDING && snapshot.phase != GamePhase.SEEKING) return
+        val consent = mutableConsentAt.value ?: return
+        val state = mutableState.value
+        if (state.gameId == snapshot.gameId && state.status != FieldStatus.OFF) return
+        if (state.gameId == snapshot.gameId && log.monoNow() < retryAt) return
+        join(session, consent)
+    }
+
+    override fun onSessionEnded() = leave()
+
+    override fun onFix(fix: LocationSample) {
+        val thinning = thinning ?: return
+        if (!isActive || !thinning.allowGps(fix.timestampMillis)) return
+        log.fix(
+            lat = fix.point.lat,
+            lon = fix.point.lon,
+            accuracyMeters = fix.accuracyMeters,
+            ageMillis = (log.deviceNow() - fix.timestampMillis).coerceAtLeast(0),
+            mock = fix.isMock,
+        )
+    }
+
+    override fun onSighting(sighting: RadioSighting) {
+        if (!isActive) return
+        log.rx(sighting.token, sighting.rssi, sighting.api, sighting.via, sighting.peer, sighting.atMillis)
+    }
+
+    override fun onSyncSent() {
+        syncSentAt = log.monoNow()
+    }
+
+    override fun onSynced(transport: Transport, snapshot: GameSnapshot) {
+        lastTransport = transport
+        val previous = lastPhase
+        lastPhase = snapshot.phase
+        if (!isActive) return
+        val changed = previous != null && previous != snapshot.phase
+        log.sync(
+            transport = transport.key,
+            ok = true,
+            millis = sinceSent(),
+            phase = snapshot.phase.name.takeIf { changed || previous == null },
+            from = previous?.name?.takeIf { changed },
+        )
+    }
+
+    override fun onSyncFailed(error: Throwable) {
+        if (!isActive) return
+        val code = when (error) {
+            is ApiException -> error.status
+            is GameSocketException -> error.code
+            else -> null
+        }
+        log.sync(
+            transport = lastTransport?.key ?: SyncFields.POLL,
+            ok = false,
+            millis = sinceSent(),
+            code = code,
+            error = error::class.simpleName,
+        )
+    }
+
+    override fun onError(where: String, error: Throwable) = exception(where, error)
+
+    // The UI
+
+    /** A [screen] opened or closed ([what]: `open`, `close`, `tap`), a tap meaning [action]: never a text. */
+    fun ui(screen: String, what: String, action: String? = null) {
+        if (isActive) log.ui(screen, what, action)
+    }
+
+    /** An exception the app caught [where], with the Sentry event's id if it went there too. */
+    fun exception(where: String, caught: Throwable, sentryId: String? = null) {
+        if (isActive) log.err(where, caught::class.simpleName ?: "Throwable", caught.message, sentryId)
+    }
+
+    /** The app's permissions now, by name (`app.hovanki.shared.lab.PermFields`), when they change. */
+    fun permissions(states: Map<String, String>) {
+        if (isActive && states.isNotEmpty()) log.perm(states)
+    }
+
+    /** «Something is wrong»: shaken or from the game's menu, with the player's few words if any. False: no log now. */
+    fun somethingWrong(text: String? = null): Boolean {
+        if (!isActive) return false
+        log.playerMark(text)
+        return true
+    }
+
+    /**
+     * The three questions after the game (ADR 0018 §5): [rating] 1–5, what [broken] (from the list) and in words
+     * ([text]), where the phone was ([carry]: `hand`, `pocket`, `bag`, `mixed`). Sent at once. False: no log now.
+     */
+    fun survey(rating: Int?, broken: List<String> = emptyList(), text: String? = null, carry: String? = null): Boolean {
+        if (!isActive) return false
+        log.survey(rating?.coerceIn(1, 5), broken, text, carry)
+        val uploader = uploader ?: return true
+        scope.launch { uploader.flush() }
+        return true
+    }
+
+    /** Out of the game's run now: the log stops, the rest of it goes up in the background. */
+    fun leave() {
+        val state = mutableState.value
+        jobs.forEach { it.cancel() }
+        jobs.clear()
+        when (state.status) {
+            FieldStatus.ON -> {
+                log.stopField()
+                val uploader = uploader
+                this.uploader = null
+                thinning = null
+                // On the app's scope: the last upload goes on whatever the screen does.
+                flushing = scope.launch {
+                    uploader?.flush()
+                    uploader?.stop()
+                }
+                mutableState.value = state.copy(status = FieldStatus.LEFT)
+            }
+
+            FieldStatus.JOINING -> mutableState.value = state.copy(status = FieldStatus.LEFT)
+
+            else -> Unit
+        }
+    }
+
+    private fun join(session: PlayerSession, consent: Long) {
+        mutableState.value = FieldState(FieldStatus.JOINING, gameId = session.gameId)
+        scope.launch {
+            // The last game's log goes up before this one clears it.
+            flushing?.join()
+            val estimate = clockSync?.let { withTimeoutOrNull(CLOCK_TIMEOUT_MILLIS) { it.measure() } }
+            val about = about()
+            val request = FieldJoinRequest(about.model, about.os, about.build, about.commit, capabilities(), consent)
+            val response = try {
+                api.fieldJoin(session.gameId, session.token, request)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed(session.gameId, e)
+                return@launch
+            }
+            // The phone left the game while the answer was on its way.
+            val now = mutableState.value
+            if (now.status != FieldStatus.JOINING || now.gameId != session.gameId) return@launch
+            start(session.gameId, response, estimate)
+        }
+    }
+
+    private fun failed(gameId: GameId, e: Exception) {
+        val state = mutableState.value
+        if (state.status != FieldStatus.JOINING || state.gameId != gameId) return
+        val reason = LabUploader.describe(e)
+        // A refusal that won't pass by itself (FIELD_LOG off: 404, no consent, closed or full): not again in this game.
+        val final = e is ApiException && e.status in 400..499 && e.status != TOO_MANY_REQUESTS
+        retryAt = log.monoNow() + retryMillis
+        mutableState.value = state.copy(status = if (final) FieldStatus.REFUSED else FieldStatus.OFF, error = reason)
+    }
+
+    private fun start(gameId: GameId, response: FieldJoinResponse, estimate: ClockEstimate?) {
+        val thinning = FieldThinning(response.rxEveryMillis, response.frameEveryMillis, response.gpsEveryMillis)
+        this.thinning = thinning
+        log.appState = probes::appState
+        log.startField(response.runId.value, response.salt, response.label, thinning)
+        // The server's clock: measured, or the join's answer (half its way unknown) until it is.
+        log.setClock(
+            estimate ?: ClockEstimate(response.serverTimeMillis - log.deviceNow(), 0, 0, log.monoNow()),
+        )
+        val about = about()
+        log.session(about.model, about.os, about.build, about.commit, mode = MODE)
+        permissions().takeIf { it.isNotEmpty() }?.let(log::perm)
+        lastPhase = null
+        val uploader = LabUploader(
+            log,
+            api,
+            scope,
+            intervalMillis = response.uploadIntervalMillis,
+            maxEvents = response.maxEvents,
+            maxBytes = response.maxBodyBytes,
+        )
+        this.uploader = uploader
+        uploader.start(response.runId, response.token)
+        mutableState.value = FieldState(FieldStatus.ON, gameId, response.runId)
+        jobs += scope.launch { tickLoop() }
+        clockSync?.let { sync -> jobs += scope.launch { clockLoop(sync) } }
+        jobs += scope.launch { quietly { probes.lifecycle().collect { log.life(it) } } }
+        jobs += scope.launch { quietly { probes.battery().collect { log.battery(it.level, it.state, it.lowPower) } } }
+        jobs += scope.launch {
+            // The server refused for good (the run closed or full): nothing more is written.
+            uploader.closed.first { it }
+            val current = mutableState.value
+            if (current.runId == response.runId && current.status == FieldStatus.ON) {
+                mutableState.value = current.copy(error = uploader.lastError.value)
+                leave()
+            }
+        }
+    }
+
+    private suspend fun tickLoop() {
+        while (currentCoroutineContext().isActive) {
+            log.tick(ticks++)
+            delay(TICK_MILLIS)
+        }
+    }
+
+    private suspend fun clockLoop(sync: LabClockSync) {
+        while (currentCoroutineContext().isActive) {
+            delay(LabClockSync.EVERY_MILLIS)
+            val estimate = withTimeoutOrNull(CLOCK_TIMEOUT_MILLIS) { sync.measure() }
+            if (estimate == null) log.clockEvent(failed = true) else log.setClock(estimate)
+        }
+    }
+
+    private suspend fun quietly(block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // A probe that fails: the log goes on without it.
+        }
+    }
+
+    private fun sinceSent(): Long? = syncSentAt?.let { log.monoNow() - it }?.takeIf { it >= 0 }
+
+    private val Transport.key: String
+        get() = when (this) {
+            Transport.POLLING -> SyncFields.POLL
+            Transport.SOCKET -> SyncFields.SOCKET
+        }
+
+    companion object {
+        /** The `session` event's mode in a game's run. */
+        const val MODE = "field"
+        const val TICK_MILLIS = 1_000L
+
+        /** A join that failed on the way (no network) is tried again with a snapshot after this. */
+        const val RETRY_MILLIS = 15_000L
+        private const val CLOCK_TIMEOUT_MILLIS = 10_000L
+        private const val TOO_MANY_REQUESTS = 429
+    }
+}

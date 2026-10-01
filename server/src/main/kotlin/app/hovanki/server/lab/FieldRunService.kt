@@ -197,8 +197,11 @@ class FieldRunService(
         /** No plan of the catalog: a game's run has none. */
         const val SCENARIO = "game"
 
-        /** A phone's clock a little ahead of the server's still agreed «now». */
-        val CONSENT_SLACK: Duration = Duration.ofMinutes(10)
+        /**
+         * A phone's clock ahead of the server's still agreed «now»: the consent screen comes before the app ever asked
+         * the server's clock.
+         */
+        val CONSENT_SLACK: Duration = Duration.ofDays(1)
         val EARLIEST_CONSENT: Instant = Instant.parse("2026-01-01T00:00:00Z")
 
         fun String.clip(): String = trim().take(TEXT_MAX_LENGTH)

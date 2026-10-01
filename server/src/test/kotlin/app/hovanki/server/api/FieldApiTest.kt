@@ -139,7 +139,7 @@ class FieldApiTest(
         val other = createGame(token = null).session
         fieldJoin(other.copy(gameId = host.gameId)).error(403, ErrorCode.FORBIDDEN)
         fieldJoin(host, consentAt = null).error(400, ErrorCode.BAD_REQUEST)
-        fieldJoin(host, consentAt = clock.millis() + Duration.ofHours(1).toMillis()).error(400, ErrorCode.BAD_REQUEST)
+        fieldJoin(host, consentAt = clock.millis() + Duration.ofDays(2).toMillis()).error(400, ErrorCode.BAD_REQUEST)
         fieldJoinRaw(host.gameId.value, token = host.token, body = "not json").error(400, ErrorCode.BAD_REQUEST)
 
         val consent = clock.millis() - 60_000

@@ -114,6 +114,8 @@ class Scenario(val name: String, val serverUrl: String) {
         platform: Platform = Platform.ANDROID,
         transport: BotTransport = BotTransport.APP,
         pollAfterSocketFailure: Duration = AdaptiveGameConnection.POLL_AFTER_FAILURE_MILLIS.milliseconds,
+        /** The field build whose tester agreed: it writes and uploads the game's field log (ADR 0018). */
+        fieldLog: Boolean = false,
     ): BotPlayer {
         val bot = BotPlayer(
             name,
@@ -128,6 +130,7 @@ class Scenario(val name: String, val serverUrl: String) {
             radio,
             transport,
             pollAfterSocketFailure.inWholeMilliseconds,
+            fieldLog,
         )
         bot.clock.skewMillis = clockSkew.inWholeMilliseconds
         bots += bot
