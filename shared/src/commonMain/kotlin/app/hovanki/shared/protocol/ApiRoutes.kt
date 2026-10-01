@@ -288,6 +288,20 @@ object ApiRoutes {
     /** POST [AdminReasonRequest], 204: the run goes with everything of it. */
     const val ADMIN_LAB_RUN_DELETE = "$ADMIN_LAB_RUN/delete"
 
+    // The field log's games in the admin (docs/adr/0018-field-test-build.md §6): admins only, every export audited.
+
+    /** A game's field run ([LabRunId] of `LabRunKind.GAME`): the exports under it. */
+    const val ADMIN_FIELD_GAME = "$ADMIN/field/games/{runId}"
+
+    /** POST [AdminReasonRequest]: the game's report as Markdown (`text/markdown`), players P1…Pn, no coordinates. */
+    const val ADMIN_FIELD_GAME_REPORT_MD = "$ADMIN_FIELD_GAME/report.md"
+
+    /** POST [AdminReasonRequest]: `digest.jsonl` (`application/x-ndjson`) for an AI: P1…Pn, no coordinates. */
+    const val ADMIN_FIELD_GAME_DIGEST = "$ADMIN_FIELD_GAME/digest.jsonl"
+
+    /** POST [AdminFieldRawRequest]: the raw logs (`application/zip`), all or a slice of devices and time. */
+    const val ADMIN_FIELD_GAME_RAW = "$ADMIN_FIELD_GAME/raw.zip"
+
     /** Every admin request carries `X-Hovanki-Admin: 1`: another site can't send it without CORS (CSRF). */
     const val ADMIN_HEADER = "X-Hovanki-Admin"
 
@@ -433,6 +447,12 @@ object ApiRoutes {
     fun adminLabRun(runId: LabRunId, action: String? = null): String {
         val run = ADMIN_LAB_RUN.fill("runId" to runId.value)
         return if (action == null) run else "$run/$action"
+    }
+
+    /** [ADMIN_FIELD_GAME] and the exports under it: `adminFieldGame(id, "digest.jsonl")`. */
+    fun adminFieldGame(runId: LabRunId, export: String? = null): String {
+        val run = ADMIN_FIELD_GAME.fill("runId" to runId.value)
+        return if (export == null) run else "$run/$export"
     }
 
     /** Replaces each `{name}` of the template with its value. */

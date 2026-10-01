@@ -281,3 +281,16 @@ data class AdminLabRunView(
     val devices: List<AdminLabDevice>,
     val live: LabLiveView,
 )
+
+/**
+ * A field game's raw logs ([ApiRoutes.ADMIN_FIELD_GAME_RAW], docs/adr/0018-field-test-build.md §6): why ([reason], the
+ * audit log's), and a slice: [devices] (device ids or labels: players' ids, `server`; empty: all) and the window
+ * [fromMillis]..[toMillis] on the server's clock (null: from the start, to the end).
+ */
+@Serializable
+data class AdminFieldRawRequest(
+    val reason: String,
+    val devices: List<String> = emptyList(),
+    val fromMillis: Long? = null,
+    val toMillis: Long? = null,
+)

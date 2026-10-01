@@ -39,8 +39,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * A phone joins with its game token ([join]); the game's run is opened by the first one, so a game nobody logs costs
  * nothing, and the run's row is the lock of the joins. From then on the phone uploads like a lab phone
  * ([LabRunService.acceptChunk]). The run is finished once its game is gone from the server ([closeRunsOfGoneGames],
- * from [app.hovanki.server.game.GameJanitor]): the phones still have [FieldProperties.uploadGrace] for their last
- * chunks, and the whole run goes [FieldProperties.retention] later (DataRetention). Behind [ServerFeature.FIELD_LOG]
+ * from [app.hovanki.server.game.GameJanitor]): its whole report is computed then ([LabReportWriter],
+ * [FieldReportService]), the phones still have [FieldProperties.uploadGrace] for their last chunks (each computes it
+ * again, at most every [FieldProperties.reportEvery]), and the whole run goes [FieldProperties.retention] later
+ * (DataRetention). Behind [ServerFeature.FIELD_LOG]
  * (and only where the server may have it, [FieldProperties.allowed]): off, the join answers 404 as if it didn't exist.
  * All games' logs together take at most [FieldProperties.maxTotalBytes]: the database's disk is production's too.
  * Never on the game's hot path: the game's lock is held only to read who the player is, the database is touched after
@@ -57,6 +59,7 @@ class FieldRunService(
     private val features: FeatureFlags,
     private val rateLimiter: RateLimiter,
     private val live: LabLive,
+    private val reports: LabReportWriter,
     private val properties: FieldProperties,
     private val ids: IdGenerator,
     private val clock: Clock,
@@ -203,10 +206,14 @@ class FieldRunService(
             if (finished != null) owned -= run.id
             if (finished == true) {
                 live.drop(run.id)
+                // The whole game's report (docs/field-test.md step 6); the last uploads compute it again.
+                reports.compute(run.id)
                 closed++
             }
         }
         if (closed > 0) log.info("Field log: finished {} runs of games that are gone", closed)
+        // The reports of games whose new logs waited for their turn.
+        reports.computeDue()
         return closed
     }
 

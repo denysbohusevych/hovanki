@@ -307,8 +307,10 @@ class LabRunService(
             // What the server has: a retry cut differently than the stored chunk goes on after it.
             repository.lastSeq(device.deviceId) ?: (bounds.seqFrom - 1)
         }
-        // A finished run's report is computed again with its last logs; a game's has none yet (field-test.md step 6).
+        // A finished run's report is computed again with its last logs; a game's report follows its logs as they come,
+        // live while it plays, whole after it, at most every hovanki.field.report-every (field-test.md step 6).
         if (inserted && finished && device.kind == LabRunKind.LAB) reports.compute(device.runId)
+        if (inserted && device.kind == LabRunKind.GAME) reports.computeSoon(device.runId)
         return LabEventsResponse(acked, now.toEpochMilli())
     }
 
@@ -451,6 +453,7 @@ class LabRunService(
             audit.record(staff, AdminAction.LAB_RUN_DELETE, clock.instant(), target = describe(run), reason = why)
         }
         live.drop(id.value)
+        reports.forget(id.value)
     }
 
     // The run locked

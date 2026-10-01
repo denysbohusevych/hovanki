@@ -32,3 +32,7 @@ hovanki:
     allowed: true
     # The server's numbers (srv) twice as often as on staging: the scenarios' rounds are short.
     srv-every: 5s
+    # The game's live report follows the bots' logs within seconds (FieldLogTest reads it).
+    report-every: 5s
+    live-window: 5s
+    live-lag: 0s

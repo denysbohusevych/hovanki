@@ -4,6 +4,7 @@ import app.hovanki.client.network.createHttpClient
 import app.hovanki.e2e.bot.BotAccount
 import app.hovanki.e2e.observer.EmailPurpose
 import app.hovanki.e2e.observer.Observer
+import app.hovanki.shared.lab.FieldReport
 import app.hovanki.shared.lab.LabReport
 import app.hovanki.shared.protocol.AdminBigGame
 import app.hovanki.shared.protocol.AdminBigGameRequest
@@ -151,6 +152,13 @@ class StaffConsole(serverUrl: String, private val observer: Observer) : AutoClos
     /** The raw logs as the page downloads them: a zip with one JSONL file per device. */
     suspend fun downloadLabRaw(id: LabRunId, reason: String): ByteArray =
         call(ApiRoutes.adminLabRun(id, "raw"), AdminReasonRequest(reason))
+
+    /** A game's field report as stored ([AdminRejected] 404 until the server has computed it). */
+    suspend fun fieldReport(id: LabRunId): FieldReport = get(ApiRoutes.adminLabRun(id, "report"))
+
+    /** A field game's export (`report.md`, `digest.jsonl`) as text, with a reason. */
+    suspend fun fieldExport(id: LabRunId, export: String, reason: String): String =
+        call<ByteArray>(ApiRoutes.adminFieldGame(id, export), AdminReasonRequest(reason)).decodeToString()
 
     suspend fun deleteLabRun(id: LabRunId, reason: String) {
         call<Unit>(ApiRoutes.adminLabRun(id, "delete"), AdminReasonRequest(reason))

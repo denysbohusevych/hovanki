@@ -11,7 +11,9 @@ import app.hovanki.e2e.scenario.GameSetups
 import app.hovanki.e2e.scenario.GameSetups.PARK
 import app.hovanki.e2e.scenario.Scenario
 import app.hovanki.e2e.scenarioOnOwnServer
+import app.hovanki.shared.lab.FieldDigest
 import app.hovanki.shared.lab.FieldKinds
+import app.hovanki.shared.lab.GpsFields
 import app.hovanki.shared.lab.LabFields
 import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.lab.MarkFields
@@ -136,7 +138,42 @@ class FieldLogTest {
                 }
             }
             checkServerLog(server, sam, anna)
+            checkReport(console, run, everybody)
         }
+    }
+
+    /**
+     * The game's report (docs/field-test.md step 6): the server computes it live from the logs, players P1…Pn; its
+     * exports name nobody and nowhere, and the digest has every player's minutes and the server's events.
+     */
+    private suspend fun Scenario.checkReport(console: StaffConsole, run: AdminLabRun, everybody: List<BotPlayer>) {
+        val report = eventually("the game's live report", within = 40.seconds) {
+            runCatching { console.fieldReport(run.id) }.getOrNull()?.takeIf { report ->
+                report.players.size == everybody.size && report.timeline.any { it.kind == ServerKinds.CLAIM } &&
+                    report.marks.isNotEmpty()
+            }
+        }
+        check(report.players.map { it.alias } == everybody.indices.map { "P${it + 1}" }, "players by alias")
+        check(report.players.all { it.gps.fixes > 0 && it.sync.count > 0 }, "every player's GPS and syncs")
+        check(report.marks.any { it.text == "radar silent" }, "Anna's mark in the report")
+        val digest = console.fieldExport(run.id, "digest.jsonl", reason = "the e2e digest")
+        val markdown = console.fieldExport(run.id, "report.md", reason = "the e2e report")
+        for (text in listOf(digest, markdown)) {
+            for (phone in everybody) {
+                check(phone.id.value !in text && "\"${phone.name}\"" !in text, "${phone.name} is named in an export")
+            }
+            check("\"${GpsFields.LAT}\"" !in text && "\"${GpsFields.LON}\"" !in text, "no coordinates in an export")
+        }
+        val lines = digest.lines().filter { it.isNotBlank() }.map { Json.parseToJsonElement(it).jsonObject }
+        val minutes = lines.filter { it.text("k") == FieldDigest.MINUTE }
+        for (index in everybody.indices) {
+            check(minutes.any { it.text("p") == "P${index + 1}" }, "P${index + 1}'s minutes in the digest")
+        }
+        val kinds = lines.mapNotNull { it.text("k") }.toSet()
+        for (kind in listOf(ServerKinds.PHASE, ServerKinds.CLAIM, FieldKinds.SRV, FieldKinds.MARK)) {
+            check(kind in kinds, "$kind in the digest ($kinds)")
+        }
+        check("## 3. Players" in markdown && "| P1 |" in markdown, "the report as Markdown")
     }
 
     /** The server's own log in the game's run, from the admin's zip. */

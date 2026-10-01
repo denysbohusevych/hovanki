@@ -14,12 +14,14 @@ import app.hovanki.server.lab.FieldRunService
 import app.hovanki.server.lab.FieldServerSampler
 import app.hovanki.server.lab.LabChunks
 import app.hovanki.server.lab.LabLive
+import app.hovanki.server.lab.LabReportWriter
 import app.hovanki.server.lab.LabRunRecord
 import app.hovanki.server.lab.LabRunRepository
 import app.hovanki.server.mail.EmailSender
 import app.hovanki.server.mail.RecordingEmailSender
 import app.hovanki.server.ratelimit.RateLimiter
 import app.hovanki.shared.lab.FieldKinds
+import app.hovanki.shared.lab.FieldReport
 import app.hovanki.shared.lab.GpsFields
 import app.hovanki.shared.lab.LabPlanState
 import app.hovanki.shared.lab.LabSchema
@@ -27,7 +29,9 @@ import app.hovanki.shared.lab.MarkFields
 import app.hovanki.shared.lab.ServerFields
 import app.hovanki.shared.lab.ServerKinds
 import app.hovanki.shared.lab.SrvFields
+import app.hovanki.shared.lab.SyncFields
 import app.hovanki.shared.protocol.AccountSession
+import app.hovanki.shared.protocol.AdminFieldRawRequest
 import app.hovanki.shared.protocol.AdminLabRun
 import app.hovanki.shared.protocol.AdminLabRunRequest
 import app.hovanki.shared.protocol.AdminLabRunView
@@ -62,6 +66,7 @@ import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.UserRole
+import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.shrinkingZone
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -119,6 +124,7 @@ class FieldApiTest(
     @Autowired private val transactionManager: PlatformTransactionManager,
     @Autowired private val fieldEventWriter: FieldEventWriter,
     @Autowired private val fieldSampler: FieldServerSampler,
+    @Autowired private val labReports: LabReportWriter,
 ) {
     private val admin = AdminTestClient(mvc, emailSender as RecordingEmailSender, clock, jdbc)
     private val park = GeoPoint(50.4501, 30.5234)
@@ -280,7 +286,7 @@ class FieldApiTest(
         val suffix = uniqueName("gone")
         val leftover = openRun("left-$suffix", clock.instant().minus(Duration.ofHours(1)))
         val restarted = FieldRunService(
-            labRuns, games, features, rateLimiter, live, fieldProperties, ids, clock, transactionManager,
+            labRuns, games, features, rateLimiter, live, labReports, fieldProperties, ids, clock, transactionManager,
         )
         val others = openRun("other-$suffix", clock.instant())
         try {
@@ -403,6 +409,90 @@ class FieldApiTest(
     }
 
     @Test
+    fun theGamesReportIsComputedAndExportedWithoutNamesOrPlaces() {
+        val game = createGame(token = null)
+        val host = game.session
+        val guest = join(game.snapshot.joinCode, token = null).session
+        val hostPhone = fieldJoin(host).ok<FieldJoinResponse>()
+        // The players are P1, P2… in the order their phones joined.
+        clock.advance(Duration.ofMillis(1))
+        val guestPhone = fieldJoin(guest).ok<FieldJoinResponse>()
+        post(ApiRoutes.start(host.gameId), StartGameRequest(listOf(host.playerId)).asJson(), host.token).expect(200)
+        fieldEventWriter.awaitIdle()
+        for (i in 1L..3L) {
+            clock.advance(Duration.ofSeconds(20))
+            upload(hostPhone, listOf(gps(hostPhone, 2 * i - 1), sync(hostPhone, 2 * i))).ok<LabEventsResponse>()
+            upload(guestPhone, listOf(gps(guestPhone, i))).ok<LabEventsResponse>()
+        }
+        upload(guestPhone, listOf(mark(guestPhone, 4, "radar silent"))).ok<LabEventsResponse>()
+        labReports.awaitIdle()
+        // While the game plays, its live report.
+        val running = labRuns.findReport(hostPhone.runId.value)?.let {
+            protocolJson.decodeFromString(FieldReport.serializer(), it)
+        }
+        assertNotNull(running, "the live report")
+        assertFalse(running.final)
+
+        // The game ends: the whole report, players by alias, its server's phases.
+        registry.removeIf { it.id == host.gameId }
+        janitor.removeExpiredGames()
+        fieldEventWriter.awaitIdle()
+        labReports.awaitIdle()
+        val staff = admin.staff(UserRole.ADMIN)
+        val stored = admin.get(ApiRoutes.adminLabRun(hostPhone.runId, "report"), staff).expect(200).body
+        val report = protocolJson.decodeFromString(FieldReport.serializer(), stored)
+        assertTrue(report.final)
+        assertEquals(listOf("P1", "P2"), report.players.map { it.alias })
+        assertEquals(listOf(host.playerId.value, guest.playerId.value), report.players.map { it.label })
+        assertEquals(3, report.players[0].gps.fixes)
+        assertEquals(3, report.players[0].sync.count)
+        assertTrue(report.timeline.any { it.kind == ServerKinds.PHASE }, "${report.timeline}")
+        assertEquals("radar silent", report.marks.single().text)
+
+        // The exports: admins only, with a reason, audited; no ids, no coordinates.
+        val markdownRoute = ApiRoutes.adminFieldGame(hostPhone.runId, "report.md")
+        admin.post(
+            markdownRoute,
+            AdminReasonRequest("why"),
+            admin.staff(UserRole.MODERATOR),
+        ).error(403, ErrorCode.FORBIDDEN)
+        admin.post(markdownRoute, AdminReasonRequest(" "), staff).error(400, ErrorCode.BAD_REQUEST)
+        admin.post(ApiRoutes.adminFieldGame(LabRunId("nope"), "report.md"), AdminReasonRequest("why"), staff)
+            .error(404, ErrorCode.NOT_FOUND)
+        val markdown = admin.post(markdownRoute, AdminReasonRequest("for the AI"), staff).expect(200)
+        val digest = admin.post(
+            ApiRoutes.adminFieldGame(hostPhone.runId, "digest.jsonl"),
+            AdminReasonRequest("AI"),
+            staff,
+        )
+            .expect(200)
+        for (text in listOf(markdown.body, digest.body)) {
+            for (secret in listOf(host.playerId.value, guest.playerId.value, park.lat.toString(), "\"lat\"")) {
+                assertFalse(secret in text, "«$secret» in an export")
+            }
+        }
+        assertTrue("| P1 |" in markdown.body, markdown.body)
+        val lines = digest.body.lines().filter { it.isNotBlank() }.map { Json.parseToJsonElement(it).jsonObject }
+        assertEquals("\"digest\"", lines.first()["k"].toString())
+        assertTrue(lines.any { it["k"].toString() == "\"minute\"" && it["p"].toString() == "\"P1\"" }, digest.body)
+        assertTrue(lines.any { it["k"].toString() == "\"${ServerKinds.PHASE}\"" }, digest.body)
+
+        // The raw logs, a slice: the host's phone only.
+        val raw = admin.post(
+            ApiRoutes.adminFieldGame(hostPhone.runId, "raw.zip"),
+            AdminFieldRawRequest("check", devices = listOf(host.playerId.value)),
+            staff,
+        ).expect(200)
+        assertEquals(
+            listOf("hovanki-lab-${host.playerId.value}-${hostPhone.deviceId}.jsonl"),
+            unzip(raw.bytes).keys.toList(),
+        )
+        val audited = jdbc.sql("SELECT count(*) FROM admin_audit WHERE action = 'FIELD_EXPORT' AND target LIKE :t")
+            .param("t", "%${hostPhone.runId.value}%").query(Long::class.java).single()
+        assertEquals(2L, audited)
+    }
+
+    @Test
     fun staffGetTheLabsScreenWhileTheLabIsOn() {
         val staff = admin.staff(UserRole.MODERATOR)
         val player = register()
@@ -516,6 +606,12 @@ class FieldApiTest(
         put(GpsFields.LON, park.lon)
         put(GpsFields.ACC, 4.0)
         put(GpsFields.ACCEPTED, true)
+    }
+
+    private fun sync(phone: FieldJoinResponse, seq: Long): JsonObject = event(phone.runId, seq, FieldKinds.SYNC) {
+        put(SyncFields.TRANSPORT, SyncFields.POLL)
+        put(SyncFields.OK, true)
+        put(SyncFields.MILLIS, 80)
     }
 
     private fun mark(phone: FieldJoinResponse, seq: Long, text: String): JsonObject =

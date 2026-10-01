@@ -20,6 +20,7 @@ const ACTION = {
   WATCH_GAME: "смотрел игру вживую",
   LAB_RUN_CREATE: "создал прогон радиолабы", LAB_RUN_CONTROL: "управлял прогоном радиолабы",
   LAB_RUN_DOWNLOAD: "скачал журналы прогона", LAB_RUN_DELETE: "удалил прогон радиолабы",
+  FIELD_EXPORT: "выгрузил отчёт полевой игры",
 };
 const MODERATOR_MAX_DAYS = 30;
 
@@ -1360,7 +1361,8 @@ async function labRunsView() {
         el("td", {}, fmt.number(r.devices ?? 0)),
         el("td", {}, labBytes(r.bytes ?? 0)),
         el("td", {}, r.createdByName || "—", el("div", { class: "small muted" }, fmt.time(r.createdAtMillis))),
-        el("td", {}, r.reportReady ? el("a", { href: labHash(r.id, "report") }, "✓ открыть") : "—")))) :
+        // A game's report is a FieldReport, not the lab's: the field tab (step 6) shows it.
+        el("td", {}, r.reportReady && r.kind !== "GAME" ? el("a", { href: labHash(r.id, "report") }, "✓ открыть") : "—")))) :
       el("p", { class: "muted" }, "Прогонов ещё не было."),
     form);
   showAbout();
@@ -1468,7 +1470,7 @@ function labRunHead(view) {
   return el("div", {},
     el("div", { class: "row spread" }, el("h1", {}, r.title, " ", labStatusTag(r.status)),
       el("div", { class: "row" },
-        r.reportReady ? el("a", { class: "button", href: labHash(id, "report") }, "Отчёт")
+        r.reportReady && r.kind !== "GAME" ? el("a", { class: "button", href: labHash(id, "report") }, "Отчёт")
           : finished ? el("span", { class: "muted small" }, "Отчёт считается…") : null,
         el("button", { class: "secondary", onclick: () => labDownload(r) }, "Скачать сырые журналы"),
         el("button", { class: "danger", onclick: () => labDelete(r) }, "Удалить"))),
