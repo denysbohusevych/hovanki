@@ -25,7 +25,7 @@
    `./gradlew :composeApp:embedAndSignAppleFrameworkForXcode`, который скачивает Kotlin/Native toolchain
    (`~/.konan`) и компилирует фреймворк. Следующие сборки инкрементальные.
 
-Версия (`MARKETING_VERSION`) — в `Config.xcconfig`, build number в CI — номер запуска `preview.yml`. Внизу
+Версия (`MARKETING_VERSION`) — в `Config.xcconfig`, build number в CI — номер запуска `preview.yml` (сборка для App Store из `release.yml` берёт версию из тега, [docs/ci-cd.md, «Номера сборок»](../docs/ci-cd.md#номера-сборок)). Внизу
 главного экрана приложение показывает версию, build number и commit.
 
 Сборка из терминала (как в CI):
