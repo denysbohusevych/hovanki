@@ -523,9 +523,10 @@ private class Advertiser(
 
     /** An advertisement wanted on the air: the token, the locked phone's or the screen's, and what it is made of. */
     private class Wanted(val token: String, val background: Boolean, val advert: Advert)
-
-    private companion object {
-        /** The locked phone's advertisement in the journal (`adv`). */
-        const val BACKGROUND_MODE = "background_overflow"
-    }
 }
+
+/**
+ * The locked phone's advertisement in the journal (`adv`). Top level: Kotlin/Native allows no fields in the companion
+ * of an Objective-C class's subclass ([Advertiser]).
+ */
+private const val BACKGROUND_MODE = "background_overflow"
