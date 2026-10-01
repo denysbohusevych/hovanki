@@ -175,6 +175,9 @@ class FieldEventWriter(
             game.close()
             return
         }
+        // Two requests of one game hand their events over after its lock, so they may reach the queue the other way
+        // round; the log goes by the server's clock (stable: one moment's events keep the order they happened in).
+        game.pending.sortBy { it.atMillis }
         val header = if (game.headerWritten) emptyList() else header(game.pending.first().atMillis)
         val events = header + game.pending
         for ((index, part) in events.chunked(LabUpload.MAX_EVENTS).withIndex()) {

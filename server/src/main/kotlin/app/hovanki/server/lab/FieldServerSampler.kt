@@ -41,7 +41,11 @@ class FieldServerSampler(
         val on = features.isEnabled(ServerFeature.FIELD_LOG)
         metrics.windowed = on
         if (!on) {
+            // The next window starts when the log is on again: no syncs or errors of the time it was off.
             lastMillis = null
+            last5xx = null
+            last429 = null
+            SyncTransport.entries.forEach { metrics.takeSyncWindow(it) }
             return
         }
         val now = clock.millis()

@@ -75,6 +75,22 @@ class FieldEventWriterTest {
     }
 
     @Test
+    fun twoRequestsHandedOverTheOtherWayRoundGoByTheClock() {
+        val writer = writer()
+        store.runs[game.value] = "run1"
+        // The later request released the game's lock first and reached the queue before the earlier one.
+        writer.add(game, events(ServerKinds.CATCH, at = 2_000))
+        writer.add(game, events(ServerKinds.CLAIM, ServerKinds.FIXES, at = 1_500))
+        writer.awaitIdle()
+        assertEquals(
+            listOf("session", "clock", ServerKinds.CLAIM, ServerKinds.FIXES, ServerKinds.CATCH),
+            store.lines.map { it.text(LabFields.K) },
+        )
+        assertEquals(listOf(1_500L, 1_500L, 1_500L, 1_501L, 2_000L), store.lines.map { it.long(LabFields.T) })
+        assertEquals((0L until 5L).toList(), store.lines.map { it.long(LabFields.SEQ) })
+    }
+
+    @Test
     fun aFullQueueDropsAndCountsNeverWaits() {
         val writer = writer(queue = 2)
         store.runs[game.value] = "run1"
