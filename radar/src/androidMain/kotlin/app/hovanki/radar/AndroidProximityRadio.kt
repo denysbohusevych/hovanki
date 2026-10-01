@@ -224,11 +224,19 @@ class AndroidProximityRadio(private val context: Context, private val trace: Rad
         )
     }
 
-    /** The record's bytes without the zeros Android pads its buffer with after the last field. */
+    /**
+     * The record's fields (the packet and the scan response) without the zeros Android pads its buffer with: up to the
+     * first field of length 0, as `ScanRecord.parseFromBytes` reads it. Not by cutting the trailing zeros, which would
+     * cut a token or a measured power that ends in `00` too.
+     */
     private fun withoutPadding(bytes: ByteArray): ByteArray {
-        var end = bytes.size
-        while (end > 0 && bytes[end - 1] == 0.toByte()) end--
-        return bytes.copyOf(end)
+        var end = 0
+        while (end < bytes.size) {
+            val length = bytes[end].toInt() and 0xff
+            if (length == 0) break
+            end += 1 + length
+        }
+        return bytes.copyOf(minOf(end, bytes.size))
     }
 
     private fun currentState(): BluetoothState {
