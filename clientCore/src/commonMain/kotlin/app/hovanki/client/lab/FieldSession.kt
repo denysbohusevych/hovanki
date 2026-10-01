@@ -7,10 +7,17 @@ import app.hovanki.client.network.GameSocketException
 import app.hovanki.client.network.Transport
 import app.hovanki.client.session.GameTrace
 import app.hovanki.client.storage.ClientStorage
+import app.hovanki.device.ActivityMonitor
+import app.hovanki.device.CarryMonitor
+import app.hovanki.device.NoopActivityMonitor
+import app.hovanki.device.NoopCarryMonitor
 import app.hovanki.device.lab.LabProbes
+import app.hovanki.device.lab.LabSensorReading
+import app.hovanki.device.lab.MotionFeatures
 import app.hovanki.device.lab.NoopLabProbes
 import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.lab.SyncFields
+import app.hovanki.shared.lab.UiFields
 import app.hovanki.shared.protocol.FieldJoinRequest
 import app.hovanki.shared.protocol.FieldJoinResponse
 import app.hovanki.shared.protocol.FieldUpload
@@ -99,13 +106,23 @@ class FieldSession(
      * its own moment within [clockJitterMillis] ([random]); null: the join's answer only.
      */
     private val clockSync: LabClockSync? = null,
-    /** The app's permissions now, by name (`app.hovanki.shared.lab.PermFields`): written at the join. */
+    /**
+     * Where the phone is and what the player does by its sensors (own listeners while the log writes, whatever the
+     * game's features are): the changes go into `carry` and `motion`.
+     */
+    private val carryMonitor: CarryMonitor = NoopCarryMonitor(),
+    private val activityMonitor: ActivityMonitor = NoopActivityMonitor(),
+    /**
+     * The app's permissions now, by name (`app.hovanki.shared.lab.PermFields`): written at the join and again when
+     * they change (looked at every [permissionsEveryMillis]).
+     */
     private val permissions: () -> Map<String, String> = { emptyMap() },
     /**
      * Where the phone's own failures go beyond the log (Sentry in the field build, [NoopErrorReporter] elsewhere):
      * the radio's and the location's ([onError]); its event id goes into the log's `err`.
      */
     private val errorReporter: ErrorReporter = NoopErrorReporter,
+    private val permissionsEveryMillis: Long = PERMISSIONS_EVERY_MILLIS,
     private val retryMillis: Long = RETRY_MILLIS,
     private val clockJitterMillis: Long = CLOCK_JITTER_MILLIS,
     private val random: Random = Random.Default,
@@ -126,6 +143,9 @@ class FieldSession(
 
     private var uploader: LabUploader? = null
     private var thinning: FieldThinning? = null
+    private var probeThinning = FieldProbeThinning()
+    private val openScreens = LinkedHashSet<String>()
+    private var lastPermissions: Map<String, String> = emptyMap()
     private val jobs = ArrayList<Job>()
 
     /** The last game's rest going up ([flushingUploader], stopped when it is done or cancelled). */
@@ -138,7 +158,11 @@ class FieldSession(
     @Volatile
     private var syncSentAt: Long? = null
     private var lastTransport: Transport? = null
+    private var syncBytes: Int? = null
     private var lastPhase: GamePhase? = null
+
+    /** The phase of the last snapshot applied: what screen the app shows. */
+    private var snapshotPhase: GamePhase? = null
     private var ticks = 0L
 
     /**
@@ -167,6 +191,7 @@ class FieldSession(
     override fun onSnapshot(session: PlayerSession, snapshot: GameSnapshot) {
         if (!isFieldBuild) return
         stampConsentAgain(snapshot.serverTimeMillis)
+        snapshotPhase = snapshot.phase
         val current = mutableState.value
         if (current.gameId != null && current.gameId != snapshot.gameId) {
             leave()
@@ -182,6 +207,10 @@ class FieldSession(
 
     override fun onSessionEnded() = leave()
 
+    override fun onAction(action: String) {
+        if (isActive) log.ui(screenOf(snapshotPhase), UiFields.TAP, action)
+    }
+
     override fun onFix(fix: LocationSample) {
         val thinning = thinning ?: return
         if (!isActive || !thinning.allowGps(fix.timestampMillis)) return
@@ -190,6 +219,8 @@ class FieldSession(
             lon = fix.point.lon,
             accuracyMeters = fix.accuracyMeters,
             ageMillis = (log.deviceNow() - fix.timestampMillis).coerceAtLeast(0),
+            speed = fix.speedMetersPerSecond,
+            bearing = fix.bearingDegrees,
             mock = fix.isMock,
         )
     }
@@ -211,7 +242,13 @@ class FieldSession(
         syncSentAt = log.monoNow()
     }
 
+    override fun onSyncBytes(bytes: Int) {
+        syncBytes = bytes
+    }
+
     override fun onSynced(transport: Transport, snapshot: GameSnapshot) {
+        val bytes = syncBytes
+        syncBytes = null
         lastTransport = transport
         val previous = lastPhase
         lastPhase = snapshot.phase
@@ -221,6 +258,7 @@ class FieldSession(
             transport = transport.key,
             ok = true,
             millis = sinceSent(),
+            bytes = bytes,
             phase = snapshot.phase.name.takeIf { changed || previous == null },
             from = previous?.name?.takeIf { changed },
         )
@@ -257,6 +295,15 @@ class FieldSession(
 
     /** A [screen] opened or closed ([what]: `open`, `close`, `tap`), a tap meaning [action]: never a text. */
     fun ui(screen: String, what: String, action: String? = null) {
+        // The open screens are kept before the log starts too (the round's own screen is up already): the first lines
+        // of the log say what was open.
+        if (isFieldBuild) {
+            if (what == UiFields.OPEN) {
+                openScreens += screen
+            } else if (what == UiFields.CLOSE) {
+                openScreens -= screen
+            }
+        }
         if (isActive) log.ui(screen, what, action)
     }
 
@@ -267,7 +314,9 @@ class FieldSession(
 
     /** The app's permissions now, by name (`app.hovanki.shared.lab.PermFields`), when they change. */
     fun permissions(states: Map<String, String>) {
-        if (isActive && states.isNotEmpty()) log.perm(states)
+        if (!isActive || states.isEmpty() || states == lastPermissions) return
+        lastPermissions = states
+        log.perm(states)
     }
 
     /** «Something is wrong»: shaken or from the game's menu, with the player's few words if any. False: no log now. */
@@ -391,7 +440,10 @@ class FieldSession(
         log.setClock(ClockEstimate(response.serverTimeMillis - log.deviceNow(), 0, 0, log.monoNow()))
         val about = about()
         log.session(about.model, about.os, about.build, about.commit, mode = MODE)
-        permissions().takeIf { it.isNotEmpty() }?.let(log::perm)
+        lastPermissions = permissions()
+        if (lastPermissions.isNotEmpty()) log.perm(lastPermissions)
+        probeThinning = FieldProbeThinning()
+        openScreens.forEach { log.ui(it, UiFields.OPEN) }
         lastPhase = null
         val uploader = LabUploader(
             log,
@@ -407,7 +459,34 @@ class FieldSession(
         jobs += scope.launch { tickLoop() }
         clockSync?.let { sync -> jobs += scope.launch { clockLoop(sync) } }
         jobs += scope.launch { quietly { probes.lifecycle().collect { log.life(it) } } }
-        jobs += scope.launch { quietly { probes.battery().collect { log.battery(it.level, it.state, it.lowPower) } } }
+        jobs += scope.launch {
+            quietly {
+                probes.battery().collect {
+                    if (probeThinning.allowBattery(it, log.monoNow())) log.battery(it.level, it.state, it.lowPower)
+                }
+            }
+        }
+        jobs +=
+            scope.launch {
+                quietly { probes.thermal().collect { if (probeThinning.allowThermal(it)) log.thermal(it) } }
+            }
+        jobs += scope.launch { quietly { probes.sensors().collect(::onSensor) } }
+        jobs += scope.launch {
+            quietly {
+                carryMonitor.carry().collect {
+                    if (probeThinning.allowCarry(it.name.lowercase())) log.carry(it.name.lowercase())
+                }
+            }
+        }
+        jobs += scope.launch {
+            quietly {
+                activityMonitor.activity().collect {
+                    val name = it.name.lowercase()
+                    if (probeThinning.allowActivity(name)) log.motion(MotionFeatures(null, null, null, it))
+                }
+            }
+        }
+        jobs += scope.launch { permissionsLoop() }
         jobs += scope.launch {
             // The server refused for good (the run closed or full): nothing more is written.
             uploader.closed.first { it }
@@ -416,6 +495,37 @@ class FieldSession(
                 mutableState.value = current.copy(error = uploader.lastError.value)
                 leave()
             }
+        }
+    }
+
+    /**
+     * The proximity sensor and the light, thinned ([FieldProbeThinning]); the motion's readings are not kept (the
+     * activity's changes are, [activityMonitor]).
+     */
+    private fun onSensor(reading: LabSensorReading) {
+        when (reading) {
+            is LabSensorReading.Proximity ->
+                if (probeThinning.allowProximity(reading.near)) {
+                    log.prox(reading.near, reading.rawCm, reading.maxCm, reading.monitoring)
+                }
+
+            is LabSensorReading.Light -> if (probeThinning.allowLight(
+                    reading.lux,
+                    log.monoNow(),
+                )
+            ) {
+                log.light(reading.lux)
+            }
+
+            is LabSensorReading.Motion -> Unit
+        }
+    }
+
+    /** The permissions the player can change in the phone's settings meanwhile: looked at, written when they differ. */
+    private suspend fun permissionsLoop() {
+        while (currentCoroutineContext().isActive) {
+            delay(permissionsEveryMillis)
+            permissions(permissions())
         }
     }
 
@@ -453,6 +563,14 @@ class FieldSession(
         }
     }
 
+    /** The screen the app shows in [phase], as `App` names it. */
+    private fun screenOf(phase: GamePhase?): String = when (phase) {
+        GamePhase.LOBBY -> "lobby"
+        GamePhase.HIDING, GamePhase.SEEKING -> "game"
+        GamePhase.FINISHED -> "results"
+        null -> "app"
+    }
+
     private fun sinceSent(): Long? = syncSentAt?.let { log.monoNow() - it }?.takeIf { it >= 0 }
 
     private val Transport.key: String
@@ -468,6 +586,9 @@ class FieldSession(
         /** The `session` event's mode in a game's run. */
         const val MODE = "field"
         const val TICK_MILLIS = 1_000L
+
+        /** How often the app's permissions are looked at while the log writes. */
+        const val PERMISSIONS_EVERY_MILLIS = 30_000L
 
         /** A join that failed on the way (no network) is tried again with a snapshot after this. */
         const val RETRY_MILLIS = 15_000L

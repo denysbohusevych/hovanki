@@ -82,6 +82,9 @@ private fun CLLocation.toSample(): LocationSample {
         accuracyMeters = if (horizontalAccuracy >= 0) horizontalAccuracy else UNKNOWN_ACCURACY_METERS,
         timestampMillis = (timestamp.timeIntervalSince1970 * 1000).toLong(),
         isMock = sourceInformation?.isSimulatedBySoftware == true,
+        // Negative means the OS doesn't know.
+        speedMetersPerSecond = speed.takeIf { it >= 0 },
+        bearingDegrees = course.takeIf { it >= 0 },
     )
 }
 

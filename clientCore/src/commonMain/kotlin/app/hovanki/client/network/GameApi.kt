@@ -78,6 +78,13 @@ interface GameApi {
     suspend fun sync(session: PlayerSession, request: SyncRequest): GameSnapshot
 
     /**
+     * [sync] with the answer's size on the wire in bytes, where the API can tell (the field log's `sync.bytes`, ADR
+     * 0018); null where not. An API that can't measure needs not override it.
+     */
+    suspend fun syncMeasured(session: PlayerSession, request: SyncRequest): MeasuredSnapshot =
+        MeasuredSnapshot(sync(session, request), null)
+
+    /**
      * A claim on [hiderId]; with [code] (the seeker scanned the hider's QR code), the code is checked in the same step
      * ([app.hovanki.shared.protocol.ClaimCatchRequest.code]).
      */
@@ -137,3 +144,6 @@ class ApiException(val status: Int, val error: ApiError?, val retryAfterSeconds:
     Exception(error?.message ?: "HTTP $status") {
     val reason: ErrorReason? get() = error?.reason
 }
+
+/** A snapshot and the size of the answer it came in ([GameApi.syncMeasured]). */
+data class MeasuredSnapshot(val snapshot: GameSnapshot, val bytes: Int?)

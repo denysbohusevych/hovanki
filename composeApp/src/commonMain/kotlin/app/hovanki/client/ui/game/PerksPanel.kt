@@ -54,6 +54,7 @@ fun PerksPanel(state: GameUiState, viewModel: GameViewModel, onClose: () -> Unit
         title = stringResource(Res.string.perks_title),
         onClose = onClose,
         modifier = Modifier.testTag(TestTags.PERKS_PANEL),
+        screen = "perks",
     ) {
         ScreenColumn {
             state.sparks?.let { SparksLine(it) }

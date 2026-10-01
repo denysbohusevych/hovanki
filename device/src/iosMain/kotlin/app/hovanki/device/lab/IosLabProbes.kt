@@ -14,7 +14,10 @@ import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSProcessInfo
 import platform.Foundation.NSProcessInfoPowerStateDidChangeNotification
+import platform.Foundation.NSProcessInfoThermalState
+import platform.Foundation.NSProcessInfoThermalStateDidChangeNotification
 import platform.Foundation.lowPowerModeEnabled
+import platform.Foundation.thermalState
 import platform.UIKit.UIApplication
 import platform.UIKit.UIApplicationDidBecomeActiveNotification
 import platform.UIKit.UIApplicationDidEnterBackgroundNotification
@@ -138,6 +141,23 @@ class IosLabProbes : LabProbes {
             everyMinute.cancel()
             observers.forEach { center.removeObserver(it) }
         }
+    }
+
+    override fun thermal(): Flow<String> = callbackFlow {
+        fun read(): String = when (NSProcessInfo.processInfo.thermalState) {
+            NSProcessInfoThermalState.NSProcessInfoThermalStateNominal -> "nominal"
+            NSProcessInfoThermalState.NSProcessInfoThermalStateFair -> "fair"
+            NSProcessInfoThermalState.NSProcessInfoThermalStateSerious -> "serious"
+            NSProcessInfoThermalState.NSProcessInfoThermalStateCritical -> "critical"
+            else -> "unknown"
+        }
+        trySend(read())
+        val observer = NSNotificationCenter.defaultCenter.addObserverForName(
+            NSProcessInfoThermalStateDidChangeNotification,
+            `object` = null,
+            queue = NSOperationQueue.mainQueue,
+        ) { _ -> trySend(read()) }
+        awaitClose { NSNotificationCenter.defaultCenter.removeObserver(observer) }
     }
 
     private companion object {

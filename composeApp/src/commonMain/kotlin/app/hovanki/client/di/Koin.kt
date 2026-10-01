@@ -14,6 +14,7 @@ import app.hovanki.client.diagnostics.Diagnostics
 import app.hovanki.client.diagnostics.DiagnosticsBench
 import app.hovanki.client.errors.ErrorReporter
 import app.hovanki.client.history.HistoryManager
+import app.hovanki.client.lab.AppPermissions
 import app.hovanki.client.lab.FieldSession
 import app.hovanki.client.lab.HttpLabApi
 import app.hovanki.client.lab.LabAbout
@@ -202,6 +203,7 @@ val commonModule: Module = module {
         val deviceInfo = get<DeviceInfo>()
         val radio = get<ProximityRadio>()
         val locationProvider = get<LocationProvider>()
+        val appPermissions = get<AppPermissions>()
         val scope = MainScope()
         FieldSession(
             log = log,
@@ -232,11 +234,14 @@ val commonModule: Module = module {
                 log::monoNow,
                 spacingMillis = FIELD_CLOCK_SPACING_MILLIS,
             ),
+            carryMonitor = get(),
+            activityMonitor = get(),
             permissions = {
+                // The platform's words win (location: always / when_in_use / denied); the common ones are the floor.
                 mapOf(
                     PermFields.LOCATION to if (locationProvider.hasPermission()) "on" else "denied",
                     PermFields.BLUETOOTH to radio.state.value.name.lowercase(),
-                )
+                ) + appPermissions.states()
             },
             errorReporter = get(),
         ).also { session ->

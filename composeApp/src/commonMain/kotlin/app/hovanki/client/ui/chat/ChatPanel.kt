@@ -137,6 +137,7 @@ fun ChatPanel(viewModel: ChatViewModel) {
         title = stringResource(Res.string.chat_title),
         onClose = viewModel::close,
         modifier = Modifier.testTag(TestTags.CHAT_PANEL),
+        screen = "chat",
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             LazyColumn(

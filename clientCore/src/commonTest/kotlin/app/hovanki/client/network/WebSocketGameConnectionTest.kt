@@ -40,6 +40,10 @@ class WebSocketGameConnectionTest {
             socket.answer(sync, testSnapshot(serverTimeMillis = 5, syncIntervalSeconds = 3, phase = GamePhase.SEEKING))
             val event = assertIs<ConnectionEvent.Snapshot>(awaitItem())
             assertEquals(5, event.snapshot.serverTimeMillis)
+            // The size of the answer's text frame, for the field log.
+            val frame = ServerFrame.Snapshot(sync.seq, event.snapshot)
+            val frameText = app.hovanki.shared.protocol.protocolJson.encodeToString(ServerFrame.serializer(), frame)
+            assertEquals(frameText.encodeToByteArray().size, event.bytes)
             assertEquals(Transport.SOCKET, event.transport)
             assertEquals(0, outbox.size)
 

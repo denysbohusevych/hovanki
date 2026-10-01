@@ -2,7 +2,9 @@ package app.hovanki.client.di
 
 import app.hovanki.client.BuildInfo
 import app.hovanki.client.androidBuildInfo
+import app.hovanki.client.field.AndroidAppPermissions
 import app.hovanki.client.lab.AndroidLabFiles
+import app.hovanki.client.lab.AppPermissions
 import app.hovanki.client.lab.LabFiles
 import app.hovanki.client.location.AndroidLocationProvider
 import app.hovanki.client.location.LocationProvider
@@ -43,6 +45,7 @@ actual val platformModule: Module = module {
     single<HttpClientEngine> { OkHttp.create() }
     single<SecureStore> { AndroidSecureStore(androidContext()) }
     single<LocationProvider> { AndroidLocationProvider(androidContext()) }
+    single<AppPermissions> { AndroidAppPermissions(androidContext()) }
     single<BackgroundTracker> { AndroidBackgroundTracker(androidContext()) }
     single<ShareSheet> { AndroidShareSheet(androidContext()) }
     // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md); the precision radar by UWB is not implemented yet.

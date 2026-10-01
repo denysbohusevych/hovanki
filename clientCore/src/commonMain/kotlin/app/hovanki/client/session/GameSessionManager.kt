@@ -259,7 +259,7 @@ class GameSessionManager(
         return joined
     }
 
-    suspend fun start(seekers: List<PlayerId>): Boolean = sessionCommand {
+    suspend fun start(seekers: List<PlayerId>): Boolean = sessionCommand(FieldActions.START) {
         api.startGame(it, StartGameRequest(seekers))
     }
 
@@ -278,7 +278,7 @@ class GameSessionManager(
      * choices [settings] were made of, remembered for the host's next game once the server took them.
      */
     suspend fun updateSettings(settings: GameSettings, setup: GameSetup? = null): Boolean {
-        val updated = sessionCommand { api.updateSettings(it, SettingsRequest(settings)) }
+        val updated = sessionCommand(FieldActions.SETTINGS_SAVED) { api.updateSettings(it, SettingsRequest(settings)) }
         if (updated && setup != null) storage.saveGameSetup(setup)
         return updated
     }
@@ -321,7 +321,8 @@ class GameSessionManager(
      */
     fun lastGameSetup(): GameSetup = storage.loadGameSetup()?.coerced()?.copy(openGame = false) ?: GameSetup()
 
-    suspend fun claimCatch(hiderId: PlayerId): Boolean = sessionCommand { api.claimCatch(it, hiderId) }
+    suspend fun claimCatch(hiderId: PlayerId): Boolean =
+        sessionCommand(FieldActions.CATCH_CLAIM) { api.claimCatch(it, hiderId) }
 
     /**
      * One scan: the seeker's camera read [hiderId]'s QR code with [code] before any claim; the server opens the claim
@@ -329,6 +330,7 @@ class GameSessionManager(
      */
     suspend fun catchByScan(hiderId: PlayerId, code: String): Boolean {
         val session = mutableState.value.session ?: return false
+        trace.onAction(FieldActions.CATCH_SCAN)
         return command {
             val snapshot = api.claimCatch(session, hiderId, code.trim())
             applySnapshot(snapshot)
@@ -340,18 +342,20 @@ class GameSessionManager(
     }
 
     suspend fun confirmCatch(catchId: CatchId, code: String): Boolean =
-        sessionCommand { api.confirmCatch(it, catchId, code.trim()) }
+        sessionCommand(FieldActions.CATCH_CONFIRM) { api.confirmCatch(it, catchId, code.trim()) }
 
-    suspend fun dispute(catchId: CatchId): Boolean = sessionCommand { api.disputeCatch(it, catchId) }
+    suspend fun dispute(catchId: CatchId): Boolean =
+        sessionCommand(FieldActions.CATCH_DISPUTE) { api.disputeCatch(it, catchId) }
 
-    suspend fun vote(catchId: CatchId, confirm: Boolean): Boolean = sessionCommand { api.vote(it, catchId, confirm) }
+    suspend fun vote(catchId: CatchId, confirm: Boolean): Boolean =
+        sessionCommand(FieldActions.VOTE) { api.vote(it, catchId, confirm) }
 
     /** To everyone, or to the player's team only ([team], not in the lobby); the response brings it into the chat. */
     suspend fun sendChat(text: String, team: Boolean = false): Boolean {
         // Sent again after no answer: the same id, so the server keeps the message once.
         val message = unansweredChat?.takeIf { it.text == text && it.team == team }
             ?: SendChatRequest(text, team, clientMessageId = newRequestId())
-        val sent = sessionCommand { api.sendChat(it, message.copy(chatAfter = chatCursor())) }
+        val sent = sessionCommand(FieldActions.CHAT_SEND) { api.sendChat(it, message.copy(chatAfter = chatCursor())) }
         unansweredChat = message.takeIf { !sent && mutableState.value.lastError is SessionError.Network }
         return sent
     }
@@ -377,12 +381,13 @@ class GameSessionManager(
         if (payload == null || payload.gameId != session.gameId) {
             return fail(SessionError.Rejected(ErrorCode.NOT_FOUND, "Not a checkpoint of this game"))
         }
+        trace.onAction(FieldActions.CHECKPOINT_SCAN)
         return command { applySnapshot(api.scanCheckpoint(session, payload.code)) }
     }
 
     /** Uses a perk: [targetId] for the ones aimed at a hider, [point] for a decoy. */
     suspend fun usePerk(perk: PerkKind, targetId: PlayerId? = null, point: GeoPoint? = null): Boolean =
-        sessionCommand { api.usePerk(it, UsePerkRequest(perk, targetId, point)) }
+        sessionCommand(FieldActions.PERK_USE) { api.usePerk(it, UsePerkRequest(perk, targetId, point)) }
 
     /** The host makes up a quest in words for [audience], worth [sparks]. */
     suspend fun addQuest(
@@ -392,7 +397,8 @@ class GameSessionManager(
     ): Boolean = sessionCommand { api.addQuest(it, CustomQuestRequest(text, audience, sparks)) }
 
     /** «Done»: the player says they did the host's quest [questId]; the host answers. */
-    suspend fun questDone(questId: QuestId): Boolean = sessionCommand { api.questDone(it, questId) }
+    suspend fun questDone(questId: QuestId): Boolean =
+        sessionCommand(FieldActions.QUEST_DONE) { api.questDone(it, questId) }
 
     /** The host confirms or refuses what [playerId] said about quest [questId]. */
     suspend fun reviewQuest(questId: QuestId, playerId: PlayerId, approved: Boolean): Boolean =
@@ -457,6 +463,8 @@ class GameSessionManager(
     fun leave() {
         val current = mutableState.value
         unansweredChat = null
+        // The log's last line, before it stops.
+        if (current.session != null) trace.onAction(FieldActions.LEAVE)
         stopBackgroundWork()
         storage.clearSession()
         mutableState.value = SessionState()
@@ -570,6 +578,7 @@ class GameSessionManager(
                     it.copy(connectionStatus = ConnectionStatus.ONLINE, isResuming = false, transport = event.transport)
                 }
                 applySnapshot(event.snapshot)
+                event.bytes?.let(trace::onSyncBytes)
                 trace.onSynced(event.transport, event.snapshot)
                 // Location updates need the game's settings: a resumed session starts them with its first snapshot.
                 if (resuming) startLocationUpdates()
@@ -1006,8 +1015,10 @@ class GameSessionManager(
         }
     }
 
-    private suspend fun sessionCommand(call: suspend (PlayerSession) -> GameSnapshot): Boolean {
+    /** [action]: what the player did, in a word for the field log (`FieldActions`); null: nothing worth a line. */
+    private suspend fun sessionCommand(action: String? = null, call: suspend (PlayerSession) -> GameSnapshot): Boolean {
         val session = mutableState.value.session ?: return false
+        action?.let(trace::onAction)
         return command { applySnapshot(call(session)) }
     }
 

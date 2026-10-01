@@ -19,6 +19,8 @@ import app.hovanki.shared.lab.RxFields
 import app.hovanki.shared.lab.ServerFields
 import app.hovanki.shared.lab.ServerKinds
 import app.hovanki.shared.lab.SrvFields
+import app.hovanki.shared.lab.SyncFields
+import app.hovanki.shared.lab.UiFields
 import app.hovanki.shared.protocol.AdminLabRun
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.LabRunKind
@@ -81,6 +83,8 @@ class FieldLogTest {
             // Sam comes close to Anna: the radio hears her. Anna marks that something is wrong.
             sam.walksToAndArrives(anna.gps.truePosition.offset(eastMeters = 2.0), speed = Route.RUNNING)
             check(anna.marksSomethingWrong("radar silent"), "Anna's phone logs her mark")
+            // Sam's chat goes into his log as an action, never as a text.
+            sam.sendChat("a secret text")
             // Sam claims Anna: the server's own events tell the claim, with the proximity rule in the shadow.
             sam.claimCatch(anna)
 
@@ -103,7 +107,10 @@ class FieldLogTest {
             // Anna's mark is in her raw log, as soon as her next upload is.
             val logs = eventually("Anna's mark is in the raw logs", within = 30.seconds) {
                 rawLogs(console, run).takeIf { logs ->
-                    logs.getValue(anna).any { it.kind == FieldKinds.MARK && it.text(MarkFields.TEXT) == "radar silent" }
+                    logs.getValue(anna).any {
+                        it.kind == FieldKinds.MARK && it.text(MarkFields.TEXT) == "radar silent"
+                    } &&
+                        logs.getValue(sam).any { it.text(UiFields.ACTION) == "chat_send" }
                 }
             }
             checkLogs(logs, sam, anna)
@@ -211,9 +218,21 @@ class FieldLogTest {
                 check(kind in kinds, "${phone.name}'s log has $kind ($kinds)")
             }
             check(events.filter { it.kind == FieldKinds.GPS }.all(LabSchema::hasCoordinates), "${phone.name}: where")
+            check(
+                events.any { it.kind == FieldKinds.SYNC && it.text(SyncFields.BYTES) != null },
+                "${phone.name}: a sync with the size of its answer",
+            )
             val elsewhere = events.filter { it.kind != FieldKinds.GPS && LabSchema.hasCoordinates(it) }
             check(elsewhere.isEmpty(), "${phone.name}: coordinates only in gps (${elsewhere.map { it.kind }})")
         }
+        val taps = logs.getValue(seeker).filter { it.kind == FieldKinds.UI && it.text(UiFields.EVENT) == UiFields.TAP }
+        check(
+            taps.any {
+                it.text(UiFields.ACTION) == "chat_send"
+            },
+            "${seeker.name}'s chat is in his log (${taps.size} taps)",
+        )
+        check(logs.values.flatten().none { "a secret text" in it.toString() }, "no chat text in any log")
         val heard = logs.getValue(seeker).filter { it.kind == FieldKinds.RX && it.text(RxFields.COUNT) != null }
         check(heard.isNotEmpty(), "${seeker.name}'s radio heard ${hider.name}, thinned to a second")
     }
