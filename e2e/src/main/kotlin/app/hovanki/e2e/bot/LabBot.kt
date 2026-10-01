@@ -69,6 +69,9 @@ class LabBot(
     val radio = FakeRadio(radioWorld, platform, { gps.truePosition }, { carry.value }, clock::now, LabRadioTrace(log))
     val backgroundTracker = FakeBackgroundTracker()
 
+    /** The accelerometer's jolts: the scenario knocks two phones together ([touches]). */
+    val impacts = FakeImpactMonitor(clock::now)
+
     /** The app's "main thread": the lab's parts are confined to it, as on the phone. */
     private val mainThread = Dispatchers.Default.limitedParallelism(1)
     private val scope = CoroutineScope(SupervisorJob() + mainThread)
@@ -98,6 +101,7 @@ class LabBot(
         clockSync = LabClockSync(gameApi::serverTime, clock::now, log::monoNow),
         about = { LabAbout("Bot ${platform.name.lowercase()}", "e2e", "e2e lab bot", null) },
         scope = scope,
+        impacts = impacts,
     )
     private val uploader = LabUploader(log, HttpLabApi(httpClient, url), scope, intervalMillis = uploadIntervalMillis)
     private val follower = LabRunFollower(
@@ -158,6 +162,16 @@ class LabBot(
     suspend fun leave() {
         withContext(mainThread) { follower.leave() }
         log("left the lab run")
+    }
+
+    /**
+     * The tester knocks this phone against [partner]'s (docs/adr/0017-radar-techniques-and-big-run.md §3): the jolt in
+     * the accelerometer, then «We touched» with the partner's label. Where the phones are is the scenario's.
+     */
+    suspend fun touches(partner: String) {
+        impacts.knock()
+        val pressed = withContext(mainThread) { controller.touched(partner) }
+        log(if (pressed) "touches $partner's phone" else "touches $partner's phone, but the lab doesn't record")
     }
 
     /** Whether the lab records (it stops by itself when the run is over). */

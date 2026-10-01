@@ -9,8 +9,11 @@ import app.hovanki.e2e.scenario
 import app.hovanki.e2e.scenario.GameSetups.PARK
 import app.hovanki.e2e.scenario.Scenario
 import app.hovanki.e2e.scenarioOnOwnServer
+import app.hovanki.shared.lab.CalibrationVariant
 import app.hovanki.shared.lab.LabJoinCode
 import app.hovanki.shared.lab.LabReport
+import app.hovanki.shared.lab.LabReportBuilder
+import app.hovanki.shared.lab.LabReportTouch
 import app.hovanki.shared.lab.LabRunScripts
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.LabRunAction
@@ -19,11 +22,13 @@ import app.hovanki.shared.protocol.LabRunStatus
 import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.UserRole
+import kotlinx.coroutines.delay
 import org.junit.jupiter.api.parallel.ResourceLock
 import java.io.ByteArrayInputStream
 import java.util.zip.ZipInputStream
 import kotlin.random.Random
 import kotlin.test.Test
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -119,6 +124,74 @@ class LabRunTest {
             console.deleteLabRun(run.id, reason = "the test is over")
             val gone = runCatching { console.labRun(run.id) }.exceptionOrNull()
             check((gone as? AdminRejected)?.status == 404, "the deleted run is gone (got $gone)")
+        }
+    }
+
+    /**
+     * The touch calibration (docs/adr/0017-radar-techniques-and-big-run.md §3, docs/radar-run.md step 4): two lab
+     * phones 2 m apart follow the plan «touch»; in its second step they come together three times, knock and both
+     * press «We touched». The report finds the touches by the jolts and the signal, confirmed by the button, gives the
+     * pair its offsets, and has the calibrations, smoothings and cards against the steps' distances.
+     */
+    @Test
+    fun twoPhonesTouchAndTheReportFindsIt() = scenario("The radio lab's touch", timeout = 4.minutes) {
+        observer.enableFeatures(listOf(ServerFeature.RADIO_LAB.name))
+        StaffConsole(serverUrl, observer).use { console ->
+            logsInAsAdmin(console)
+            val script = LabRunScripts.TOUCH
+            val run = console.createLabRun("Touch", script.id, reason = "the e2e touch")
+            val apart = PARK.offset(eastMeters = 2.0)
+            val a = labPhone("A", at = PARK, platform = Platform.IOS)
+            val b = labPhone("B", at = apart, platform = Platform.ANDROID)
+            a.joinRun(run.code)
+            b.joinRun(run.code)
+            console.advanceLabRun(run.id, LabRunAction.NEXT, reason = "go")
+            for (phone in listOf(a, b)) {
+                eventually("${phone.label} is in the step touch", within = 20.seconds) {
+                    phone.takeIf { it.follow.value?.step?.id == "touch" }
+                }
+            }
+            // Three touches about 10 s apart, a step back to 2 m between them.
+            repeat(3) {
+                delay(4.seconds)
+                b.gps.teleport(PARK.offset(eastMeters = 0.3))
+                delay(1_200.milliseconds)
+                a.touches("B")
+                b.touches("A")
+                delay(1_500.milliseconds)
+                b.gps.teleport(apart)
+            }
+
+            eventually("the run is over by its plan", within = 60.seconds) {
+                console.labRun(run.id).takeIf { it.state.status == LabRunStatus.FINISHED }
+            }
+            for (phone in listOf(a, b)) {
+                eventually("${phone.label} uploaded everything", within = 45.seconds) {
+                    phone.takeIf {
+                        it.follow.value?.finished == true && !it.isRecording && it.uploadPending.value == 0L
+                    }
+                }
+            }
+            val finished = console.finishLabRun(run.id, reason = "the report with every upload")
+            val report = eventually("the report is computed", within = 30.seconds) {
+                reportOrNull(console, run.id)?.takeIf { it.computedAtMillis >= finished.state.serverTimeMillis }
+            }
+            check(report.version == LabReportBuilder.VERSION, "the report of the techniques (${report.version})")
+            val detector = checkNotNull(report.touchDetector) { "the report has the touches" }
+            check(detector.buttonTouches == 3, "three touches pressed by both (${report.touches})")
+            check(detector.found >= 2, "the jolts and the signal found them: $detector, ${report.touches}")
+            check(
+                report.touches.filter { it.source == LabReportTouch.BOTH }.all { it.a == "A" && it.b == "B" },
+                "the pair A · B",
+            )
+            val pair = report.touchPairs.single()
+            check(pair.offsetAToB != null && pair.offsetBToA != null, "the pair's offsets from its touches: $pair")
+            val none = report.calibration.single { it.tech == CalibrationVariant.NONE.id }
+            check(none.seconds > 0, "the bands against the steps' distances: ${report.calibration}")
+            check(report.calibration.any { it.tech == CalibrationVariant.TOUCH.id }, "and with the touch")
+            check(report.cards.any { it.id == CalibrationVariant.TOUCH.id }, "a card for calib.touch")
+            listOf(a, b).forEach { it.leave() }
+            console.deleteLabRun(run.id, reason = "the test is over")
         }
     }
 

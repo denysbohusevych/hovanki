@@ -2,6 +2,8 @@ package app.hovanki.e2e.bot
 
 import app.hovanki.device.CarryMonitor
 import app.hovanki.device.DeviceInfo
+import app.hovanki.device.Impact
+import app.hovanki.device.ImpactMonitor
 import app.hovanki.device.PocketPulse
 import app.hovanki.radar.JvmAir
 import app.hovanki.radar.JvmAirHost
@@ -22,6 +24,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
@@ -177,6 +180,25 @@ class BotDeviceInfo(override val platform: Platform) : DeviceInfo {
 /** Where the bot's phone is, as the scenario puts it. */
 class FakeCarryMonitor(val state: MutableStateFlow<Carry>) : CarryMonitor {
     override fun carry(): Flow<Carry> = state
+}
+
+/**
+ * The bot's accelerometer as the touch sees it (docs/adr/0017-radar-techniques-and-big-run.md §3): no sensor, the
+ * scenario knocks ([knock]) and the jolt goes to whoever collects, as a phone's lone jolt would.
+ */
+class FakeImpactMonitor(private val clock: () -> Long) : ImpactMonitor {
+    private val jolts = MutableSharedFlow<Impact>(extraBufferCapacity = 16)
+
+    /** A knock of [g] beyond gravity now (the device's clock). */
+    fun knock(g: Double = KNOCK_G) {
+        jolts.tryEmit(Impact(clock(), g))
+    }
+
+    override fun impacts(): Flow<Impact> = jolts
+
+    companion object {
+        const val KNOCK_G = 1.6
+    }
 }
 
 /** The pulse as the bot feels it: the band right now and every band it was ever set to. */
