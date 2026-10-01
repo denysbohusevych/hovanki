@@ -49,6 +49,8 @@ class SentryEnabledTest(@Autowired private val transport: RecordingTransport, @A
         @Suppress("DEPRECATION")
         assertEquals(false, options.isSendDefaultPii)
         assertEquals(SentryOptions.RequestSize.NONE, options.maxRequestBodySize)
+        // A misspelled key in application.yaml is ignored without a word: every key it sets is checked here.
+        assertEquals(false, options.isAttachServerName)
         assertNotNull(options.beforeSend)
         assertNotNull(options.beforeBreadcrumb)
         assertNull(options.tracesSampleRate)
