@@ -67,9 +67,10 @@ class FieldThinning(
         }
         val window = windows.getOrPut(key) {
             if (windows.size >= MAX_PEERS) {
-                val oldest = windows.entries.first()
-                windows.remove(oldest.key)
-                closed += oldest.value.summary(oldest.key)
+                // The key and the window first: on Kotlin/Native an entry read after a removal throws.
+                val (oldestKey, oldest) = windows.entries.first().let { it.key to it.value }
+                windows.remove(oldestKey)
+                closed += oldest.summary(oldestKey)
             }
             Window(atMillis)
         }

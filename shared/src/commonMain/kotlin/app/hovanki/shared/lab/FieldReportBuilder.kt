@@ -1016,8 +1016,10 @@ class FieldReportBuilder(
     /** The minutes before [before] as lines, with the other lines of that time, in time order. */
     private fun emitDigest(before: Long) {
         val sink = digest ?: return
+        // Pairs, not the map's entries: on Kotlin/Native an entry read after a removal throws.
         val due = minutes.entries.filter { it.value.start < before }
-            .sortedWith(compareBy({ it.value.start }, { it.value.player.index }))
+            .map { it.key to it.value }
+            .sortedWith(compareBy({ it.second.start }, { it.second.player.index }))
         val lines = ArrayList<DigestLine>()
         for ((key, minute) in due) {
             minutes.remove(key)
