@@ -13,7 +13,10 @@ import kotlinx.serialization.json.longOrNull
  * as `t` and its start in `since`, so `t` never goes back), and a [MINUTE] row per player and minute: `gps`
  * fixes, `acc` (their median accuracy, m), `gaps`, `sync` with `sync_p50`/`sync_p95` (ms) and `sync_err`, `battery`
  * (0…1), `bg_s` (seconds not on the screen within the minute; a silent minute has no row), `peers` (whom the radio
- * heard), `bands` (the phone's own bands by name). Players are P1…Pn, never a nickname or an id; no coordinates.
+ * heard), `bands` (the phone's own bands by name); and a [FieldPairs.KIND] row per pair of players and minute within
+ * [FieldPairs.METERS] by GPS or heard (GPS distance, RSSI both ways, band, carry, models: Bluetooth against GPS, at most
+ * [FieldPairs.ROWS_PER_MINUTE] a minute, the header says so). Players are P1…Pn, never a nickname or an id; no
+ * coordinates.
  */
 object FieldDigest {
     const val SCHEMA = 1
@@ -229,6 +232,7 @@ object FieldReportMarkdown {
                 )
             }
         }
+        btVsGps(radar, maxRows)
         if (radar.zeroPoints.isNotEmpty()) {
             appendLine()
             appendLine("### «0 m»: catches and touches")
@@ -307,6 +311,52 @@ object FieldReportMarkdown {
             appendLine("|---|---|---|---|")
             for (w in techniques.without) {
                 appendLine("| ${w.tech} | ${w.seconds} | ${w.same} | ${w.onlyChannel} |")
+            }
+        }
+    }
+
+    /** «Bluetooth против GPS»: the RSSI by models × carry × distance with the band's agreement, and the worst minutes. */
+    private fun StringBuilder.btVsGps(radar: FieldReportRadar, maxRows: Int) {
+        if (radar.btVsGps.isEmpty() && radar.worstMinutes.isEmpty()) return
+        appendLine()
+        appendLine("### Bluetooth против GPS (Bluetooth against GPS)")
+        appendLine()
+        appendLine(
+            "GPS is good to 5–10 m at best: a band that disagrees by less than that is no lie. «Band agrees» counts " +
+                "the seconds the game showed a band for the pair (the listener's) that fit the GPS distance " +
+                "(burning ≤ 10 m, hot 2–25 m, warm 5–60 m, none ≥ 20 m), the two phones' GPS accuracy taken off.",
+        )
+        if (radar.btVsGps.isNotEmpty()) {
+            appendLine()
+            appendLine("| models (sender → listener) | carried | meters | seconds | median | p20 | p80 | band agrees |")
+            appendLine("|---|---|---|---|---|---|---|---|")
+            for (row in radar.btVsGps.take(maxRows)) {
+                val agree = if (row.bandSeconds == 0) "-" else "${row.bandAgree}/${row.bandSeconds}"
+                appendLine(
+                    "| ${row.models.cell()} | ${row.carry} | ${row.bucket} | ${row.seconds} | ${row.median} | " +
+                        "${row.p20} | ${row.p80} | $agree |",
+                )
+            }
+        }
+        if (radar.worstMinutes.isNotEmpty()) {
+            appendLine()
+            appendLine(
+                "The ${radar.worstMinutes.size} worst minutes: where the band was farthest from the GPS distance",
+            )
+            appendLine()
+            appendLine(
+                "| time | a | b | GPS median/min, m | GPS acc a/b, m | RSSI a→b / b→a | band | shadow band | " +
+                    "carried a/b | phones a/b | off, m |",
+            )
+            appendLine("|---|---|---|---|---|---|---|---|---|---|---|")
+            for (row in radar.worstMinutes) {
+                appendLine(
+                    "| ${time(row.atMillis)} | ${row.a} | ${row.b} | ${row.gpsMedian ?: "-"}/${row.gpsMin ?: "-"} | " +
+                        "${row.accA ?: "-"}/${row.accB ?: "-"} | ${row.rssiAb ?: "-"} / ${row.rssiBa ?: "-"} | " +
+                        "${row.band ?: "-"} | ${row.shadowBand ?: "-"} | ${row.carryA ?: "-"}/${row.carryB ?: "-"} | " +
+                        "${(row.modelA ?: "?").cell()} (${row.platA ?: "?"}) / ${(row.modelB ?: "?").cell()} " +
+                        "(${row.platB ?: "?"}) | ${row.disagreementM ?: "-"} |",
+                )
             }
         }
     }
