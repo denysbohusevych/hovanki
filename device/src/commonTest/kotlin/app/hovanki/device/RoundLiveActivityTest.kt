@@ -132,7 +132,7 @@ class RoundLiveActivityTest {
         val beat = round.pulse("A seeker is near!", "close by")
         assertFalse(beat.played)
         assertEquals("live_activity_alert_double skipped: no live activity running", trace.lines.last())
-        assertEquals(PulseWay.NOTIFICATION, PocketPulseRules.way(onScreen = false, round.isRunning))
+        assertEquals(PulseWay.NOTIFICATION, PocketPulseRules.way(onScreen = false, round.canAlert))
     }
 
     @Test
@@ -160,6 +160,13 @@ class RoundLiveActivityTest {
         host.refuseAlerts = true
         assertFalse(round.pulse("A seeker is near!", "close by").played)
         assertEquals("live_activity_alert_double skipped: the host refused the alert", trace.lines.last())
+        // The card is gone (swiped away, turned off, ended by iOS): the pulse notifies until a new one starts.
+        assertFalse(round.isRunning)
+        assertFalse(round.canAlert)
+        assertTrue(trace.lines.any { it.startsWith("mode.live_activity live_activity_lost") }, "${trace.lines}")
+        assertEquals(PulseWay.NOTIFICATION, PocketPulseRules.way(onScreen = false, round.canAlert))
+        assertFalse(round.pulse("A seeker is near!", "close by").played)
+        assertEquals("live_activity_alert_double skipped: no live activity running", trace.lines.last())
     }
 
     @Test
@@ -172,13 +179,17 @@ class RoundLiveActivityTest {
         // The default sound would give the hiding place away: not a single alert.
         assertFalse(round.pulse("A seeker is near!", "close by").played)
         assertTrue(host.calls.none { it.startsWith("alert") })
+        // The card runs but can't alert: the pulse beats by the notification's way and pace.
+        assertTrue(round.isRunning)
+        assertFalse(round.canAlert)
+        assertEquals(PulseWay.NOTIFICATION, PocketPulseRules.way(onScreen = false, round.canAlert))
     }
 
     @Test
     fun thePulsesWayAndPace() {
-        assertEquals(PulseWay.TAPS, PocketPulseRules.way(onScreen = true, liveActivityRunning = true))
-        assertEquals(PulseWay.LIVE_ACTIVITY, PocketPulseRules.way(onScreen = false, liveActivityRunning = true))
-        assertEquals(PulseWay.NOTIFICATION, PocketPulseRules.way(onScreen = false, liveActivityRunning = false))
+        assertEquals(PulseWay.TAPS, PocketPulseRules.way(onScreen = true, liveActivityCanAlert = true))
+        assertEquals(PulseWay.LIVE_ACTIVITY, PocketPulseRules.way(onScreen = false, liveActivityCanAlert = true))
+        assertEquals(PulseWay.NOTIFICATION, PocketPulseRules.way(onScreen = false, liveActivityCanAlert = false))
         // The notification's pace is the one every build had.
         assertEquals(4_000L, PocketPulseRules.gapMillis(PulseWay.NOTIFICATION, RadarBand.WARM))
         assertEquals(4_000L, PocketPulseRules.gapMillis(PulseWay.NOTIFICATION, RadarBand.BURNING))
@@ -187,6 +198,12 @@ class RoundLiveActivityTest {
             .map { PocketPulseRules.gapMillis(PulseWay.LIVE_ACTIVITY, it) }
         assertEquals(gaps.sortedDescending(), gaps)
         assertTrue(gaps.all { it >= PocketPulseRules.NOTIFICATION_GAP_MILLIS })
+        // Due: the first beat at once; then only after the gap, whatever the band did in between.
+        assertTrue(PocketPulseRules.isDue(null, PulseWay.LIVE_ACTIVITY, RadarBand.WARM))
+        assertFalse(PocketPulseRules.isDue(2_000L, PulseWay.LIVE_ACTIVITY, RadarBand.HOT))
+        assertFalse(PocketPulseRules.isDue(5_000L, PulseWay.LIVE_ACTIVITY, RadarBand.HOT))
+        assertTrue(PocketPulseRules.isDue(6_000L, PulseWay.LIVE_ACTIVITY, RadarBand.HOT))
+        assertTrue(PocketPulseRules.isDue(4_000L, PulseWay.NOTIFICATION, RadarBand.WARM))
         // The log's kind is the lab's.
         assertEquals(HapticKind.LIVE_ACTIVITY_ALERT_DOUBLE.key, RoundLiveActivity.KIND)
     }

@@ -204,7 +204,7 @@
 1. Убрать наши файлы расширения в сторону (`mv iosApp/HovankiLive /tmp/HovankiLive-ours`), File → New → Target → Widget Extension `HovankiLive` с «Include Live Activity», тот же Team, bundle id — id приложения плюс `.live` (вписать руками), iOS 16.2.
 2. Удалить Swift-файлы шаблона, вернуть наши (`cp /tmp/HovankiLive-ours/*.swift iosApp/HovankiLive/`), добавить `iosApp/iosApp/LiveActivity/`: `HovankiLiveAttributes.swift` — в оба таргета, `HovankiLiveActivityHost.swift` — только в приложение.
 3. Background Modes не трогать: `audio` и `nearby-interaction` добавляет скрипт Debug-сборки (проверить в собранном `Hovanki.app/Info.plist`).
-4. Собрать схему `iosApp` на оба iPhone, ошибки компиляции прислать целиком. **`project.pbxproj` с расширением не коммитить** (TestFlight подписывает всё одним профилем).
+4. Собрать схему `iosApp` на оба iPhone, ошибки компиляции прислать целиком. **Таргет коммитить (`project.pbxproj`, `HovankiLive/Info.plist`, `Assets`) только вместе с секретом `IOS_LIVE_PROVISIONING_PROFILE_BASE64`** (профиль App Store для `<app>.live`): `ios-testflight.yml` подписывает расширение вторым профилем, а без секрета архив не загружается. Подробно — [iosApp/README.md](../iosApp/README.md#радиолаба-live-activity-и-фоновые-режимы) и [ci-cd.md](ci-cd.md), «iOS: TestFlight».
 
 **Что смотреть первым при ошибке:**
 

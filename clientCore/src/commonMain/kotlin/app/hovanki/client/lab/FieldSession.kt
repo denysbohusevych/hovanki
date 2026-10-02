@@ -333,7 +333,8 @@ class FieldSession(
                 }
             }
         }
-        roundJobs += scope.launch { quietly { shadow.seconds(probes) } }
+        // The round's proximity screen (wave 4) keeps an iPhone active in the pocket: the shadow reads the sensor then.
+        roundJobs += scope.launch { quietly { shadow.seconds(probes) { pocket.isProximityOn } } }
     }
 
     /**

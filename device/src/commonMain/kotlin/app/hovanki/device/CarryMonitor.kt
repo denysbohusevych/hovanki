@@ -17,3 +17,24 @@ interface CarryMonitor {
 class NoopCarryMonitor : CarryMonitor {
     override fun carry(): Flow<Carry> = emptyFlow()
 }
+
+/**
+ * The iOS carry monitor's rule, pure ([IosCarryMonitor]): in the hand while the app is active and its screen lit;
+ * while the field build's round turned the screen off by the proximity sensor ([proximityOn], ADR 0018 wave 4) and
+ * the sensor is covered ([near]), the app stays active in the pocket: in the pocket when the accelerometer says the
+ * phone is [carried], unknown otherwise; locked ([protectedDataAvailable] false) and carried: in the pocket.
+ */
+object IosCarryRules {
+    fun state(
+        active: Boolean,
+        proximityOn: Boolean,
+        near: Boolean,
+        protectedDataAvailable: Boolean,
+        carried: Boolean,
+    ): Carry = when {
+        active && proximityOn && near -> if (carried) Carry.IN_POCKET else Carry.UNKNOWN
+        active -> Carry.IN_HAND
+        !protectedDataAvailable && carried -> Carry.IN_POCKET
+        else -> Carry.UNKNOWN
+    }
+}

@@ -257,6 +257,7 @@ class AdminService(
                 record?.updatedAt?.toEpochMilli(),
                 record?.updatedBy,
                 shadowOnly = features.isShadowOnly(feature),
+                switchedOn = record?.enabled == true,
             )
         },
     )

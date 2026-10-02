@@ -17,13 +17,16 @@ import platform.CoreMotion.CMMotionManager
 import platform.Foundation.NSOperationQueue
 import platform.UIKit.UIApplication
 import platform.UIKit.UIApplicationState
+import platform.UIKit.UIDevice
 import kotlin.math.sqrt
 
 /**
  * Where the phone is (docs/adr/0012-nearby-radar.md, «Карман») on iOS: in the hand while the app is active; in the
  * pocket while the phone is locked (its protected data unavailable) and carried, by the accelerometer; unknown
  * otherwise. iOS gives an app neither the proximity sensor nor the light in the background, so the lock is the
- * screen-off gate here. Told every [POLL_MILLIS]; nothing but the state leaves the phone.
+ * screen-off gate here; except while the field build's round turned the screen off by the proximity sensor
+ * (docs/adr/0018-field-test-build.md, wave 4): the app stays active in the pocket, the covered sensor is the gate
+ * then ([IosCarryRules]). Told every [POLL_MILLIS]; nothing but the state leaves the phone.
  */
 class IosCarryMonitor : CarryMonitor {
     override fun carry(): Flow<Carry> = callbackFlow {
@@ -41,11 +44,14 @@ class IosCarryMonitor : CarryMonitor {
             while (isActive) {
                 val application = UIApplication.sharedApplication
                 val carried = classifier.classify().let { it != Activity.STILL && it != Activity.UNKNOWN }
-                val state = when {
-                    application.applicationState == UIApplicationState.UIApplicationStateActive -> Carry.IN_HAND
-                    !application.protectedDataAvailable && carried -> Carry.IN_POCKET
-                    else -> Carry.UNKNOWN
-                }
+                val device = UIDevice.currentDevice
+                val state = IosCarryRules.state(
+                    active = application.applicationState == UIApplicationState.UIApplicationStateActive,
+                    proximityOn = device.proximityMonitoringEnabled,
+                    near = device.proximityMonitoringEnabled && device.proximityState,
+                    protectedDataAvailable = application.protectedDataAvailable,
+                    carried = carried,
+                )
                 trySend(state)
                 delay(POLL_MILLIS)
             }

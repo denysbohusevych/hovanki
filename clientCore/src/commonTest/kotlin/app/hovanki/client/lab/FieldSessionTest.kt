@@ -673,6 +673,52 @@ class FieldSessionTest {
     }
 
     @Test
+    fun theCarryShadowReadsTheSensorWhileTheRoundsProximityScreenIsOn() = runTest {
+        val screen = object : LabScreen {
+            override val canTurnOffByProximity = true
+        }
+        val sensors = MutableSharedFlow<LabSensorReading>(extraBufferCapacity = 64)
+        val probes = object : LabProbes {
+            // The proximity screen keeps an iPhone active in the pocket.
+            override fun appState(): String = "active"
+
+            override fun lifecycle(): Flow<String> = MutableSharedFlow()
+
+            override fun sensors(): Flow<LabSensorReading> = sensors
+
+            override fun battery(): Flow<LabBattery> = MutableSharedFlow()
+        }
+        val log = LabLog(isEnabled = false, { DEVICE + currentTime }, { currentTime })
+        val field = FieldSession(
+            log = log,
+            api = FakeLabApi(),
+            storage = storage,
+            scope = backgroundScope,
+            isFieldBuild = true,
+            probes = probes,
+            pocket = FieldPocket(screen = screen),
+        )
+        val seeking = testSnapshot(phase = GamePhase.SEEKING, serverTimeMillis = SERVER)
+            .let { it.copy(settings = it.settings.copy(features = GameFeatures(radar = FeatureMode.OPTIONAL))) }
+        field.giveConsent(CONSENT)
+        field.onSnapshot(testSession, seeking)
+        runCurrent()
+        assertTrue(field.pocket.isProximityOn)
+        sensors.emit(LabSensorReading.Proximity(near = true, monitoring = true))
+        repeat(30) {
+            sensors.emit(LabSensorReading.Motion(currentTime, if (it % 2 == 0) 0.8 else 1.2, null))
+            advanceTimeBy(100)
+            runCurrent()
+        }
+        val carry = log.lines().map { Json.parseToJsonElement(it).jsonObject }
+            .filter { it.kind == "shadow" && it.string("tech") == CarryShadow.CARRY_V2 }
+        assertEquals("in_pocket", carry.last().string("state"), "$carry")
+        // The first second came before the sensor said «near»: the hand; from then on, never «screen_on».
+        assertTrue(carry.drop(1).none { it.string("reason") == "screen_on" }, "$carry")
+        field.onSessionEnded()
+    }
+
+    @Test
     fun theLabOutsideTheFieldWritesNoCoordinates() = runTest {
         val log = LabLog(isEnabled = true, { DEVICE + currentTime }, { currentTime }).also { it.isRecording = true }
         log.fix(50.45, 30.52, 5.0, ageMillis = 100, speed = 1.25)

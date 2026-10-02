@@ -61,7 +61,7 @@ final class HovankiLiveActivityHost: NSObject, LiveActivityBridgeHost {
     }
 
     func update(text: String, band: Int32, detail: String, endsAtMillis: Int64) {
-        guard #available(iOS 16.2, *), let activity = current as? Activity<HovankiLiveAttributes> else { return }
+        guard #available(iOS 16.2, *), let activity = running() else { return }
         self.text = text
         self.band = Int(band)
         self.detail = detail
@@ -75,10 +75,11 @@ final class HovankiLiveActivityHost: NSObject, LiveActivityBridgeHost {
     /// An update that alerts: on the lock screen iOS shows it like a notification and plays `sound` — and the sound's
     /// haptic, which is the one vibration a locked iPhone gives an app whose Core Haptics engine is stopped. `sound` is
     /// a file's name in the app's bundle or in `Library/Sounds` (the lab's half second of silence: vibration only),
-    /// nil the default sound. False without a running activity. The card keeps what it shows (the role and the band
+    /// nil the default sound. False without a running, active activity. The card keeps what it shows (the role and the band
     /// of the field build's round, the lab's step): `title` and `text` are the alert's own.
     func alert(title: String, text: String, sound: String?) -> Bool {
-        guard #available(iOS 16.2, *), let activity = current as? Activity<HovankiLiveAttributes> else { return false }
+        // A card the player swiped away, turned off in Settings or iOS ended: false, so Kotlin notifies instead.
+        guard #available(iOS 16.2, *), let activity = running() else { return false }
         let content = currentContent()
         let alertSound: AlertConfiguration.AlertSound
         if let sound, Self.soundExists(sound) {
@@ -96,6 +97,19 @@ final class HovankiLiveActivityHost: NSObject, LiveActivityBridgeHost {
             await activity.update(content, alertConfiguration: configuration)
         }
         return true
+    }
+
+    /// The running activity, nil when there is none or it is no longer active (the player swiped it away, turned Live
+    /// Activities off, or iOS ended it); then it is forgotten.
+    @available(iOS 16.2, *)
+    private func running() -> Activity<HovankiLiveAttributes>? {
+        guard let activity = current as? Activity<HovankiLiveAttributes> else { return nil }
+        guard activity.activityState == .active else {
+            NSLog("HovankiLive: the activity is no longer active")
+            current = nil
+            return nil
+        }
+        return activity
     }
 
     /// The card as it is now, stamped with this moment.

@@ -12,7 +12,8 @@ import kotlin.math.roundToInt
 
 /**
  * The screen off by the proximity sensor on Android (`PROXIMITY_SCREEN_OFF_WAKE_LOCK`), to compare with the iPhone's
- * (docs/radio-lab.md §5). Debug builds only.
+ * (docs/radio-lab.md §5). The lab's (debug builds, staff in `preview`) and the field build's round
+ * (`mode.proximity_screen`, docs/adr/0018-field-test-build.md, wave 4); release games never use it.
  */
 class AndroidLabScreen(context: Context) : LabScreen {
     private val power = context.getSystemService(Context.POWER_SERVICE) as? PowerManager

@@ -55,7 +55,7 @@ data class LiveCard(val text: String, val band: RadarBand = RadarBand.NONE, val 
  * ([want]) and again when the app is about to leave it ([LiveActivityPlatform.onWillResignActive]) if none runs. The
  * card is updated only when it changes (iOS budgets the updates); [end] takes it off when the round is over or the
  * phone leaves the game. Without the Swift host ([LiveActivityHost.isAvailable] false: the widget extension isn't in
- * the build) nothing starts and the pulse keeps its notification. The game's pulse ([PocketPulse]) asks [isRunning]
+ * the build) nothing starts and the pulse keeps its notification. The game's pulse ([PocketPulse]) asks [canAlert]
  * and beats by [pulse]; nothing ever starts one outside the field build, so release and debug games are as before.
  * Every attempt and result goes to [trace]. Main thread.
  */
@@ -70,9 +70,15 @@ class RoundLiveActivity(
     var isWanted: Boolean = false
         private set
 
-    /** iOS took the card: alerts may go out. */
+    /** iOS took the card and it still runs (an alert refused by the host means it is gone). */
     var isRunning: Boolean = false
         private set
+
+    /**
+     * Alerts may go out: a card runs and the file of silence is there. The pulse beats by the Live Activity's way and
+     * gaps only then; otherwise by the notification's ([PocketPulseRules.way]).
+     */
+    val canAlert: Boolean get() = isRunning && silentSound
 
     /** The card's updates and alerts since it started: iOS budgets them, the log counts them. */
     var updates: Int = 0
@@ -134,7 +140,11 @@ class RoundLiveActivity(
         repeat(2) { index ->
             if (index > 0) delay(ALERT_GAP_MILLIS)
             // The round may have ended between the two.
-            if (!isRunning || !host.alert(alertTitle, alertText, silent = true)) {
+            if (!isRunning) return Beat(SKIPPED, "the round ended between the alerts")
+            if (!host.alert(alertTitle, alertText, silent = true)) {
+                // The player swiped the card away, turned Live Activities off, or iOS ended it: the card is gone, the
+                // pulse falls back to its notification until a new one starts when the app leaves the screen again.
+                lost()
                 return Beat(SKIPPED, if (index == 0) "the host refused the alert" else "the second alert refused")
             }
             alerts++
@@ -156,6 +166,12 @@ class RoundLiveActivity(
         shown = null
         updates = 0
         alerts = 0
+    }
+
+    private fun lost() {
+        isRunning = false
+        shown = null
+        trace.mode(MODE, "live_activity_lost", "the host refused an alert; updates $updates, alerts $alerts")
     }
 
     private fun start(why: String) {
@@ -218,11 +234,20 @@ object PocketPulseRules {
     const val LIVE_HOT_GAP_MILLIS = 6_000L
     const val LIVE_BURNING_GAP_MILLIS = 4_000L
 
-    fun way(onScreen: Boolean, liveActivityRunning: Boolean): PulseWay = when {
+    /** [liveActivityCanAlert]: [RoundLiveActivity.canAlert], a card that runs and has its file of silence. */
+    fun way(onScreen: Boolean, liveActivityCanAlert: Boolean): PulseWay = when {
         onScreen -> PulseWay.TAPS
-        liveActivityRunning -> PulseWay.LIVE_ACTIVITY
+        liveActivityCanAlert -> PulseWay.LIVE_ACTIVITY
         else -> PulseWay.NOTIFICATION
     }
+
+    /**
+     * A beat off the screen is due: none went out yet ([sinceLastMillis] null) or the gap of [way] in [band] is over
+     * since the last one. The last beat's time outlives a band change, so a band flipping at its edge never beats
+     * faster than the gap.
+     */
+    fun isDue(sinceLastMillis: Long?, way: PulseWay, band: RadarBand): Boolean =
+        sinceLastMillis == null || sinceLastMillis >= gapMillis(way, band)
 
     /** The least time between two beats off the screen by [way] in [band]; 0 on the screen (every heartbeat). */
     fun gapMillis(way: PulseWay, band: RadarBand): Long = when (way) {

@@ -136,9 +136,20 @@ class FieldShadowApiTest(
         for (feature in listOf(ServerFeature.PROXIMITY_CATCH, ServerFeature.POCKET_STEALTH)) {
             assertTrue(listed.getValue(feature).shadowOnly)
             assertFalse(listed.getValue(feature).enabled)
+            // The stale switch in the database is shown: it would go live without the shadow-only setting.
+            assertTrue(listed.getValue(feature).switchedOn)
         }
         assertFalse(listed.getValue(ServerFeature.RADAR).shadowOnly)
         assertTrue(listed.getValue(ServerFeature.RADAR).enabled)
+        assertTrue(listed.getValue(ServerFeature.RADAR).switchedOn)
+        // Turning a shadow's stale switch off works.
+        val after = admin.post(
+            ApiRoutes.adminFeature(ServerFeature.PROXIMITY_CATCH),
+            AdminFeatureRequest(false, "stale switch"),
+            staff,
+        ).ok<AdminFeatures>().features.associateBy { it.feature }
+        assertFalse(after.getValue(ServerFeature.PROXIMITY_CATCH).switchedOn)
+        assertTrue(after.getValue(ServerFeature.POCKET_STEALTH).switchedOn)
     }
 
     @Test

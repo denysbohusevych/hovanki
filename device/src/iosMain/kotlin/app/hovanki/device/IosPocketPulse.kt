@@ -14,6 +14,7 @@ import platform.UIKit.UIImpactFeedbackStyle
 import platform.UserNotifications.UNMutableNotificationContent
 import platform.UserNotifications.UNNotificationRequest
 import platform.UserNotifications.UNUserNotificationCenter
+import kotlin.time.TimeSource
 
 /**
  * The pulse (docs/adr/0012-nearby-radar.md, «Пульс») on iOS. On the screen the Taptic Engine beats a heartbeat
@@ -21,7 +22,7 @@ import platform.UserNotifications.UNUserNotificationCenter
  * pace. In the background a third-party app can't vibrate on its own ([PocketPulseRules]):
  * - while the round's Live Activity runs ([round], only the field build starts one), two alerts on it 300 ms apart
  *   with a silent sound — what a locked iPhone feels in the pocket (docs/radio-lab.md §12) — every
- *   [PocketPulseRules.gapMillis] by band; an alert refused gives way to the notification for that beat;
+ *   [PocketPulseRules.gapMillis] by band, kept across band changes; an alert refused gives way to the notification for that beat;
  * - otherwise (every other build, as before) a notification without a sound (a sound would give the hiding place away)
  *   every [PocketPulseRules.NOTIFICATION_GAP_MILLIS] at least, replaced in place, so the lock screen shows «a seeker
  *   is near» and vibrates for each one where the player allows.
@@ -37,6 +38,9 @@ class IosPocketPulse(
     private val scope = MainScope()
     private var beating: Job? = null
 
+    /** When the last beat off the screen went out, across band changes (a new band restarts the loop, not the gap). */
+    private var lastOffScreen: TimeSource.Monotonic.ValueTimeMark? = null
+
     // Made on the main thread, where they are used, the first time the pulse beats.
     private val soft by lazy { UIImpactFeedbackGenerator(style = UIImpactFeedbackStyle.UIImpactFeedbackStyleLight) }
     private val strong by lazy { UIImpactFeedbackGenerator(style = UIImpactFeedbackStyle.UIImpactFeedbackStyleHeavy) }
@@ -51,15 +55,12 @@ class IosPocketPulse(
             return
         }
         beating = scope.launch {
-            // When the last beat off the screen went out (0: none yet), on the loop's own clock.
-            var lastOffScreen = 0L
-            var elapsed = 0L
             soft.prepare()
             strong.prepare()
             while (isActive) {
                 val onScreen =
                     UIApplication.sharedApplication.applicationState == UIApplicationState.UIApplicationStateActive
-                val way = PocketPulseRules.way(onScreen, round.isRunning)
+                val way = PocketPulseRules.way(onScreen, round.canAlert)
                 if (way == PulseWay.TAPS) {
                     // Lub-DUB: the soft tap, the pause, the strong tap, then quiet till the period is over.
                     soft.impactOccurredWithIntensity(beat.softAmplitude)
@@ -69,13 +70,13 @@ class IosPocketPulse(
                     strong.prepare()
                     delay(beat.periodMillis - beat.softMillis - beat.gapMillis)
                 } else {
-                    if (lastOffScreen == 0L || elapsed - lastOffScreen >= PocketPulseRules.gapMillis(way, band)) {
-                        lastOffScreen = elapsed.coerceAtLeast(1L)
+                    val since = lastOffScreen?.elapsedNow()?.inWholeMilliseconds
+                    if (PocketPulseRules.isDue(since, way, band)) {
+                        lastOffScreen = TimeSource.Monotonic.markNow()
                         offScreen(way)
                     }
                     delay(beat.periodMillis)
                 }
-                elapsed += beat.periodMillis
             }
         }
     }

@@ -162,7 +162,7 @@ UWB с Live Activity (ADR 0016, «Исследование», п. 3) в эту �
 
 Где код (с 2026-09-30, шаги 2, 3 и 5 [radar-run.md](radar-run.md); режимы — `BackgroundModes` в `:device`, связь — `:radar` `link/`, UWB — `:radar` `uwb/`, журнал UWB — `LabRangeTrace`): экран и логика лаборатории — `:clientCore` `lab/` и `composeApp/.../ui/debug/`; свой эфир (`LabAir`, `HostLabAir`, `LabFrame`) — `:radar`, пакет `app.hovanki.radar.lab`, на хосте платформы (`AndroidAirHost`, `IosAirHost`; `AndroidLabAir` и `IosLabAir` больше нет), журнал радио — `LabRadioTrace` (`RadarTrace`) в `:clientCore`; пробы телефона (`LabProbes`, `LabScreen`, `LabHaptics` и их Android- и iOS-реализации, `CarryFeatures`, `HapticStopReason`) — `:device`, пакет `app.hovanki.device.lab`; «Поделиться» (`LabFiles`: `AndroidLabFiles`, `IosLabFiles`) осталось в `:composeApp`, привязки Koin — в `composeApp/di`.
 
-Что остаётся за боевым кодом: лаборатория ничего не меняет в игре. Новые переключатели (датчик приближения, хаптика в фоне) живут только в лаборатории. В игру они попадут отдельными изменениями по результатам.
+Что остаётся за боевым кодом: лаборатория ничего не меняет в игре release и debug. Исключение — полевая сборка (`preview`, [ADR 0018](adr/0018-field-test-build.md), четвёртая волна, [field-test.md](field-test.md) шаг 10): в её раундах с радаром работают экран по датчику приближения (`mode.proximity_screen`, тот же `LabScreen`) и двойной alert Live Activity раунда (тот же Swift-хост `LiveActivityHost`). Лаба и поле делят эти хосты. Остальные переключатели (хаптика в фоне и пр.) живут только в лаборатории; в игру они попадут отдельными изменениями по результатам.
 
 ## 6. Мак
 

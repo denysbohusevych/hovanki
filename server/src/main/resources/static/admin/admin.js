@@ -895,28 +895,39 @@ function featuresPage({ features }) {
       features.map((feature) => el("tr", {},
         el("td", {}, featureTitle(feature.feature), " ", el("span", { class: "mono muted" }, feature.feature),
           FEATURES[feature.feature] ? el("div", { class: "small muted" }, FEATURES[feature.feature].about) : null),
-        el("td", {}, feature.shadowOnly ? el("span", { class: "tag" }, "только тень")
+        el("td", {}, feature.shadowOnly ? featureShadowState(feature)
           : feature.enabled ? el("span", { class: "tag ok" }, "вкл") : el("span", { class: "tag" }, "выкл")),
         el("td", {}, feature.updatedAtMillis ? `${fmt.time(feature.updatedAtMillis)}, ${feature.updatedByName}` : "—"),
-        el("td", {}, isAdmin() && !feature.shadowOnly ? featureSwitch(feature) : null)))));
+        el("td", {}, isAdmin() && (!feature.shadowOnly || feature.switchedOn) ? featureSwitch(feature) : null)))));
+}
+
+/**
+ * A shadow-only feature (the test server): never on for a game. Its switch on in the database is shown, since it would
+ * go live once the server no longer keeps it in the shadow; an admin can only turn it off.
+ */
+function featureShadowState(feature) {
+  return el("span", {}, el("span", { class: "tag" }, "только тень"),
+    feature.switchedOn ? [" ", el("span", { class: "tag ban" }, "в базе вкл: включится без тени")] : null);
 }
 
 /** Admins only: asks for the reason, switches the feature for everybody and shows the list the server answers with. */
 function featureSwitch(feature) {
-  const title = feature.enabled ? "Выключить" : "Включить";
+  // A shadow-only feature's stale switch (featureShadowState) can only go off.
+  const on = feature.enabled || (feature.shadowOnly && feature.switchedOn);
+  const title = on ? "Выключить" : "Включить";
   return el("button", {
-    class: feature.enabled ? "secondary" : null,
+    class: on ? "secondary" : null,
     async onclick() {
       const values = await ask(`${title}: ${featureTitle(feature.feature)}`, {
-        text: feature.enabled
+        text: on
           ? "Хосты новых игр больше не смогут её выбрать. Идущие игры не меняются."
           : "Хосты новых игр смогут выбрать её в настройках. Идущие игры не меняются.",
         confirm: title,
       });
       if (!values) return;
       featuresPage(await run(
-        () => post(`/features/${encodeURIComponent(feature.feature)}`, { enabled: !feature.enabled, reason: values.reason }),
-        feature.enabled ? "Возможность выключена." : "Возможность включена."));
+        () => post(`/features/${encodeURIComponent(feature.feature)}`, { enabled: !on, reason: values.reason }),
+        on ? "Возможность выключена." : "Возможность включена."));
     },
   }, title);
 }
