@@ -18,7 +18,11 @@ import java.util.concurrent.atomic.AtomicReference
  * once a minute in case another instance changed them. The `sync` hot path never touches the database.
  */
 @Component
-class FeatureFlags(private val repository: FeatureFlagRepository, private val field: FieldProperties) {
+class FeatureFlags(
+    private val repository: FeatureFlagRepository,
+    private val field: FieldProperties,
+    private val properties: FeaturesProperties = FeaturesProperties(),
+) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val records = AtomicReference<Map<ServerFeature, FeatureFlagRecord>>(emptyMap())
 
@@ -38,7 +42,14 @@ class FeatureFlags(private val repository: FeatureFlagRepository, private val fi
      * Whether this server may have [feature] on at all: the field log only where [FieldProperties.allowed] says so
      * (the test server), never on production, whatever its switch in the database says.
      */
-    fun isAllowed(feature: ServerFeature): Boolean = feature != ServerFeature.FIELD_LOG || field.allowed
+    fun isAllowed(feature: ServerFeature): Boolean =
+        (feature != ServerFeature.FIELD_LOG || field.allowed) && !isShadowOnly(feature)
+
+    /**
+     * [feature] is only a shadow on this server ([FeaturesProperties.shadowOnly], the test server): never on for a
+     * game, whatever its switch says, and the admin can't turn it on. The field log computes its answer anyway.
+     */
+    fun isShadowOnly(feature: ServerFeature): Boolean = feature in properties.shadowOnly
 
     /** Every feature with its state, for the admin. */
     fun all(): List<FeatureFlagRecord?> = ServerFeature.entries.map { records.get()[it] }
@@ -60,7 +71,11 @@ class FeatureFlags(private val repository: FeatureFlagRepository, private val fi
         if (enabled && !isAllowed(feature)) {
             throw GameException(
                 ErrorCode.WRONG_STATE,
-                "Not on this server: ${feature.name} is for the test server only",
+                if (isShadowOnly(feature)) {
+                    "Not on this server: ${feature.name} runs in the shadow only"
+                } else {
+                    "Not on this server: ${feature.name} is for the test server only"
+                },
                 ErrorReason.FEATURE_DISABLED,
             )
         }

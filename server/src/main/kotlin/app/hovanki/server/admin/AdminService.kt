@@ -251,7 +251,13 @@ class AdminService(
         ServerFeature.entries.map { feature ->
             val record = features.all().firstOrNull { it?.feature == feature }
             // What the server does: a switch on in the database is off where the server may not have the feature.
-            AdminFeature(feature, features.isEnabled(feature), record?.updatedAt?.toEpochMilli(), record?.updatedBy)
+            AdminFeature(
+                feature,
+                features.isEnabled(feature),
+                record?.updatedAt?.toEpochMilli(),
+                record?.updatedBy,
+                shadowOnly = features.isShadowOnly(feature),
+            )
         },
     )
 
