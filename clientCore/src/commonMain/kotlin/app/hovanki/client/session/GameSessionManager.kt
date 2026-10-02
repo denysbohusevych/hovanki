@@ -625,7 +625,7 @@ class GameSessionManager(
         if (snapshot.chat.isNotEmpty()) mutableState.update { it.copy(chat = mergeChat(it.chat, snapshot.chat)) }
         // A slow poll can be overtaken by a command's response: keep the newer state.
         val previous = current.snapshot
-        if (previous != null && snapshot.serverTimeMillis < previous.serverTimeMillis) return
+        if (isOvertaken(snapshot, previous)) return
 
         clock.onServerTime(snapshot.serverTimeMillis)
         if (previous?.phase != snapshot.phase) diagnostics.note("phase ${snapshot.phase}, ${snapshot.me.role}")
@@ -1118,3 +1118,13 @@ class GameSessionManager(
         private const val GOOD_FIX_ACCURACY_METERS = 50.0
     }
 }
+
+/**
+ * Whether [snapshot] is older than [previous], the one the phone shows: earlier by the server's clock, or answered in
+ * the same millisecond but a phase behind (a poll served just before the start can share the start's millisecond).
+ */
+internal fun isOvertaken(snapshot: GameSnapshot, previous: GameSnapshot?): Boolean = previous != null &&
+    (
+        snapshot.serverTimeMillis < previous.serverTimeMillis ||
+            (snapshot.serverTimeMillis == previous.serverTimeMillis && snapshot.phase < previous.phase)
+        )
