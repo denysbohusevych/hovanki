@@ -2,18 +2,18 @@
 
 package app.hovanki.device.lab
 
+import app.hovanki.device.IosIdleTimer
 import app.hovanki.device.LiveActivityHost
 import app.hovanki.device.NoopLiveActivityHost
+import app.hovanki.device.SILENT_SOUND
 import app.hovanki.device.requestLabNotifications
-import app.hovanki.device.silentWav
+import app.hovanki.device.writeSilentSound
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.ObjCObjectVar
-import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
-import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.value
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -27,14 +27,7 @@ import platform.CoreHaptics.CHHapticEventParameterIDHapticIntensity
 import platform.CoreHaptics.CHHapticEventParameterIDHapticSharpness
 import platform.CoreHaptics.CHHapticEventTypeHapticTransient
 import platform.CoreHaptics.CHHapticPattern
-import platform.Foundation.NSData
 import platform.Foundation.NSError
-import platform.Foundation.NSFileManager
-import platform.Foundation.NSLibraryDirectory
-import platform.Foundation.NSSearchPathForDirectoriesInDomains
-import platform.Foundation.NSUserDomainMask
-import platform.Foundation.dataWithBytes
-import platform.Foundation.writeToFile
 import platform.UIKit.UIApplication
 import platform.UIKit.UIApplicationState
 import platform.UIKit.UIDevice
@@ -54,8 +47,12 @@ class IosLabScreen : LabScreen {
 
     override fun setOffByProximity(on: Boolean) {
         UIDevice.currentDevice.proximityMonitoringEnabled = on
-        UIApplication.sharedApplication.idleTimerDisabled = on
+        // Shared with the catch code's bright screen: letting go here never re-enables auto-lock under it.
+        IosIdleTimer.hold(this, on)
     }
+
+    /** iOS leaves the sensor off on a device that has none (an iPad): read back after [setOffByProximity]. */
+    override fun isOffByProximity(): Boolean = UIDevice.currentDevice.proximityMonitoringEnabled
 }
 
 /**
@@ -218,23 +215,7 @@ class IosLabHaptics(private val liveActivity: LiveActivityHost = NoopLiveActivit
         return HapticResult("played")
     }
 
-    /** Half a second of silence as `Library/Sounds/hovanki-silent.wav`, where iOS looks for notification sounds too. */
-    private fun writeSilentSound() {
-        val library = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, true)
-            .firstOrNull() as? String ?: return
-        val folder = "$library/Sounds"
-        val path = "$folder/$SILENT_SOUND"
-        val files = NSFileManager.defaultManager
-        if (files.fileExistsAtPath(path)) return
-        files.createDirectoryAtPath(folder, withIntermediateDirectories = true, attributes = null, error = null)
-        val bytes = silentWav()
-        val data = bytes.usePinned { NSData.dataWithBytes(it.addressOf(0), bytes.size.toULong()) }
-        data.writeToFile(path, atomically = true)
-    }
-
     private companion object {
-        const val SILENT_SOUND = "hovanki-silent.wav"
-
         /** Between the two alerts of a double beat. */
         const val ALERT_GAP_MILLIS = 300L
         const val SHARPNESS = 0.8f

@@ -28,9 +28,11 @@ import app.hovanki.device.IosActivityMonitor
 import app.hovanki.device.IosBackgroundModes
 import app.hovanki.device.IosCarryMonitor
 import app.hovanki.device.IosDeviceInfo
+import app.hovanki.device.IosLiveActivityPlatform
 import app.hovanki.device.IosPocketPulse
 import app.hovanki.device.LiveActivityHost
 import app.hovanki.device.PocketPulse
+import app.hovanki.device.RoundLiveActivity
 import app.hovanki.device.lab.IosLabHaptics
 import app.hovanki.device.lab.IosLabProbes
 import app.hovanki.device.lab.IosLabScreen
@@ -74,7 +76,8 @@ actual val platformModule: Module = module {
     single<ActivityMonitor> { IosActivityMonitor() }
     single<PocketPulse> {
         // `:device` has no string resources: the notification's texts come from the app's, read when it is posted.
-        IosPocketPulse {
+        // Off the screen it alerts on the field build's round card while one runs (RoundLiveActivity), else notifies.
+        IosPocketPulse(get()) {
             getString(Res.string.alert_seeker_near_title) to getString(Res.string.alert_seeker_near_text)
         }
     }
@@ -88,6 +91,9 @@ actual val platformModule: Module = module {
     // The lab's background modes (docs/radar-run.md §5.1, §5.3): the Live Activity through the Swift host the app
     // installs at start (`LiveActivityBridge.kt`), unavailable until the owner adds the widget extension in Xcode.
     single<LiveActivityHost> { BridgedLiveActivityHost() }
+    // The field build's round card and the hider's pulse by its alerts (docs/adr/0018-field-test-build.md, wave 4),
+    // on the same Swift host: only the field log's round starts it.
+    single { RoundLiveActivity(get(), IosLiveActivityPlatform()) }
     single<BackgroundModes> { IosBackgroundModes(get()) }
     // The radio lab's GATT link and its own UWB radio (docs/radar-run.md §5.2, §5.3); the game uses neither.
     single<GattLink> { IosGattLink() }

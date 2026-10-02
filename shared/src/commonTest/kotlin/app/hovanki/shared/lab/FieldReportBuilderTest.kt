@@ -6,8 +6,12 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.double
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -619,6 +623,168 @@ class FieldReportBuilderTest {
         assertEquals(times.sorted(), times, "in time order")
         assertTrue(minutes.any { (it["peers"]?.jsonPrimitive?.content?.toInt() ?: 0) > 0 }, "the radio's peers")
     }
+
+    private fun rows(digest: List<String>, kind: String = FieldPairs.KIND) =
+        digest.map { kotlinx.serialization.json.Json.parseToJsonElement(it).jsonObject }
+            .filter { it["k"]?.jsonPrimitive?.content == kind }
+
+    @Test
+    fun aPairRowHasTheDistanceBothWaysTheCarryAndTheBand() {
+        val (_, digest) = compute(game())
+        val header = kotlinx.serialization.json.Json.parseToJsonElement(digest.first()).jsonObject
+        assertEquals(FieldPairs.ROWS_PER_MINUTE, header["pairs"]!!.jsonObject["cap_per_minute"]!!.jsonPrimitive.int)
+        val pairs = rows(digest)
+        // C is 300 m away and never heard: no row with it. A and B are 3 m apart and hear each other every minute.
+        assertTrue(pairs.all { it["a"]!!.jsonPrimitive.content == "P1" && it["b"]!!.jsonPrimitive.content == "P2" })
+        val row = pairs.first { it["t"]!!.jsonPrimitive.long == T0 + 10 * MINUTE }
+        assertEquals("10:10", row["minute"]!!.jsonPrimitive.content)
+        assertEquals(3.0, row["gps_m_median"]!!.jsonPrimitive.double, 0.2)
+        assertEquals(3.0, row["gps_m_min"]!!.jsonPrimitive.double, 0.2)
+        assertEquals(5.0, row["gps_acc_a"]!!.jsonPrimitive.double)
+        assertEquals(5.0, row["gps_acc_b"]!!.jsonPrimitive.double)
+        // a's signal as b heard it, and b's as a heard it.
+        assertEquals(-62, row["rssi_ab_median"]!!.jsonPrimitive.int)
+        assertEquals(-60, row["rssi_ba_median"]!!.jsonPrimitive.int)
+        assertTrue(row["readings_ab"]!!.jsonPrimitive.int > 0 && row["readings_ba"]!!.jsonPrimitive.int > 0)
+        assertEquals("in_hand", row["carry_a"]!!.jsonPrimitive.content)
+        assertEquals("in_pocket", row["carry_b"]!!.jsonPrimitive.content)
+        assertEquals("android", row["plat_a"]!!.jsonPrimitive.content)
+        assertEquals("ios", row["plat_b"]!!.jsonPrimitive.content)
+        assertEquals("Pixel 8", row["model_a"]!!.jsonPrimitive.content)
+        assertEquals("iPhone15,2", row["model_b"]!!.jsonPrimitive.content)
+        assertEquals("ble.service_data.scan_response", row["channels"]!!.jsonArray.single().jsonPrimitive.content)
+        // The band the game showed from +6 min on, the shadow's other one; before it none was shown.
+        assertEquals("warm", row["band"]!!.jsonPrimitive.content)
+        assertEquals("cold", row["shadow_band"]!!.jsonPrimitive.content)
+        assertTrue(pairs.first { it["t"]!!.jsonPrimitive.long == T0 + 3 * MINUTE }["band"] == null)
+        // B was silent from +21 to +25 min: no rows then (the GPS reaches 3 s over the gap's edge).
+        assertTrue(pairs.none { it["t"]!!.jsonPrimitive.long in T0 + 22 * MINUTE until T0 + 24 * MINUTE })
+        for (text in digest) {
+            for (secret in listOf(A_ID, B_ID, C_ID, "\"lat\"", "\"lon\"", "52.37", "4.895")) {
+                assertFalse(secret in text, "«$secret» in the digest")
+            }
+        }
+    }
+
+    @Test
+    fun aBandFarFromTheGpsDistanceIsTheWorstMinute() {
+        val logs = game()
+        // A hears C (300 m away by GPS) at +8 min and the game shows «burning» for it for two minutes.
+        a.rx(T0 + 8 * MINUTE + 10_000, "cccc0001", -58)
+        a.rx(T0 + 9 * MINUTE + 10_000, "cccc0001", -58)
+        server.event(
+            T0 + 8 * MINUTE,
+            ServerKinds.BAND,
+            "active",
+            ServerFields.OBSERVER to A_ID,
+            ServerFields.HEARD to C_ID,
+            ServerFields.BAND to "BURNING",
+            ServerFields.FROM to "NONE",
+            ServerFields.SHADOW_BAND to "NONE",
+        )
+        server.event(
+            T0 + 10 * MINUTE,
+            ServerKinds.BAND,
+            "active",
+            ServerFields.OBSERVER to A_ID,
+            ServerFields.HEARD to C_ID,
+            ServerFields.BAND to "NONE",
+            ServerFields.FROM to "BURNING",
+            ServerFields.SHADOW_BAND to "NONE",
+        )
+        val (report, digest) = compute(logs)
+        val worst = report.radar.worstMinutes
+        assertEquals(listOf(T0 + 8 * MINUTE, T0 + 9 * MINUTE), worst.map { it.atMillis }, "A and B's warm is no lie")
+        val first = worst.first()
+        assertEquals("P1" to "P3", first.a to first.b)
+        assertEquals("burning", first.band)
+        // 300 m for «burning» (10 m) is 290 m off, less the 5 m accuracy's tolerance.
+        assertEquals(285.0, first.disagreementM!!, 1.0)
+        assertTrue(rows(digest).any { it["band_off_m"] != null })
+        val far = report.radar.btVsGps.filter { it.bucket == "40+" }
+        assertTrue(far.isNotEmpty() && far.all { it.bandSeconds > 0 && it.bandAgree == 0 }, "$far")
+        val near = report.radar.btVsGps.filter { it.bucket == "0-5" }
+        assertTrue(near.any { it.bandSeconds > 0 && it.bandAgree == it.bandSeconds }, "$near")
+        val markdown = FieldReportMarkdown.render(report)
+        assertTrue("### Bluetooth против GPS" in markdown, markdown)
+        assertTrue("The 2 worst minutes" in markdown && "| burning |" in markdown, markdown)
+        for (secret in listOf(A_ID, B_ID, C_ID, "\"lat\"", "52.37", "4.895")) assertFalse(secret in markdown)
+    }
+
+    @Test
+    fun theBandsJudgementCountsTheGpsError() {
+        assertNull(FieldPairs.disagreement(null, 5.0))
+        assertNull(FieldPairs.disagreement("hot", null))
+        assertEquals(0.0, FieldPairs.disagreement("burning", 8.0))
+        assertEquals(40.0, FieldPairs.disagreement("burning", 50.0))
+        assertEquals(30.0, FieldPairs.disagreement("burning", 50.0, toleranceMeters = 10.0))
+        assertEquals(0.0, FieldPairs.disagreement("hot", 3.0))
+        assertEquals(17.0, FieldPairs.disagreement("none", 3.0))
+        assertEquals(0.0, FieldPairs.disagreement("NONE", 100.0))
+        assertEquals(0.0, FieldPairs.disagreement("warm", 5.0))
+        assertEquals(0.0, FieldPairs.disagreement("burning", 12.0, toleranceMeters = 5.0))
+    }
+
+    @Test
+    fun theDigestOfFiftyPlayersStaysWithinItsCap() {
+        val count = 50
+        val minutes = 6
+        val phones = (0 until count).map { Log("player-$it") }
+        val everyone = phones.mapIndexed { i, log ->
+            val android = i % 2 == 0
+            phone(
+                log,
+                if (android) "Pixel 8" else "iPhone15,2",
+                if (android) "Android 16" else "iOS 26.0",
+                token(i),
+                null,
+            )
+            FieldReportDevice(log.label, "d-$i")
+        }
+        val game = Log(FieldKinds.SERVER_DEVICE)
+        game.event(T0, ServerKinds.PHASE, "active", ServerFields.PHASE to "HIDING", ServerFields.FROM to "LOBBY")
+        var t = T0 + 60_000
+        while (t < T0 + minutes * MINUTE) {
+            for ((i, log) in phones.withIndex()) {
+                // A grid 5 m apart, all of them within 60 m of each other.
+                log.fix(t, ORIGIN.moveBy(eastMeters = (i % 10) * 5.0, northMeters = (i / 10) * 5.0))
+                if (t % 15_000L == 0L) {
+                    for (k in 1..10) log.rx(t, token((i + k) % count), -70 - k)
+                }
+            }
+            t += 5_000
+        }
+        val digest = ArrayList<String>()
+        val builder = FieldReportBuilder(RUN, "game-50", everyone, digest = { digest += it })
+        val stream = FieldReportStream(builder)
+        for ((log, device) in phones.zip(everyone)) stream.add(device.deviceId, device.label, log.lines.asSequence())
+        stream.add("d-server", FieldKinds.SERVER_DEVICE, game.lines.asSequence())
+        stream.finish()
+        val report = builder.report(NOW, final = true)
+        val pairs = rows(digest)
+        val byMinute = pairs.groupBy { it["t"]!!.jsonPrimitive.long }
+        assertTrue(byMinute.isNotEmpty())
+        for ((minute, ofMinute) in byMinute) {
+            assertTrue(ofMinute.size <= FieldPairs.ROWS_PER_MINUTE, "$minute: ${ofMinute.size} pair rows")
+        }
+        // 1225 pairs are within 60 m every minute: the cap cuts and says how many.
+        val cut = rows(digest, FieldPairs.CUT_KIND)
+        assertTrue(cut.isNotEmpty() && cut.all { it["dropped"]!!.jsonPrimitive.int > 0 })
+        for (line in cut) {
+            val minute = line["t"]!!.jsonPrimitive.long
+            assertEquals(1225, byMinute.getValue(minute).size + line["dropped"]!!.jsonPrimitive.int)
+        }
+        // The heard pairs come first.
+        val first = byMinute.getValue(T0 + 2 * MINUTE)
+        assertTrue(first.all { (it["readings_ab"]!!.jsonPrimitive.int + it["readings_ba"]!!.jsonPrimitive.int) > 0 })
+        val bytes = pairs.sumOf { it.toString().length + 1 }
+        assertTrue(bytes <= minutes * FieldPairs.ROWS_PER_MINUTE * 700L, "pair rows: $bytes bytes in all")
+        assertEquals(count, report.summary.players)
+        assertTrue(report.radar.btVsGps.isNotEmpty())
+        assertTrue(report.radar.worstMinutes.size <= FieldPairs.WORST)
+    }
+
+    private fun token(i: Int) = (i + 1).toString(16).padStart(8, '0')
 
     @Test
     fun aRawSliceTakesDevicesAndTime() {

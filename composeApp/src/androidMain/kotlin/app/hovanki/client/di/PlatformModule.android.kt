@@ -26,6 +26,7 @@ import app.hovanki.device.LiveActivityHost
 import app.hovanki.device.NoopBackgroundModes
 import app.hovanki.device.NoopLiveActivityHost
 import app.hovanki.device.PocketPulse
+import app.hovanki.device.RoundLiveActivity
 import app.hovanki.device.lab.AndroidLabHaptics
 import app.hovanki.device.lab.AndroidLabProbes
 import app.hovanki.device.lab.AndroidLabScreen
@@ -75,6 +76,8 @@ actual val platformModule: Module = module {
     // The background modes are iPhone's (docs/radar-run.md §5.1, §5.3): the foreground service keeps an Android alive.
     single<BackgroundModes> { NoopBackgroundModes() }
     single<LiveActivityHost> { NoopLiveActivityHost() }
+    // The field build's round card is iPhone's: never available here, the pulse vibrates from the service anyway.
+    single { RoundLiveActivity(get()) }
     // The radio lab's GATT link and its own UWB radio (docs/radar-run.md §5.2, §5.3); the game uses neither.
     single<GattLink> { AndroidGattLink(androidContext()) }
     single<PrecisionRadio>(LAB_PRECISION) { NoopPrecisionRadio() }

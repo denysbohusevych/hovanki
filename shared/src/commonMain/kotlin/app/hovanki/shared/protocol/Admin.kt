@@ -359,6 +359,14 @@ data class AdminFeature(
     val enabled: Boolean,
     val updatedAtMillis: Long? = null,
     val updatedByName: String? = null,
+    /** This server only computes the feature's answer in the field log's shadow; it never changes a game (staging). */
+    val shadowOnly: Boolean = false,
+    /**
+     * The switch in the database, whatever the server does with it: a shadow-only feature switched on (before, or in
+     * SQL) is off here ([enabled] false) but would go live once the server no longer keeps it in the shadow, so the
+     * admin shows it and lets an admin turn it off.
+     */
+    val switchedOn: Boolean = false,
 )
 
 @Serializable

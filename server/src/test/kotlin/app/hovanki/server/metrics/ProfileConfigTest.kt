@@ -60,6 +60,19 @@ class ProfileConfigTest {
     }
 
     @Test
+    fun onlyStagingKeepsTheProximityCatchAndThePocketStealthInTheShadow() {
+        assertNull(
+            load("application.yaml").text("hovanki.features.shadow-only"),
+            "production: empty, a game's own rules",
+        )
+        assertNull(load("application-e2e.yaml").text("hovanki.features.shadow-only"))
+        val staging = load("application-staging.yaml")
+        val shadow = staging.propertyNames.filter { it.startsWith("hovanki.features.shadow-only") }
+            .mapNotNull { staging.text(it) }
+        assertEquals(setOf("PROXIMITY_CATCH", "POCKET_STEALTH"), shadow.toSet())
+    }
+
+    @Test
     fun stagingLetsAGameFromBehindOneAddressAskTheClock() {
         // 60 field build phones on one Wi-Fi: 5 requests each at the join and every 5 minutes.
         val staging = load("application-staging.yaml")

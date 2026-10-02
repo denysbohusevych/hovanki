@@ -10,6 +10,7 @@ import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.storage.FakeSecureStore
 import app.hovanki.device.lab.LabBattery
 import app.hovanki.device.lab.LabProbes
+import app.hovanki.device.lab.LabScreen
 import app.hovanki.device.lab.LabSensorReading
 import app.hovanki.radar.RadioApi
 import app.hovanki.radar.RadioSighting
@@ -36,6 +37,7 @@ import app.hovanki.shared.protocol.LabCapabilities
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.rules.RadarToken
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -592,6 +594,128 @@ class FieldSessionTest {
         assertNull(release.field.touchRadioToken(lobby))
         assertFalse(release.field.touched(PlayerId("player-2")))
         assertTrue(release.log.lines().isEmpty())
+    }
+
+    @Test
+    fun theRoundOfAGameWithTheRadarTurnsThePocketOnAndTheLogSaysSo() = runTest {
+        val screen = object : LabScreen {
+            override val canTurnOffByProximity = true
+            var on = false
+
+            override fun setOffByProximity(on: Boolean) {
+                this.on = on
+            }
+        }
+        val lifecycle = MutableSharedFlow<String>(extraBufferCapacity = 8)
+        val probes = object : LabProbes {
+            override fun appState(): String = "active"
+
+            override fun lifecycle(): Flow<String> = lifecycle
+
+            override fun sensors(): Flow<LabSensorReading> = MutableSharedFlow()
+
+            override fun battery(): Flow<LabBattery> = MutableSharedFlow()
+        }
+        fun phone(isFieldBuild: Boolean): Pair<FieldSession, LabLog> {
+            val log = LabLog(isEnabled = false, { DEVICE + currentTime }, { currentTime })
+            val field = FieldSession(
+                log = log,
+                api = FakeLabApi(),
+                storage = storage,
+                scope = backgroundScope,
+                isFieldBuild = isFieldBuild,
+                probes = probes,
+                pocket = FieldPocket(screen = screen),
+            )
+            return field to log
+        }
+        fun snapshot(phase: GamePhase) = testSnapshot(phase = phase, serverTimeMillis = SERVER)
+            .let { it.copy(settings = it.settings.copy(features = GameFeatures(radar = FeatureMode.OPTIONAL))) }
+
+        // Release and debug: whatever the game says, the pocket stays as it was.
+        val (release, releaseLog) = phone(isFieldBuild = false)
+        release.giveConsent(CONSENT)
+        release.onSnapshot(testSession, snapshot(GamePhase.SEEKING))
+        release.onPulse(RadarBand.HOT)
+        release.onScreenChanged(false)
+        release.onScreenChanged(true)
+        runCurrent()
+        assertFalse(screen.on)
+        assertTrue(releaseLog.lines().isEmpty())
+
+        val (field, log) = phone(isFieldBuild = true)
+        val modes = { log.lines().map { Json.parseToJsonElement(it).jsonObject }.filter { it.kind == "mode" } }
+        field.giveConsent(CONSENT)
+        field.onSnapshot(testSession, snapshot(GamePhase.LOBBY))
+        runCurrent()
+        assertTrue(field.isActive)
+        assertFalse(screen.on, "not in the lobby")
+        field.onSnapshot(testSession, snapshot(GamePhase.SEEKING))
+        assertTrue(screen.on)
+        assertTrue(field.pocket.hint.value)
+        val on = modes().last()
+        assertEquals(FieldPocket.PROXIMITY_SCREEN to "on", on.string("mode") to on.string("event"))
+        // The app's life while the round wants the sensor; the app away turns it off.
+        lifecycle.emit("will_resign")
+        runCurrent()
+        field.onScreenChanged(false)
+        assertFalse(screen.on)
+        assertEquals(
+            listOf("app" to "will_resign", "app" to "off_screen", "off" to "off_screen"),
+            modes().takeLast(3).map { it.string("event") to it.string("reason") },
+        )
+        field.onScreenChanged(true)
+        assertTrue(screen.on)
+        // The phone leaves the game: off, written before the log stops.
+        field.onSessionEnded()
+        assertFalse(screen.on)
+        assertEquals("off" to "left", modes().last().let { it.string("event") to it.string("reason") })
+    }
+
+    @Test
+    fun theCarryShadowReadsTheSensorWhileTheRoundsProximityScreenIsOn() = runTest {
+        val screen = object : LabScreen {
+            override val canTurnOffByProximity = true
+        }
+        val sensors = MutableSharedFlow<LabSensorReading>(extraBufferCapacity = 64)
+        val probes = object : LabProbes {
+            // The proximity screen keeps an iPhone active in the pocket.
+            override fun appState(): String = "active"
+
+            override fun lifecycle(): Flow<String> = MutableSharedFlow()
+
+            override fun sensors(): Flow<LabSensorReading> = sensors
+
+            override fun battery(): Flow<LabBattery> = MutableSharedFlow()
+        }
+        val log = LabLog(isEnabled = false, { DEVICE + currentTime }, { currentTime })
+        val field = FieldSession(
+            log = log,
+            api = FakeLabApi(),
+            storage = storage,
+            scope = backgroundScope,
+            isFieldBuild = true,
+            probes = probes,
+            pocket = FieldPocket(screen = screen),
+        )
+        val seeking = testSnapshot(phase = GamePhase.SEEKING, serverTimeMillis = SERVER)
+            .let { it.copy(settings = it.settings.copy(features = GameFeatures(radar = FeatureMode.OPTIONAL))) }
+        field.giveConsent(CONSENT)
+        field.onSnapshot(testSession, seeking)
+        runCurrent()
+        assertTrue(field.pocket.isProximityOn)
+        sensors.emit(LabSensorReading.Proximity(near = true, monitoring = true))
+        repeat(30) {
+            sensors.emit(LabSensorReading.Motion(currentTime, if (it % 2 == 0) 0.8 else 1.2, null))
+            advanceTimeBy(100)
+            runCurrent()
+        }
+        val carry = log.lines().map { Json.parseToJsonElement(it).jsonObject }
+            .filter { it.kind == "shadow" && it.string("tech") == CarryShadow.CARRY_V2 }
+        assertEquals("in_pocket", carry.last().string("state"), "$carry")
+        // The first second came before the sensor said «near»: the hand; from then on, never «screen_on».
+        assertTrue(carry.drop(1).none { it.string("reason") == "screen_on" }, "$carry")
+        field.onSessionEnded()
     }
 
     @Test
