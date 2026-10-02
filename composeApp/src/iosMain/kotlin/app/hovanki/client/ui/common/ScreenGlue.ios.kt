@@ -5,6 +5,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.platform.ClipEntry
+import app.hovanki.device.IosIdleTimer
 import platform.Foundation.NSDate
 import platform.Foundation.NSDateFormatter
 import platform.Foundation.NSDateFormatterMediumStyle
@@ -14,7 +15,6 @@ import platform.Foundation.NSTimeZone
 import platform.Foundation.dateWithTimeIntervalSince1970
 import platform.Foundation.timeZoneWithName
 import platform.UIKit.UIAccessibilityIsReduceMotionEnabled
-import platform.UIKit.UIApplication
 import platform.UIKit.UIScreen
 
 @Composable
@@ -22,11 +22,13 @@ actual fun KeepScreenBright() {
     DisposableEffect(Unit) {
         val screen = UIScreen.mainScreen
         val previous = screen.brightness
-        UIApplication.sharedApplication.idleTimerDisabled = true
+        // Shared with the proximity sensor's screen of the field build's round: letting go here leaves it its own.
+        val holder = Any()
+        IosIdleTimer.hold(holder, true)
         screen.brightness = 1.0
         onDispose {
             screen.brightness = previous
-            UIApplication.sharedApplication.idleTimerDisabled = false
+            IosIdleTimer.hold(holder, false)
         }
     }
 }

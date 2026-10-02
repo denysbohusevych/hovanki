@@ -2,6 +2,7 @@
 
 package app.hovanki.device.lab
 
+import app.hovanki.device.IosIdleTimer
 import app.hovanki.device.LiveActivityHost
 import app.hovanki.device.NoopLiveActivityHost
 import app.hovanki.device.SILENT_SOUND
@@ -46,7 +47,8 @@ class IosLabScreen : LabScreen {
 
     override fun setOffByProximity(on: Boolean) {
         UIDevice.currentDevice.proximityMonitoringEnabled = on
-        UIApplication.sharedApplication.idleTimerDisabled = on
+        // Shared with the catch code's bright screen: letting go here never re-enables auto-lock under it.
+        IosIdleTimer.hold(this, on)
     }
 
     /** iOS leaves the sensor off on a device that has none (an iPad): read back after [setOffByProximity]. */

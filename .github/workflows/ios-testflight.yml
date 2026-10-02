@@ -202,9 +202,11 @@ jobs:
         run: |
           # The widget extension of the Live Activity: the owner adds its target in Xcode (iosApp/README.md). Without
           # it the app is what it always was; with it the extension needs its own App Store profile.
+          # A failing xcodebuild fails the step here (bash -e): never mistaken for «no target».
+          targets_json="$(xcodebuild -list -project iosApp/iosApp.xcodeproj -json)"
           live_target=false
-          if xcodebuild -list -project iosApp/iosApp.xcodeproj -json \
-            | python3 -c 'import json, sys; sys.exit(0 if "HovankiLive" in json.load(sys.stdin)["project"]["targets"] else 1)'; then
+          if python3 -c 'import json, sys; sys.exit(0 if "HovankiLive" in json.load(sys.stdin)["project"]["targets"] else 1)' \
+            <<<"$targets_json"; then
             live_target=true
           fi
           echo "live_target=$live_target" >> "$GITHUB_OUTPUT"

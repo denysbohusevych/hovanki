@@ -22,6 +22,11 @@ final class HovankiLiveActivityHost: NSObject, LiveActivityBridgeHost {
 
     @objc override init() {
         super.init()
+        // A card an earlier run of the app left on the lock screen (killed in a round, crashed): nothing drives it
+        // any more, so it goes at the app's start.
+        if #available(iOS 16.2, *) {
+            endAll()
+        }
     }
 
     func start(title: String, text: String) -> Bool {
