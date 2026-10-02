@@ -31,7 +31,7 @@ maplibre-compose = "0.18.0"
 spring-boot = "4.1.1"
 # Embedded PostgreSQL for server and e2e tests (TestPostgres); the binaries' version is the server's major version.
 embedded-postgres = "2.2.2"
-embedded-postgres-binaries = "17.11.0"
+embedded-postgres-binaries = "18.6.0"
 # Geometry on the server: merging building outlines from map tiles, city blocks for the zone by streets.
 jts = "1.20.0"
 
