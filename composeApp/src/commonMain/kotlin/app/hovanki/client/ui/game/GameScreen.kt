@@ -154,6 +154,7 @@ import app.hovanki.client.ui.common.rememberHaptics
 import app.hovanki.client.ui.common.rememberReduceMotion
 import app.hovanki.client.ui.common.rememberToastVisible
 import app.hovanki.client.ui.field.FieldMarks
+import app.hovanki.client.ui.field.PocketHint
 import app.hovanki.client.ui.invite.InviteBannerViewModel
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
@@ -361,6 +362,13 @@ private fun GameContent(
                             ),
                     )
                 }
+                // The field build: «put the phone in your pocket unlocked» once the proximity sensor's screen is on.
+                PocketHint(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = with(density) { hudBottom.toDp() })
+                        .padding(horizontal = 16.dp),
+                )
                 Toast(
                     visible = rememberToastVisible(backInZone),
                     text = stringResource(Res.string.back_in_zone),

@@ -870,4 +870,6 @@
   <string name="field_touch_done">Цокнулися</string>
   <string name="field_touch_count">Цокань: %1$d</string>
   <string name="field_touch_dismiss">Не зараз</string>
+  <string name="field_pocket_hint">Покладіть телефон у кишеню, не блокуючи: екран згасне сам.</string>
+  <string name="field_pocket_hint_ok">Зрозуміло</string>
 </resources>

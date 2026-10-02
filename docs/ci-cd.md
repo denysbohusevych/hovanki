@@ -410,11 +410,12 @@ curl http://localhost:8080/actuator/health
 | `IOS_DISTRIBUTION_CERTIFICATE_BASE64` | Сертификат Apple Distribution с закрытым ключом, `.p12` в base64 одной строкой |
 | `IOS_DISTRIBUTION_CERTIFICATE_PASSWORD` | Пароль `.p12` |
 | `IOS_PROVISIONING_PROFILE_BASE64` | App Store provisioning profile для `app.hovanki.ios`, `.mobileprovision` в base64 |
+| `IOS_LIVE_PROVISIONING_PROFILE_BASE64` | Необязательный: App Store profile расширения Live Activity `app.hovanki.ios.live`; нужен, только когда в проекте есть таргет `HovankiLive` (см. [iosApp/README.md](../iosApp/README.md#радиолаба-live-activity-и-фоновые-режимы)). Таргет есть, секрета нет — сборка без подписи, без загрузки |
 | `APP_STORE_CONNECT_ISSUER_ID` | Issuer ID ключей App Store Connect API |
 | `APP_STORE_CONNECT_KEY_ID` | Key ID ключа |
 | `APP_STORE_CONNECT_KEY_BASE64` | Файл ключа `AuthKey_<Key ID>.p8` в base64 |
 
-Job проверяет профиль до сборки: тип App Store (без списка устройств) и bundle id приложения — при несовпадении он падает с понятным сообщением. Team ID берётся из профиля, отдельный секрет не нужен.
+Job проверяет профиль до сборки: тип App Store (без списка устройств) и bundle id приложения — при несовпадении он падает с понятным сообщением. Team ID берётся из профиля, отдельный секрет не нужен. Если в проекте есть таргет `HovankiLive` (расширение Live Activity), его профиль проверяется так же (bundle id таргета — `<bundle id приложения>.live`), а архив подписывается через `-xcconfig`: каждый таргет берёт профиль по своему bundle id; в собранном приложении должен быть `PlugIns/HovankiLive.appex`, без `NSSupportsLiveActivities` в Info.plist — предупреждение.
 
 ### Что проверяется без секретов
 

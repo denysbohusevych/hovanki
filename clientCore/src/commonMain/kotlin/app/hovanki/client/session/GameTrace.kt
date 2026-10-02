@@ -7,6 +7,7 @@ import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.RadarBand
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
@@ -70,6 +71,12 @@ interface GameTrace {
      * the game's, as in every build but the field one.
      */
     fun radarChannels(playerNumber: Int): ChannelMix? = null
+
+    /** The app came to the screen ([onScreen] true) or left it (the Compose lifecycle's resume and pause). */
+    fun onScreenChanged(onScreen: Boolean) = Unit
+
+    /** The pulse's band changed ([GameSessionManager.pulse]): what the phone itself beats now. */
+    fun onPulse(band: RadarBand) = Unit
 
     /** Nobody writes anything down. */
     object None : GameTrace

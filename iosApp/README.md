@@ -135,9 +135,24 @@ Kotlin-фреймворк собирается только для `iosArm64` и
    Interaction» здесь (тогда они попадут и в Release — не коммитить).
 8. Собрать схему `iosApp` на оба iPhone; ошибки компиляции прислать в сессию целиком.
 
-**Не коммитить `project.pbxproj` с расширением**, пока `preview.yml` подписывает всё одним профилем
-(`PROVISIONING_PROFILE_SPECIFIER` на весь проект): с таргетом `HovankiLive` без своего профиля App Store сборка
-TestFlight упадёт. Расширение живёт в локальном проекте владельца; Swift-файлы уже в репозитории.
+**Коммитить `project.pbxproj` с расширением — только вместе с его профилем.** `ios-testflight.yml` (его зовут
+`preview.yml` и `release.yml`) находит таргет `HovankiLive` в проекте сам и подписывает его вторым профилем из
+секрета `IOS_LIVE_PROVISIONING_PROFILE_BASE64` (каждый таргет берёт свой профиль по bundle id). Таргета нет — сборка
+прежняя, в сводке строка «no Live Activity extension». Таргет есть, а секрета нет — архив собирается без подписи и
+проверяется, в TestFlight ничего не уходит, в сводке сказано почему. Порядок (docs/ci-cd.md, «iOS: TestFlight»):
+
+1. developer.apple.com → Identifiers → «+» → App ID `app.hovanki.ios.live` (Explicit, capabilities не нужны).
+2. Profiles → «+» → Distribution → App Store Connect → App ID `app.hovanki.ios.live` → тот же сертификат Apple
+   Distribution → имя, например `Hovanki Live App Store` → скачать и положить в секрет
+   `IOS_LIVE_PROVISIONING_PROFILE_BASE64` (`base64 -i … | tr -d '\n' | gh secret set …`).
+3. В `iosApp/Info.plist` — `NSSupportsLiveActivities` = `YES` (Release-сборки тоже: полевая сборка `preview` — это
+   Release; без ключа iOS отказывает в карточке, и пульс заблокированного остаётся уведомлением — job предупредит).
+4. Закоммитить таргет из Xcode (`project.pbxproj`, `iosApp/HovankiLive/Info.plist` и `Assets.xcassets`
+   расширения), Embed в приложении — `PlugIns/HovankiLive.appex` (job проверяет, что он там есть).
+
+Полевая сборка (ADR 0018, четвёртая волна) запускает ту же Live Activity в раунде игры с радаром: роль и полоса
+радара на экране блокировки, а пульс прячущегося на заблокированном iPhone — два alert'а карточки через 300 мс с
+беззвучным звуком. Без расширения в сборке всё как раньше: беззвучное уведомление.
 
 Проверка: в лаборатории шаг с `mode.live_activity` — заблокировать телефон, на экране блокировки карточка «Hovanki
 lab / the run is on», раз в минуту меняется время. Если её нет: Настройки → Hovanki → Live Activities включены? В

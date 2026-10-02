@@ -60,11 +60,17 @@ sealed interface LabSensorReading {
 
 data class LabBattery(val level: Double?, val state: String?, val lowPower: Boolean?)
 
-/** The screen turned off by the proximity sensor while the app stays active (iOS; Android's wake lock to compare). */
+/**
+ * The screen turned off by the proximity sensor while the app stays active (iOS; Android's wake lock to compare):
+ * the lab's `mode.proximity_screen` and, in the field build, the round's (docs/adr/0018-field-test-build.md, wave 4).
+ */
 interface LabScreen {
     val canTurnOffByProximity: Boolean
 
     fun setOffByProximity(on: Boolean) = Unit
+
+    /** Whether the sensor switch is on now, read back from the platform; null: this phone can't tell. */
+    fun isOffByProximity(): Boolean? = null
 }
 
 enum class HapticKind {

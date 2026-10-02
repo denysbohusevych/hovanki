@@ -1,6 +1,19 @@
+@file:OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
+
 package app.hovanki.device
 
+import kotlinx.cinterop.BetaInteropApi
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.suspendCancellableCoroutine
+import platform.Foundation.NSData
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSLibraryDirectory
+import platform.Foundation.NSSearchPathForDirectoriesInDomains
+import platform.Foundation.NSUserDomainMask
+import platform.Foundation.dataWithBytes
+import platform.Foundation.writeToFile
 import platform.UserNotifications.UNAuthorizationOptionAlert
 import platform.UserNotifications.UNAuthorizationOptionSound
 import platform.UserNotifications.UNUserNotificationCenter
@@ -8,8 +21,29 @@ import kotlin.coroutines.resume
 
 /*
  * What the radio lab's iOS pieces share: the vibration test (`lab.IosLabHaptics`) and the background modes
- * ([IosBackgroundModes]). In the root package, which both may import (ModuleBoundariesTest).
+ * ([IosBackgroundModes]); the file of silence also the field build's round ([IosLiveActivityPlatform]). In the root
+ * package, which all may import (ModuleBoundariesTest).
  */
+
+/** The file of silence the notifications and the Live Activity's alerts play, so only the vibration is left. */
+internal const val SILENT_SOUND = "hovanki-silent.wav"
+
+/**
+ * Half a second of silence as `Library/Sounds/hovanki-silent.wav`, where iOS looks for notification and Live Activity
+ * sounds too. True when the file is there (written now or before).
+ */
+internal fun writeSilentSound(): Boolean {
+    val library = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, true)
+        .firstOrNull() as? String ?: return false
+    val folder = "$library/Sounds"
+    val path = "$folder/$SILENT_SOUND"
+    val files = NSFileManager.defaultManager
+    if (files.fileExistsAtPath(path)) return true
+    files.createDirectoryAtPath(folder, withIntermediateDirectories = true, attributes = null, error = null)
+    val bytes = silentWav()
+    val data = bytes.usePinned { NSData.dataWithBytes(it.addressOf(0), bytes.size.toULong()) }
+    return data.writeToFile(path, atomically = true)
+}
 
 /**
  * Asks once for notifications with an alert and a sound (iOS shows the question only the first time; later calls

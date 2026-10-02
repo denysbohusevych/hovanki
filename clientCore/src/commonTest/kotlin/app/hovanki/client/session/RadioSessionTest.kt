@@ -426,6 +426,31 @@ class RadioSessionTest {
     }
 
     @Test
+    fun theFieldLogIsToldThePulseAndTheScreen() = runTest {
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        val told = ArrayList<String>()
+        val trace = object : GameTrace {
+            override fun onPulse(band: RadarBand) {
+                told += "pulse $band"
+            }
+
+            override fun onScreenChanged(onScreen: Boolean) {
+                told += "screen $onScreen"
+            }
+        }
+        val manager = manager(snapshots({ GamePhase.SEEKING }, sense = true), trace = trace)
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        runCurrent()
+        radio.hears(seekerToken, -65, atMillis = serverNow - 10_000L)
+        runCurrent()
+        manager.onScreenChanged(false)
+        // What the phone beats goes to the pocket's techniques of the field build (the round's Live Activity).
+        assertEquals(listOf("pulse HOT", "screen false"), told)
+        assertEquals(listOf(RadarBand.HOT), pulse.bands)
+    }
+
+    @Test
     fun aSeekerFeelsAHiderBeforeTheServerSaysSo() = runTest {
         storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
         val api = snapshots({ GamePhase.SEEKING }, role = Role.SEEKER, radar = { RadarState() })

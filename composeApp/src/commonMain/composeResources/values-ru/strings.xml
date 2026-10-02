@@ -870,4 +870,6 @@
   <string name="field_touch_done">Чокнулись</string>
   <string name="field_touch_count">Чоканий: %1$d</string>
   <string name="field_touch_dismiss">Не сейчас</string>
+  <string name="field_pocket_hint">Положите телефон в карман, не блокируя: экран погаснет сам.</string>
+  <string name="field_pocket_hint_ok">Понятно</string>
 </resources>
