@@ -359,6 +359,8 @@ data class AdminFeature(
     val enabled: Boolean,
     val updatedAtMillis: Long? = null,
     val updatedByName: String? = null,
+    /** This server only computes the feature's answer in the field log's shadow; it never changes a game (staging). */
+    val shadowOnly: Boolean = false,
 )
 
 @Serializable

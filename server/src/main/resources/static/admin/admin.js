@@ -895,9 +895,10 @@ function featuresPage({ features }) {
       features.map((feature) => el("tr", {},
         el("td", {}, featureTitle(feature.feature), " ", el("span", { class: "mono muted" }, feature.feature),
           FEATURES[feature.feature] ? el("div", { class: "small muted" }, FEATURES[feature.feature].about) : null),
-        el("td", {}, feature.enabled ? el("span", { class: "tag ok" }, "вкл") : el("span", { class: "tag" }, "выкл")),
+        el("td", {}, feature.shadowOnly ? el("span", { class: "tag" }, "только тень")
+          : feature.enabled ? el("span", { class: "tag ok" }, "вкл") : el("span", { class: "tag" }, "выкл")),
         el("td", {}, feature.updatedAtMillis ? `${fmt.time(feature.updatedAtMillis)}, ${feature.updatedByName}` : "—"),
-        el("td", {}, isAdmin() ? featureSwitch(feature) : null)))));
+        el("td", {}, isAdmin() && !feature.shadowOnly ? featureSwitch(feature) : null)))));
 }
 
 /** Admins only: asks for the reason, switches the feature for everybody and shows the list the server answers with. */
