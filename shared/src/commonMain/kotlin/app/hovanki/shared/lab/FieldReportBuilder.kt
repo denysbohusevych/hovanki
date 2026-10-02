@@ -881,10 +881,11 @@ class FieldReportBuilder(
      * the left out in a `pairs_cut` line).
      */
     private fun flushPairs(before: Long): List<DigestLine> {
-        val due = pairMinutes.entries.filter { it.value.start < before }
+        // Pairs, not the map's entries: on Kotlin/Native an entry read after a removal throws.
+        val due = pairMinutes.entries.filter { it.value.start < before }.map { it.key to it.value }
         if (due.isEmpty()) return emptyList()
-        for (entry in due) pairMinutes.remove(entry.key)
-        val rows = due.map { it.value to it.value.toRow() }
+        for ((key, _) in due) pairMinutes.remove(key)
+        val rows = due.map { (_, minute) -> minute to minute.toRow() }
         worstMinutes = FieldPairs.worst(worstMinutes + rows.map { it.second })
         if (digest == null) return emptyList()
         val lines = ArrayList<DigestLine>()
