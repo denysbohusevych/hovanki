@@ -29,6 +29,15 @@ object SentryScrubber {
     private const val MAX_SCREEN_NAME = 40
     private const val MAX_EMAIL_LOCAL_PART = 64
 
+    /**
+     * How much of a text is scrubbed at most: what is left after [MAX_TEXT_LENGTH] is cut anyway, and Kotlin/Native's
+     * regular expressions are slow on a huge text (100 000 characters took over 5 seconds on the iOS simulator).
+     */
+    private const val MAX_SCANNED = 4096
+
+    /** The longest secret a cut in the middle of a word could leave half of: a token, an email, a coordinate. */
+    private const val MAX_PIECE = 256
+
     private val bearer = Regex("""\bbearer\s+[A-Za-z0-9._~+/=-]+""", RegexOption.IGNORE_CASE)
 
     // `token=abc`, `"password": "abc"`, `Authorization: Bearer abc`: the name stays, the value goes.
@@ -57,7 +66,7 @@ object SentryScrubber {
 
     /** [raw] without secrets and coordinates, at most [MAX_TEXT_LENGTH] characters. */
     fun text(raw: String): String {
-        var out = raw
+        var out = if (raw.length > MAX_SCANNED) bounded(raw) else raw
         out = secretPair.replace(out) { it.groupValues[1] + it.groupValues[2] + REDACTED }
         out = bearer.replace(out) { "Bearer $TOKEN" }
         out = email.replace(out, EMAIL)
@@ -66,6 +75,16 @@ object SentryScrubber {
         out = namedCoordinate.replace(out) { it.groupValues[1] + it.groupValues[2] + COORDINATE }
         out = decimalCoordinate.replace(out, COORDINATE)
         return if (out.length > MAX_TEXT_LENGTH) cut(out) else out
+    }
+
+    /**
+     * The first [MAX_SCANNED] characters of [raw] without the word the cut tore (its piece could be half of a token or an
+     * email the patterns no longer recognise); a run longer than [MAX_PIECE] stays, the patterns read it as a whole.
+     */
+    private fun bounded(raw: String): String {
+        val head = raw.take(MAX_SCANNED)
+        val torn = head.takeLastWhile { !it.isWhitespace() && it !in ",;:()[]{}<>\"'" }
+        return if (torn.length in 1..MAX_PIECE && torn.length < head.length) head.dropLast(torn.length) else head
     }
 
     /** The first characters of [text] and the ellipsis; a pair of surrogates (an emoji) is never torn in two. */

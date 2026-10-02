@@ -109,6 +109,15 @@ class SentryScrubberTest {
     }
 
     @Test
+    fun aSecretTornByTheScanLimitDoesNotLeakHalfOfIt() {
+        // Mostly tokens: they shrink to [token], so the text past the scan limit would come into the first 300.
+        val tokens = (1..200).joinToString(" ") { "AbCdEf0123456789XyZaBcDeF$it" }
+        val out = SentryScrubber.text(tokens + " anna@example.com")
+        assertTrue("AbCdEf" !in out, out)
+        assertTrue("anna" !in out, out)
+    }
+
+    @Test
     fun anEmailAfterALongRunOfWordCharactersStillGoes() {
         val out = SentryScrubber.text("x".repeat(100) + " anna@example.com")
         assertTrue("anna@example.com" !in out, out)
