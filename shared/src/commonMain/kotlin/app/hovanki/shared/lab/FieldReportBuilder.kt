@@ -12,6 +12,7 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 import kotlin.math.sqrt
 
@@ -103,6 +104,17 @@ class FieldReportBuilder(
     // The radar
 
     private val rssi = HashMap<RssiKey, IntHistogram>()
+
+    /** Bluetooth against GPS ([FieldReportBtGps]): the same keys as [rssi], with the band's agreement. */
+    private val btGps = HashMap<RssiKey, BtStats>()
+
+    /** The bands the server showed per observer and heard player (`observer shl 10 or heard`), and the shadow's. */
+    private val bandChanges = HashMap<Int, Changes>()
+    private val shadowChanges = HashMap<Int, Changes>()
+
+    /** The pairs' minutes not yet written: (minute, a, b) → what was seen ([FieldPairs]). */
+    private val pairMinutes = HashMap<Long, PairAcc>()
+    private var worstMinutes: List<FieldReportPairMinute> = emptyList()
     private val pairSeconds = LinkedHashMap<String, Int>()
     private val coverage = LinkedHashMap<String, IntArray>()
     private val masks = LinkedHashMap<String, MaskCount>()
@@ -167,6 +179,20 @@ class FieldReportBuilder(
         put("k", "digest")
         put("schema", FieldDigest.SCHEMA)
         put("run", runId)
+        put(
+            "pairs",
+            buildJsonObject {
+                put("within_m", FieldPairs.METERS)
+                put("cap_per_minute", FieldPairs.ROWS_PER_MINUTE)
+                put(
+                    "note",
+                    "k=pair: a pair of players per minute within within_m by GPS or heard; at most cap_per_minute " +
+                        "rows a minute (heard first, then nearest), a k=pairs_cut line counts the rest; a before b; " +
+                        "rssi_ab = a's signal heard by b; band = loudest the game showed either way, " +
+                        "band_off_m = meters beyond what the band can mean, less the GPS error",
+                )
+            },
+        )
         gameId?.let { put("game", it) }
         put(
             "players",
@@ -289,6 +315,13 @@ class FieldReportBuilder(
                 shadow.bandChanges++
                 val band = event.string(ServerFields.BAND)
                 val shadowBand = event.string(ServerFields.SHADOW_BAND)
+                val observer = event.string(ServerFields.OBSERVER)?.let(players::get)
+                val heard = event.string(ServerFields.HEARD)?.let(players::get)
+                if (observer != null && heard != null && observer !== heard) {
+                    val key = directed(observer, heard)
+                    band?.let { bandChanges.getOrPut(key) { Changes() }.add(event.t, it) }
+                    (shadowBand ?: band)?.let { shadowChanges.getOrPut(key) { Changes() }.add(event.t, it) }
+                }
                 if (shadowBand != null && shadowBand != band) {
                     shadow.bandShifted++
                     val key = "$band→$shadowBand"
@@ -619,9 +652,21 @@ class FieldReportBuilder(
             stats.readings += rx.readings
             stats.channels += rx.tech
             minute(rx.listener, rx.t)?.peers?.add(sender.index)
+            val pair = pairAcc(rx.t, sender, rx.listener)
+            pair.channels += rx.tech
+            if (sender.index < rx.listener.index) {
+                pair.rssiAb.add(rx.rssi.toDouble())
+                pair.readingsAb += rx.readings
+            } else {
+                pair.rssiBa.add(rx.rssi.toDouble())
+                pair.readingsBa += rx.readings
+            }
             if (!first) continue
             val at = rx.second * 1000 + 500
+            sampleBands(pair, at)
             val meters = pairDistance(sender, rx.listener, at) ?: continue
+            // The seconds within [FieldPairs.METERS] come from the pairs' own pass (every second, heard or not).
+            if (meters > FieldPairs.METERS) sampleDistance(pair, at, meters, sender, rx.listener)
             val platforms = "${sender.platform} → ${rx.listener.platform}"
             pairSeconds[platforms] = (pairSeconds[platforms] ?: 0) + 1
             val key2 = RssiKey(
@@ -630,7 +675,20 @@ class FieldReportBuilder(
                 bucket(meters),
             )
             rssi.getOrPut(key2) { IntHistogram() }.add(rx.rssi)
+            val bt = btGps.getOrPut(key2) { BtStats() }
+            bt.histogram.add(rx.rssi)
+            val shown = bandChanges[directed(rx.listener, sender)]?.at(at)
+            val off = FieldPairs.disagreement(
+                shown,
+                meters,
+                FieldPairs.tolerance(sender.track.accuracyAt(at), rx.listener.track.accuracyAt(at)),
+            )
+            if (off != null) {
+                bt.bandSeconds++
+                if (off == 0.0) bt.agree++
+            }
         }
+        nearPairs(pending)
         coverage(pending, heard)
         for (claim in pending.claims) {
             val meters = pairDistance(claim.seeker, claim.hider, claim.t)
@@ -756,6 +814,109 @@ class FieldReportBuilder(
         return sqrt(dx * dx + dy * dy)
     }
 
+    // The pairs' minutes (FieldPairs)
+
+    /** The key of "[observer] heard [heard]" in [bandChanges]. */
+    private fun directed(observer: PlayerState, heard: PlayerState): Int = (observer.index shl 10) or heard.index
+
+    /** The minute of [t] for the pair [x], [y] (a is the one who joined first). */
+    private fun pairAcc(t: Long, x: PlayerState, y: PlayerState): PairAcc {
+        val a = if (x.index < y.index) x else y
+        val b = if (x.index < y.index) y else x
+        val minute = t.floorDiv(MINUTE)
+        val key = ((minute and MINUTE_MASK) shl 20) or (a.index.toLong() shl 10) or b.index.toLong()
+        return pairMinutes.getOrPut(key) { PairAcc(minute * MINUTE, a, b) }
+    }
+
+    /** What the game's radar showed either way at [t], into the minute's loudest band (and the shadow's). */
+    private fun sampleBands(pair: PairAcc, t: Long) {
+        for ((from, to) in listOf(pair.a to pair.b, pair.b to pair.a)) {
+            val key = directed(from, to)
+            bandChanges[key]?.at(t)?.let(pair::band)
+            shadowChanges[key]?.at(t)?.let(pair::shadow)
+        }
+    }
+
+    private fun sampleDistance(pair: PairAcc, t: Long, meters: Double, x: PlayerState, y: PlayerState) {
+        pair.meters.add(meters)
+        val a = if (x === pair.a) x else y
+        val b = if (x === pair.a) y else x
+        a.track.accuracyAt(t)?.let { pair.accA.add(it) }
+        b.track.accuracyAt(t)?.let { pair.accB.add(it) }
+        a.carry.at(t)?.let { pair.carryA.put(it, (pair.carryA[it] ?: 0) + 1) }
+        b.carry.at(t)?.let { pair.carryB.put(it, (pair.carryB[it] ?: 0) + 1) }
+    }
+
+    /** Every second of the window: the pairs within [FieldPairs.METERS] by GPS get a sample in their minute. */
+    private fun nearPairs(pending: Pending) {
+        val all = players.values.toList()
+        if (all.size < 2) return
+        val from = maxOf(pending.start, firstMillis ?: return)
+        val to = minOf(pending.end, (lastMillis ?: return) + 1)
+        val near = FieldPairs.METERS * FieldPairs.METERS
+        val spots = arrayOfNulls<Pair<Double, Double>>(all.size)
+        var second = from.ceilDiv(1000L) * 1000
+        while (second < to) {
+            for ((i, p) in all.withIndex()) spots[i] = p.track.at(second)
+            for (s in all.indices) {
+                val ps = spots[s] ?: continue
+                for (l in s + 1 until all.size) {
+                    val pl = spots[l] ?: continue
+                    val dx = ps.first - pl.first
+                    val dy = ps.second - pl.second
+                    val d2 = dx * dx + dy * dy
+                    if (d2 > near) continue
+                    val pair = pairAcc(second, all[s], all[l])
+                    sampleDistance(pair, second, sqrt(d2), all[s], all[l])
+                    sampleBands(pair, second)
+                }
+            }
+            second += 1000
+        }
+    }
+
+    /**
+     * The pairs' minutes that started before [before]: the worst of them into the report's list, the rest as the
+     * digest's lines, at most [FieldPairs.ROWS_PER_MINUTE] a minute (the heard first, then the nearest; the count of
+     * the left out in a `pairs_cut` line).
+     */
+    private fun flushPairs(before: Long): List<DigestLine> {
+        val due = pairMinutes.entries.filter { it.value.start < before }
+        if (due.isEmpty()) return emptyList()
+        for (entry in due) pairMinutes.remove(entry.key)
+        val rows = due.map { it.value to it.value.toRow() }
+        worstMinutes = FieldPairs.worst(worstMinutes + rows.map { it.second })
+        if (digest == null) return emptyList()
+        val lines = ArrayList<DigestLine>()
+        for ((start, ofMinute) in rows.groupBy { it.second.atMillis }.entries.sortedBy { it.key }) {
+            val ranked = ofMinute.sortedWith(
+                compareBy(
+                    { if (it.first.heard) 0 else 1 },
+                    { it.second.gpsMin ?: Double.MAX_VALUE },
+                    { it.first.a.index },
+                    { it.first.b.index },
+                ),
+            )
+            val kept = ranked.take(FieldPairs.ROWS_PER_MINUTE).sortedWith(
+                compareBy({ it.first.a.index }, { it.first.b.index }),
+            )
+            for ((_, row) in kept) lines += DigestLine(start, -1, FieldPairs.line(row))
+            val cut = ranked.size - kept.size
+            if (cut > 0) {
+                lines += DigestLine(
+                    start,
+                    -1,
+                    buildJsonObject {
+                        put("t", start)
+                        put("k", FieldPairs.CUT_KIND)
+                        put("dropped", cut)
+                    }.toString(),
+                )
+            }
+        }
+        return lines
+    }
+
     // Finishing
 
     private fun finish() {
@@ -850,6 +1011,22 @@ class FieldReportBuilder(
                 },
                 shadowRules = shadow.toReport(),
                 techniques = techniques,
+                btVsGps = btGps.entries.sortedWith(
+                    compareBy({ it.key.models }, { it.key.carry }, { BUCKETS.indexOf(it.key.bucket) }),
+                ).map { (key, bt) ->
+                    FieldReportBtGps(
+                        models = key.models,
+                        carry = key.carry,
+                        bucket = key.bucket,
+                        seconds = bt.histogram.count,
+                        median = bt.histogram.percentile(50),
+                        p20 = bt.histogram.percentile(20),
+                        p80 = bt.histogram.percentile(80),
+                        bandSeconds = bt.bandSeconds,
+                        bandAgree = bt.agree,
+                    )
+                },
+                worstMinutes = worstMinutes,
             ),
             anomalies = anomalies.sortedWith(compareBy({ it.atMillis }, { it.kind }, { it.player ?: "" })),
             anomalyCounts = anomalyCounts.toMap(),
@@ -1015,6 +1192,7 @@ class FieldReportBuilder(
 
     /** The minutes before [before] as lines, with the other lines of that time, in time order. */
     private fun emitDigest(before: Long) {
+        val pairLines = flushPairs(before)
         val sink = digest ?: return
         // Pairs, not the map's entries: on Kotlin/Native an entry read after a removal throws.
         val due = minutes.entries.filter { it.value.start < before }
@@ -1025,6 +1203,7 @@ class FieldReportBuilder(
             minutes.remove(key)
             lines += DigestLine(minute.start, -1, minute.toLine())
         }
+        lines += pairLines
         val ready = digestLines.filter { it.t < before }
         digestLines.removeAll { it.t < before }
         lines += ready
@@ -1099,6 +1278,17 @@ class FieldReportBuilder(
             } else if (index < 0) {
                 fixes.clear()
             }
+        }
+
+        /** The accuracy of the fix nearest to [t] within [NEAREST_MILLIS], m; null: none or unknown. */
+        fun accuracyAt(t: Long): Double? {
+            if (fixes.isEmpty()) return null
+            var index = fixes.binarySearch { it.t.compareTo(t) }
+            if (index >= 0) return fixes[index].acc
+            index = -index - 1
+            val nearest = listOfNotNull(fixes.getOrNull(index - 1), fixes.getOrNull(index))
+                .minBy { kotlin.math.abs(it.t - t) }
+            return if (kotlin.math.abs(nearest.t - t) <= INTERPOLATE_MILLIS) nearest.acc else null
         }
 
         /** (x, y) at [t]: between the fixes around it, or the nearest within [NEAREST_MILLIS]; null: none. */
@@ -1344,6 +1534,71 @@ class FieldReportBuilder(
     }
 
     private data class RssiKey(val models: String, val carry: String, val bucket: String)
+
+    private class BtStats {
+        val histogram = IntHistogram()
+        var bandSeconds = 0
+        var agree = 0
+    }
+
+    /** What the minute of a pair showed: the seconds' distances, the RSSI each way, the bands, the carries. */
+    private class PairAcc(val start: Long, val a: PlayerState, val b: PlayerState) {
+        val meters = Doubles()
+        val accA = Doubles()
+        val accB = Doubles()
+        val rssiAb = Doubles()
+        val rssiBa = Doubles()
+        var readingsAb = 0
+        var readingsBa = 0
+        val channels = HashSet<String>()
+        val carryA = HashMap<String, Int>()
+        val carryB = HashMap<String, Int>()
+        var band: String? = null
+        var shadowBand: String? = null
+
+        val heard: Boolean get() = readingsAb + readingsBa > 0
+
+        fun band(name: String) {
+            if (FieldPairs.rank(name) > FieldPairs.rank(band)) band = name.lowercase()
+        }
+
+        fun shadow(name: String) {
+            if (FieldPairs.rank(name) > FieldPairs.rank(shadowBand)) shadowBand = name.lowercase()
+        }
+
+        fun toRow(): FieldReportPairMinute {
+            val median = meters.percentile(50)
+            val accMedianA = accA.percentile(50)
+            val accMedianB = accB.percentile(50)
+            return FieldReportPairMinute(
+                atMillis = start,
+                a = a.alias,
+                b = b.alias,
+                gpsMedian = median?.let(::round1),
+                gpsMin = meters.percentile(0)?.let(::round1),
+                accA = accMedianA?.let(::round1),
+                accB = accMedianB?.let(::round1),
+                rssiAb = rssiAb.percentile(50)?.roundToInt(),
+                rssiBa = rssiBa.percentile(50)?.roundToInt(),
+                readingsAb = readingsAb,
+                readingsBa = readingsBa,
+                band = band,
+                shadowBand = shadowBand,
+                carryA = carryA.mode(),
+                carryB = carryB.mode(),
+                platA = a.platform,
+                platB = b.platform,
+                modelA = a.model,
+                modelB = b.model,
+                channels = channels.sorted(),
+                disagreementM = FieldPairs.disagreement(band, median, FieldPairs.tolerance(accMedianA, accMedianB))
+                    ?.let(::round1),
+            )
+        }
+
+        private fun HashMap<String, Int>.mode(): String? =
+            entries.sortedWith(compareBy({ -it.value }, { it.key })).firstOrNull()?.key
+    }
 
     private class Rx(
         val t: Long,

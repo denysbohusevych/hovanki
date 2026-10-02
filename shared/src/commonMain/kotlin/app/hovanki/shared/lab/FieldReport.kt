@@ -202,6 +202,10 @@ data class FieldReportRadar(
     val masks: List<FieldReportMask> = emptyList(),
     val shadowRules: FieldReportShadowRules = FieldReportShadowRules(),
     val techniques: FieldReportTechniques? = null,
+    /** Bluetooth against GPS: the RSSI and the band's agreement by phone models, carry and distance. */
+    val btVsGps: List<FieldReportBtGps> = emptyList(),
+    /** The pair-minutes where the band the game showed was farthest from the GPS distance ([FieldPairs.WORST]). */
+    val worstMinutes: List<FieldReportPairMinute> = emptyList(),
 )
 
 /**
@@ -290,6 +294,56 @@ data class FieldReportTechniques(
     val touchSpreads: List<LabReportTouchSpread> = emptyList(),
     val missedTouches: Int = 0,
     val without: List<LabReportWithout> = emptyList(),
+)
+
+/**
+ * Seconds a sender was heard at a GPS distance [bucket] by phones of [models] (`sender → listener`) carried [carry]:
+ * the RSSI's [median], [p20] and [p80] dBm, and of the [bandSeconds] where the game showed a band for the pair, how
+ * many it [bandAgree]d with the distance ([FieldPairs.disagreement] is zero).
+ */
+@Serializable
+data class FieldReportBtGps(
+    val models: String,
+    val carry: String,
+    val bucket: String,
+    val seconds: Int,
+    val median: Int,
+    val p20: Int,
+    val p80: Int,
+    val bandSeconds: Int = 0,
+    val bandAgree: Int = 0,
+)
+
+/**
+ * A pair of players ([a], [b]: aliases, a before b) in one minute ([atMillis]: its start): the GPS distance (m: median
+ * and least of the seconds both had a fix; its accuracy per player), the RSSI of a's signal at b ([rssiAb]: the median
+ * of the seconds, [readingsAb] readings) and of b's at a, the loudest [band] the game showed either way and the pocket
+ * stealth's [shadowBand], how each phone was carried, their platforms and models, the channels heard, and
+ * [disagreementM]: how far the band is from the distance in meters beyond the GPS's error (null: no band).
+ */
+@Serializable
+data class FieldReportPairMinute(
+    val atMillis: Long,
+    val a: String,
+    val b: String,
+    val gpsMedian: Double? = null,
+    val gpsMin: Double? = null,
+    val accA: Double? = null,
+    val accB: Double? = null,
+    val rssiAb: Int? = null,
+    val rssiBa: Int? = null,
+    val readingsAb: Int = 0,
+    val readingsBa: Int = 0,
+    val band: String? = null,
+    val shadowBand: String? = null,
+    val carryA: String? = null,
+    val carryB: String? = null,
+    val platA: String? = null,
+    val platB: String? = null,
+    val modelA: String? = null,
+    val modelB: String? = null,
+    val channels: List<String> = emptyList(),
+    val disagreementM: Double? = null,
 )
 
 /** A detector's finding ([kind]: [FieldAnomalies]'s), from [atMillis] (to [untilMillis]), about [player]. */
