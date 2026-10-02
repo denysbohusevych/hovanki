@@ -33,6 +33,8 @@ class AndroidLabScreen(context: Context) : LabScreen {
             lock = null
         }
     }
+
+    override fun isOffByProximity(): Boolean = lock?.isHeld == true
 }
 
 /** The motor, as the game's pulse uses it (the alarm's usage: a silent ringer doesn't mute it). */

@@ -2,7 +2,8 @@ import ActivityKit
 import ComposeApp
 import Foundation
 
-/// The Swift side of `LiveActivityHost` (`:device`) for the radio lab's `mode.live_activity` (docs/radar-run.md §5.3):
+/// The Swift side of `LiveActivityHost` (`:device`) for the radio lab's `mode.live_activity` (docs/radar-run.md §5.3)
+/// and the field build's round (`RoundLiveActivity`: the role, the radar's band, the hider's pulse by alerts):
 /// Kotlin can't call ActivityKit, so it calls this through the protocol `LiveActivityBridgeHost` of `ComposeApp`.
 /// App target only. `ContentView` finds it by its Objective-C name, so the app builds without this file too.
 ///
@@ -13,6 +14,11 @@ import Foundation
 final class HovankiLiveActivityHost: NSObject, LiveActivityBridgeHost {
     /// The running `Activity<HovankiLiveAttributes>`, or nil.
     private var current: Any?
+    /// What the card shows now (the last start or update): an alert keeps it, only the alert's own text is new.
+    private var text = ""
+    private var band = 0
+    private var detail = ""
+    private var endsAt: Date?
 
     @objc override init() {
         super.init()
@@ -27,6 +33,10 @@ final class HovankiLiveActivityHost: NSObject, LiveActivityBridgeHost {
         }
         // One at a time: whatever an earlier start (or an earlier run of the app) left on the lock screen goes.
         endAll()
+        self.text = text
+        band = 0
+        detail = ""
+        endsAt = nil
         let content = ActivityContent(
             state: HovankiLiveAttributes.ContentState(text: text, updatedAt: Date()),
             staleDate: nil
@@ -47,13 +57,11 @@ final class HovankiLiveActivityHost: NSObject, LiveActivityBridgeHost {
 
     func update(text: String, band: Int32, detail: String, endsAtMillis: Int64) {
         guard #available(iOS 16.2, *), let activity = current as? Activity<HovankiLiveAttributes> else { return }
-        let endsAt = endsAtMillis > 0 ? Date(timeIntervalSince1970: TimeInterval(endsAtMillis) / 1000) : nil
-        let content = ActivityContent(
-            state: HovankiLiveAttributes.ContentState(
-                text: text, updatedAt: Date(), band: Int(band), detail: detail, endsAt: endsAt
-            ),
-            staleDate: nil
-        )
+        self.text = text
+        self.band = Int(band)
+        self.detail = detail
+        endsAt = endsAtMillis > 0 ? Date(timeIntervalSince1970: TimeInterval(endsAtMillis) / 1000) : nil
+        let content = currentContent()
         Task {
             await activity.update(content)
         }
@@ -62,13 +70,11 @@ final class HovankiLiveActivityHost: NSObject, LiveActivityBridgeHost {
     /// An update that alerts: on the lock screen iOS shows it like a notification and plays `sound` — and the sound's
     /// haptic, which is the one vibration a locked iPhone gives an app whose Core Haptics engine is stopped. `sound` is
     /// a file's name in the app's bundle or in `Library/Sounds` (the lab's half second of silence: vibration only),
-    /// nil the default sound. False without a running activity.
+    /// nil the default sound. False without a running activity. The card keeps what it shows (the role and the band
+    /// of the field build's round, the lab's step): `title` and `text` are the alert's own.
     func alert(title: String, text: String, sound: String?) -> Bool {
         guard #available(iOS 16.2, *), let activity = current as? Activity<HovankiLiveAttributes> else { return false }
-        let content = ActivityContent(
-            state: HovankiLiveAttributes.ContentState(text: text, updatedAt: Date()),
-            staleDate: nil
-        )
+        let content = currentContent()
         let alertSound: AlertConfiguration.AlertSound
         if let sound, Self.soundExists(sound) {
             alertSound = .named(sound)
@@ -85,6 +91,17 @@ final class HovankiLiveActivityHost: NSObject, LiveActivityBridgeHost {
             await activity.update(content, alertConfiguration: configuration)
         }
         return true
+    }
+
+    /// The card as it is now, stamped with this moment.
+    @available(iOS 16.2, *)
+    private func currentContent() -> ActivityContent<HovankiLiveAttributes.ContentState> {
+        ActivityContent(
+            state: HovankiLiveAttributes.ContentState(
+                text: text, updatedAt: Date(), band: band, detail: detail, endsAt: endsAt
+            ),
+            staleDate: nil
+        )
     }
 
     /// Where iOS looks for a named sound: the app's bundle, then `Library/Sounds`.

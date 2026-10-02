@@ -864,4 +864,6 @@
   <string name="field_touch_done">We touched</string>
   <string name="field_touch_count">Touches so far: %1$d</string>
   <string name="field_touch_dismiss">Not now</string>
+  <string name="field_pocket_hint">Put the phone in your pocket without locking it: the screen goes dark by itself.</string>
+  <string name="field_pocket_hint_ok">Got it</string>
 </resources>

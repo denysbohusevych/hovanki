@@ -11,6 +11,7 @@ import app.hovanki.device.ActivityMonitor
 import app.hovanki.device.CarryMonitor
 import app.hovanki.device.NoopActivityMonitor
 import app.hovanki.device.NoopCarryMonitor
+import app.hovanki.device.PocketTrace
 import app.hovanki.device.lab.ImpactDetector
 import app.hovanki.device.lab.LabProbes
 import app.hovanki.device.lab.LabSensorReading
@@ -34,6 +35,7 @@ import app.hovanki.shared.protocol.LabRunId
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.rules.RadarToken
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -102,6 +104,9 @@ enum class FieldStatus {
  * event's id), «Something is wrong» ([somethingWrong]) and the three
  * questions after the game ([survey]). When the phone leaves the game ([GameTrace.onSessionEnded], or another game) the
  * log stops and the rest goes up. The results screen still counts: the survey is answered there.
+ * In the round of a game with the radar it also runs the pocket's techniques ([pocket]: the iPhone's Live Activity
+ * with the hider's pulse by its alerts, the screen by the proximity sensor), told the round, the app's screen, the
+ * pulse's band, the app's life and the sensor; their `mode` and `haptic` events go into the log.
  *
  * Main thread, except [onSyncSent].
  */
@@ -136,6 +141,8 @@ class FieldSession(
      * the radio's and the location's ([onError]); its event id goes into the log's `err`.
      */
     private val errorReporter: ErrorReporter = NoopErrorReporter,
+    /** The round's pocket techniques (wave 4): on only while this log writes in a round with the radar. */
+    val pocket: FieldPocket = FieldPocket(),
     private val permissionsEveryMillis: Long = PERMISSIONS_EVERY_MILLIS,
     private val retryMillis: Long = RETRY_MILLIS,
     private val clockJitterMillis: Long = CLOCK_JITTER_MILLIS,
@@ -177,6 +184,19 @@ class FieldSession(
 
     /** The phase the tester dismissed the touch card in ([dismissTouch]): no card until the phase changes. */
     private var touchDismissedIn: GamePhase? = null
+
+    init {
+        // What the pocket's techniques did goes into the log while it writes; nothing otherwise.
+        pocket.trace = object : PocketTrace {
+            override fun mode(mode: String, event: String, reason: String?) {
+                if (isActive) log.mode(mode, event, reason)
+            }
+
+            override fun haptic(kind: String, result: String, error: String?, reason: String?) {
+                if (isActive) log.haptic(kind, result, error, reason = reason)
+            }
+        }
+    }
 
     /** The round's own listeners (the ticks, the sensors, the pocket's shadow): they stop when the round is over. */
     private val roundJobs = ArrayList<Job>()
@@ -244,6 +264,20 @@ class FieldSession(
         joinIfDue(session, snapshot)
         updateRound(snapshot)
         updateTouch(snapshot)
+        updatePocket(snapshot)
+    }
+
+    /** The pocket's techniques follow the round while the log writes ([FieldPocket]). */
+    private fun updatePocket(snapshot: GameSnapshot?) {
+        pocket.update(isActive, snapshot?.let(PocketRound::of))
+    }
+
+    override fun onScreenChanged(onScreen: Boolean) {
+        if (isFieldBuild) pocket.onScreenChanged(onScreen)
+    }
+
+    override fun onPulse(band: RadarBand) {
+        if (isFieldBuild) pocket.onPulse(band)
     }
 
     /**
@@ -523,6 +557,8 @@ class FieldSession(
         joinedSession?.takeIf { state.status == FieldStatus.ON || state.status == FieldStatus.JOINING }
             ?.let(::tellLeft)
         joinedSession = null
+        // Before the log stops: the pocket's last switches are written.
+        pocket.stop("left")
         touchToken = null
         impactJob?.cancel()
         impactJob = null
@@ -656,9 +692,17 @@ class FieldSession(
         lastSnapshot?.takeIf { it.gameId == gameId }?.let {
             updateRound(it)
             updateTouch(it)
+            updatePocket(it)
         }
         clockSync?.let { sync -> jobs += scope.launch { clockLoop(sync) } }
-        jobs += scope.launch { quietly { probes.lifecycle().collect { log.life(it) } } }
+        jobs += scope.launch {
+            quietly {
+                probes.lifecycle().collect {
+                    log.life(it)
+                    pocket.onLifecycle(it)
+                }
+            }
+        }
         jobs += scope.launch {
             quietly {
                 probes.battery().collect {
@@ -688,10 +732,13 @@ class FieldSession(
      */
     private fun onSensor(reading: LabSensorReading) {
         when (reading) {
-            is LabSensorReading.Proximity ->
+            is LabSensorReading.Proximity -> {
+                // Every change for the pocket's screen; the log's `prox` thinned.
+                pocket.onProximity(reading.near)
                 if (probeThinning.allowProximity(reading.near)) {
                     log.prox(reading.near, reading.rawCm, reading.maxCm, reading.monitoring)
                 }
+            }
 
             is LabSensorReading.Light -> if (probeThinning.allowLight(
                     reading.lux,

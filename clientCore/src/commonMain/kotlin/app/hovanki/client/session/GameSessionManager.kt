@@ -421,6 +421,7 @@ class GameSessionManager(
     fun onScreenChanged(onScreen: Boolean) {
         this.onScreen = onScreen
         mutableState.value.snapshot?.let(::updateRanging)
+        trace.onScreenChanged(onScreen)
     }
 
     /** The player has seen the chat as it is now: nothing in it counts as unread any more. */
@@ -824,6 +825,7 @@ class GameSessionManager(
         diagnostics.note("pulse ${mutablePulse.value} → $band")
         mutablePulse.value = band
         pocketPulse.set(band)
+        trace.onPulse(band)
     }
 
     private fun pulseBand(snapshot: GameSnapshot?): RadarBand {

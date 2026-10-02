@@ -3,7 +3,10 @@ name: iOS TestFlight
 # Archives the iOS Release build, checks it and uploads it to TestFlight. Called by preview.yml (every push to main:
 # the tester build, it talks to the staging server and never goes to the App Store) and release.yml (version tags: the
 # App Store build, it talks to the production server). See docs/ci-cd.md, «iOS: TestFlight» and «Номера сборок».
-# Without the signing secrets it still builds (unsigned) and checks, and skips the upload.
+# Without the signing secrets it still builds (unsigned) and checks, and skips the upload. The Live Activity's widget
+# extension (target HovankiLive, bundle id <app>.live: the field build's round card, docs/adr/0018-field-test-build.md,
+# wave 4) is signed with a second profile, IOS_LIVE_PROVISIONING_PROFILE_BASE64, once the owner has committed its
+# target; without the target nothing changes, without that secret a project with the target is built unsigned.
 on:
   workflow_call:
     inputs:
@@ -48,6 +51,9 @@ on:
       IOS_DISTRIBUTION_CERTIFICATE_PASSWORD:
         required: false
       IOS_PROVISIONING_PROFILE_BASE64:
+        required: false
+      # The App Store profile of the widget extension (<app bundle id>.live); only read when the project has the target.
+      IOS_LIVE_PROVISIONING_PROFILE_BASE64:
         required: false
       APP_STORE_CONNECT_ISSUER_ID:
         required: false
@@ -192,14 +198,40 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_BASE64 }}
+          IOS_LIVE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_LIVE_PROVISIONING_PROFILE_BASE64 }}
         run: |
+          # The widget extension of the Live Activity: the owner adds its target in Xcode (iosApp/README.md). Without
+          # it the app is what it always was; with it the extension needs its own App Store profile.
+          live_target=false
+          if xcodebuild -list -project iosApp/iosApp.xcodeproj -json \
+            | python3 -c 'import json, sys; sys.exit(0 if "HovankiLive" in json.load(sys.stdin)["project"]["targets"] else 1)'; then
+            live_target=true
+          fi
+          echo "live_target=$live_target" >> "$GITHUB_OUTPUT"
+          if [ "$live_target" = false ]; then
+            {
+              echo "### iOS: no Live Activity extension"
+              echo "The project has no target \`HovankiLive\`: the app is built without the round's Live Activity, and a locked"
+              echo "iPhone's pulse stays the silent notification. To add it, see iosApp/README.md, «Радиолаба: Live Activity»."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
           missing=()
           for name in IOS_DISTRIBUTION_CERTIFICATE_BASE64 IOS_DISTRIBUTION_CERTIFICATE_PASSWORD \
             IOS_PROVISIONING_PROFILE_BASE64 APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_KEY_ID \
             APP_STORE_CONNECT_KEY_BASE64; do
             [ -n "${!name}" ] || missing+=("$name")
           done
-          if ((${#missing[@]})); then
+          if [ "$live_target" = true ] && [ -z "$IOS_LIVE_PROVISIONING_PROFILE_BASE64" ] && ((${#missing[@]} == 0)); then
+            # Every other secret is there: say plainly that the extension's profile is what keeps the build unsigned.
+            echo "::warning title=TestFlight upload skipped::The project has the Live Activity extension HovankiLive, but the repository secret IOS_LIVE_PROVISIONING_PROFILE_BASE64 (its App Store profile) is missing. The app is built unsigned and checked, nothing is uploaded. Setup: docs/ci-cd.md, «iOS: TestFlight»."
+            {
+              echo "### iOS: TestFlight upload skipped: the Live Activity extension has no profile"
+              echo "The project has the target \`HovankiLive\` (bundle id \`<app>.live\`), and the secret"
+              echo "\`IOS_LIVE_PROVISIONING_PROFILE_BASE64\` is not set: the archive was built unsigned and checked, nothing was"
+              echo "uploaded. Make an App Store profile for the extension's App ID and add it, see docs/ci-cd.md, «iOS: TestFlight»."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          elif ((${#missing[@]})); then
             echo "::notice title=TestFlight upload skipped::Missing repository secrets: ${missing[*]}. The app is built unsigned and checked, nothing is uploaded. Setup: docs/ci-cd.md, section «iOS: TestFlight»."
             {
               echo "### iOS: TestFlight upload skipped"
@@ -266,11 +298,70 @@ jobs:
             echo "PROFILE_NAME=$name"
           } >> "$GITHUB_ENV"
 
+      # The Live Activity's widget extension (target HovankiLive) has its own App ID, <app bundle id>.live, and so its own
+      # App Store profile. Only when the project has the target; the signing check made the build unsigned without it.
+      - name: Install the widget extension's provisioning profile
+        if: steps.signing.outputs.signed == 'true' && steps.signing.outputs.live_target == 'true'
+        env:
+          PROFILE_BASE64: ${{ secrets.IOS_LIVE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          profile="$RUNNER_TEMP/live.mobileprovision"
+          echo "$PROFILE_BASE64" | base64 --decode > "$profile"
+          security cms -D -i "$profile" > "$RUNNER_TEMP/live-profile.plist"
+          field() { plutil -extract "$1" raw -o - "$RUNNER_TEMP/live-profile.plist"; }
+          uuid="$(field UUID)"
+          name="$(field Name)"
+          app_id="$(field Entitlements.application-identifier)"
+          if plutil -extract ProvisionedDevices xml1 -o - "$RUNNER_TEMP/live-profile.plist" >/dev/null 2>&1; then
+            echo "::error::Profile '$name' lists devices: the widget extension needs an App Store Connect profile too."
+            exit 1
+          fi
+          live_bundle_id="$(xcodebuild -project iosApp/iosApp.xcodeproj -target HovankiLive -configuration Release -showBuildSettings \
+            | awk -F ' = ' '$1 ~ /^ *PRODUCT_BUNDLE_IDENTIFIER$/ { print $2; exit }')"
+          if [ "$live_bundle_id" != "$BUNDLE_ID.live" ]; then
+            echo "::error::The target HovankiLive has the bundle id '$live_bundle_id', expected $BUNDLE_ID.live (iosApp/README.md)."
+            exit 1
+          fi
+          if [ "$app_id" != "$TEAM_ID.$live_bundle_id" ]; then
+            echo "::error::Profile '$name' is for $app_id, the widget extension is $TEAM_ID.$live_bundle_id."
+            exit 1
+          fi
+          for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            cp "$profile" "$dir/$uuid.mobileprovision"
+          done
+          echo "Signing $live_bundle_id with profile '$name'"
+          {
+            echo "LIVE_BUNDLE_ID=$live_bundle_id"
+            echo "LIVE_PROFILE_UUID=$uuid"
+            echo "LIVE_PROFILE_NAME=$name"
+          } >> "$GITHUB_ENV"
+          {
+            echo "### iOS: the Live Activity extension is signed"
+            echo "\`$live_bundle_id\` with the profile '$name': the field build's round card and the locked hider's pulse."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # Release configuration: release Kotlin framework (no LaunchOptions), no ATS exceptions (debug-info-plist.sh
       # adds them to Debug builds only).
       - name: Archive the Release build
         run: |
-          if [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
+          if [ "${{ steps.signing.outputs.signed }}" = "true" ] && [ -n "${LIVE_PROFILE_NAME:-}" ]; then
+            # Two targets, two profiles: a command-line PROVISIONING_PROFILE_SPECIFIER would give both the app's, so
+            # each target picks its own by its bundle id (app.hovanki.ios → HOVANKI_PROFILE_app_hovanki_ios).
+            app_key="$(printf '%s' "$BUNDLE_ID" | tr -c 'A-Za-z0-9_\n' '_')"
+            live_key="$(printf '%s' "$LIVE_BUNDLE_ID" | tr -c 'A-Za-z0-9_\n' '_')"
+            cat > "$RUNNER_TEMP/signing.xcconfig" <<EOF
+          CODE_SIGN_STYLE = Manual
+          CODE_SIGN_IDENTITY = Apple Distribution
+          DEVELOPMENT_TEAM = $TEAM_ID
+          OTHER_CODE_SIGN_FLAGS = --keychain $KEYCHAIN
+          HOVANKI_PROFILE_$app_key = $PROFILE_NAME
+          HOVANKI_PROFILE_$live_key = $LIVE_PROFILE_NAME
+          PROVISIONING_PROFILE_SPECIFIER = \$(HOVANKI_PROFILE_\$(PRODUCT_BUNDLE_IDENTIFIER:c99extidentifier))
+          EOF
+            signing=(-xcconfig "$RUNNER_TEMP/signing.xcconfig")
+          elif [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
             signing=(CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=Apple Distribution" "DEVELOPMENT_TEAM=$TEAM_ID"
               "PROVISIONING_PROFILE_SPECIFIER=$PROFILE_NAME" "OTHER_CODE_SIGN_FLAGS=--keychain $KEYCHAIN")
           else
@@ -301,6 +392,17 @@ jobs:
             fi
           done
           [ -f "$app/PrivacyInfo.xcprivacy" ] || { echo "::error::PrivacyInfo.xcprivacy is missing"; fail=1; }
+          # The Live Activity's extension, when the project has it: embedded, and the app allowed to start activities.
+          if [ "${{ steps.signing.outputs.live_target }}" = "true" ]; then
+            if [ -d "$app/PlugIns/HovankiLive.appex" ]; then
+              echo "Live Activity extension: $(plutil -extract CFBundleIdentifier raw -o - "$app/PlugIns/HovankiLive.appex/Info.plist")"
+              if [ "$(plutil -extract NSSupportsLiveActivities raw -o - "$plist" 2>/dev/null)" != "true" ]; then
+                echo "::warning::NSSupportsLiveActivities is not true in the Release Info.plist: iOS refuses the round's Live Activity, the pulse stays the notification (iosApp/README.md)"
+              fi
+            else
+              echo "::error::The project has the target HovankiLive, but PlugIns/HovankiLive.appex is not in the app (embed it in the app target)"; fail=1
+            fi
+          fi
           # English is Info.plist itself (Xcode writes no en.lproj for it), so CFBundleLocalizations lists it: without
           # that, iOS would pick Russian permission texts for a phone set to English, then Russian.
           echo "Localizations: $(plutil -extract CFBundleLocalizations json -o - "$plist")"
@@ -378,7 +480,7 @@ jobs:
             <key>signingStyle</key><string>manual</string>
             <key>signingCertificate</key><string>Apple Distribution</string>
             <key>provisioningProfiles</key>
-            <dict><key>$BUNDLE_ID</key><string>$PROFILE_UUID</string></dict>
+            <dict><key>$BUNDLE_ID</key><string>$PROFILE_UUID</string>${LIVE_PROFILE_UUID:+<key>$LIVE_BUNDLE_ID</key><string>$LIVE_PROFILE_UUID</string>}</dict>
             <key>manageAppVersionAndBuildNumber</key><false/>
             <key>uploadSymbols</key><true/>
           </dict>
@@ -403,6 +505,9 @@ jobs:
         if: always()
         run: |
           [ -z "${KEYCHAIN:-}" ] || security delete-keychain "$KEYCHAIN" || true
-          rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP/distribution.mobileprovision" "$RUNNER_TEMP/profile.plist"
+          rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP/distribution.mobileprovision" "$RUNNER_TEMP/profile.plist" \
+            "$RUNNER_TEMP/live.mobileprovision" "$RUNNER_TEMP/live-profile.plist" "$RUNNER_TEMP/signing.xcconfig"
+          [ -z "${LIVE_PROFILE_UUID:-}" ] || rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$LIVE_PROFILE_UUID.mobileprovision" \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$LIVE_PROFILE_UUID.mobileprovision"
           [ -z "${PROFILE_UUID:-}" ] || rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" \
             "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$PROFILE_UUID.mobileprovision"

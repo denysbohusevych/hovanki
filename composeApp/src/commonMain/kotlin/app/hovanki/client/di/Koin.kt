@@ -15,6 +15,7 @@ import app.hovanki.client.diagnostics.DiagnosticsBench
 import app.hovanki.client.errors.ErrorReporter
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.lab.AppPermissions
+import app.hovanki.client.lab.FieldPocket
 import app.hovanki.client.lab.FieldSession
 import app.hovanki.client.lab.HttpLabApi
 import app.hovanki.client.lab.LabAbout
@@ -26,6 +27,7 @@ import app.hovanki.client.lab.LabRadioTrace
 import app.hovanki.client.lab.LabRunFollower
 import app.hovanki.client.lab.LabRunner
 import app.hovanki.client.lab.LabUploader
+import app.hovanki.client.lab.PocketTexts
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.network.AccountApi
 import app.hovanki.client.network.AdaptiveGameConnection
@@ -46,6 +48,14 @@ import app.hovanki.client.network.SocialApi
 import app.hovanki.client.network.SpectatorApi
 import app.hovanki.client.network.WebSocketGameConnection
 import app.hovanki.client.network.createHttpClient
+import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.app_name
+import app.hovanki.client.resources.hud_radar_burning
+import app.hovanki.client.resources.hud_radar_hot
+import app.hovanki.client.resources.hud_radar_none
+import app.hovanki.client.resources.hud_radar_warm
+import app.hovanki.client.resources.hud_you_hide
+import app.hovanki.client.resources.hud_you_seek
 import app.hovanki.client.session.GameSessionManager
 import app.hovanki.client.session.ServerClock
 import app.hovanki.client.social.SocialManager
@@ -78,6 +88,7 @@ import app.hovanki.shared.rules.AccountRules
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.getString
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
 import org.koin.core.module.dsl.viewModelOf
@@ -255,6 +266,18 @@ val commonModule: Module = module {
                 ) + appPermissions.states()
             },
             errorReporter = get(),
+            // The round's pocket in the field build (wave 4): the iPhone's Live Activity, the proximity sensor's screen.
+            pocket = FieldPocket(get(), get(), scope) {
+                PocketTexts(
+                    title = getString(Res.string.app_name),
+                    hider = getString(Res.string.hud_you_hide),
+                    seeker = getString(Res.string.hud_you_seek),
+                    none = getString(Res.string.hud_radar_none),
+                    warm = getString(Res.string.hud_radar_warm),
+                    hot = getString(Res.string.hud_radar_hot),
+                    burning = getString(Res.string.hud_radar_burning),
+                )
+            },
         ).also { session ->
             // Crash reports go out only while the tester's consent stands (docs/adr/0018-field-test-build.md §7).
             if (session.isFieldBuild) scope.launch { session.consentAt.collect { CrashReporting.allow(it != null) } }
