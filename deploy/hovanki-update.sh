@@ -36,9 +36,14 @@ if [ -n "$container" ] && [ "${HOVANKI_UPDATE_FORCE:-0}" != 1 ]; then
     awk '{print $1}')
   until=""
   if [ -n "$address" ]; then
-    until=$(curl --silent --fail --max-time 5 "http://$address:8080/actuator/restarthold" |
-      python3 -c 'import json, sys; hold = json.load(sys.stdin); print(hold.get("until", "") if hold.get("held") else "")' \
-      2>/dev/null || true)
+    # The management port first (8081, the staging profile: everything under /actuator is there and the game's port
+    # answers 404 to it), then the game's port (production). A port that is closed or says 404 gives no answer at all.
+    for port in 8081 8080; do
+      until=$(curl --silent --fail --max-time 5 "http://$address:$port/actuator/restarthold" |
+        python3 -c 'import json, sys; hold = json.load(sys.stdin); print(hold.get("until", "") if hold.get("held") else "")' \
+        2>/dev/null || true)
+      if [ -n "$until" ]; then break; fi
+    done
   fi
   if [ -n "$until" ]; then
     echo "New server image $image (${pulled:7:12}) waits for a big game until $until"

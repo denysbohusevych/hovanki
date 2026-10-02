@@ -1,6 +1,7 @@
 package app.hovanki.radar
 
 import app.hovanki.radar.channel.overflow.OverflowChannel
+import app.hovanki.radar.channel.overflow.OverflowParts
 import app.hovanki.radar.channel.servicedata.ServiceDataChannel
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.Platform
@@ -97,5 +98,20 @@ class HostProximityRadioTest {
         host.mutableCaps.value = RadarCaps(Platform.ANDROID, BluetoothState.ON)
         assertEquals(BluetoothState.ON, radio.state.value)
         assertEquals(BluetoothState.ON, radio.state.first())
+    }
+
+    @Test
+    fun aMixGivesSightingsOfItsGameChannelsOnlyAndRunsTheShadowToo() = runTest {
+        val bare = frameOf(ServiceDataChannel.Bare.advertise(TOKEN, RadarRole.HIDER), rssi = -70)
+        val bits = app.hovanki.shared.rules.OverflowCode.encode("1a2b3c4d")
+        val mask = frameOf(OverflowParts(bits))
+        val host = FakeHost(listOf(bare, mask))
+        val radio = HostProximityRadio(host)
+        val mix = RadarCatalog.field(playerNumber = 0)
+
+        val sightings = radio.run(MutableStateFlow(TOKEN), asSeeker = false, mix).toList()
+
+        assertEquals(listOf("ble.service_data.bare"), sightings.map { it.tech }, "the shadow's mask is no sighting")
+        assertEquals(mix.all, host.ran?.first)
     }
 }

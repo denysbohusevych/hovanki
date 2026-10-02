@@ -1,0 +1,45 @@
+# The field test's server (docs/adr/0018-field-test-build.md, section 2): the same image as production, started with
+# SPRING_PROFILES_ACTIVE=staging (deploy/compose.yaml passes it on from .env). Only what differs from application.yaml.
+# Not the e2e profile: no observer endpoints, real emails, rate limits on.
+
+hovanki:
+  game:
+    # An ordinary game takes up to 60 players (production: 30, Game.MAX_PLAYERS).
+    max-players: 60
+  lab:
+    # The field build (release code) shows the lab's screen to staff: only staff accounts join a lab run here
+    # (docs/adr/0018-field-test-build.md §4.D). The field log of real games is FIELD_LOG, switched in the admin.
+    join-staff-only: true
+  field:
+    # The one server that may have the field log (FIELD_LOG; production: never).
+    allowed: true
+  # The limits per client IP fit a test day's 60 players behind one address (the venue's Wi-Fi, a carrier's NAT): the
+  # clock of every field build's phone (5 requests at the join and every 5 minutes), accounts made and logged into on
+  # the spot. Per account and per player the limits stay production's.
+  rate-limits:
+    time-per-ip: { count: 3000, window: 1m }
+    login-per-ip: { count: 300, window: 15m }
+    register-per-ip: { count: 200, window: 1h }
+    password-reset-per-ip: { count: 100, window: 1h }
+
+management:
+  # Everything under /actuator (health, restarthold, prometheus) moves to this port, which deploy/compose.yaml does not
+  # publish and Caddy does not proxy: the internet reaches the game's port only, where /actuator/* answers 404. From the
+  # VM, through the container's address on the compose network, like deploy/hovanki-update.sh does for
+  # :8081/actuator/restarthold. The environment variable MANAGEMENT_SERVER_PORT overrides the port.
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,info,restarthold,prometheus
+
+logging:
+  # One JSON object per line (Elastic Common Schema) instead of the pattern: `docker compose logs server | jq`.
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        name: hovanki-server
+        environment: staging

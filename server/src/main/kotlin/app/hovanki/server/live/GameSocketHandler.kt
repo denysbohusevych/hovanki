@@ -4,6 +4,8 @@ import app.hovanki.server.features.FeatureFlags
 import app.hovanki.server.game.GameException
 import app.hovanki.server.game.GameRegistry
 import app.hovanki.server.game.GameService
+import app.hovanki.server.metrics.ServerMetrics
+import app.hovanki.server.metrics.SyncTransport
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.ClientFrame
@@ -44,6 +46,7 @@ class GameSocketHandler(
     private val registry: GameRegistry,
     private val sockets: GameSockets,
     private val features: FeatureFlags,
+    private val metrics: ServerMetrics,
 ) : TextWebSocketHandler() {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -99,7 +102,10 @@ class GameSocketHandler(
 
             else -> {
                 val reply = try {
-                    ServerFrame.Snapshot(frame.seq, games.sync(socket.ref, socket.ref.gameId, frame.request))
+                    ServerFrame.Snapshot(
+                        frame.seq,
+                        games.sync(socket.ref, socket.ref.gameId, frame.request, SyncTransport.SOCKET),
+                    )
                 } catch (e: GameException) {
                     when (e.code) {
                         ErrorCode.UNAUTHORIZED, ErrorCode.FORBIDDEN -> {
@@ -129,6 +135,8 @@ class GameSocketHandler(
     }
 
     override fun afterConnectionClosed(session: WebSocketSession, status: CloseStatus) {
+        // Whoever closed it, by its code (hovanki.socket.close): the refusals at the start too.
+        metrics.socketClosed(status.code)
         (session.attributes[SOCKET] as LiveSocket?)?.let(sockets::closed)
     }
 

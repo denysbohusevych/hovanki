@@ -24,3 +24,11 @@ hovanki:
   # Big games: the tests call the scheduler themselves (BigGameService.tick) as they move the clock.
   big-games:
     tick: 24h
+  # The field log's tests turn FIELD_LOG on: this server may have it, like the test server. A context of its own
+  # (FieldProductionApiTest) is production.
+  field:
+    allowed: true
+    # The server's own events go to the database when a test asks (FieldEventWriter.awaitIdle), never by the time:
+    # a device of its own would come and go in the runs the tests count.
+    server-flush: 24h
+    srv-every: 24h

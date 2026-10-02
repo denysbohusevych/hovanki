@@ -33,6 +33,13 @@ interface LabProbes {
 
     /** The battery now, then on changes and at least once a minute. */
     fun battery(): Flow<LabBattery>
+
+    /**
+     * How hot the phone says it is, now and on every change, by name: Android's `none`, `light`, `moderate`, `severe`,
+     * `critical`, `emergency`, `shutdown`; iOS's `nominal`, `fair`, `serious`, `critical`. Nothing where the platform
+     * has none (Android before 10).
+     */
+    fun thermal(): Flow<String> = emptyFlow()
 }
 
 sealed interface LabSensorReading {

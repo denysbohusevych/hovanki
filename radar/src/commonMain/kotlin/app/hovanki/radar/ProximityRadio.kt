@@ -36,6 +36,13 @@ interface ProximityRadio {
      */
     fun run(tokens: StateFlow<String?>, asSeeker: Boolean, techniques: Set<String>): Flow<RadioSighting> =
         run(tokens, asSeeker)
+
+    /**
+     * [run] with [mix] instead of the game's channels: the field build's journal (docs/adr/0018-field-test-build.md
+     * §4 B, [RadarCatalog.field]). Sightings come only from [ChannelMix.game]; what [ChannelMix.shadow] reads goes to
+     * the radio's trace alone. A radio without channels runs as [run].
+     */
+    fun run(tokens: StateFlow<String?>, asSeeker: Boolean, mix: ChannelMix): Flow<RadioSighting> = run(tokens, asSeeker)
 }
 
 /**

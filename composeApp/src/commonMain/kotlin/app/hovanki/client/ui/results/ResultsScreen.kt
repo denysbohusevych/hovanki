@@ -103,6 +103,9 @@ import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.formatElapsed
 import app.hovanki.client.ui.common.rememberReduceMotion
+import app.hovanki.client.ui.field.FieldSurveyCard
+import app.hovanki.client.ui.field.TouchCard
+import app.hovanki.client.ui.field.TouchNeighbour
 import app.hovanki.client.ui.game.ZoneTimeline
 import app.hovanki.client.ui.history.SaveRoutesOffer
 import app.hovanki.client.ui.history.distanceText
@@ -257,6 +260,15 @@ fun ResultsScreen(
                 )
             }
             SaveRoutesOffer(saveRoutes = saveRoutes, isBusy = isBusy, onSave = viewModel::turnOnSaveRoutes)
+            // The field test build asks to touch phones once more, for the drift, and three questions (nothing in other
+            // builds).
+            TouchCard(
+                snapshot.players.filter {
+                    it.id != me.playerId
+                }.map { TouchNeighbour(it.id, it.name) },
+                again = true,
+            )
+            FieldSurveyCard()
             CommandStatus(
                 isBusy = false,
                 message = message,

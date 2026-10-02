@@ -90,6 +90,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.getAndUpdate
@@ -136,6 +138,8 @@ class GameSessionManager(
     private val pocketPulse: PocketPulse = NoopPocketPulse,
     private val carryMonitor: CarryMonitor = NoopCarryMonitor(),
     private val diagnostics: Diagnostics = Diagnostics.Off,
+    /** Who writes the game down: the field build's log ([app.hovanki.client.lab.FieldSession]); nobody elsewhere. */
+    private val trace: GameTrace = GameTrace.None,
 ) {
     private val mutableState = MutableStateFlow(SessionState())
     val state: StateFlow<SessionState> = mutableState.asStateFlow()
@@ -165,6 +169,9 @@ class GameSessionManager(
     private val heard = MutableStateFlow<List<NearbySighting>>(emptyList())
     private val uwbPeers = MutableStateFlow<List<UwbPeer>>(emptyList())
     private var radioJob: Job? = null
+
+    /** [radioJob] is the field log's touch radio outside the round ([updateTouchRadio]), not the game's. */
+    private var radioForTouch = false
     private var activityJob: Job? = null
     private var rangingJob: Job? = null
     private var carryJob: Job? = null
@@ -256,7 +263,7 @@ class GameSessionManager(
         return joined
     }
 
-    suspend fun start(seekers: List<PlayerId>): Boolean = sessionCommand {
+    suspend fun start(seekers: List<PlayerId>): Boolean = sessionCommand(FieldActions.START) {
         api.startGame(it, StartGameRequest(seekers))
     }
 
@@ -275,7 +282,7 @@ class GameSessionManager(
      * choices [settings] were made of, remembered for the host's next game once the server took them.
      */
     suspend fun updateSettings(settings: GameSettings, setup: GameSetup? = null): Boolean {
-        val updated = sessionCommand { api.updateSettings(it, SettingsRequest(settings)) }
+        val updated = sessionCommand(FieldActions.SETTINGS_SAVED) { api.updateSettings(it, SettingsRequest(settings)) }
         if (updated && setup != null) storage.saveGameSetup(setup)
         return updated
     }
@@ -318,7 +325,8 @@ class GameSessionManager(
      */
     fun lastGameSetup(): GameSetup = storage.loadGameSetup()?.coerced()?.copy(openGame = false) ?: GameSetup()
 
-    suspend fun claimCatch(hiderId: PlayerId): Boolean = sessionCommand { api.claimCatch(it, hiderId) }
+    suspend fun claimCatch(hiderId: PlayerId): Boolean =
+        sessionCommand(FieldActions.CATCH_CLAIM) { api.claimCatch(it, hiderId) }
 
     /**
      * One scan: the seeker's camera read [hiderId]'s QR code with [code] before any claim; the server opens the claim
@@ -326,6 +334,7 @@ class GameSessionManager(
      */
     suspend fun catchByScan(hiderId: PlayerId, code: String): Boolean {
         val session = mutableState.value.session ?: return false
+        trace.onAction(FieldActions.CATCH_SCAN)
         return command {
             val snapshot = api.claimCatch(session, hiderId, code.trim())
             applySnapshot(snapshot)
@@ -337,18 +346,20 @@ class GameSessionManager(
     }
 
     suspend fun confirmCatch(catchId: CatchId, code: String): Boolean =
-        sessionCommand { api.confirmCatch(it, catchId, code.trim()) }
+        sessionCommand(FieldActions.CATCH_CONFIRM) { api.confirmCatch(it, catchId, code.trim()) }
 
-    suspend fun dispute(catchId: CatchId): Boolean = sessionCommand { api.disputeCatch(it, catchId) }
+    suspend fun dispute(catchId: CatchId): Boolean =
+        sessionCommand(FieldActions.CATCH_DISPUTE) { api.disputeCatch(it, catchId) }
 
-    suspend fun vote(catchId: CatchId, confirm: Boolean): Boolean = sessionCommand { api.vote(it, catchId, confirm) }
+    suspend fun vote(catchId: CatchId, confirm: Boolean): Boolean =
+        sessionCommand(FieldActions.VOTE) { api.vote(it, catchId, confirm) }
 
     /** To everyone, or to the player's team only ([team], not in the lobby); the response brings it into the chat. */
     suspend fun sendChat(text: String, team: Boolean = false): Boolean {
         // Sent again after no answer: the same id, so the server keeps the message once.
         val message = unansweredChat?.takeIf { it.text == text && it.team == team }
             ?: SendChatRequest(text, team, clientMessageId = newRequestId())
-        val sent = sessionCommand { api.sendChat(it, message.copy(chatAfter = chatCursor())) }
+        val sent = sessionCommand(FieldActions.CHAT_SEND) { api.sendChat(it, message.copy(chatAfter = chatCursor())) }
         unansweredChat = message.takeIf { !sent && mutableState.value.lastError is SessionError.Network }
         return sent
     }
@@ -374,12 +385,13 @@ class GameSessionManager(
         if (payload == null || payload.gameId != session.gameId) {
             return fail(SessionError.Rejected(ErrorCode.NOT_FOUND, "Not a checkpoint of this game"))
         }
+        trace.onAction(FieldActions.CHECKPOINT_SCAN)
         return command { applySnapshot(api.scanCheckpoint(session, payload.code)) }
     }
 
     /** Uses a perk: [targetId] for the ones aimed at a hider, [point] for a decoy. */
     suspend fun usePerk(perk: PerkKind, targetId: PlayerId? = null, point: GeoPoint? = null): Boolean =
-        sessionCommand { api.usePerk(it, UsePerkRequest(perk, targetId, point)) }
+        sessionCommand(FieldActions.PERK_USE) { api.usePerk(it, UsePerkRequest(perk, targetId, point)) }
 
     /** The host makes up a quest in words for [audience], worth [sparks]. */
     suspend fun addQuest(
@@ -389,7 +401,8 @@ class GameSessionManager(
     ): Boolean = sessionCommand { api.addQuest(it, CustomQuestRequest(text, audience, sparks)) }
 
     /** «Done»: the player says they did the host's quest [questId]; the host answers. */
-    suspend fun questDone(questId: QuestId): Boolean = sessionCommand { api.questDone(it, questId) }
+    suspend fun questDone(questId: QuestId): Boolean =
+        sessionCommand(FieldActions.QUEST_DONE) { api.questDone(it, questId) }
 
     /** The host confirms or refuses what [playerId] said about quest [questId]. */
     suspend fun reviewQuest(questId: QuestId, playerId: PlayerId, approved: Boolean): Boolean =
@@ -454,9 +467,12 @@ class GameSessionManager(
     fun leave() {
         val current = mutableState.value
         unansweredChat = null
+        // The log's last line, before it stops.
+        if (current.session != null) trace.onAction(FieldActions.LEAVE)
         stopBackgroundWork()
         storage.clearSession()
         mutableState.value = SessionState()
+        if (current.session != null) trace.onSessionEnded()
         val session = current.session ?: return
         if (current.snapshot?.phase == GamePhase.FINISHED) return
         scope.launch {
@@ -525,7 +541,10 @@ class GameSessionManager(
 
     /** What else goes with the next sync: whom the phone heard since the last one, and what it says about itself. */
     private fun syncExtras(): SyncExtras = SyncExtras(heard.getAndUpdate { emptyList() }, deviceReport())
-        .also { diagnostics.onSyncSent(it.nearby.size, it.device) }
+        .also {
+            diagnostics.onSyncSent(it.nearby.size, it.device)
+            trace.onSyncSent()
+        }
 
     private fun deviceReport(): DeviceReport {
         val features = mutableState.value.snapshot?.settings?.features
@@ -563,12 +582,15 @@ class GameSessionManager(
                     it.copy(connectionStatus = ConnectionStatus.ONLINE, isResuming = false, transport = event.transport)
                 }
                 applySnapshot(event.snapshot)
+                event.bytes?.let(trace::onSyncBytes)
+                trace.onSynced(event.transport, event.snapshot)
                 // Location updates need the game's settings: a resumed session starts them with its first snapshot.
                 if (resuming) startLocationUpdates()
             }
 
             is ConnectionEvent.Problem -> {
                 diagnostics.onSyncFailed(event.error, event.retryInMillis)
+                trace.onSyncFailed(event.error)
                 mutableState.update { it.copy(connectionStatus = ConnectionStatus.RECONNECTING) }
             }
 
@@ -576,7 +598,11 @@ class GameSessionManager(
                 resuming -> endSession(SessionError.SavedGameGone)
 
                 // The results stay until the player leaves; the server has deleted the game, the chat is over.
-                mutableState.value.snapshot?.phase == GamePhase.FINISHED -> connectionJob = null
+                mutableState.value.snapshot?.phase == GamePhase.FINISHED -> {
+                    connectionJob = null
+                    // No snapshot comes again to stop it: the touch's radio of the results goes with the game.
+                    stopRadio()
+                }
 
                 else -> endSession(SessionError.SessionLost)
             }
@@ -588,6 +614,7 @@ class GameSessionManager(
         stopBackgroundWork()
         storage.clearSession()
         mutableState.value = SessionState(lastError = error)
+        trace.onSessionEnded()
     }
 
     private fun applySnapshot(snapshot: GameSnapshot) {
@@ -598,7 +625,7 @@ class GameSessionManager(
         if (snapshot.chat.isNotEmpty()) mutableState.update { it.copy(chat = mergeChat(it.chat, snapshot.chat)) }
         // A slow poll can be overtaken by a command's response: keep the newer state.
         val previous = current.snapshot
-        if (previous != null && snapshot.serverTimeMillis < previous.serverTimeMillis) return
+        if (isOvertaken(snapshot, previous)) return
 
         clock.onServerTime(snapshot.serverTimeMillis)
         if (previous?.phase != snapshot.phase) diagnostics.note("phase ${snapshot.phase}, ${snapshot.me.role}")
@@ -616,6 +643,7 @@ class GameSessionManager(
                 streetZone = state.streetZone?.takeIf { it.mapRevision == snapshot.mapRevision },
             )
         }
+        current.session?.let { trace.onSnapshot(it, snapshot) }
         if (snapshot.buildings == BuildingsState.READY) loadBuildings()
         if (snapshot.streetZone == StreetZoneState.READY) loadStreetZone()
         // A game with the radar: the phone looks at its Bluetooth from the lobby on, so every sync says whether it can
@@ -623,7 +651,8 @@ class GameSessionManager(
         // until the app touches CoreBluetooth, which also asks the player; a game without the radar never asks.
         if (snapshot.phase != GamePhase.FINISHED && snapshot.settings.features.hasRadar) radio.refresh()
         when (snapshot.phase) {
-            GamePhase.LOBBY -> Unit
+            // The field build's touch («Touch phones with a neighbour», ADR 0018 §5): the radio only while it asks.
+            GamePhase.LOBBY -> updateRadio(snapshot)
 
             GamePhase.HIDING, GamePhase.SEEKING -> {
                 startTracking()
@@ -651,6 +680,7 @@ class GameSessionManager(
                     storage.clearSession()
                 }
                 loadTracks()
+                updateRadio(snapshot)
             }
         }
     }
@@ -665,9 +695,14 @@ class GameSessionManager(
     private fun updateRadio(snapshot: GameSnapshot) {
         val secret = snapshot.me.radarSecret
         val inRound = snapshot.phase == GamePhase.HIDING || snapshot.phase == GamePhase.SEEKING
+        if (!inRound) {
+            updateTouchRadio(snapshot)
+            return
+        }
+        // The round's radio replaces the touch's: another token, maybe a seeker's advertisement.
+        if (radioForTouch) stopRadio()
         val playing = snapshot.me.role == Role.SEEKER || snapshot.me.status == PlayerStatus.ACTIVE
-        val wanted = secret != null && inRound && snapshot.settings.features.hasRadar && playing &&
-            mutableRadarEnabled.value
+        val wanted = secret != null && snapshot.settings.features.hasRadar && playing && mutableRadarEnabled.value
         if (!wanted || secret == null) {
             stopRadio()
             return
@@ -675,11 +710,17 @@ class GameSessionManager(
         radarToken.value = RadarToken.at(secret, clock.now())
         diagnostics.onRadio(radarToken.value, asSeeker = snapshot.me.role == Role.SEEKER)
         if (radioJob?.isActive == true) return
+        val asSeeker = snapshot.me.role == Role.SEEKER
+        // The field log's channels while its journal is written (ADR 0018 §4 B): by the player's number in the game
+        // (the order they joined, which a round keeps); the game's own otherwise.
+        val mix = trace.radarChannels(playerNumber(snapshot))
+        val sightings = if (mix == null) radio.run(radarToken, asSeeker) else radio.run(radarToken, asSeeker, mix)
         radioJob = scope.launch {
             try {
-                radio.run(radarToken, asSeeker = snapshot.me.role == Role.SEEKER).collect { sighting ->
+                sightings.collect { sighting ->
                     val isRival = sighting.token in rivalTokens
                     diagnostics.onSighting(sighting.token, sighting.rssi, sighting.atMillis, isRival, sighting.via)
+                    trace.onSighting(sighting)
                     val atMillis = clock.toServerTime(sighting.atMillis)
                     val sample = NearbySighting(sighting.token, sighting.rssi, atMillis)
                     heard.update { kept -> keepRecent(kept + sample) }
@@ -698,6 +739,7 @@ class GameSessionManager(
             } catch (e: Exception) {
                 // Bluetooth failed underneath: the round goes on without the radar on this phone.
                 diagnostics.note("radio failed: ${e.message ?: e::class.simpleName}")
+                trace.onError("radio", e)
             }
         }
     }
@@ -723,7 +765,47 @@ class GameSessionManager(
         }
         .takeLast(MAX_SIGHTINGS_PER_SYNC)
 
+    /**
+     * The radio outside the round, in the lobby and on the results, only while the field log asks for it
+     * ([GameTrace.touchRadioToken]: «Touch phones with a neighbour», docs/adr/0018-field-test-build.md §5): this phone
+     * advertises the log's own token as a hider and hears the others, so a touch's peak is in the journal. What it
+     * hears goes to the journal only, never to the server. Every other build: no radio outside the round, as ever.
+     */
+    private fun updateTouchRadio(snapshot: GameSnapshot) {
+        val token = trace.touchRadioToken(snapshot)
+        val wanted = token != null && snapshot.settings.features.hasRadar && mutableRadarEnabled.value
+        if (!wanted || token == null) {
+            // Outside the round no radio runs but the touch's (a round's own one stops, should the game go back).
+            if (radioJob != null) stopRadio()
+            return
+        }
+        if (radioJob?.isActive == true && !radioForTouch) stopRadio()
+        radarToken.value = token
+        if (radioJob?.isActive == true) return
+        radioForTouch = true
+        val mix = trace.radarChannels(playerNumber(snapshot))
+        radioJob = scope.launch {
+            try {
+                // Only while the field log still asks for it: dismissed or stopped between snapshots, it stops at once.
+                trace.touchRadioWanted.distinctUntilChanged().collectLatest { wanted ->
+                    if (!wanted) return@collectLatest
+                    val sightings = if (mix == null) radio.run(radarToken, false) else radio.run(radarToken, false, mix)
+                    sightings.collect { trace.onSighting(it) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                trace.onError("radio", e)
+            }
+        }
+    }
+
+    /** The player's number in the game: the order they joined, from 0. */
+    private fun playerNumber(snapshot: GameSnapshot): Int =
+        snapshot.players.indexOfFirst { it.id == snapshot.me.playerId }.coerceAtLeast(0)
+
     private fun stopRadio() {
+        radioForTouch = false
         if (radioJob != null) diagnostics.onRadio(null, asSeeker = false)
         radioJob?.cancel()
         radioJob = null
@@ -866,6 +948,7 @@ class GameSessionManager(
             try {
                 locationProvider.locationUpdates(intervalMillis).collect { fix ->
                     diagnostics.onFix(fix.accuracyMeters, fix.isMock, fix.timestampMillis)
+                    trace.onFix(fix)
                     val sample = fix.copy(timestampMillis = clock.toServerTime(fix.timestampMillis))
                     mutableMyLocation.value = sample
                     sessionOutbox.add(sample)
@@ -874,6 +957,7 @@ class GameSessionManager(
                 throw e
             } catch (e: Exception) {
                 // Permission revoked or location switched off: the UI offers to turn it back on.
+                trace.onError("location", e)
             }
         }
         locationJob = job
@@ -983,8 +1067,10 @@ class GameSessionManager(
         }
     }
 
-    private suspend fun sessionCommand(call: suspend (PlayerSession) -> GameSnapshot): Boolean {
+    /** [action]: what the player did, in a word for the field log (`FieldActions`); null: nothing worth a line. */
+    private suspend fun sessionCommand(action: String? = null, call: suspend (PlayerSession) -> GameSnapshot): Boolean {
         val session = mutableState.value.session ?: return false
+        action?.let(trace::onAction)
         return command { applySnapshot(call(session)) }
     }
 
@@ -1000,6 +1086,7 @@ class GameSessionManager(
         val message = e.error?.message ?: e.message.orEmpty()
         fail(SessionError.Rejected(e.error?.code, message, e.reason, e.retryAfterSeconds, e.error?.untilMillis))
     } catch (e: Exception) {
+        trace.onError("command", e)
         fail(SessionError.Network(e.message))
     }
 
@@ -1031,3 +1118,13 @@ class GameSessionManager(
         private const val GOOD_FIX_ACCURACY_METERS = 50.0
     }
 }
+
+/**
+ * Whether [snapshot] is older than [previous], the one the phone shows: earlier by the server's clock, or answered in
+ * the same millisecond but a phase behind (a poll served just before the start can share the start's millisecond).
+ */
+internal fun isOvertaken(snapshot: GameSnapshot, previous: GameSnapshot?): Boolean = previous != null &&
+    (
+        snapshot.serverTimeMillis < previous.serverTimeMillis ||
+            (snapshot.serverTimeMillis == previous.serverTimeMillis && snapshot.phase < previous.phase)
+        )

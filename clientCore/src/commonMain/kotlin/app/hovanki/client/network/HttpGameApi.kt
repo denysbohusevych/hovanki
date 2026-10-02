@@ -32,7 +32,13 @@ import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
 import app.hovanki.shared.protocol.UsePerkRequest
 import app.hovanki.shared.protocol.VoteRequest
+import app.hovanki.shared.protocol.protocolJson
 import io.ktor.client.HttpClient
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.HttpMethod
+import io.ktor.http.contentType
 
 /** [GameApi] over HTTP/JSON; paths and DTOs are shared with the server. */
 class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
@@ -73,6 +79,16 @@ class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
 
     override suspend fun sync(session: PlayerSession, request: SyncRequest): GameSnapshot =
         http.post(ApiRoutes.sync(session.gameId), session.token, request)
+
+    override suspend fun syncMeasured(session: PlayerSession, request: SyncRequest): MeasuredSnapshot {
+        val response = http.send(HttpMethod.Post, ApiRoutes.sync(session.gameId), session.token) {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+        val text = response.bodyAsText()
+        val snapshot = protocolJson.decodeFromString(GameSnapshot.serializer(), text)
+        return MeasuredSnapshot(snapshot, text.encodeToByteArray().size)
+    }
 
     override suspend fun claimCatch(session: PlayerSession, hiderId: PlayerId, code: String?): GameSnapshot =
         http.post(ApiRoutes.catches(session.gameId), session.token, ClaimCatchRequest(hiderId, code))

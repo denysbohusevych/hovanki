@@ -29,7 +29,8 @@ data class SavedAccount(
 
 /**
  * What the app remembers between launches: the running game and the logged-in account (their tokens are secrets,
- * hence [SecureStore]), the name a guest entered last time and the game setup the host chose last time.
+ * hence [SecureStore]), the name a guest entered last time, the game setup the host chose last time and, in the field
+ * build, when the tester agreed to the field log.
  *
  * Storage is a convenience, never a reason to crash: a value that can't be read or written (Keystore or Keychain
  * error, data from an older app version) is treated as absent. Location data is never stored.
@@ -82,6 +83,20 @@ class ClientStorage(private val store: SecureStore) {
         write(RADAR_ENABLED, enabled.toString())
     }
 
+    /**
+     * When the tester agreed to the field log (server time as the phone knew it; docs/adr/0018-field-test-build.md
+     * §3.4): only the field build asks. Null: never, or taken back.
+     */
+    val fieldConsentAt: Long? get() = read(FIELD_CONSENT_AT)?.toLongOrNull()
+
+    fun saveFieldConsent(atMillis: Long) {
+        write(FIELD_CONSENT_AT, atMillis.toString())
+    }
+
+    fun clearFieldConsent() {
+        remove(FIELD_CONSENT_AT)
+    }
+
     private fun <T> load(key: String, serializer: KSerializer<T>): T? {
         val json = read(key) ?: return null
         return try {
@@ -121,6 +136,7 @@ class ClientStorage(private val store: SecureStore) {
         const val PLAYER_NAME = "playerName"
         const val GAME_SETUP = "gameSetup"
         const val RADAR_ENABLED = "radarEnabled"
+        const val FIELD_CONSENT_AT = "fieldConsentAt"
         const val LEGACY_SERVER_URL = "serverUrl"
     }
 }

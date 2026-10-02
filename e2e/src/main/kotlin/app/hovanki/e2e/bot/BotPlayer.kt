@@ -5,6 +5,13 @@ import app.hovanki.client.account.AccountState
 import app.hovanki.client.bigGames.BigGameManager
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.history.HistoryState
+import app.hovanki.client.lab.FieldSession
+import app.hovanki.client.lab.FieldState
+import app.hovanki.client.lab.HttpLabApi
+import app.hovanki.client.lab.LabAbout
+import app.hovanki.client.lab.LabClockSync
+import app.hovanki.client.lab.LabLog
+import app.hovanki.client.lab.LabRadioTrace
 import app.hovanki.client.network.AdaptiveGameConnection
 import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.ApiResult
@@ -27,6 +34,7 @@ import app.hovanki.client.session.DraftZone
 import app.hovanki.client.session.DraftZonePreview
 import app.hovanki.client.session.DraftZoneState
 import app.hovanki.client.session.GameSessionManager
+import app.hovanki.client.session.GameTrace
 import app.hovanki.client.session.ServerClock
 import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
@@ -41,8 +49,14 @@ import app.hovanki.client.spectator.SpectatorState
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.scenario.Timeline
+import app.hovanki.radar.AirFrame
+import app.hovanki.radar.AirSecond
+import app.hovanki.radar.Decoded
 import app.hovanki.radar.NoopProximityRadio
 import app.hovanki.radar.ProximityRadio
+import app.hovanki.radar.RadarTrace
+import app.hovanki.radar.RadioApi
+import app.hovanki.shared.lab.PermFields
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.Audience
 import app.hovanki.shared.protocol.BigGameCard
@@ -65,6 +79,7 @@ import app.hovanki.shared.protocol.GroupView
 import app.hovanki.shared.protocol.Inbox
 import app.hovanki.shared.protocol.InviteId
 import app.hovanki.shared.protocol.ItemId
+import app.hovanki.shared.protocol.LabCapabilities
 import app.hovanki.shared.protocol.PerkKind
 import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.Platform
@@ -134,15 +149,43 @@ class BotPlayer(
      * a scenario waits for the socket's return.
      */
     private val pollAfterSocketFailureMillis: Long = AdaptiveGameConnection.POLL_AFTER_FAILURE_MILLIS,
+    /**
+     * The field build (`preview`) whose tester agreed at the first launch (docs/adr/0018-field-test-build.md §3): its
+     * [FieldSession] writes the game's field log and uploads it, as the app's DI wires it. Off: any other build.
+     */
+    val fieldLog: Boolean = false,
 ) {
     val clock = DeviceClock()
     val gps = FakeGps(start, noise, clock)
 
     /** Where the phone is: in the hand or in the pocket (docs/adr/0012-nearby-radar.md, «Карман»). */
     val carry = MutableStateFlow(Carry.IN_HAND)
+
+    /**
+     * What the radio's host tells the field log, as the app's DI wires it (`LabRadioTrace` of the app's log): the
+     * running app's while it writes one ([fieldLog]), nothing otherwise.
+     */
+    @Volatile private var radarTrace: RadarTrace = RadarTrace.None
+
     val radio: ProximityRadio =
-        radioWorld?.let { FakeRadio(it, name, platform, { gps.truePosition }, { carry.value }, clock::now) }
-            ?: NoopProximityRadio()
+        radioWorld?.let {
+            val trace = object : RadarTrace {
+                override fun advertise(action: String, tech: String, token: String?, layout: String?, error: String?) =
+                    radarTrace.advertise(action, tech, token, layout, error)
+
+                override fun scan(action: String, api: RadioApi, filters: String?, error: String?) =
+                    radarTrace.scan(action, api, filters, error)
+
+                override fun frame(frame: AirFrame, decoded: List<Pair<String, Decoded>>) =
+                    radarTrace.frame(frame, decoded)
+
+                override fun air(second: AirSecond) = radarTrace.air(second)
+            }
+            FakeRadio(it, name, platform, { gps.truePosition }, { carry.value }, clock::now, trace)
+        } ?: NoopProximityRadio()
+
+    /** The phone's sensors as the field log reads them: the scenario knocks for the touch ([touches]). */
+    val probes = BotProbes(clock::now)
 
     /** The pulse the phone beats with (docs/adr/0012-nearby-radar.md, «Пульс»). */
     val pulse = FakePocketPulse()
@@ -188,6 +231,42 @@ class BotPlayer(
 
     /** The band the phone beats with right now. */
     val pulseBand: RadarBand get() = pulse.band
+
+    // ---- The field log (docs/adr/0018-field-test-build.md §3), with [fieldLog] ----
+
+    /** Where the phone's field log is; [FieldStatus.OFF] while the app is not running or not the field build. */
+    val fieldState: FieldState get() = app?.field?.state?.value ?: FieldState()
+
+    /** «Something is wrong» from the game's menu, with a few words: false when the phone writes no log now. */
+    suspend fun marksSomethingWrong(text: String?): Boolean {
+        val running = app ?: return false
+        val marked = withContext(running.mainThread) { running.field.somethingWrong(text) }
+        log(if (marked) "marks «something is wrong»: $text" else "marks «something is wrong», but no log is on")
+        return marked
+    }
+
+    /** The card «Touch phones with a neighbour» is up (the field log in the lobby or on the results of a radar game). */
+    val seesTouchCard: Boolean get() = app?.field?.touchCard?.value == true
+
+    /**
+     * Knocks the phone against [partner]'s and presses «We touched» on the card (docs/adr/0018-field-test-build.md
+     * §5): false when no card is up. Where the two stand is the scenario's.
+     */
+    suspend fun touches(partner: BotPlayer): Boolean {
+        val running = app ?: return false
+        probes.knock()
+        val pressed = withContext(running.mainThread) { running.field.touched(partner.id) }
+        log(if (pressed) "touches ${partner.name}'s phone" else "touches ${partner.name}'s phone, but there is no card")
+        return pressed
+    }
+
+    /** The three questions on the results screen. */
+    suspend fun answersSurvey(rating: Int, broken: List<String> = emptyList(), carry: String? = null): Boolean {
+        val running = app ?: return false
+        val answered = withContext(running.mainThread) { running.field.survey(rating, broken, carry = carry) }
+        log("answers the questions after the game: $rating of 5")
+        return answered
+    }
 
     /** The Bluetooth switch of the phone; nothing on a phone without the radar. */
     fun turnBluetooth(on: Boolean) {
@@ -778,8 +857,9 @@ class BotPlayer(
             return
         }
         // Building outlines and the zone by streets (the host's draft's too) are map data, not a snapshot; the tracks
-        // come only after the round (the server refuses them before, see PrivacyTest).
-        val notSnapshots = listOf("/buildings", "/street-zone", "/settings/preview", "/tracks")
+        // come only after the round (the server refuses them before, see PrivacyTest); the field log's join is this
+        // phone's own run (docs/adr/0018-field-test-build.md §3.1): a token and a salt, nobody's position.
+        val notSnapshots = listOf("/buildings", "/street-zone", "/settings/preview", "/tracks", "/field/join")
         if (notSnapshots.any(exchange.path::endsWith)) return
         // A spectator's view (docs/adr/0011-spectators-and-recordings.md): nothing newer than the delay allows.
         if (exchange.path == ApiRoutes.WATCH || exchange.path.endsWith(SPECTATE_SUFFIX)) {
@@ -836,6 +916,31 @@ class BotPlayer(
                 pollAfterFailureMillis = pollAfterSocketFailureMillis,
             )
         }
+
+        /** The field build's log (docs/adr/0018-field-test-build.md §3): only with [fieldLog]. */
+        val labLog = LabLog(isEnabled = false, deviceTimeMillis = clock::now)
+        val field = FieldSession(
+            log = labLog,
+            api = HttpLabApi(httpClient, url),
+            storage = clientStorage,
+            scope = scope,
+            isFieldBuild = fieldLog,
+            about = { LabAbout("Bot ${platform.name.lowercase()}", "e2e", "e2e field bot", null) },
+            capabilities = {
+                LabCapabilities(
+                    platform = platform,
+                    bluetooth = radio.state.value,
+                    locationPermission = gps.hasPermission(),
+                )
+            },
+            clockSync = LabClockSync(api::serverTime, clock::now, labLog::monoNow),
+            permissions = { mapOf(PermFields.LOCATION to if (gps.hasPermission()) "always" else "denied") },
+            carryMonitor = FakeCarryMonitor(carry),
+            probes = probes,
+        ).also {
+            // The log is the app's main thread's, the simulated air hears on its own: every call goes over to it.
+            if (fieldLog) radarTrace = OnThread(LabRadioTrace(labLog), scope)
+        }
         val session = GameSessionManager(
             api,
             connection,
@@ -850,6 +955,7 @@ class BotPlayer(
             deviceInfo = BotDeviceInfo(platform),
             pocketPulse = pulse,
             carryMonitor = FakeCarryMonitor(carry),
+            trace = if (fieldLog) field else GameTrace.None,
         )
 
         @Volatile var showingCodeFor: CatchId? = null
@@ -865,6 +971,8 @@ class BotPlayer(
         private var previousAccount = AccountState()
 
         init {
+            // The field build's first launch: the tester agrees before anything else.
+            if (fieldLog && clientStorage.fieldConsentAt == null) field.giveConsent(clock.now())
             scope.launch {
                 session.state.collect { state ->
                     state.transport?.let { if (transports.lastOrNull() != it) transports += it }
@@ -1012,4 +1120,23 @@ enum class BotTransport {
 
     /** An app from before the live channel: polling only. */
     POLLING,
+}
+
+/** [trace] called on [scope]'s thread, in order: the simulated air calls the radar's trace from its own thread. */
+private class OnThread(private val trace: RadarTrace, private val scope: CoroutineScope) : RadarTrace {
+    override fun advertise(action: String, tech: String, token: String?, layout: String?, error: String?) {
+        scope.launch { trace.advertise(action, tech, token, layout, error) }
+    }
+
+    override fun scan(action: String, api: RadioApi, filters: String?, error: String?) {
+        scope.launch { trace.scan(action, api, filters, error) }
+    }
+
+    override fun frame(frame: AirFrame, decoded: List<Pair<String, Decoded>>) {
+        scope.launch { trace.frame(frame, decoded) }
+    }
+
+    override fun air(second: AirSecond) {
+        scope.launch { trace.air(second) }
+    }
 }

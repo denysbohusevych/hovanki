@@ -30,4 +30,27 @@ object RadarCatalog {
     val game: List<RadarChannel> = channels.filter { it.status == TechniqueStatus.GAME }
 
     fun byId(id: String): RadarChannel? = channels.firstOrNull { it.id == id }
+
+    /**
+     * The service data's three layouts in the order an Android hider gets them by its player's number in a field game
+     * ([field]), the game's first.
+     */
+    val hiderLayouts: List<RadarChannel> =
+        listOf(ServiceDataChannel.ScanResponse, ServiceDataChannel.Bare, ServiceDataChannel.Mfr)
+
+    /** What a field game's journal puts in the shadow ([field]): a locked iPhone's overflow mask. */
+    val fieldShadow: List<RadarChannel> = listOf(OverflowChannel)
+
+    /**
+     * A game's channels while the field build's journal is written (docs/adr/0018-field-test-build.md §4 B): an
+     * Android hider sends the service data's layout of its player's number round [hiderLayouts] (the report shows
+     * which one every model hears), and every phone hears all three as the game's, so a hider on `.bare` or `.mfr`
+     * stays on the radar of whoever can hear it; the overflow mask ([fieldShadow]) goes on the air and is read into
+     * the journal only. The other game channels as [game]. Without a journal the game runs [game].
+     */
+    fun field(playerNumber: Int): ChannelMix {
+        val sent = hiderLayouts[playerNumber.mod(hiderLayouts.size)]
+        val layouts = listOf(sent) + hiderLayouts.filter { it != sent }.map(::ListenOnly)
+        return ChannelMix(game = layouts + game.filter { it !in hiderLayouts }, shadow = fieldShadow)
+    }
 }

@@ -1,6 +1,7 @@
 package app.hovanki.client.session
 
 import app.hovanki.client.diagnostics.Diagnostics
+import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.ConnectionEvent
 import app.hovanki.client.network.FakeGameApi
 import app.hovanki.client.network.GameConnection
@@ -8,11 +9,15 @@ import app.hovanki.client.network.LocationOutbox
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.SyncExtras
+import app.hovanki.client.network.testPlayer
 import app.hovanki.client.network.testSession
 import app.hovanki.client.network.testSnapshot
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.storage.FakeSecureStore
 import app.hovanki.client.storage.SavedSession
+import app.hovanki.radar.ChannelMix
+import app.hovanki.radar.RadarCatalog
+import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.ErrorCode
@@ -26,18 +31,24 @@ import app.hovanki.shared.protocol.Platform
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.PlayerStatus
+import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.RadarContact
 import app.hovanki.shared.protocol.RadarState
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.rules.CheckpointPayload
 import app.hovanki.shared.rules.RadarToken
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -92,6 +103,7 @@ class RadioSessionTest {
         radio: FakeRadio = this@RadioSessionTest.radio,
         diagnostics: Diagnostics = Diagnostics.Off,
         connection: GameConnection = PollingGameConnection(api),
+        trace: GameTrace = GameTrace.None,
     ) = GameSessionManager(
         api,
         connection,
@@ -106,6 +118,7 @@ class RadioSessionTest {
         pocketPulse = pulse,
         carryMonitor = carry,
         diagnostics = diagnostics,
+        trace = trace,
     )
 
     private fun round(
@@ -192,6 +205,45 @@ class RadioSessionTest {
     }
 
     @Test
+    fun theRadioKnowsThePlayersNumberInTheGame() = runTest {
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        val others = listOf("bob", "carol").map { PlayerView(PlayerId(it), it, Role.HIDER, PlayerStatus.ACTIVE) }
+        val api = FakeGameApi {
+            val serverTime = serverNow + syncs++ * 1_000L
+            deviceNow = serverTime - 10_000L
+            round(GamePhase.SEEKING, serverTimeMillis = serverTime).copy(players = others + testPlayer)
+        }
+        val numbers = mutableListOf<Int>()
+        val trace = object : GameTrace {
+            override fun radarChannels(playerNumber: Int): ChannelMix {
+                numbers += playerNumber
+                return RadarCatalog.field(playerNumber)
+            }
+        }
+        val manager = manager(api, trace = trace)
+
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        runCurrent()
+        // The third to join: an Android hider's layout goes round the circle by it (docs/adr/0018-field-test-build.md).
+        assertEquals(listOf(2), numbers)
+        assertEquals(RadarCatalog.field(2), radio.mix)
+    }
+
+    @Test
+    fun withoutAJournalTheRadioRunsTheGamesChannels() = runTest {
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        val api = snapshots({ GamePhase.SEEKING })
+        val manager = manager(api)
+
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        runCurrent()
+        assertEquals(1, radio.collectors)
+        assertEquals(null, radio.mix)
+    }
+
+    @Test
     fun aDebugBuildShowsWhatThePhoneHeardAndTheSyncs() = runTest {
         storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
         val api = snapshots({ GamePhase.SEEKING })
@@ -233,6 +285,95 @@ class RadioSessionTest {
         val before = api.syncRequests.size
         manager.state.first { api.syncRequests.size > before }
         assertEquals(BluetoothState.ON, api.syncRequests.last().device?.bluetooth, "the host may start the game")
+    }
+
+    @Test
+    fun theLobbyHasNoRadioUnlessTheFieldLogAsksForTheTouch() = runTest {
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        var phase = GamePhase.LOBBY
+        val heard = ArrayList<String>()
+        var touch: String? = null
+        val trace = object : GameTrace {
+            override fun touchRadioToken(snapshot: GameSnapshot): String? = touch
+
+            override fun onSighting(sighting: RadioSighting) {
+                heard += sighting.token
+            }
+        }
+        val api = snapshots({ phase })
+        val manager = manager(api, trace = trace)
+
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        runCurrent()
+        assertEquals(0, radio.collectors, "every build: no radio in the lobby")
+
+        // The field log's touch card: the phone advertises the log's own token as a hider.
+        touch = "f00dcafe"
+        manager.state.first { api.syncRequests.size >= 3 }
+        runCurrent()
+        assertEquals(1, radio.collectors)
+        assertEquals("f00dcafe", radio.tokens?.value)
+        assertEquals(false, radio.asSeeker)
+        radio.hears("0123abcd", -45, atMillis = deviceNow)
+        runCurrent()
+        val before = api.syncRequests.size
+        manager.state.first { api.syncRequests.size >= before + 2 }
+        assertEquals(listOf("0123abcd"), heard, "what it hears is the journal's")
+        assertTrue(api.syncRequests.all { it.nearby.isEmpty() }, "and never the server's")
+
+        // The round: the game's own radio, with the game's token.
+        phase = GamePhase.SEEKING
+        manager.state.first { it.snapshot?.phase == GamePhase.SEEKING }
+        runCurrent()
+        assertEquals(1, radio.collectors)
+        assertEquals(
+            RadarToken.at(secret, assertNotNull(manager.state.value.snapshot).serverTimeMillis),
+            radio.tokens?.value,
+        )
+    }
+
+    @Test
+    fun theTouchRadioStopsAsSoonAsTheFieldLogNoLongerAsksOrTheGameIsGone() = runTest {
+        storage.saveSession(SavedSession("http://10.0.2.2:8080", testSession))
+        var gone = false
+        val wanted = MutableStateFlow(true)
+        val trace = object : GameTrace {
+            override fun touchRadioToken(snapshot: GameSnapshot): String? = "f00dcafe"
+
+            override val touchRadioWanted: Flow<Boolean> get() = wanted
+        }
+        var phase = GamePhase.LOBBY
+        val api = snapshots({
+            if (gone) throw ApiException(404, null)
+            phase
+        })
+        val manager = manager(api, trace = trace)
+        manager.resumeSavedGame()
+        manager.state.first { it.snapshot != null }
+        phase = GamePhase.FINISHED
+        manager.state.first { it.snapshot?.phase == GamePhase.FINISHED }
+        runCurrent()
+        assertEquals(1, radio.collectors, "the results' touch card")
+
+        // Dismissed between two snapshots: the radio stops at once; asked again, it is back.
+        wanted.value = false
+        runCurrent()
+        assertEquals(0, radio.collectors)
+        wanted.value = true
+        runCurrent()
+        assertEquals(1, radio.collectors)
+
+        // The server deleted the finished game: no snapshot comes again, the radio stops with the game.
+        gone = true
+        // The connection polls on its own dispatcher, in real time.
+        withContext(Dispatchers.Default) {
+            withTimeout(10_000) {
+                while (radio.collectors != 0) delay(10)
+            }
+        }
+        assertEquals(0, radio.collectors)
+        assertEquals(GamePhase.FINISHED, manager.state.value.snapshot?.phase, "the results stay")
     }
 
     @Test

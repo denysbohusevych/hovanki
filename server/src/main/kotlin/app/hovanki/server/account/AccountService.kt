@@ -1,6 +1,7 @@
 package app.hovanki.server.account
 
 import app.hovanki.server.api.AuthenticatedUser
+import app.hovanki.server.features.FeatureFlags
 import app.hovanki.server.game.GameException
 import app.hovanki.server.game.IdGenerator
 import app.hovanki.server.mail.EmailPurpose
@@ -19,6 +20,7 @@ import app.hovanki.shared.protocol.LoginRequest
 import app.hovanki.shared.protocol.PasswordResetConfirmRequest
 import app.hovanki.shared.protocol.PasswordResetRequest
 import app.hovanki.shared.protocol.RegisterRequest
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.VerifyEmailRequest
@@ -53,9 +55,14 @@ class AccountService(
     private val mailer: Mailer,
     private val beforeDeletion: ObjectProvider<BeforeAccountDeletion>,
     private val sanctions: SanctionService,
+    private val features: FeatureFlags,
     transactionManager: PlatformTransactionManager,
 ) {
     private val transactions = TransactionTemplate(transactionManager)
+
+    /** [record] as its owner sees it, with the lab's screen for staff while the lab is on (ADR 0018 §4.D). */
+    private fun profileOf(record: UserRecord): UserProfile =
+        record.toProfile(labOn = features.isEnabled(ServerFeature.RADIO_LAB))
 
     /**
      * A new account, usable right away, and this device logged in. Its email is unconfirmed: a code goes there, and
@@ -116,7 +123,7 @@ class AccountService(
         sessions.delete(user.tokenHash)
     }
 
-    fun me(user: AuthenticatedUser): UserProfile = userOf(user).toProfile()
+    fun me(user: AuthenticatedUser): UserProfile = profileOf(userOf(user))
 
     /**
      * Sends a reset code if [PasswordResetRequest.email] has an account. Answers the same either way (only a malformed
@@ -162,14 +169,14 @@ class AccountService(
      */
     fun verifyEmail(user: AuthenticatedUser, request: VerifyEmailRequest): UserProfile {
         val record = userOf(user)
-        if (record.emailVerified) return record.toProfile()
+        if (record.emailVerified) return profileOf(record)
         val now = clock.instant()
         val code = checkCode(record.id, EmailPurpose.VERIFY_EMAIL, request.code, now)
         transactions.executeWithoutResult {
             if (!codes.consume(record.id, EmailPurpose.VERIFY_EMAIL, code)) throw codeExpired()
             users.markEmailVerified(record.id, now)
         }
-        return record.copy(emailVerifiedAt = now).toProfile()
+        return profileOf(record.copy(emailVerifiedAt = now))
     }
 
     /** A new code for the unconfirmed email; nothing to do once it is confirmed. */
@@ -200,7 +207,7 @@ class AccountService(
             val updated = record.copy(email = email)
             // A rate limit here rolls the change back: the address never changes without a code going there.
             sendCode(updated, EmailPurpose.VERIFY_EMAIL, now)
-            updated.toProfile()
+            profileOf(updated)
         }
     }
 
@@ -275,7 +282,7 @@ class AccountService(
         sanctions.checkNotBanned(user.id)
         val token = ids.token()
         sessions.create(AccountKeys.tokenHash(token), user.id, now)
-        return AccountSession(token, user.toProfile())
+        return AccountSession(token, profileOf(user))
     }
 
     /** Inside a transaction: the email goes out after the commit. Rate-limited per account. */

@@ -40,12 +40,18 @@ turbine = "1.2.1"
 # encoder in :clientCore against it.
 zxing = "3.5.4"
 
+# Errors of the field test build (docs/adr/0018-field-test-build.md §7): Android app (preview builds only) and the
+# staging server. One version: the Spring Boot starter and the Android SDK share the core.
+sentry = "8.59.0"
+
 spotless = "8.10.2"
 ktlint = "1.8.0"
 
 [libraries]
 # Kotlin / KotlinX
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+# JUnit 4 flavor, for the Android app's own unit tests (:androidApp: SentryEventScrubberTest).
+kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
 kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
@@ -95,6 +101,9 @@ spring-boot-starter-webmvc = { module = "org.springframework.boot:spring-boot-st
 # The game's live channel (docs/adr/0015-websockets.md): Spring's plain WebSocket handlers on Tomcat, no STOMP.
 spring-boot-starter-websocket = { module = "org.springframework.boot:spring-boot-starter-websocket" }
 spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+# The metrics endpoint /actuator/prometheus (version from the Spring Boot BOM); only exposed by the staging profile.
+micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus" }
+micrometer-core = { module = "io.micrometer:micrometer-core" }
 spring-boot-starter-kotlinx-serialization-json = { module = "org.springframework.boot:spring-boot-starter-kotlinx-serialization-json" }
 spring-boot-starter-webmvc-test = { module = "org.springframework.boot:spring-boot-starter-webmvc-test" }
 spring-boot-starter-jdbc = { module = "org.springframework.boot:spring-boot-starter-jdbc" }
@@ -111,6 +120,11 @@ embedded-postgres-binaries-bom = { module = "io.zonky.test.postgres:embedded-pos
 # embedded-postgres itself brings the amd64 binaries only.
 embedded-postgres-binaries-darwin-arm64v8 = { module = "io.zonky.test.postgres:embedded-postgres-binaries-darwin-arm64v8" }
 embedded-postgres-binaries-linux-arm64v8 = { module = "io.zonky.test.postgres:embedded-postgres-binaries-linux-arm64v8" }
+
+# Sentry: crash reports of the field test build only (docs/adr/0018-field-test-build.md §7).
+sentry-android = { module = "io.sentry:sentry-android", version.ref = "sentry" }
+sentry-spring-boot-starter = { module = "io.sentry:sentry-spring-boot-4-starter", version.ref = "sentry" }
+sentry-logback = { module = "io.sentry:sentry-logback", version.ref = "sentry" }
 
 # Testing
 turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }

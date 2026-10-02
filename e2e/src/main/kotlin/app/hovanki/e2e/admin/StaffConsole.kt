@@ -4,6 +4,7 @@ import app.hovanki.client.network.createHttpClient
 import app.hovanki.e2e.bot.BotAccount
 import app.hovanki.e2e.observer.EmailPurpose
 import app.hovanki.e2e.observer.Observer
+import app.hovanki.shared.lab.FieldReport
 import app.hovanki.shared.lab.LabReport
 import app.hovanki.shared.protocol.AdminBigGame
 import app.hovanki.shared.protocol.AdminBigGameRequest
@@ -13,6 +14,8 @@ import app.hovanki.shared.protocol.AdminEnrollment
 import app.hovanki.shared.protocol.AdminFeature
 import app.hovanki.shared.protocol.AdminFeatureRequest
 import app.hovanki.shared.protocol.AdminFeatures
+import app.hovanki.shared.protocol.AdminFieldGames
+import app.hovanki.shared.protocol.AdminFieldRawRequest
 import app.hovanki.shared.protocol.AdminLabAdvanceRequest
 import app.hovanki.shared.protocol.AdminLabRun
 import app.hovanki.shared.protocol.AdminLabRunRequest
@@ -47,14 +50,18 @@ import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import io.ktor.utils.io.jvm.javaio.toInputStream
 import kotlinx.coroutines.delay
 import java.io.ByteArrayOutputStream
+import java.io.File
 
 /** The admin refused (docs/adr/0008-admin.md): [error] is its answer. */
 class AdminRejected(val status: Int, val error: ApiError?) : Exception("HTTP $status: ${error?.message}")
@@ -133,6 +140,9 @@ class StaffConsole(serverUrl: String, private val observer: Observer) : AutoClos
 
     suspend fun labRuns(): AdminLabRuns = get(ApiRoutes.ADMIN_LAB_RUNS)
 
+    /** The field runs of games (docs/adr/0018-field-test-build.md §6): the lab's list has the lab's runs only. */
+    suspend fun fieldGames(): AdminFieldGames = get(ApiRoutes.ADMIN_FIELD_GAMES)
+
     suspend fun createLabRun(title: String, scenarioId: String, reason: String): AdminLabRun =
         call(ApiRoutes.ADMIN_LAB_RUNS, AdminLabRunRequest(title, scenarioId, reason))
 
@@ -151,6 +161,27 @@ class StaffConsole(serverUrl: String, private val observer: Observer) : AutoClos
     /** The raw logs as the page downloads them: a zip with one JSONL file per device. */
     suspend fun downloadLabRaw(id: LabRunId, reason: String): ByteArray =
         call(ApiRoutes.adminLabRun(id, "raw"), AdminReasonRequest(reason))
+
+    /** A field game's raw logs (all its devices) streamed into [file], never whole in memory. */
+    suspend fun downloadFieldRawTo(id: LabRunId, reason: String, file: File) {
+        client.preparePost(baseUrl + ApiRoutes.adminFieldGame(id, "raw.zip")) {
+            admin()
+            contentType(ContentType.Application.Json)
+            setBody(AdminFieldRawRequest(reason))
+        }.execute { response ->
+            if (!response.status.isSuccess()) {
+                throw AdminRejected(response.status.value, runCatching { response.body<ApiError>() }.getOrNull())
+            }
+            response.bodyAsChannel().toInputStream().use { input -> file.outputStream().use { input.copyTo(it) } }
+        }
+    }
+
+    /** A game's field report as stored ([AdminRejected] 404 until the server has computed it). */
+    suspend fun fieldReport(id: LabRunId): FieldReport = get(ApiRoutes.adminFieldGame(id, "report"))
+
+    /** A field game's export (`report.md`, `digest.jsonl`) as text, with a reason. */
+    suspend fun fieldExport(id: LabRunId, export: String, reason: String): String =
+        call<ByteArray>(ApiRoutes.adminFieldGame(id, export), AdminReasonRequest(reason)).decodeToString()
 
     suspend fun deleteLabRun(id: LabRunId, reason: String) {
         call<Unit>(ApiRoutes.adminLabRun(id, "delete"), AdminReasonRequest(reason))

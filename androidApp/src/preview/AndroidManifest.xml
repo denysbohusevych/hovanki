@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Sentry starts from installCrashReporting (HovankiApplication), and only with a DSN in the build:
+             not by its content provider, which would start it without one and before the app's own options. -->
+        <meta-data
+            android:name="io.sentry.auto-init"
+            android:value="false" />
+        <!-- The UUID of this build's R8 mapping (-Phovanki.sentryProguardUuid), which the SDK puts in every event so
+             that Sentry can read the stack traces. Empty without the property: installCrashReporting ignores it. -->
+        <meta-data
+            android:name="io.sentry.proguard-uuid"
+            android:value="${sentryProguardUuid}" />
+    </application>
+</manifest>

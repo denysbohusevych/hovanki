@@ -257,6 +257,7 @@ fun LobbyMapPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
         title = stringResource(Res.string.lobby_map_title),
         onClose = viewModel::closeMap,
         modifier = Modifier.testTag(TestTags.LOBBY_MAP_PANEL),
+        screen = "lobby_map",
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             LobbyMap(state, interactive = true, modifier = Modifier.fillMaxSize())

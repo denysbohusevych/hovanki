@@ -99,6 +99,43 @@ class LabLiveTest {
     }
 
     @Test
+    fun aSummaryCountsAsItsReadings() {
+        // A second of 9 readings (median -70) and one of a single reading at -50: ten heard, the median of all ten.
+        val summaries = listOf(
+            event(
+                """{"t":${now - 2_000},"k":"rx","app":"active","token":"aaaa0001","rssi":-70,"n":9,"max":-61,""" +
+                    """"api":"android_le","via":"service_data","seq":1}""",
+            ),
+            event(
+                """{"t":${now - 1_000},"k":"rx","app":"active","token":"aaaa0001","rssi":-50,"n":1,"max":-50,""" +
+                    """"api":"android_le","via":"service_data","seq":2}""",
+            ),
+        )
+        live.accept("run", b.id, summaries, now)
+
+        val pair = live.view("run", listOf(a, b), now).pairs.single()
+        assertEquals(10, pair.heardInLast10s)
+        assertEquals(-70, pair.medianRssi)
+    }
+
+    @Test
+    fun aGamesLogShowsItsDevicesWithoutPairs() {
+        // A game's senders are its rotating tokens, which no device of the run has: nothing to name them by.
+        live.accept(
+            "game",
+            a.id,
+            listOf(rx(now - 1_000, "a1b2c3d4", -60, 1), event("""{"t":${now - 500},"k":"bt","state":"on","seq":2}""")),
+            now,
+            pairs = false,
+        )
+
+        val view = live.view("game", listOf(a, b), now)
+        assertEquals(emptyList(), view.pairs)
+        assertEquals("on", view.devices.first { it.label == "A" }.bluetooth)
+        assertEquals(now - 500, view.devices.first { it.label == "A" }.lastEventAtMillis)
+    }
+
+    @Test
     fun aRunNothingCameFromIsForgotten() {
         live.accept("run", a.id, listOf(rx(now - 1_000, "bbbb0002", -60, 1)), now)
         live.accept("other", b.id, listOf(rx(now - 1_000, "aaaa0001", -60, 1)), now + LabLive.IDLE_MILLIS)

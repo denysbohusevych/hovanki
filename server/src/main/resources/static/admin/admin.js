@@ -5,6 +5,7 @@
 // - every request carries the X-Hovanki-Admin header (CSRF) and the session cookie, which scripts can't read.
 
 import { ZoneMap, areaSquareMeters } from "./map.js";
+import { createFieldTab } from "./field.js";
 
 const API = "/api/v1/admin";
 const ROLE = { PLAYER: "игрок", MODERATOR: "модератор", ADMIN: "админ" };
@@ -20,6 +21,7 @@ const ACTION = {
   WATCH_GAME: "смотрел игру вживую",
   LAB_RUN_CREATE: "создал прогон радиолабы", LAB_RUN_CONTROL: "управлял прогоном радиолабы",
   LAB_RUN_DOWNLOAD: "скачал журналы прогона", LAB_RUN_DELETE: "удалил прогон радиолабы",
+  FIELD_EXPORT: "выгрузил отчёт полевой игры", FIELD_MARK: "поставил отметку в полевой игре",
 };
 const MODERATOR_MAX_DAYS = 30;
 
@@ -42,7 +44,7 @@ function el(tag, attrs = {}, ...children) {
 }
 
 function append(node, children) {
-  for (const child of children.flat()) {
+  for (const child of children.flat(Infinity)) {
     if (child === null || child === undefined || child === false) continue;
     node.append(child instanceof Node ? child : document.createTextNode(String(child)));
   }
@@ -127,6 +129,7 @@ async function api(method, path, body) {
 
 const get = (path) => api("GET", path);
 const post = (path, body = {}) => api("POST", path, body);
+const del = (path, body) => api("DELETE", path, body);
 
 /** Runs an action; errors become a notice, a lost session goes back to the login. */
 async function run(action, done) {
@@ -329,7 +332,8 @@ function qrSvg(rows) {
 
 const PAGES = [
   ["reports", "Жалобы"], ["users", "Пользователи"], ["games", "Игры"], ["features", "Возможности"], ["stats", "Цифры"],
-  ["big", "Большие игры", true], ["lab", "Радиолаба", true], ["staff", "Сотрудники", true], ["audit", "Журнал", true],
+  ["big", "Большие игры", true], ["lab", "Радиолаба", true], ["field", "Полевые тесты", true], ["staff", "Сотрудники", true],
+  ["audit", "Журнал", true],
 ];
 
 function frame(page, openReports) {
@@ -352,9 +356,19 @@ function frame(page, openReports) {
   who.hidden = false;
 }
 
+// The field tests' tab (field.js): the helpers it needs, handed over.
+const fieldTab = createFieldTab({
+  el, get, post, del, send, run, ask, fmt, frame, show, go, notice, ApiError, errorText,
+  sessionLost() {
+    me = null;
+    route();
+  },
+});
+
 async function route() {
   stopLive();
   stopLab();
+  fieldTab.stop();
   if (!me) {
     try {
       me = await get("/me");
@@ -383,6 +397,9 @@ async function route() {
     else if (page === "lab" && isAdmin() && id && sub === "report") await labReportView(decodeURIComponent(id));
     else if (page === "lab" && isAdmin() && id) await labRunView(decodeURIComponent(id));
     else if (page === "lab" && isAdmin()) await labRunsView();
+    else if (page === "field" && isAdmin() && id && sub === "report") await fieldTab.reportView(decodeURIComponent(id));
+    else if (page === "field" && isAdmin() && id) await fieldTab.gameView(decodeURIComponent(id));
+    else if (page === "field" && isAdmin()) await fieldTab.listView();
     else await reportsView(id === "all");
   } catch {
     // run() showed it.
@@ -856,6 +873,7 @@ const FEATURES = {
   POCKET_STEALTH: { title: "Карман прячет", about: "телефон в кармане читается ищущим на ступень холоднее" },
   LIVE_SOCKET: { title: "Живой канал (WebSocket)", about: "приложения синхронизируются через сокет, события приходят сразу; выключили — опрос, как раньше" },
   RADIO_LAB: { title: "Радиолаба", about: "телефоны debug-сборки входят в прогон по коду и шлют журналы радио на сервер; отчёт — во вкладке «Радиолаба»" },
+  FIELD_LOG: { title: "Полевой журнал", about: "тестовая сборка (preview) с согласия тестера пишет журнал игры с координатами и шлёт его на сервер; только на staging, на проде выключен" },
 };
 
 /** A feature this page doesn't know (a newer server) goes by its enum name. */
@@ -1384,6 +1402,11 @@ async function labRunView(id) {
     return;
   }
   if (generation !== labGeneration) return;
+  // A game's field log is no lab run: its own tab shows it (an old link lands here).
+  if (view.run.kind === "GAME") {
+    go(`#/field/${encodeURIComponent(id)}`);
+    return;
+  }
   frame("lab");
   let offset = view.state.serverTimeMillis - Date.now();
   const head = el("div");
@@ -1621,6 +1644,12 @@ async function labDelete(r) {
 // The report
 
 async function labReportView(id) {
+  const view = await get(labPath(id)).catch(() => null);
+  // A game's report is a FieldReport, which the field tab shows (an old link lands here).
+  if (view?.run.kind === "GAME") {
+    go(`#/field/${encodeURIComponent(id)}/report`);
+    return;
+  }
   let report;
   try {
     report = await get(labPath(id, "report"));
@@ -1634,7 +1663,6 @@ async function labReportView(id) {
     }
     return;
   }
-  const view = await get(labPath(id)).catch(() => null);
   frame("lab");
   const empty = (list) => (list?.length ? null : el("p", { class: "muted" }, "Нет данных."));
   const table = (headers, rows) => el("table", {}, el("tr", {}, headers.map((t) => el("th", {}, t))), rows);

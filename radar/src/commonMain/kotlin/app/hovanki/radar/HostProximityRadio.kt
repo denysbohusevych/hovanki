@@ -31,13 +31,18 @@ class HostProximityRadio(
         return if (chosen.isEmpty()) run(tokens, asSeeker) else runChannels(tokens, asSeeker, chosen)
     }
 
+    /** [mix]'s channels on the host; sightings from its game's only, the shadow's read into the trace alone. */
+    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean, mix: ChannelMix): Flow<RadioSighting> =
+        runChannels(tokens, asSeeker, mix.game, mix.all)
+
     private fun runChannels(
         tokens: StateFlow<String?>,
         asSeeker: Boolean,
         chosen: List<RadarChannel>,
+        running: List<RadarChannel> = chosen,
     ): Flow<RadioSighting> {
         val role = if (asSeeker) RadarRole.SEEKER else RadarRole.HIDER
-        return host.run(chosen, tokens, role, trace).transform { frame ->
+        return host.run(running, tokens, role, trace).transform { frame ->
             // One sighting a token: two of the lab's channels may read the same bytes (the service data's layouts).
             for ((tech, decoded) in chosen.decode(frame).distinctBy { it.second.token to it.second.via }) {
                 if (!RadarToken.isWellFormed(decoded.token)) continue

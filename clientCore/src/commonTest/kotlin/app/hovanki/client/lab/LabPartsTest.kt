@@ -34,6 +34,22 @@ class LabPartsTest {
     }
 
     @Test
+    fun theQuestionsAreSpacedOut() = runTest {
+        val asked = mutableListOf<Long>()
+        val sync = LabClockSync(
+            serverTime = {
+                asked += testScheduler.currentTime
+                1_000L
+            },
+            deviceTimeMillis = { 0L },
+            monotonicMillis = { testScheduler.currentTime },
+            spacingMillis = 200,
+        )
+        assertEquals(3, sync.measure(count = 3)?.samples)
+        assertEquals(listOf(0L, 200L, 400L), asked)
+    }
+
+    @Test
     fun noAnswerNoEstimate() = runTest {
         val sync = LabClockSync({ error("offline") }, { 0L }, { 0L })
         assertNull(sync.measure())

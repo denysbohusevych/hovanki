@@ -4,6 +4,9 @@ import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.HttpSupport
 import app.hovanki.client.network.ServerUrl
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.FieldJoinRequest
+import app.hovanki.shared.protocol.FieldJoinResponse
+import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.LabAdvanceRequest
 import app.hovanki.shared.protocol.LabEventsResponse
 import app.hovanki.shared.protocol.LabJoinRequest
@@ -31,7 +34,24 @@ import io.ktor.http.content.ByteArrayContent
  * Throws [ApiException] when the server rejects a call, and I/O or serialization exceptions on network problems.
  */
 interface LabApi {
-    suspend fun join(request: LabJoinRequest): LabJoinResponse
+    /**
+     * [accountToken]: the logged-in account's, sent along where there is one: a test server lets only staff join
+     * (docs/adr/0018-field-test-build.md §4.D).
+     */
+    suspend fun join(request: LabJoinRequest, accountToken: String? = null): LabJoinResponse
+
+    /**
+     * The field log (docs/adr/0018-field-test-build.md §3.1): this phone joins the log of its game [gameId] with the
+     * player's game token [playerToken]; the uploads then go through [upload] with the answer's token. 404 while the
+     * server has FIELD_LOG off.
+     */
+    suspend fun fieldJoin(gameId: GameId, playerToken: String, request: FieldJoinRequest): FieldJoinResponse
+
+    /**
+     * This phone left the field log of its game [gameId] (the log stopped, or the tester took the consent back): the
+     * server's own events of the game stop naming the player. 404 while the server has FIELD_LOG off.
+     */
+    suspend fun fieldLeave(gameId: GameId, playerToken: String) = Unit
 
     suspend fun state(runId: LabRunId, token: String): LabRunStateView
 
@@ -57,7 +77,14 @@ interface LabApi {
 class HttpLabApi(client: HttpClient, serverUrl: ServerUrl) : LabApi {
     private val http = HttpSupport(client, serverUrl)
 
-    override suspend fun join(request: LabJoinRequest): LabJoinResponse = http.post(ApiRoutes.LAB_JOIN, null, request)
+    override suspend fun join(request: LabJoinRequest, accountToken: String?): LabJoinResponse =
+        http.post(ApiRoutes.LAB_JOIN, accountToken, request)
+
+    override suspend fun fieldJoin(gameId: GameId, playerToken: String, request: FieldJoinRequest): FieldJoinResponse =
+        http.post(ApiRoutes.gameFieldJoin(gameId), playerToken, request)
+
+    override suspend fun fieldLeave(gameId: GameId, playerToken: String): Unit =
+        http.post(ApiRoutes.gameFieldLeave(gameId), playerToken)
 
     override suspend fun state(runId: LabRunId, token: String): LabRunStateView =
         http.get(ApiRoutes.labState(runId), token)

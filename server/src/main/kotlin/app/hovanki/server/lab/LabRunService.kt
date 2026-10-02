@@ -1,8 +1,10 @@
 package app.hovanki.server.lab
 
 import app.hovanki.server.account.AccountKeys
+import app.hovanki.server.account.UserRepository
 import app.hovanki.server.admin.AuditLog
 import app.hovanki.server.admin.Staff
+import app.hovanki.server.api.AuthenticatedUser
 import app.hovanki.server.features.FeatureFlags
 import app.hovanki.server.game.GameException
 import app.hovanki.server.game.IdGenerator
@@ -14,7 +16,10 @@ import app.hovanki.shared.lab.LabPlanState
 import app.hovanki.shared.lab.LabRunPlan
 import app.hovanki.shared.lab.LabRunScript
 import app.hovanki.shared.lab.LabRunScripts
+import app.hovanki.shared.lab.LabSchema
 import app.hovanki.shared.protocol.AdminAction
+import app.hovanki.shared.protocol.AdminFieldGameView
+import app.hovanki.shared.protocol.AdminFieldGames
 import app.hovanki.shared.protocol.AdminLabAdvanceRequest
 import app.hovanki.shared.protocol.AdminLabDevice
 import app.hovanki.shared.protocol.AdminLabRun
@@ -29,6 +34,7 @@ import app.hovanki.shared.protocol.LabJoinRequest
 import app.hovanki.shared.protocol.LabJoinResponse
 import app.hovanki.shared.protocol.LabRunAction
 import app.hovanki.shared.protocol.LabRunId
+import app.hovanki.shared.protocol.LabRunKind
 import app.hovanki.shared.protocol.LabRunStateView
 import app.hovanki.shared.protocol.LabRunStatus
 import app.hovanki.shared.protocol.LabUpload
@@ -55,8 +61,16 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.random.asKotlinRandom
 
-/** The device of a lab route's bearer token ([app.hovanki.server.api.LabDeviceArgumentResolver]). */
-data class LabDeviceRef(val deviceId: String, val runId: String, val label: String)
+/**
+ * The device of a lab route's bearer token ([app.hovanki.server.api.LabDeviceArgumentResolver]), in a lab run or in a
+ * game's field log ([kind]).
+ */
+data class LabDeviceRef(
+    val deviceId: String,
+    val runId: String,
+    val label: String,
+    val kind: LabRunKind = LabRunKind.LAB,
+)
 
 /** An upload's bounds, as the query parameters of [app.hovanki.shared.protocol.ApiRoutes.LAB_EVENTS] carry them. */
 data class LabBatchBounds(
@@ -85,7 +99,13 @@ class LabRawLogs(val fileName: String, val writeTo: (OutputStream) -> Unit)
  * stored ([ErrorReason.LIMIT_REACHED]). The run's row is locked for every change, so the plan moves one step at a time
  * whoever asks. The timed steps move when somebody looks (a phone's poll, the admin's page): the stored state may lag,
  * never what is answered. Admins only on the admin side, with a reason, written to the audit log in the same
- * transaction as the change.
+ * transaction as the change. On a test server ([LabProperties.joinStaffOnly]) only staff join, with their account
+ * token (docs/adr/0018-field-test-build.md §4.D).
+ *
+ * A game's field log (docs/adr/0018-field-test-build.md §3, [LabRunKind.GAME]) is opened by [FieldRunService]; its
+ * phones upload here like the lab's ([acceptChunk]), behind [ServerFeature.FIELD_LOG] and with the limits of
+ * [FieldProperties]. Only its `gps` events may say where somebody was ([LabSchema.COORDINATES]): every other line, and
+ * every line of a lab run, is stored without them.
  */
 @Service
 class LabRunService(
@@ -96,6 +116,8 @@ class LabRunService(
     private val live: LabLive,
     private val reports: LabReportWriter,
     private val properties: LabProperties,
+    private val field: FieldProperties,
+    private val users: UserRepository,
     private val ids: IdGenerator,
     private val clock: Clock,
     transactionManager: PlatformTransactionManager,
@@ -107,16 +129,36 @@ class LabRunService(
     // Phones
 
     /** 404 while the operator has the lab off: the phone routes don't exist then. */
-    fun requireEnabled() {
-        if (!features.isEnabled(ServerFeature.RADIO_LAB)) throw GameException(ErrorCode.NOT_FOUND, "Not found")
+    fun requireEnabled() = requireEnabled(LabRunKind.LAB)
+
+    /** 404 while the operator has the switch of [kind]'s runs off: the lab's RADIO_LAB, the field log's FIELD_LOG. */
+    fun requireEnabled(kind: LabRunKind) {
+        if (!features.isEnabled(switchOf(kind))) throw GameException(ErrorCode.NOT_FOUND, "Not found")
+    }
+
+    /** 404 while neither the lab nor the field log is on: the upload routes don't exist then. */
+    fun requireAnyEnabled() {
+        if (LabRunKind.entries.none { features.isEnabled(switchOf(it)) }) {
+            throw GameException(ErrorCode.NOT_FOUND, "Not found")
+        }
     }
 
     /** The device of a bearer token; null: no such device (or its run was deleted). */
-    fun device(token: String): LabDeviceRef? =
-        repository.findDeviceByTokenHash(AccountKeys.tokenHash(token))?.let { LabDeviceRef(it.id, it.runId, it.label) }
+    fun device(token: String): LabDeviceRef? = repository.findDeviceRefByTokenHash(AccountKeys.tokenHash(token))
 
-    fun join(request: LabJoinRequest, remoteAddr: String): LabJoinResponse {
+    /** Only staff join a run here ([LabProperties.joinStaffOnly]): only then the phone's account token is looked at. */
+    val joinStaffOnly: Boolean get() = properties.joinStaffOnly
+
+    /**
+     * [user]: the account of the token the phone sent along, if any; a server that lets only staff join
+     * ([LabProperties.joinStaffOnly], a test server whose release-code builds have the lab for staff) refuses anybody
+     * else.
+     */
+    fun join(request: LabJoinRequest, remoteAddr: String, user: AuthenticatedUser? = null): LabJoinResponse {
         requireEnabled()
+        if (properties.joinStaffOnly && user?.let { users.findById(it.userId)?.role?.isStaff } != true) {
+            throw GameException(ErrorCode.FORBIDDEN, "Staff only: log in with a staff account")
+        }
         rateLimiter.acquire(RateLimit.LAB_JOIN_PER_IP, remoteAddr)
         val code = LabJoinCode.normalize(request.code) ?: throw noSuchRun()
         val label = request.label.trim()
@@ -124,6 +166,8 @@ class LabRunService(
         val now = clock.instant()
         return locked({ repository.lockRunByCode(code) }, now) { locked ->
             val run = locked.run
+            // A game's run has no code to join by; this only guards the rule.
+            if (run.kind != LabRunKind.LAB) throw noSuchRun()
             if (!joinOpen(run, now)) throw closed()
             val script = locked.script ?: throw noScript()
             if (label !in script.labels) {
@@ -162,9 +206,10 @@ class LabRunService(
         }
     }
 
-    /** Where the run is now; the timed steps due by now are done first. */
+    /** Where the run is now; the timed steps due by now are done first. A game's run has no plan: 404. */
     fun state(device: LabDeviceRef): LabRunStateView {
         requireEnabled()
+        if (device.kind != LabRunKind.LAB) throw noSuchRun()
         val now = clock.instant()
         return locked({ repository.lockRun(device.runId) }, now) { phoneView(it.run, now) }
     }
@@ -172,6 +217,7 @@ class LabRunService(
     /** A control action from a phone: the same as the admin's, without the audit log (the phones are the lab's). */
     fun advance(device: LabDeviceRef, action: LabRunAction): LabRunStateView {
         requireEnabled()
+        if (device.kind != LabRunKind.LAB) throw noSuchRun()
         val now = clock.instant()
         return locked({ repository.lockRun(device.runId) }, now) { locked ->
             val script = locked.script ?: throw noScript()
@@ -209,7 +255,9 @@ class LabRunService(
      * than [LabProperties.maxChunkBytes] of it. A chunk whose first event is stored already (a retried upload) is not
      * stored again; the answer then acknowledges only what the server has, so a retry that grew meanwhile sends its
      * new events again from there. Every line must be an event of the batch (`k`, `dt`, and `seq` within the bounds);
-     * the server keeps it gzipped.
+     * the server keeps it gzipped. Lines lose their coordinates ([LabSchema.keptInRun]) unless they are the `gps` of a
+     * game's field log. A game's run has the limits of [FieldProperties] (its own and all games' together,
+     * [FieldProperties.maxTotalBytes]) and its own switch.
      */
     fun acceptChunk(
         device: LabDeviceRef,
@@ -218,7 +266,7 @@ class LabRunService(
         declaredLength: Long,
         gzipped: Boolean,
     ): LabEventsResponse {
-        requireEnabled()
+        requireEnabled(device.kind)
         rateLimiter.acquire(RateLimit.LAB_EVENTS_PER_DEVICE, device.deviceId)
         if (bounds.seqFrom < 0 || bounds.seqTo < bounds.seqFrom || bounds.count !in 1..LabUpload.MAX_EVENTS) {
             throw GameException(ErrorCode.BAD_REQUEST, "Bad batch bounds")
@@ -235,8 +283,18 @@ class LabRunService(
         } else {
             received
         }
-        val events = events(plain, bounds)
-        val stored = if (gzipped) received else LabChunks.gzip(plain)
+        val parsed = events(plain, bounds)
+        // Only a game's field log may say where somebody was, and only in its `gps` events: every other line is kept
+        // without it (refused, a buggy uploader would stall on it).
+        val fieldRun = device.kind == LabRunKind.GAME
+        val events = parsed.map { LabSchema.keptInRun(it, fieldRun) }
+        val stripped = events.indices.any { events[it] !== parsed[it] }
+        val stored = when {
+            stripped -> LabChunks.gzip(events.joinToString("") { "$it\n" }.toByteArray(Charsets.UTF_8))
+            gzipped -> received
+            else -> LabChunks.gzip(plain)
+        }
+        val maxRunBytes = if (device.kind == LabRunKind.GAME) field.maxRunBytes else properties.maxRunBytes
         val now = clock.instant()
         var inserted = false
         var finished = false
@@ -244,8 +302,15 @@ class LabRunService(
             if (!uploadOpen(locked.run, now)) throw closed()
             finished = locked.run.plan.status == LabRunStatus.FINISHED
             if (!repository.chunkExists(device.deviceId, bounds.seqFrom)) {
-                if (repository.runBytes(device.runId) + stored.size > properties.maxRunBytes.toBytes()) {
+                if (repository.runBytes(device.runId) + stored.size > maxRunBytes.toBytes()) {
                     throw tooBig("The run has all the logs it may have")
+                }
+                // All games' logs together: the database's disk is production's too. Not under one lock: two runs'
+                // uploads may pass it at once, by a chunk each.
+                if (device.kind == LabRunKind.GAME &&
+                    repository.gameRunsBytes() + stored.size > field.maxTotalBytes.toBytes()
+                ) {
+                    throw tooBig("The field logs have all the room they may have")
                 }
                 inserted = repository.insertChunk(
                     deviceId = device.deviceId,
@@ -258,13 +323,18 @@ class LabRunService(
                     receivedAt = now,
                 )
                 // Under the run's lock: a finish or a delete drops the live view after this, never before.
-                if (inserted && !finished) live.accept(device.runId, device.deviceId, events, now.toEpochMilli())
+                // A game's senders are its rotating tokens, no device's: its live view has no pairs.
+                if (inserted && !finished) {
+                    live.accept(device.runId, device.deviceId, events, now.toEpochMilli(), pairs = !fieldRun)
+                }
             }
             // What the server has: a retry cut differently than the stored chunk goes on after it.
             repository.lastSeq(device.deviceId) ?: (bounds.seqFrom - 1)
         }
-        // A finished run's report is computed again with its last logs.
-        if (inserted && finished) reports.compute(device.runId)
+        // A finished run's report is computed again with its last logs; a game's report follows its logs as they come,
+        // live while it plays, whole after it, at most every hovanki.field.report-every (field-test.md step 6).
+        if (inserted && finished && device.kind == LabRunKind.LAB) reports.compute(device.runId)
+        if (inserted && device.kind == LabRunKind.GAME) reports.computeSoon(device.runId)
         return LabEventsResponse(acked, now.toEpochMilli())
     }
 
@@ -273,13 +343,49 @@ class LabRunService(
     fun list(staff: Staff): AdminLabRuns {
         requireAdmin(staff)
         val now = clock.millis()
-        val runs = repository.listRuns(LIST_SIZE).map { row ->
+        val runs = repository.listRuns(LIST_SIZE, LabRunKind.LAB).map { row ->
             // The timed steps that ended since anybody looked, as the next look will save them.
             val script = scriptOf(row.run)
             val plan = script?.let { LabRunPlan.advanceByTime(it, row.run.plan, now) } ?: row.run.plan
             admin(row.run.copy(plan = plan), row.devices, row.bytes, row.reportReady)
         }
         return AdminLabRuns(runs, LabRunScripts.ALL.map { it.summary() })
+    }
+
+    /** The field runs of games, newest first (docs/adr/0018-field-test-build.md §6): their own list, not the lab's. */
+    fun fieldGames(staff: Staff): AdminFieldGames {
+        requireAdmin(staff)
+        return AdminFieldGames(
+            repository.listRuns(LIST_SIZE, LabRunKind.GAME).map { admin(it.run, it.devices, it.bytes, it.reportReady) },
+        )
+    }
+
+    /** A game's run with its phones and the live view; 404: no such field run (a lab run is not one). */
+    fun fieldGame(staff: Staff, id: LabRunId): AdminFieldGameView {
+        requireAdmin(staff)
+        val run = repository.findRun(id.value)?.takeIf { it.kind == LabRunKind.GAME } ?: throw noSuchRun()
+        val now = clock.millis()
+        val devices = repository.devicesOf(run.id)
+        return AdminFieldGameView(
+            run = admin(run, devices.size, devices.sumOf { it.bytes }, repository.reportExists(run.id)),
+            devices = devices.map(::adminDevice),
+            live = live.view(run.id, devices, now),
+            serverTimeMillis = now,
+        )
+    }
+
+    /** The stored report's JSON of a game's run (`FieldReport`); 404: no such field run, or no report yet. */
+    fun fieldReport(staff: Staff, id: LabRunId): String {
+        requireAdmin(staff)
+        repository.findRun(id.value)?.takeIf { it.kind == LabRunKind.GAME } ?: throw noSuchRun()
+        return repository.findReport(id.value) ?: throw GameException(ErrorCode.NOT_FOUND, "No report yet")
+    }
+
+    /** Deletes a game's field run with its devices, logs and report; 404 for a lab run (that is [delete]). */
+    fun deleteFieldGame(staff: Staff, id: LabRunId, reason: String) {
+        requireAdmin(staff)
+        repository.findRun(id.value)?.takeIf { it.kind == LabRunKind.GAME } ?: throw noSuchRun()
+        delete(staff, id, reason)
     }
 
     fun create(staff: Staff, request: AdminLabRunRequest): AdminLabRun {
@@ -333,6 +439,7 @@ class LabRunService(
         val reason = validReason(request.reason)
         val now = clock.instant()
         val run = locked({ repository.lockRun(id.value) }, now) { locked ->
+            // A game's run has no plan.
             val script = locked.script ?: throw noScript()
             val before = locked.run.plan
             val after = LabRunPlan.apply(script, before, request.action, now.toEpochMilli())
@@ -347,12 +454,16 @@ class LabRunService(
         return adminView(run, now)
     }
 
-    /** Ends the run where it is and computes its report (again, for a run that ended by its plan). */
+    /**
+     * Ends the run where it is and computes its report (again, for a run that ended by its plan). A game's run ends with
+     * its game ([FieldRunService.closeRunsOfGoneGames]), not here.
+     */
     fun finish(staff: Staff, id: LabRunId, reason: String): AdminLabRunView {
         requireAdmin(staff)
         val why = validReason(reason)
         val now = clock.instant()
         val run = locked({ repository.lockRun(id.value) }, now) { locked ->
+            if (locked.run.kind != LabRunKind.LAB) throw noScript()
             locked.save(LabRunPlan.finish(locked.run.plan))
             val target = "${describe(locked.run)}: finish"
             audit.record(staff, AdminAction.LAB_RUN_CONTROL, now, target = target, reason = why)
@@ -366,7 +477,8 @@ class LabRunService(
     /** The report's JSON (`app.hovanki.shared.lab.LabReport`); 404 until it is computed. */
     fun report(staff: Staff, id: LabRunId): String {
         requireAdmin(staff)
-        repository.findRun(id.value) ?: throw noSuchRun()
+        // A game's run has a field report of another shape: that is [fieldReport]'s.
+        repository.findRun(id.value)?.takeIf { it.kind == LabRunKind.LAB } ?: throw noSuchRun()
         return repository.findReport(id.value) ?: throw GameException(ErrorCode.NOT_FOUND, "No report yet")
     }
 
@@ -380,7 +492,8 @@ class LabRunService(
         val run = repository.findRun(id.value) ?: throw noSuchRun()
         val devices = repository.devicesOf(run.id)
         audit.record(staff, AdminAction.LAB_RUN_DOWNLOAD, clock.instant(), target = describe(run), reason = why)
-        return LabRawLogs("hovanki-lab-${run.code}.zip") { out ->
+        val name = if (run.kind == LabRunKind.GAME) "hovanki-field-${run.gameId}" else "hovanki-lab-${run.code}"
+        return LabRawLogs("$name.zip") { out ->
             ZipOutputStream(out).use { zip ->
                 for (device in devices) {
                     zip.putNextEntry(ZipEntry("hovanki-lab-${device.label}-${device.id}.jsonl"))
@@ -401,6 +514,7 @@ class LabRunService(
             audit.record(staff, AdminAction.LAB_RUN_DELETE, clock.instant(), target = describe(run), reason = why)
         }
         live.drop(id.value)
+        reports.forget(id.value)
     }
 
     // The run locked
@@ -445,8 +559,11 @@ class LabRunService(
         run.plan.status != LabRunStatus.FINISHED && now.isBefore(run.createdAt + properties.joinWindow)
 
     private fun uploadOpen(run: LabRunRecord, now: Instant): Boolean {
-        if (run.plan.status != LabRunStatus.FINISHED) return now.isBefore(run.createdAt + properties.joinWindow)
-        return now.isBefore((run.finishedAt ?: run.createdAt) + properties.uploadGrace)
+        val game = run.kind == LabRunKind.GAME
+        val joinWindow = if (game) field.joinWindow else properties.joinWindow
+        val uploadGrace = if (game) field.uploadGrace else properties.uploadGrace
+        if (run.plan.status != LabRunStatus.FINISHED) return now.isBefore(run.createdAt + joinWindow)
+        return now.isBefore((run.finishedAt ?: run.createdAt) + uploadGrace)
     }
 
     // Views
@@ -467,34 +584,43 @@ class LabRunService(
             state = view(run, now),
             labels = script?.labels ?: devices.map { it.label }.distinct(),
             steps = script?.stepViews().orEmpty(),
-            devices = devices.map { device ->
-                AdminLabDevice(
-                    id = device.id,
-                    label = device.label,
-                    model = device.model,
-                    os = device.os,
-                    build = device.build,
-                    commit = device.commit,
-                    capabilities = device.capabilities,
-                    joinedAtMillis = device.joinedAt.toEpochMilli(),
-                    lastChunkAtMillis = device.lastChunkAt?.toEpochMilli(),
-                    lastSeq = device.lastSeq,
-                    bytes = device.bytes,
-                    events = device.events,
-                )
-            },
+            devices = devices.map(::adminDevice),
             live = live.view(run.id, devices, now.toEpochMilli()),
         )
     }
 
+    private fun adminDevice(device: LabDeviceRecord) = AdminLabDevice(
+        id = device.id,
+        label = device.label,
+        model = device.model,
+        os = device.os,
+        build = device.build,
+        commit = device.commit,
+        capabilities = device.capabilities,
+        joinedAtMillis = device.joinedAt.toEpochMilli(),
+        lastChunkAtMillis = device.lastChunkAt?.toEpochMilli(),
+        lastSeq = device.lastSeq,
+        bytes = device.bytes,
+        events = device.events,
+        consentAtMillis = device.consentAt?.toEpochMilli(),
+    )
+
     private fun admin(run: LabRunRecord, devices: Int, bytes: Long, reportReady: Boolean): AdminLabRun {
-        val qr = QrCode.encode(LabJoinCode.qrPayload(run.code))
-        val rows = (0 until qr.size).map { y ->
-            buildString(qr.size) { for (x in 0 until qr.size) append(if (qr[x, y]) '1' else '0') }
+        // A game's run has no code to join by: no QR, no code.
+        val lab = run.kind == LabRunKind.LAB
+        val rows = if (!lab) {
+            emptyList()
+        } else {
+            val qr = QrCode.encode(LabJoinCode.qrPayload(run.code))
+            (0 until qr.size).map { y ->
+                buildString(qr.size) { for (x in 0 until qr.size) append(if (qr[x, y]) '1' else '0') }
+            }
         }
         return AdminLabRun(
             id = LabRunId(run.id),
-            code = run.code,
+            code = if (lab) run.code else "",
+            kind = run.kind,
+            gameId = run.gameId,
             qr = rows,
             title = run.title,
             scenarioId = run.scenarioId,
@@ -570,6 +696,12 @@ class LabRunService(
         val BASE64 = Regex("[A-Za-z0-9+/]+={0,2}")
 
         fun describe(run: LabRunRecord) = "lab run ${run.id} «${run.title}»"
+
+        /** The operator's switch of [kind]'s runs. */
+        fun switchOf(kind: LabRunKind): ServerFeature = when (kind) {
+            LabRunKind.LAB -> ServerFeature.RADIO_LAB
+            LabRunKind.GAME -> ServerFeature.FIELD_LOG
+        }
 
         fun String.clip(): String = trim().take(TEXT_MAX_LENGTH)
 

@@ -252,6 +252,20 @@ object ApiRoutes {
     const val LAB_EVENTS = "$LAB_RUNS/{runId}/events"
 
     /**
+     * POST [FieldJoinRequest] with the player's game token: [FieldJoinResponse], the game's field log
+     * (docs/adr/0018-field-test-build.md §3.1); the uploads then go to [LAB_EVENTS]. 404 while the server has
+     * [ServerFeature.FIELD_LOG] off.
+     */
+    const val GAME_FIELD_JOIN = "$GAMES/{gameId}/field/join"
+
+    /**
+     * POST with the player's game token, no body (204): the phone left its game's field log (the log stopped, or the
+     * tester took the consent back); the server's own events of the game stop naming the player
+     * (docs/adr/0018-field-test-build.md §3.3). 404 while the server has [ServerFeature.FIELD_LOG] off.
+     */
+    const val GAME_FIELD_LEAVE = "$GAMES/{gameId}/field/leave"
+
+    /**
      * POST [LabUwbTokenRequest] with the device token: this device's UWB discovery token for the run's other phones
      * (a new one replaces the old); [LabRunStateView] with every device's.
      */
@@ -279,6 +293,32 @@ object ApiRoutes {
 
     /** POST [AdminReasonRequest], 204: the run goes with everything of it. */
     const val ADMIN_LAB_RUN_DELETE = "$ADMIN_LAB_RUN/delete"
+
+    // The field log's games in the admin (docs/adr/0018-field-test-build.md §6): admins only, every export audited.
+
+    /** GET: [AdminFieldGames], the field runs of games (newest first); the lab's list has the lab's runs only. */
+    const val ADMIN_FIELD_GAMES = "$ADMIN/field/games"
+
+    /**
+     * A game's field run ([LabRunId] of `LabRunKind.GAME`): GET [AdminFieldGameView] (its run, phones and live view);
+     * DELETE [AdminReasonRequest], 204: the run goes with its logs and report. The exports are under it.
+     */
+    const val ADMIN_FIELD_GAME = "$ADMIN/field/games/{runId}"
+
+    /** GET: the game's stored report (`app.hovanki.shared.lab.FieldReport`, players P1…Pn); 404 until it is computed. */
+    const val ADMIN_FIELD_GAME_REPORT = "$ADMIN_FIELD_GAME/report"
+
+    /** POST [AdminFieldMarkRequest], 204: an organizer's mark in the game's log, at the server's time now. */
+    const val ADMIN_FIELD_GAME_MARKS = "$ADMIN_FIELD_GAME/marks"
+
+    /** POST [AdminReasonRequest]: the game's report as Markdown (`text/markdown`), players P1…Pn, no coordinates. */
+    const val ADMIN_FIELD_GAME_REPORT_MD = "$ADMIN_FIELD_GAME/report.md"
+
+    /** POST [AdminReasonRequest]: `digest.jsonl` (`application/x-ndjson`) for an AI: P1…Pn, no coordinates. */
+    const val ADMIN_FIELD_GAME_DIGEST = "$ADMIN_FIELD_GAME/digest.jsonl"
+
+    /** POST [AdminFieldRawRequest]: the raw logs (`application/zip`), all or a slice of devices and time. */
+    const val ADMIN_FIELD_GAME_RAW = "$ADMIN_FIELD_GAME/raw.zip"
 
     /** Every admin request carries `X-Hovanki-Admin: 1`: another site can't send it without CORS (CSRF). */
     const val ADMIN_HEADER = "X-Hovanki-Admin"
@@ -417,12 +457,22 @@ object ApiRoutes {
 
     fun labEvents(runId: LabRunId): String = LAB_EVENTS.fill("runId" to runId.value)
 
+    fun gameFieldJoin(gameId: GameId): String = GAME_FIELD_JOIN.fill("gameId" to gameId.value)
+
+    fun gameFieldLeave(gameId: GameId): String = GAME_FIELD_LEAVE.fill("gameId" to gameId.value)
+
     fun labUwb(runId: LabRunId): String = LAB_UWB.fill("runId" to runId.value)
 
     /** [ADMIN_LAB_RUN] and the actions under it: `adminLabRun(id)`, `adminLabRun(id, "finish")`. */
     fun adminLabRun(runId: LabRunId, action: String? = null): String {
         val run = ADMIN_LAB_RUN.fill("runId" to runId.value)
         return if (action == null) run else "$run/$action"
+    }
+
+    /** [ADMIN_FIELD_GAME] and the exports under it: `adminFieldGame(id, "digest.jsonl")`. */
+    fun adminFieldGame(runId: LabRunId, export: String? = null): String {
+        val run = ADMIN_FIELD_GAME.fill("runId" to runId.value)
+        return if (export == null) run else "$run/$export"
     }
 
     /** Replaces each `{name}` of the template with its value. */

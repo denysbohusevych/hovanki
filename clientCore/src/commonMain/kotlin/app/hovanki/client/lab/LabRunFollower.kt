@@ -85,6 +85,11 @@ class LabRunFollower(
     private val scripts: (String) -> LabRunScript? = LabRunScripts::byId,
     private val pollMillis: Long = POLL_MILLIS,
     private val tickMillis: Long = TICK_MILLIS,
+    /**
+     * The logged-in account's token, sent with the join: a test server lets only staff join a run, the field build
+     * has the lab for staff only (docs/adr/0018-field-test-build.md §4.D). Null: none.
+     */
+    private val accountToken: () -> String? = { null },
 ) {
     private val log = controller.log
 
@@ -153,7 +158,7 @@ class LabRunFollower(
         val request = LabJoinRequest(normalized, name, about.model, about.os, about.build, about.commit, capabilities())
         val startedAt = log.monoNow()
         val response = try {
-            api.join(request)
+            api.join(request, accountToken())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

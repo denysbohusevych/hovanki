@@ -68,6 +68,7 @@ import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.StartStatusBanners
 import app.hovanki.client.ui.common.SystemBackHandler
 import app.hovanki.client.ui.common.rememberLocationRequest
+import app.hovanki.client.ui.field.FieldConsentWithdraw
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -114,6 +115,9 @@ fun WelcomeScreen(viewModel: WelcomeViewModel = koinViewModel()) {
             WelcomeMode.RESET_CONFIRM -> ResetConfirmForm(viewModel, isBusy)
         }
         CommandStatus(isBusy = isBusy, message = message, onDismiss = viewModel::dismissMessage)
+
+        // The field test build's consent can be taken back by guests too (the profile is for accounts only).
+        if (mode == WelcomeMode.START) FieldConsentWithdraw()
 
         Spacer(Modifier.height(24.dp))
         BuildLabel(viewModel.buildLabel)

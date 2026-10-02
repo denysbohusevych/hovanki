@@ -4,6 +4,7 @@ import app.hovanki.server.account.AccountProperties
 import app.hovanki.server.admin.AdminProperties
 import app.hovanki.server.bigGames.BigGameProperties
 import app.hovanki.server.history.HistoryProperties
+import app.hovanki.server.lab.FieldProperties
 import app.hovanki.server.lab.LabProperties
 import app.hovanki.server.lab.LabRunRepository
 import app.hovanki.server.moderation.ModerationProperties
@@ -83,6 +84,11 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         insertTrack(game, "p-alice", alice)
         insertTrack(game, "p-bob", bob)
         insertTrack(game, "p-guest", userId = null)
+        // A game's field log: alice's phone, bob's and a guest's.
+        val field = insertLabRun(createdAt = now, finishedAt = null, kind = "GAME")
+        val aliceDevice = insertLabDevice(field, now, userId = alice)
+        insertLabDevice(field, now, userId = bob)
+        insertLabDevice(field, now, userId = null)
         insert(
             """
             INSERT INTO reports (game_id, message_seq, reporter_player_id, reporter_user_id, reported_user_id,
@@ -113,6 +119,81 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         // The recording stays for the others, without alice's way (docs/adr/0011-spectators-and-recordings.md).
         val tracks = jdbc.sql("SELECT player_id FROM game_recording_tracks WHERE game_id = :a").ids(game)
         assertEquals(setOf("p-bob", "p-guest"), tracks.toSet())
+        // The field log loses alice's phone with its chunks; bob's and the guests' stay with the run.
+        val aliceChunks = jdbc.sql("SELECT count(*) FROM lab_chunks WHERE device_id = :id").param("id", aliceDevice)
+            .query(Int::class.java).single()
+        assertEquals(0, aliceChunks)
+        val devices = jdbc.sql("SELECT count(*) FROM lab_devices WHERE run_id = :id").param("id", field)
+            .query(Int::class.java).single()
+        assertEquals(3, devices)
+        assertEquals(listOf(field), jdbc.sql("SELECT id FROM lab_runs WHERE id = :a").ids(field))
+    }
+
+    @Test
+    fun fieldLogsGoWholeNinetyDaysAfterTheirGame() {
+        val retention = DataRetention(
+            jdbc,
+            AccountProperties(),
+            ModerationProperties(),
+            HistoryProperties(),
+            AdminProperties(),
+            BigGameProperties(),
+            LabProperties(),
+            LabRunRepository(jdbc),
+            FieldProperties(),
+            Clock.fixed(now, ZoneOffset.UTC),
+        )
+        fun daysAgo(days: Double) = now.minusSeconds((days * 86_400).toLong())
+        val player = insertUser()
+
+        // Games that ended 91 and 89 days ago; one never closed (the server lost it), opened 92 and 90.5 days ago.
+        val old = insertLabRun(createdAt = daysAgo(91.1), finishedAt = daysAgo(91.0), kind = "GAME")
+        insertLabDevice(old, daysAgo(91.1), userId = player)
+        val recent = insertLabRun(createdAt = daysAgo(89.1), finishedAt = daysAgo(89.0), kind = "GAME")
+        val abandoned = insertLabRun(createdAt = daysAgo(92.0), finishedAt = null, kind = "GAME")
+        val lately = insertLabRun(createdAt = daysAgo(90.5), finishedAt = null, kind = "GAME")
+        // A lab run as old keeps its run and devices, only its chunks go.
+        val lab = insertLabRun(createdAt = daysAgo(92.0), finishedAt = daysAgo(91.0))
+
+        val deleted = retention.run()
+
+        assertTrue(deleted.fieldRuns >= 2, "$deleted")
+        val left = jdbc.sql("SELECT id FROM lab_runs WHERE id IN (:a, :b, :c, :d, :e)")
+            .param("a", old).param("b", recent).param("c", abandoned).param("d", lately).param("e", lab)
+            .query(String::class.java).set()
+        assertEquals(setOf(recent, lately, lab), left)
+        // Nothing of the old game's run is left: the player's phone neither.
+        val devices = jdbc.sql("SELECT count(*) FROM lab_devices WHERE user_id = :id").param("id", player)
+            .query(Int::class.java).single()
+        assertEquals(0, devices)
+    }
+
+    @Test
+    fun aFieldLogKeepsItsChunksForItsOwnRetention() {
+        // The operator keeps field logs longer than the lab's chunks: a game's run is the field log's, whole.
+        val retention = DataRetention(
+            jdbc,
+            AccountProperties(),
+            ModerationProperties(),
+            HistoryProperties(),
+            AdminProperties(),
+            BigGameProperties(),
+            LabProperties(chunkRetention = Duration.ofDays(30)),
+            LabRunRepository(jdbc),
+            FieldProperties(retention = Duration.ofDays(180)),
+            Clock.fixed(now, ZoneOffset.UTC),
+        )
+        fun daysAgo(days: Double) = now.minusSeconds((days * 86_400).toLong())
+        val game = insertLabRun(createdAt = daysAgo(91.1), finishedAt = daysAgo(91.0), kind = "GAME")
+        val lab = insertLabRun(createdAt = daysAgo(31.1), finishedAt = daysAgo(31.0))
+
+        retention.run()
+
+        fun chunks(run: String): Int = jdbc.sql(
+            "SELECT count(*) FROM lab_chunks c JOIN lab_devices d ON d.id = c.device_id WHERE d.run_id = :a",
+        ).param("a", run).query(Int::class.java).single()
+        assertEquals(1, chunks(game))
+        assertEquals(0, chunks(lab))
     }
 
     @Test
@@ -127,6 +208,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             BigGameProperties(),
             LabProperties(),
             LabRunRepository(jdbc),
+            FieldProperties(),
             Clock.fixed(now, ZoneOffset.UTC),
         )
         val longAgo = now.minus(Duration.ofDays(400))
@@ -241,6 +323,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             BigGameProperties(),
             LabProperties(),
             LabRunRepository(jdbc),
+            FieldProperties(),
             Clock.fixed(now, ZoneOffset.UTC),
         )
         fun daysAgo(days: Double) = now.minusSeconds((days * 86_400).toLong())
@@ -279,6 +362,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             BigGameProperties(),
             LabProperties(),
             LabRunRepository(jdbc),
+            FieldProperties(),
             Clock.fixed(now, ZoneOffset.UTC),
         )
         fun daysAgo(days: Long) = now.minus(Duration.ofDays(days))
@@ -296,35 +380,44 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         assertEquals(listOf(old), jdbc.sql("SELECT id FROM lab_runs WHERE id = :a").ids(old))
     }
 
-    /** A run of the radio lab with one device and one chunk of its log. */
-    private fun insertLabRun(createdAt: Instant, finishedAt: Instant?): String {
+    /** A run of the radio lab (or a game's field log: [kind] `GAME`) with one device and one chunk of its log. */
+    private fun insertLabRun(createdAt: Instant, finishedAt: Instant?, kind: String = "LAB"): String {
         val run = unique("lab")
         jdbc.sql(
             """
             INSERT INTO lab_runs (id, code, title, scenario_id, scenario_version, status, created_by_name, created_at,
-                                  finished_at, salt)
-            VALUES (:id, :id, 'test', 'e2e', 3, :status, 'admin', :createdAt, :finishedAt, '00')
+                                  finished_at, salt, kind, game_id)
+            VALUES (:id, :id, 'test', 'e2e', 3, :status, 'admin', :createdAt, :finishedAt, '00', :kind, :gameId)
             """.trimIndent(),
         )
             .param("id", run)
             .param("status", if (finishedAt == null) "RUNNING" else "FINISHED")
             .param("createdAt", createdAt.toTimestamptz())
             .param("finishedAt", finishedAt?.toTimestamptz())
+            .param("kind", kind)
+            .param("gameId", if (kind == "GAME") unique("game") else null)
             .update()
+        insertLabDevice(run, createdAt, userId = null)
+        return run
+    }
+
+    /** A device of [run] with one chunk; [userId]: a field log's player with an account. */
+    private fun insertLabDevice(run: String, joinedAt: Instant, userId: String?): String {
         val device = unique("device")
         jdbc.sql(
             """
-            INSERT INTO lab_devices (id, run_id, label, capabilities, token_hash, radar_token, joined_at)
-            VALUES (:id, :run, 'A', '{}', :id, 'abcd0123', :at)
+            INSERT INTO lab_devices (id, run_id, label, capabilities, token_hash, radar_token, joined_at, user_id,
+                                     consent_at)
+            VALUES (:id, :run, 'A', '{}', :id, 'abcd0123', :at, :userId, :at)
             """.trimIndent(),
-        ).param("id", device).param("run", run).param("at", createdAt.toTimestamptz()).update()
+        ).param("id", device).param("run", run).param("at", joinedAt.toTimestamptz()).param("userId", userId).update()
         jdbc.sql(
             """
             INSERT INTO lab_chunks (device_id, seq_from, seq_to, events, received_at, body)
             VALUES (:id, 1, 1, 1, :at, :body)
             """.trimIndent(),
-        ).param("id", device).param("at", createdAt.toTimestamptz()).param("body", byteArrayOf(1, 2, 3)).update()
-        return run
+        ).param("id", device).param("at", joinedAt.toTimestamptz()).param("body", byteArrayOf(1, 2, 3)).update()
+        return device
     }
 
     private fun insertUser(
@@ -471,6 +564,8 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             // Through game_results.
             "game_routes" to "user_id",
             "game_recording_tracks" to "user_id",
+            // A game's field log (docs/adr/0018-field-test-build.md §3.1): the player's phone and its chunks.
+            "lab_devices" to "user_id",
         )
     }
 }

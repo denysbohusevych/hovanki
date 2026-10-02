@@ -140,6 +140,72 @@ object LabEvents {
     }
 
     /**
+     * One device's log as [read] reads it, but lazily, an event at a time: for a whole game's logs, never all of them
+     * in memory (the field report, [FieldReportStream]). The events before the device first measured its offset wait
+     * for it (put on the server's clock as [read] does), at most [maxBeforeClock] of them: a log that never measured
+     * its clock goes on with its own times. Lines that are no lab events are counted in [bad].
+     */
+    fun stream(
+        lines: Sequence<String>,
+        dev: String? = null,
+        pool: Pool = Pool(),
+        bad: (Int) -> Unit = {},
+        maxBeforeClock: Int = MAX_BEFORE_CLOCK,
+    ): Sequence<LabEvent> = sequence {
+        // The events before the first offset, with their own clock.
+        val waiting = ArrayList<Pair<LabEvent, Long>>()
+        var measured = false
+        for (line in lines) {
+            if (line.isBlank()) continue
+            val json = runCatching { Json.parseToJsonElement(line).jsonObject }.getOrNull()
+            val kind = json?.primitive(LabFields.K)
+            val dtField = json?.primitive(LabFields.DT)
+            if (json == null || kind == null || dtField == null) {
+                bad(1)
+                continue
+            }
+            val k = kind.content
+            val dt = dtField.longOrNull ?: 0L
+            val event = LabEvent(
+                t = json.primitive(LabFields.T)?.longOrNull ?: dt,
+                dev = pool.text(dev ?: json.primitive(LabFields.DEV)?.content ?: "?"),
+                k = pool.text(k),
+                app = json.primitive(LabFields.APP)?.content?.let(pool::text),
+                mono = json.primitive(LabFields.MONO)?.longOrNull ?: 0L,
+                fields = pool.lean(json),
+            )
+            if (measured) {
+                yield(event)
+                continue
+            }
+            if (k == "clock" && json["offset"] != null) {
+                measured = true
+                // The events before it on the server's clock: their own clock plus this first offset, as [read] does.
+                val offset = json.primitive("offset")?.longOrNull
+                for ((before, ownClock) in waiting) {
+                    yield(
+                        if (offset == null) {
+                            before
+                        } else {
+                            LabEvent(ownClock + offset, before.dev, before.k, before.app, before.mono, before.fields)
+                        },
+                    )
+                }
+                waiting.clear()
+                yield(event)
+                continue
+            }
+            waiting += event to dt
+            if (waiting.size >= maxBeforeClock) {
+                measured = true
+                for ((before, _) in waiting) yield(before)
+                waiting.clear()
+            }
+        }
+        for ((before, _) in waiting) yield(before)
+    }
+
+    /**
      * The keys and short values of the events [read] puts together, shared among them: a run's readings repeat the
      * same few tokens, APIs and channels. Holds at most [MAX_POOLED] of each, then stops sharing new ones.
      */
@@ -203,6 +269,9 @@ object LabEvents {
         LabFields.RUN,
         LabFields.SEQ,
     )
+
+    /** [stream]: the events that wait for the device's first offset, at most (a log's header comes first). */
+    const val MAX_BEFORE_CLOCK = 1_000
 
     private const val MAX_POOLED = 50_000
     private const val MAX_POOLED_LENGTH = 40

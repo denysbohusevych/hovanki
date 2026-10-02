@@ -13,10 +13,12 @@ import app.hovanki.shared.protocol.SocketLimits
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.protocolJson
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
 import kotlin.time.TimeSource
@@ -76,8 +78,12 @@ class WebSocketGameConnection(
         intervalMillis: (GameSnapshot) -> Long,
         onAnswer: () -> Unit,
     ): Outcome {
+        // Ktor's HttpTimeout does not cover the upgrade, so a hanging one is cut here.
         val socket = try {
-            opener.open(session)
+            withTimeoutOrNull(SocketLimits.OPEN_TIMEOUT_MILLIS) { opener.open(session) }
+                ?: return Outcome.Broken(
+                    GameSocketException("The socket did not open within ${SocketLimits.OPEN_TIMEOUT_MILLIS} ms"),
+                )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -94,16 +100,29 @@ class WebSocketGameConnection(
                 // Sightings are not sent again after a failure: by then they are stale.
                 val (nearby, device) = extras()
                 val sent = ++seq
-                socket.send(encode(ClientFrame.Sync(sent, SyncRequest(samples, chatAfter(), nearby, device))))
+                val frame = encode(ClientFrame.Sync(sent, SyncRequest(samples, chatAfter(), nearby, device)))
+                // A socket the server closed can hold a send up for good, without a close to read.
+                withTimeoutOrNull(SocketLimits.REPLY_TIMEOUT_MILLIS) { socket.send(frame) }
+                    ?: throw GameSocketException(
+                        "The frame was not sent within ${SocketLimits.REPLY_TIMEOUT_MILLIS} ms",
+                        answered = answered,
+                    )
                 val sentAt = timeSource.markNow()
                 // A poke while the answer is on its way may be about something newer than the answer.
                 var poked = false
+                var lastText = ""
+                var replyText = ""
                 val answer = withTimeoutOrNull(SocketLimits.REPLY_TIMEOUT_MILLIS) {
                     var reply: ServerFrame? = null
                     while (reply == null) {
-                        when (val frame = socket.nextFrame()) {
+                        when (val frame = socket.nextFrame { lastText = it }) {
                             ServerFrame.Poke -> poked = true
-                            is ServerFrame.Snapshot -> if (frame.seq == sent) reply = frame
+
+                            is ServerFrame.Snapshot -> if (frame.seq == sent) {
+                                reply = frame
+                                replyText = lastText
+                            }
+
                             is ServerFrame.Error -> if (frame.seq == sent) reply = frame
                         }
                     }
@@ -120,7 +139,13 @@ class WebSocketGameConnection(
                         answered = true
                         errorPauseMillis = PollingGameConnection.MIN_BACKOFF_MILLIS
                         onAnswer()
-                        emit(ConnectionEvent.Snapshot(answer.snapshot, Transport.SOCKET))
+                        emit(
+                            ConnectionEvent.Snapshot(
+                                answer.snapshot,
+                                Transport.SOCKET,
+                                replyText.encodeToByteArray().size,
+                            ),
+                        )
                         pauseAfter(answer.snapshot, intervalMillis)
                     }
 
@@ -148,15 +173,15 @@ class WebSocketGameConnection(
             }
         } catch (e: CancellationException) {
             outbox.requeue(inFlight)
+            // Ktor's send into a session the server closed throws a CancellationException of the session ("closed with
+            // code 4401") into a coroutine nobody cancelled: that is the server's close, not ours. Rethrown, it would
+            // end the flow silently and the app would never learn the session is over.
+            if (currentCoroutineContext().isActive) return closed(socket, answered)
             socket.close()
             throw e
         } catch (e: SocketClosed) {
             outbox.requeue(inFlight)
-            return when (val code = socket.closeCode()) {
-                SocketClose.SESSION_REJECTED -> Outcome.Ended(EndReason.SESSION_REJECTED)
-                SocketClose.GAME_NOT_FOUND -> Outcome.Ended(EndReason.GAME_NOT_FOUND)
-                else -> Outcome.Broken(GameSocketException("The socket closed (${code ?: "no code"})", code, answered))
-            }
+            return closed(socket, answered)
         } catch (e: GameSocketException) {
             outbox.requeue(inFlight)
             socket.close()
@@ -170,6 +195,13 @@ class WebSocketGameConnection(
         }
     }
 
+    /** The socket is closed: the server's close code says whether the session is over or to open the socket again. */
+    private suspend fun closed(socket: GameSocket, answered: Boolean): Outcome = when (val code = socket.closeCode()) {
+        SocketClose.SESSION_REJECTED -> Outcome.Ended(EndReason.SESSION_REJECTED)
+        SocketClose.GAME_NOT_FOUND -> Outcome.Ended(EndReason.GAME_NOT_FOUND)
+        else -> Outcome.Broken(GameSocketException("The socket closed (${code ?: "no code"})", code, answered))
+    }
+
     /** The game's pace; the lobby and the results rest longer: whatever happens there comes with a poke. */
     private fun pauseAfter(snapshot: GameSnapshot, intervalMillis: (GameSnapshot) -> Long): Long {
         val pace = intervalMillis(snapshot).coerceAtLeast(PollingGameConnection.MIN_INTERVAL_MILLIS)
@@ -180,10 +212,13 @@ class WebSocketGameConnection(
     private class SocketClosed : Exception("The socket closed")
 
     /** The next frame this app can read; a newer server's frame of another type is skipped. */
-    private suspend fun GameSocket.nextFrame(): ServerFrame {
+    private suspend fun GameSocket.nextFrame(onText: (String) -> Unit = {}): ServerFrame {
         while (true) {
             val text = receive() ?: throw SocketClosed()
-            decode(text)?.let { return it }
+            decode(text)?.let {
+                onText(text)
+                return it
+            }
         }
     }
 

@@ -5,6 +5,7 @@ import app.hovanki.server.db.getInstantOrNull
 import app.hovanki.server.db.toTimestamptz
 import app.hovanki.shared.lab.LabPlanState
 import app.hovanki.shared.protocol.LabCapabilities
+import app.hovanki.shared.protocol.LabRunKind
 import app.hovanki.shared.protocol.LabRunStatus
 import app.hovanki.shared.protocol.protocolJson
 import org.springframework.jdbc.core.RowMapper
@@ -27,8 +28,11 @@ data class LabRunRecord(
     val finishedAt: Instant? = null,
     /** Hex; the phones of the run hash the peers' ids in their logs with it. */
     val salt: String,
+    /** A lab run, or a game's field log (docs/adr/0018-field-test-build.md §3.1): then [gameId], no plan, no code. */
+    val kind: LabRunKind = LabRunKind.LAB,
+    val gameId: String? = null,
 ) {
-    override fun toString(): String = "LabRun($id, ${plan.status})"
+    override fun toString(): String = "LabRun($id, $kind, ${plan.status})"
 }
 
 /** A run's row with what the admin's list shows next to it. */
@@ -51,6 +55,10 @@ data class LabDeviceRecord(
     /** Stored (gzip) bytes of its chunks. */
     val bytes: Long = 0,
     val events: Long = 0,
+    /** A field log's device: its player's account (null: a guest); the device goes with the account. */
+    val userId: String? = null,
+    /** A field log's device: when its tester agreed (docs/adr/0018-field-test-build.md §3.4). */
+    val consentAt: Instant? = null,
     /** Its UWB discovery token (`uwb.ni`), once posted; opaque base64. */
     val uwbToken: String? = null,
 ) {
@@ -67,25 +75,69 @@ class LabRunRepository(private val jdbc: JdbcClient) {
     // Runs
 
     fun insertRun(run: LabRunRecord) {
-        jdbc.sql(
-            """
-            INSERT INTO lab_runs (id, code, title, scenario_id, scenario_version, status, step_index, step_started_at,
-                                  paused_at, revision, created_by_name, created_at, started_at, finished_at, salt)
-            VALUES (:id, :code, :title, :scenarioId, :scenarioVersion, :status, :stepIndex, :stepStartedAt, :pausedAt,
-                    :revision, :createdByName, :createdAt, :startedAt, :finishedAt, :salt)
-            """.trimIndent(),
-        )
-            .param("id", run.id)
-            .param("code", run.code)
-            .param("title", run.title)
-            .param("scenarioId", run.scenarioId)
-            .param("scenarioVersion", run.scenarioVersion)
-            .param("createdByName", run.createdByName)
-            .param("createdAt", run.createdAt.toTimestamptz())
-            .param("salt", run.salt)
-            .planParams(run)
-            .update()
+        insertRunSql(run, onConflict = "").update()
     }
+
+    /**
+     * A game's field run, unless the game has one already (another phone of it joined at the same moment): true, this
+     * one was stored.
+     */
+    fun insertGameRunIfAbsent(run: LabRunRecord): Boolean {
+        require(run.kind == LabRunKind.GAME && run.gameId != null) { "Not a game's run: $run" }
+        return insertRunSql(run, onConflict = "ON CONFLICT DO NOTHING").update() > 0
+    }
+
+    private fun insertRunSql(run: LabRunRecord, onConflict: String): JdbcClient.StatementSpec = jdbc.sql(
+        """
+        INSERT INTO lab_runs (id, code, title, scenario_id, scenario_version, status, step_index, step_started_at,
+                              paused_at, revision, created_by_name, created_at, started_at, finished_at, salt, kind,
+                              game_id)
+        VALUES (:id, :code, :title, :scenarioId, :scenarioVersion, :status, :stepIndex, :stepStartedAt, :pausedAt,
+                :revision, :createdByName, :createdAt, :startedAt, :finishedAt, :salt, :kind, :gameId)
+        $onConflict
+        """.trimIndent(),
+    )
+        .param("id", run.id)
+        .param("code", run.code)
+        .param("title", run.title)
+        .param("scenarioId", run.scenarioId)
+        .param("scenarioVersion", run.scenarioVersion)
+        .param("createdByName", run.createdByName)
+        .param("createdAt", run.createdAt.toTimestamptz())
+        .param("salt", run.salt)
+        .param("kind", run.kind.name)
+        .param("gameId", run.gameId)
+        .planParams(run)
+
+    /** The field run of game [gameId], its row locked until the transaction ends; null: none yet. */
+    fun lockGameRun(gameId: String): LabRunRecord? =
+        jdbc.sql("SELECT * FROM lab_runs WHERE game_id = :gameId FOR UPDATE").param("gameId", gameId).query(runs)
+            .optional().orElse(null)
+
+    /** The field run of game [gameId], unlocked; null: none yet. */
+    fun findGameRun(gameId: String): LabRunRecord? =
+        jdbc.sql("SELECT * FROM lab_runs WHERE game_id = :gameId").param("gameId", gameId).query(runs).optional()
+            .orElse(null)
+
+    /** The field runs not finished yet: their games may be gone from the server. */
+    fun openGameRuns(): List<LabRunRecord> =
+        jdbc.sql("SELECT * FROM lab_runs WHERE kind = 'GAME' AND finished_at IS NULL").query(runs).list()
+            .filterNotNull()
+
+    /**
+     * The field runs that finished before [finishedBefore], and those never finished made before [createdBefore],
+     * whole: devices, chunks and reports (ON DELETE CASCADE). Their devices are the players.
+     */
+    fun deleteGameRunsFinishedBefore(finishedBefore: Instant, createdBefore: Instant): Int = jdbc.sql(
+        """
+        DELETE FROM lab_runs
+        WHERE kind = 'GAME'
+          AND (finished_at < :finishedBefore OR (finished_at IS NULL AND created_at < :createdBefore))
+        """.trimIndent(),
+    )
+        .param("finishedBefore", finishedBefore.toTimestamptz())
+        .param("createdBefore", createdBefore.toTimestamptz())
+        .update()
 
     /** The plan's state and the run's start and end. */
     fun updatePlan(run: LabRunRecord) {
@@ -114,19 +166,21 @@ class LabRunRepository(private val jdbc: JdbcClient) {
         jdbc.sql("SELECT count(*) FROM lab_runs WHERE code = :code").param("code", code).query(Long::class.java)
             .single() > 0
 
-    /** Newest first, with their devices, bytes and whether the report is there. */
-    fun listRuns(limit: Int): List<LabRunRow> = jdbc.sql(
+    /** Newest first, with their devices, bytes and whether the report is there; [kind]: this kind's only. */
+    fun listRuns(limit: Int, kind: LabRunKind? = null): List<LabRunRow> = jdbc.sql(
         """
         SELECT r.*,
                (SELECT count(*) FROM lab_devices d WHERE d.run_id = r.id) AS device_count,
                (SELECT coalesce(sum(d.bytes), 0) FROM lab_devices d WHERE d.run_id = r.id) AS run_bytes,
                EXISTS (SELECT 1 FROM lab_reports p WHERE p.run_id = r.id) AS report_ready
         FROM lab_runs r
+        WHERE (:kind::text IS NULL OR r.kind = :kind)
         ORDER BY r.created_at DESC, r.id
         LIMIT :limit
         """.trimIndent(),
     )
         .param("limit", limit)
+        .param("kind", kind?.name)
         .query { rs, n ->
             LabRunRow(
                 run = runs.mapRow(rs, n),
@@ -147,11 +201,13 @@ class LabRunRepository(private val jdbc: JdbcClient) {
         jdbc.sql(
             """
             INSERT INTO lab_devices (id, run_id, label, model, os, build, commit, capabilities, token_hash,
-                                     radar_token, joined_at)
+                                     radar_token, joined_at, user_id, consent_at)
             VALUES (:id, :runId, :label, :model, :os, :build, :commit, :capabilities, :tokenHash, :radarToken,
-                    :joinedAt)
+                    :joinedAt, :userId, :consentAt)
             """.trimIndent(),
         )
+            .param("userId", device.userId)
+            .param("consentAt", device.consentAt?.toTimestamptz())
             .param("id", device.id)
             .param("runId", device.runId)
             .param("label", device.label)
@@ -165,6 +221,24 @@ class LabRunRepository(private val jdbc: JdbcClient) {
             .param("joinedAt", device.joinedAt.toTimestamptz())
             .update()
     }
+
+    /** The device of a token and the kind of its run, for the routes; null: no such device (or its run is gone). */
+    fun findDeviceRefByTokenHash(tokenHash: String): LabDeviceRef? = jdbc.sql(
+        """
+        SELECT d.id, d.run_id, d.label, r.kind FROM lab_devices d JOIN lab_runs r ON r.id = d.run_id
+        WHERE d.token_hash = :hash
+        """.trimIndent(),
+    )
+        .param("hash", tokenHash)
+        .query { rs, _ ->
+            LabDeviceRef(
+                deviceId = rs.getString("id"),
+                runId = rs.getString("run_id"),
+                label = rs.getString("label"),
+                kind = LabRunKind.valueOf(rs.getString("kind")),
+            )
+        }
+        .optional().orElse(null)
 
     fun findDeviceByTokenHash(tokenHash: String): LabDeviceRecord? =
         jdbc.sql("SELECT * FROM lab_devices WHERE token_hash = :hash").param("hash", tokenHash).query(devices)
@@ -212,6 +286,13 @@ class LabRunRepository(private val jdbc: JdbcClient) {
     fun runBytes(runId: String): Long =
         jdbc.sql("SELECT coalesce(sum(bytes), 0) FROM lab_devices WHERE run_id = :runId").param("runId", runId)
             .query(Long::class.java).single()
+
+    /** What the chunks of all games' field runs take together, gzipped as stored (the server-wide budget). */
+    fun gameRunsBytes(): Long = jdbc.sql(
+        """
+        SELECT coalesce(sum(d.bytes), 0) FROM lab_devices d JOIN lab_runs r ON r.id = d.run_id WHERE r.kind = 'GAME'
+        """.trimIndent(),
+    ).query(Long::class.java).single()
 
     // Chunks
 
@@ -291,13 +372,14 @@ class LabRunRepository(private val jdbc: JdbcClient) {
             .optional().orElse(null) ?: ByteArray(0)
 
     /**
-     * The chunks of runs finished before [finishedBefore], and of runs never finished that were made before
-     * [createdBefore] (the join window after that); the runs, devices and reports stay.
+     * The chunks of the lab's runs finished before [finishedBefore], and of those never finished that were made before
+     * [createdBefore] (the join window after that); the runs, devices and reports stay. A game's run has its own
+     * retention and goes whole ([deleteGameRunsFinishedBefore]).
      */
     fun deleteChunksOfRunsFinishedBefore(finishedBefore: Instant, createdBefore: Instant): Int = jdbc.sql(
         """
         DELETE FROM lab_chunks c USING lab_devices d, lab_runs r
-        WHERE c.device_id = d.id AND d.run_id = r.id
+        WHERE c.device_id = d.id AND d.run_id = r.id AND r.kind = 'LAB'
           AND (r.finished_at < :finishedBefore OR (r.finished_at IS NULL AND r.created_at < :createdBefore))
         """.trimIndent(),
     )
@@ -320,6 +402,21 @@ class LabRunRepository(private val jdbc: JdbcClient) {
             .param("body", body)
             .update()
     }
+
+    /** The games' field runs with a device of account [userId]: their reports were built from that player's log. */
+    fun gameRunsOfUser(userId: String): List<String> = jdbc.sql(
+        """
+        SELECT DISTINCT d.run_id FROM lab_devices d JOIN lab_runs r ON r.id = d.run_id
+        WHERE d.user_id = :userId AND r.kind = 'GAME'
+        """.trimIndent(),
+    )
+        .param("userId", userId)
+        .query(String::class.java)
+        .list()
+        .filterNotNull()
+
+    fun deleteReport(runId: String): Boolean =
+        jdbc.sql("DELETE FROM lab_reports WHERE run_id = :runId").param("runId", runId).update() > 0
 
     /** The report's JSON; null until computed. */
     fun findReport(runId: String): String? =
@@ -358,6 +455,8 @@ class LabRunRepository(private val jdbc: JdbcClient) {
             startedAt = rs.getInstantOrNull("started_at"),
             finishedAt = rs.getInstantOrNull("finished_at"),
             salt = rs.getString("salt"),
+            kind = LabRunKind.valueOf(rs.getString("kind")),
+            gameId = rs.getString("game_id"),
         )
     }
 
@@ -379,6 +478,8 @@ class LabRunRepository(private val jdbc: JdbcClient) {
             lastSeq = rs.getLong("last_seq").takeUnless { rs.wasNull() },
             bytes = rs.getLong("bytes"),
             events = rs.getLong("events"),
+            userId = rs.getString("user_id"),
+            consentAt = rs.getInstantOrNull("consent_at"),
             uwbToken = rs.getString("uwb_token"),
         )
     }

@@ -41,8 +41,15 @@ fun defaultSyncIntervalMillis(snapshot: GameSnapshot): Long =
 data class SyncExtras(val nearby: List<NearbySighting> = emptyList(), val device: DeviceReport? = null)
 
 sealed interface ConnectionEvent {
-    /** A fresh snapshot, and by which [transport] it came. */
-    data class Snapshot(val snapshot: GameSnapshot, val transport: Transport = Transport.POLLING) : ConnectionEvent
+    /**
+     * A fresh snapshot, and by which [transport] it came; [bytes]: the answer's size on the wire as the connection
+     * read it (null where it did not measure). The phone's own, for the field log: not in the protocol.
+     */
+    data class Snapshot(
+        val snapshot: GameSnapshot,
+        val transport: Transport = Transport.POLLING,
+        val bytes: Int? = null,
+    ) : ConnectionEvent
 
     /** A transient failure; the connection retries by itself after [retryInMillis]. */
     data class Problem(val error: Throwable, val retryInMillis: Long) : ConnectionEvent

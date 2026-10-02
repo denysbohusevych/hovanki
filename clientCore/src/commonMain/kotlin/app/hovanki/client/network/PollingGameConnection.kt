@@ -24,10 +24,10 @@ class PollingGameConnection(private val api: GameApi) : GameConnection {
         var backoffMillis = MIN_BACKOFF_MILLIS
         while (true) {
             val samples = outbox.drain()
-            val snapshot = try {
+            val measured = try {
                 // Sightings are not sent again after a failure: by then they are stale.
                 val (nearby, device) = extras()
-                api.sync(session, SyncRequest(samples, chatAfter(), nearby, device))
+                api.syncMeasured(session, SyncRequest(samples, chatAfter(), nearby, device))
             } catch (e: CancellationException) {
                 outbox.requeue(samples)
                 throw e
@@ -46,7 +46,8 @@ class PollingGameConnection(private val api: GameApi) : GameConnection {
                 continue
             }
             backoffMillis = MIN_BACKOFF_MILLIS
-            emit(ConnectionEvent.Snapshot(snapshot))
+            val snapshot = measured.snapshot
+            emit(ConnectionEvent.Snapshot(snapshot, Transport.POLLING, measured.bytes))
             delay(intervalMillis(snapshot).coerceAtLeast(MIN_INTERVAL_MILLIS))
         }
     }

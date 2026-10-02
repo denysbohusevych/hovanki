@@ -20,5 +20,7 @@ internal fun iosBuildInfo(): BuildInfo {
         isDebug = Platform.isDebugBinary,
         // The simulator runs the app with its SIMULATOR_* environment; a real iPhone has none.
         isEmulator = NSProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"] != null,
+        // The same bundle id serves the field test build and the App Store one: the build's channel tells them apart.
+        isPreview = BuildConstants.CHANNEL == BuildInfo.CHANNEL_PREVIEW,
     )
 }

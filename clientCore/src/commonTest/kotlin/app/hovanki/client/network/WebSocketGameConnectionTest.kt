@@ -11,7 +11,9 @@ import app.hovanki.shared.protocol.ServerFrame
 import app.hovanki.shared.protocol.SocketClose
 import app.hovanki.shared.protocol.SocketLimits
 import app.hovanki.shared.protocol.protocolJson
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.currentTime
@@ -38,6 +40,10 @@ class WebSocketGameConnectionTest {
             socket.answer(sync, testSnapshot(serverTimeMillis = 5, syncIntervalSeconds = 3, phase = GamePhase.SEEKING))
             val event = assertIs<ConnectionEvent.Snapshot>(awaitItem())
             assertEquals(5, event.snapshot.serverTimeMillis)
+            // The size of the answer's text frame, for the field log.
+            val frame = ServerFrame.Snapshot(sync.seq, event.snapshot)
+            val frameText = app.hovanki.shared.protocol.protocolJson.encodeToString(ServerFrame.serializer(), frame)
+            assertEquals(frameText.encodeToByteArray().size, event.bytes)
             assertEquals(Transport.SOCKET, event.transport)
             assertEquals(0, outbox.size)
 
@@ -46,6 +52,31 @@ class WebSocketGameConnectionTest {
             assertEquals(2, socket.awaitSync().seq)
             assertEquals(3_000, currentTime - before)
             cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun anOpeningThatHangsIsGivenUpOn() = runTest {
+        val hanging = GameSocketOpener { awaitCancellation() }
+        connection(hanging).connect(testSession, LocationOutbox()).test {
+            val problem = assertIs<ConnectionEvent.Problem>(awaitItem())
+            val error = assertIs<GameSocketException>(problem.error)
+            assertFalse(error.answered)
+            assertEquals(SocketLimits.OPEN_TIMEOUT_MILLIS, currentTime)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun aSendIntoASocketTheServerClosedEndsTheSessionInsteadOfTheFlow() = runTest {
+        val socket = FakeGameSocket().apply {
+            sendThrowsCancellation = true
+            closeFromServer(SocketClose.SESSION_REJECTED)
+        }
+        connection({ socket }).connect(testSession, LocationOutbox().apply { add(testSample(1)) }).test {
+            val ended = assertIs<ConnectionEvent.Ended>(awaitItem())
+            assertEquals(EndReason.SESSION_REJECTED, ended.reason)
+            awaitComplete()
         }
     }
 
@@ -208,7 +239,7 @@ class WebSocketGameConnectionTest {
         }
     }
 
-    private fun TestScope.connection(server: FakeSocketServer) =
+    private fun TestScope.connection(server: GameSocketOpener) =
         WebSocketGameConnection(server, testScheduler.timeSource)
 }
 
@@ -245,7 +276,11 @@ class FakeGameSocket : GameSocket {
 
     override suspend fun receive(): String? = toApp.receiveCatching().getOrNull()
 
+    /** Like Ktor's send into a session the server closed: a CancellationException nobody cancelled with. */
+    var sendThrowsCancellation: Boolean = false
+
     override suspend fun send(text: String) {
+        if (sendThrowsCancellation) throw CancellationException("WebSocket session closed with code 4401.")
         if (toApp.isClosedForSend) throw SocketUnreachable("Closed")
         fromApp.send(text)
     }

@@ -13,6 +13,10 @@ import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -47,10 +51,24 @@ fun interface GameSocketOpener {
  */
 class KtorGameSocketOpener(private val client: HttpClient, private val serverUrl: ServerUrl) : GameSocketOpener {
     override suspend fun open(session: PlayerSession): GameSocket {
-        val socket = client.webSocketSession(socketUrl(serverUrl.value, session.gameId)) {
-            header(HttpHeaders.Authorization, "${ApiRoutes.AUTH_SCHEME} ${session.token}")
+        // Ktor runs the upgrade in the client's own scope: cancelling the caller (the open's timeout, the game left)
+        // does not stop it. A socket that opens after the caller gave up is closed at once, never left open unread.
+        // Never failing itself: a failed child would cancel the client's own job, and every request with it.
+        val opening = client.async {
+            runCatching {
+                client.webSocketSession(socketUrl(serverUrl.value, session.gameId)) {
+                    header(HttpHeaders.Authorization, "${ApiRoutes.AUTH_SCHEME} ${session.token}")
+                }
+            }
         }
-        return KtorGameSocket(socket)
+        try {
+            return KtorGameSocket(opening.await().getOrThrow())
+        } catch (e: CancellationException) {
+            opening.invokeOnCompletion { cause ->
+                if (cause == null) client.launch { opening.await().getOrNull()?.let { KtorGameSocket(it).close() } }
+            }
+            throw e
+        }
     }
 }
 
@@ -76,8 +94,12 @@ private class KtorGameSocket(private val session: DefaultClientWebSocketSession)
         session.send(Frame.Text(text))
     }
 
-    override suspend fun closeCode(): Int? =
+    override suspend fun closeCode(): Int? = try {
         withTimeoutOrNull(CLOSE_REASON_WAIT_MILLIS) { session.closeReason.await() }?.code?.toInt()
+    } catch (e: CancellationException) {
+        // A session cancelled by its own failure is no cancellation of ours: no code, the caller opens a new socket.
+        if (currentCoroutineContext().isActive) null else throw e
+    }
 
     override suspend fun close() {
         try {

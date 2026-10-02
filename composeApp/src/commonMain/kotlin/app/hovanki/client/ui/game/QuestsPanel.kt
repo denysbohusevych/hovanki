@@ -52,6 +52,7 @@ fun QuestsPanel(state: GameUiState, viewModel: GameViewModel, onClose: () -> Uni
         title = stringResource(Res.string.quests_title),
         onClose = onClose,
         modifier = Modifier.testTag(TestTags.QUESTS_PANEL),
+        screen = "quests",
     ) {
         ScreenColumn {
             state.sparks?.let { SparksLine(it) }

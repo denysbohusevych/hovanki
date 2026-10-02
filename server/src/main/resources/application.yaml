@@ -48,6 +48,25 @@ management:
     # Would open an SMTP connection on every health check, and a slow mail provider would mark the server down.
     mail:
       enabled: false
+  metrics:
+    distribution:
+      # Latencies of every route as quantiles (p50, p95, p99), read in the process (the field test's `srv` events,
+      # docs/adr/0018-field-test-build.md) and by Prometheus where /actuator/prometheus is exposed (application-staging.yaml).
+      percentiles:
+        "[http.server.requests]": 0.5,0.95,0.99
+
+# Errors of the staging server (docs/adr/0018-field-test-build.md §7). Sentry's starter starts only when the property
+# sentry.dsn is set (environment variable SENTRY_DSN, in the staging .env): production sets none, and nothing below
+# does anything. Do not write `dsn:` here, not even an empty one: a present property starts the starter.
+# Events go through ServerEventScrubber (no user, request, extras, tags, breadcrumbs); no performance traces.
+sentry:
+  environment: ${SENTRY_ENVIRONMENT:staging}
+  send-default-pii: false
+  max-request-body-size: none
+  attach-server-name: false
+  logging:
+    minimum-event-level: error
+    minimum-breadcrumb-level: error
 
 hovanki:
   accounts:
@@ -99,6 +118,10 @@ hovanki:
     # counts too), and a lab device's uploads (one every 5 s, more right away while it catches up).
     lab-join-per-ip: { count: 20, window: 1h }
     lab-events-per-device: { count: 60, window: 1m }
+    # A game's field log (docs/adr/0018-field-test-build.md §3.1): joins per player, and per client IP generously (a
+    # whole game may come from behind one carrier's NAT or the venue's Wi-Fi, rejoins included).
+    field-join-per-player: { count: 20, window: 1h }
+    field-join-per-ip: { count: 300, window: 1h }
   # Staff admin, the /admin page (docs/adr/0008-admin.md). Off without a secret key: HOVANKI_ADMIN_SECRET_KEY in .env
   # (deploy/compose.yaml passes it on), base64 of 32 random bytes (openssl rand -base64 32); it encrypts the staff's
   # authenticator secrets.
@@ -164,3 +187,29 @@ hovanki:
     # production); a bigger run's raw logs are merged on a computer.
     max-report-events: 500000
     live-window: 30s
+    # A test server whose field build (release code) has the lab's screen for staff: only staff join a run, with
+    # their account token (docs/adr/0018-field-test-build.md §4.D). Production: off (debug builds, anybody with the code).
+    join-staff-only: false
+  # The field log of real games (docs/adr/0018-field-test-build.md §3), while the server feature FIELD_LOG is on (the
+  # test server only): the field build of a tester who agreed joins its game's run with the game token and uploads its
+  # log, coordinates included. A game's run is finished when its game is gone and deleted whole 90 days later.
+  field:
+    # Production never has the field log: FIELD_LOG stays off whatever its switch says, and the admin can't turn it on.
+    # Only the test server (application-staging.yaml) and the e2e profile set it.
+    allowed: false
+    max-devices: 100
+    max-run-bytes: 2GB
+    # All games' logs together: the database's disk is production's too (docs/deploy.md, «Staging»).
+    max-total-bytes: 5GB
+    join-window: 24h
+    upload-grace: 30m
+    retention: 90d
+    # The game's report (docs/field-test.md step 6): computed again at most this often as logs come, live while the
+    # game plays (windows of live-window, live-lag behind the clock), whole after it, reading report-window of the
+    # game at a time; the lab's techniques read at most max-technique-events readings and touches.
+    report-every: 2m
+    report-window: 2m
+    live-window: 1m
+    live-lag: 1m
+    max-technique-events: 200000
+    live-technique-events: 50000

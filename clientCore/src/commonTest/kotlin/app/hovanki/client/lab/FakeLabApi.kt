@@ -8,6 +8,9 @@ import app.hovanki.shared.lab.LabRunScripts
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
+import app.hovanki.shared.protocol.FieldJoinRequest
+import app.hovanki.shared.protocol.FieldJoinResponse
+import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.LabEventsResponse
 import app.hovanki.shared.protocol.LabJoinRequest
 import app.hovanki.shared.protocol.LabJoinResponse
@@ -28,7 +31,7 @@ internal class FakeLabApi(
     var plan = LabPlanState()
         private set
 
-    class Upload(val batch: LabBatch, val body: ByteArray, val gzip: Boolean) {
+    class Upload(val batch: LabBatch, val body: ByteArray, val gzip: Boolean, val runId: LabRunId) {
         val lines: List<String> get() = batch.jsonl.decodeToString().lines().filter { it.isNotEmpty() }
     }
 
@@ -51,8 +54,24 @@ internal class FakeLabApi(
     var ackedSeq = 0L
         private set
 
-    override suspend fun join(request: LabJoinRequest): LabJoinResponse {
+    /** The field log's joins: the game, the player's token and what the phone said. */
+    val fieldJoins = mutableListOf<Triple<GameId, String, FieldJoinRequest>>()
+
+    /** The field log's leaves: the game and the player's token. */
+    val fieldLeaves = mutableListOf<Pair<GameId, String>>()
+
+    /** Every field join from now on is refused with this (404: the server has FIELD_LOG off). */
+    var fieldRefusal: Exception? = null
+
+    /** Each field join gets a run of its own (`field-<n>`), as every game has; else [runId]. */
+    var fieldRunPerJoin = false
+
+    /** The account tokens the lab's joins came with. */
+    val joinAccounts = mutableListOf<String?>()
+
+    override suspend fun join(request: LabJoinRequest, accountToken: String?): LabJoinResponse {
         joins += request
+        joinAccounts += accountToken
         if (request.code != CODE) throw ApiException(404, ApiError(ErrorCode.NOT_FOUND, "Not found"))
         return LabJoinResponse(
             runId = runId,
@@ -64,6 +83,24 @@ internal class FakeLabApi(
             scenarioVersion = script.version,
             labels = script.labels,
             state = view(),
+        )
+    }
+
+    override suspend fun fieldLeave(gameId: GameId, playerToken: String) {
+        fieldLeaves += gameId to playerToken
+    }
+
+    override suspend fun fieldJoin(gameId: GameId, playerToken: String, request: FieldJoinRequest): FieldJoinResponse {
+        fieldJoins += Triple(gameId, playerToken, request)
+        fieldRefusal?.let { throw it }
+        return FieldJoinResponse(
+            runId = if (fieldRunPerJoin) LabRunId("field-${fieldJoins.size}") else runId,
+            deviceId = "device-${fieldJoins.size}",
+            token = TOKEN,
+            label = "player-1",
+            salt = SALT,
+            serverTimeMillis = serverNow(),
+            uploadIntervalMillis = FIELD_UPLOAD_MILLIS,
         )
     }
 
@@ -93,7 +130,7 @@ internal class FakeLabApi(
         gzip: Boolean,
     ): LabEventsResponse {
         check(token == TOKEN)
-        uploads += Upload(batch, body, gzip)
+        uploads += Upload(batch, body, gzip, runId)
         refusal?.let { throw it }
         if (failures > 0) {
             failures--
@@ -118,6 +155,7 @@ internal class FakeLabApi(
         const val TOKEN = "device-token"
         const val RADAR_TOKEN = "a1b2c3d4"
         const val SALT = "00ff00ff00ff00ff"
+        const val FIELD_UPLOAD_MILLIS = 10_000L
 
         fun closed() = ApiException(
             409,

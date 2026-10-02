@@ -58,4 +58,38 @@ class RadarCatalogTest {
         assertTrue(available(android.copy(bluetooth = BluetoothState.UNSUPPORTED)).isEmpty())
         assertTrue("ble.service_data.scan_response" !in available(android.copy(canScanResponse = false)))
     }
+
+    @Test
+    fun aFieldGameTakesTheLayoutsInTurnAndHearsThemAll() {
+        val sent = (0..3).map { number ->
+            val plan = AdPlan.of(RadarCatalog.field(number).all, TOKEN, RadarRole.HIDER, Platform.ANDROID)
+            plan.techs.filter { it.startsWith("ble.service_data") }
+        }
+        assertEquals(
+            listOf(
+                listOf("ble.service_data.scan_response"),
+                listOf("ble.service_data.bare"),
+                listOf("ble.service_data.mfr"),
+                listOf("ble.service_data.scan_response"),
+            ),
+            sent,
+        )
+        val mix = RadarCatalog.field(1)
+        assertEquals(
+            setOf(
+                "ble.service_data.scan_response",
+                "ble.service_data.bare",
+                "ble.service_data.mfr",
+                "ble.name",
+                "ble.ibeacon",
+                "ble.ibeacon.region",
+            ),
+            mix.game.map { it.id }.toSet(),
+            "every layout is the game's to hear",
+        )
+        assertEquals(listOf("ble.overflow"), mix.shadow.map { it.id })
+        // An iPhone hider: its name first, the overflow table's UUIDs after it.
+        val ios = AdPlan.of(mix.all, TOKEN, RadarRole.HIDER, Platform.IOS)
+        assertEquals("ble.name", ios.techs.first())
+    }
 }

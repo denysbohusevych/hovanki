@@ -249,9 +249,14 @@ private fun HeaderCard(viewModel: LabViewModel, running: Boolean, inGame: Boolea
     val clock by viewModel.clock.collectAsStateWithLifecycle()
     val count by viewModel.count.collectAsStateWithLifecycle()
     Section("Lab") {
+        val exportHint = if (viewModel.canExport) {
+            "; export after every experiment (iOS may drop the app and its memory)."
+        } else {
+            "."
+        }
         SecondaryText(
-            "Experiments of docs/radio-lab.md: one log per device on the server's clock. Outside a game only; " +
-                "export after every experiment (iOS may drop the app and its memory).",
+            "Experiments of docs/radio-lab.md: one log per device on the server's clock. Outside a game only" +
+                exportHint,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("A", "B", "droid").forEach { option ->
@@ -280,7 +285,9 @@ private fun HeaderCard(viewModel: LabViewModel, running: Boolean, inGame: Boolea
         if (inGame) SecondaryText("In a game: the lab is off.")
         if (following) SecondaryText("In a server run: leave it to stop the lab.")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PopButton(text = "Export", onClick = viewModel::export, height = 44.dp, style = PopStyle.Dark)
+            if (viewModel.canExport) {
+                PopButton(text = "Export", onClick = viewModel::export, height = 44.dp, style = PopStyle.Dark)
+            }
             PopButton(text = "Clear", onClick = viewModel::clear, height = 44.dp, style = PopStyle.Outline)
         }
     }
@@ -367,8 +374,10 @@ private fun RunResult(viewModel: LabViewModel, run: LabRunState) {
     Line(if (run.stopped) "The run was stopped." else "The run is over (token ${run.token}).")
     Line("Mac heard: ${if (run.macHeard) "yes" else "no"} · Mac's iBeacon: ${if (run.macBeaconHeard) "yes" else "no"}")
     run.warnings.forEach { SecondaryText("⚠ $it") }
-    SecondaryText("Then Export, and AirDrop the file to the Mac; the Mac's log of the run is already there.")
-    PopButton(text = "Export", onClick = viewModel::export, height = 44.dp, style = PopStyle.Dark)
+    if (viewModel.canExport) {
+        SecondaryText("Then Export, and AirDrop the file to the Mac; the Mac's log of the run is already there.")
+        PopButton(text = "Export", onClick = viewModel::export, height = 44.dp, style = PopStyle.Dark)
+    }
 }
 
 private fun seconds(millis: Long): Long = (millis.coerceAtLeast(0) + 999) / 1000

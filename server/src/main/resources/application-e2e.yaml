@@ -27,3 +27,12 @@ hovanki:
   # Big games: lobbies open and rounds start within a second of their time.
   big-games:
     tick: 1s
+  # The bots keep the field log of their games (FieldLogTest): an e2e server may have it, like the test server.
+  field:
+    allowed: true
+    # The server's numbers (srv) twice as often as on staging: the scenarios' rounds are short.
+    srv-every: 5s
+    # The game's live report follows the bots' logs within seconds (FieldLogTest reads it).
+    report-every: 5s
+    live-window: 5s
+    live-lag: 0s

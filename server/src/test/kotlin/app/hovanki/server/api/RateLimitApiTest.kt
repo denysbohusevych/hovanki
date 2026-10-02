@@ -1,6 +1,7 @@
 package app.hovanki.server.api
 
 import app.hovanki.server.account.uniqueName
+import app.hovanki.server.features.FeatureFlags
 import app.hovanki.shared.protocol.AccountSession
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
@@ -8,6 +9,7 @@ import app.hovanki.shared.protocol.ChangeEmailRequest
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
+import app.hovanki.shared.protocol.FieldJoinRequest
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
@@ -15,6 +17,7 @@ import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LoginRequest
 import app.hovanki.shared.protocol.RegisterRequest
 import app.hovanki.shared.protocol.SendChatRequest
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsPreviewRequest
 import app.hovanki.shared.protocol.ZoneShape
@@ -29,6 +32,7 @@ import org.springframework.mock.web.MockHttpServletResponse
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
+import java.time.Clock
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -44,10 +48,15 @@ import kotlin.test.assertTrue
         "hovanki.rate-limits.reports.count=2",
         "hovanki.rate-limits.settings-preview.count=2",
         "hovanki.rate-limits.time-per-ip.count=3",
+        "hovanki.rate-limits.field-join-per-ip.count=2",
     ],
 )
 @AutoConfigureMockMvc
-class RateLimitApiTest(@Autowired private val mvc: MockMvc) {
+class RateLimitApiTest(
+    @Autowired private val mvc: MockMvc,
+    @Autowired private val features: FeatureFlags,
+    @Autowired private val clock: Clock,
+) {
     @Test
     fun failedLoginsLockTheLogin() {
         val nickname = register().user.nickname
@@ -80,6 +89,28 @@ class RateLimitApiTest(@Autowired private val mvc: MockMvc) {
     fun theServerClockIsLimitedPerIp() {
         repeat(3) { assertEquals(200, mvc.get(ApiRoutes.TIME).andReturn().response.status) }
         assertTrue(assertTooManyRequests(mvc.get(ApiRoutes.TIME).andReturn().response) in 1..60)
+    }
+
+    @Test
+    fun fieldLogJoinsPerIp() {
+        // Per player the limit is generous; per address too, but a script making games to open field logs stops.
+        features.set(ServerFeature.FIELD_LOG, true, "test", clock.instant())
+        try {
+            val settings = GameSettings(zone = shrinkingZone(GeoPoint(50.4501, 30.5234)))
+            fun fieldJoin(): MockHttpServletResponse {
+                val host = post(ApiRoutes.GAMES, protocolJson.encodeToString(CreateGameRequest("Host", settings)))
+                    .decode<SessionResponse>().session
+                return post(
+                    ApiRoutes.GAME_FIELD_JOIN.replace("{gameId}", host.gameId.value),
+                    protocolJson.encodeToString(FieldJoinRequest(consentAtMillis = clock.millis())),
+                    host.token,
+                )
+            }
+            repeat(2) { assertEquals(200, fieldJoin().status) }
+            assertTrue(assertTooManyRequests(fieldJoin()) in 1..3600)
+        } finally {
+            features.set(ServerFeature.FIELD_LOG, false, "test", clock.instant())
+        }
     }
 
     @Test

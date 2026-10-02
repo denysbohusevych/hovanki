@@ -1,6 +1,7 @@
 package app.hovanki.shared.protocol
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 @Serializable
 data class GeoPoint(val lat: Double, val lon: Double)
@@ -15,4 +16,10 @@ data class LocationSample(
     val timestampMillis: Long,
     /** Android `Location.isMock`, iOS `CLLocationSourceInformation.isSimulatedBySoftware`. */
     val isMock: Boolean = false,
+    /**
+     * Speed over ground in m/s and course in degrees from north, where the OS says (null: it doesn't). The phone's
+     * own: [Transient], never on the wire; only the field build's log (docs/adr/0018-field-test-build.md) reads them.
+     */
+    @Transient val speedMetersPerSecond: Double? = null,
+    @Transient val bearingDegrees: Double? = null,
 )

@@ -7,6 +7,7 @@ import app.hovanki.client.tracking.HiderAlert
 import app.hovanki.device.CarryMonitor
 import app.hovanki.device.DeviceInfo
 import app.hovanki.device.PocketPulse
+import app.hovanki.radar.ChannelMix
 import app.hovanki.radar.ProximityRadio
 import app.hovanki.radar.RadioSighting
 import app.hovanki.shared.protocol.BluetoothState
@@ -67,16 +68,28 @@ class FakeRadio(
         private set
     private val sightings = MutableSharedFlow<RadioSighting>(extraBufferCapacity = 64)
 
-    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean): Flow<RadioSighting> = sightings
-        .onStart {
-            this@FakeRadio.tokens = tokens
-            this@FakeRadio.asSeeker = asSeeker
-            collectors++
-        }
-        .onCompletion {
-            collectors--
-            if (collectors == 0) this@FakeRadio.tokens = null
-        }
+    /** The channels the running collection was told to run instead of the game's; null: the game's. */
+    var mix: ChannelMix? = null
+        private set
+
+    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean): Flow<RadioSighting> =
+        collect(tokens, asSeeker, null)
+
+    override fun run(tokens: StateFlow<String?>, asSeeker: Boolean, mix: ChannelMix): Flow<RadioSighting> =
+        collect(tokens, asSeeker, mix)
+
+    private fun collect(tokens: StateFlow<String?>, asSeeker: Boolean, mix: ChannelMix?): Flow<RadioSighting> =
+        sightings
+            .onStart {
+                this@FakeRadio.tokens = tokens
+                this@FakeRadio.asSeeker = asSeeker
+                this@FakeRadio.mix = mix
+                collectors++
+            }
+            .onCompletion {
+                collectors--
+                if (collectors == 0) this@FakeRadio.tokens = null
+            }
 
     /** Another phone's [token] heard at [rssi] dBm, at [atMillis] of the device's clock. */
     fun hears(token: String, rssi: Int, atMillis: Long) {
