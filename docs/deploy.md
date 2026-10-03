@@ -294,6 +294,8 @@ docker compose down postgres
 
 ## Staging
 
+> **Пока не используется** (2026-10-03): отдельного staging нет, тестовые сборки `preview` ходят на основной сервер ([ci-cd.md](ci-cd.md#как-поставить-сборку-на-телефон), [ADR 0018](adr/0018-field-test-build.md#пока-без-staging-2026-10-03)). Раздел остаётся на случай, если он понадобится: поднять машину по шагам ниже и задать переменную `STAGING_SERVER_URL`.
+
 Второй сервер для полевого теста ([ADR 0018, §2](adr/0018-field-test-build.md#2-staging)): к нему ходят тестовые сборки `preview` (Android и TestFlight), а настоящие игры и аккаунты остаются на основном сервере. Тот же образ и тот же `compose.yaml`, но своя машина, свой `.env` ([`deploy/.env.staging.example`](../deploy/.env.staging.example)) и своя база на том же RDS.
 
 | | Основной сервер | Staging |
