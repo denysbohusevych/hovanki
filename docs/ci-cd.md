@@ -4,7 +4,7 @@
 |---|---|---|
 | `.github/workflows/ci.yml` | push в любую ветку, PR из форков, вручную | Быстрые проверки (~3 мин, iOS-job самый долгий): форматирование, тесты без e2e-сценариев, сборка Android и iOS; в `main` после проверок — образ сервера `:main`, сервер в AWS обновляется сам ([deploy.md](deploy.md#автообновление)) |
 | `.github/workflows/nightly.yml` | каждую ночь, вручную на любой ветке | Долгие проверки: e2e-боты (`./gradlew :e2e:test`) и приложение на двух Android-эмуляторах и iOS-симуляторе вместе с ботами ([e2e.md](e2e.md)) |
-| `.github/workflows/preview.yml` | push в `main` (кроме изменений только в `*.md` и `docs/`), вручную | Тестовые (полевые) сборки для телефонов, они ходят на [staging](deploy.md#staging): подписанный APK на pre-release `preview`, тот же билд в Google Play (внутреннее тестирование) и сборка iOS в TestFlight ([как поставить](#как-поставить-сборку-на-телефон)) |
+| `.github/workflows/preview.yml` | push в `main` (кроме изменений только в `*.md` и `docs/`), вручную | Тестовые (полевые) сборки для телефонов, они ходят на основной сервер ([staging](deploy.md#staging) пока не используется): подписанный APK на pre-release `preview`, тот же билд в Google Play (внутреннее тестирование) и сборка iOS в TestFlight ([как поставить](#как-поставить-сборку-на-телефон)) |
 | `.github/workflows/release.yml` | push тега `v*`, вручную | Подписанный Android-релиз (APK + AAB), сборка iOS для App Store (в TestFlight, оттуда уходит на ревью), Docker-образ сервера, GitHub Release; всё ходит на основной сервер |
 | `.github/workflows/ios-testflight.yml` | вызывается из `preview.yml` и `release.yml` | Общие шаги iOS: Release-архив, проверки, загрузка в TestFlight ([iOS: TestFlight](#ios-testflight)) |
 | `.github/dependabot.yml` | раз в неделю | PR с обновлениями Gradle-зависимостей и GitHub Actions |
@@ -13,9 +13,9 @@
 
 ## Как поставить сборку на телефон
 
-Серверов два ([ADR 0018](adr/0018-field-test-build.md), [deploy.md](deploy.md)): основной `https://hovanki.duckdns.org` для релизных сборок и [staging](deploy.md#staging) `https://hovanki-staging.duckdns.org` для тестовых. Поля адреса в приложении нет: адрес зашит в сборку, аккаунты и игры основного сервера и staging разные ([ADR 0004](adr/0004-accounts-friends-chat.md)).
+Сервер пока один: основной `https://hovanki.duckdns.org`, на него ходят и релизные, и тестовые сборки. Отдельного [staging](deploy.md#staging) ([ADR 0018](adr/0018-field-test-build.md)) пока нет; если он появится, тестовые сборки переводит на него переменная `STAGING_SERVER_URL`. Поля адреса в приложении нет: адрес зашит в сборку, у каждого сервера свои аккаунты и игры ([ADR 0004](adr/0004-accounts-friends-chat.md)).
 
-- **Тестовая сборка** (`preview.yml`: «Hovanki β» на Android, TestFlight на iPhone) ходит на staging, пока в репозитории задана переменная `STAGING_SERVER_URL` ([Переменные и секреты](#переменные-и-секреты)). Без неё она только собирается и проверяется: никуда не публикуется (ни pre-release, ни Google Play, ни TestFlight), в сводке запуска — предупреждение.
+- **Тестовая сборка** (`preview.yml`: «Hovanki β» на Android, TestFlight на iPhone) ходит на основной сервер и публикуется после каждого push в `main` (pre-release, Google Play, TestFlight). Переменная репозитория `STAGING_SERVER_URL`, если её задать, переводит её на отдельный сервер ([Переменные и секреты](#переменные-и-секреты)). Полевой журнал на основном сервере выключен (`hovanki.field.allowed` есть только в профиле `staging`): тестовая сборка играет как обычная, с экраном согласия и Sentry.
 - **Релизная сборка** (`release.yml`, App Store и Google Play) ходит на основной сервер.
 - **Debug-сборка** на телефоне без параметров тоже ходит на основной сервер (`hovanki.serverUrl`), с [панелью диагностики](architecture.md#диагностика-debug-сборки) (GPS, dBm Bluetooth, синхронизации).
 - Туннель к своему компьютеру нужен, чтобы сыграть на своей версии сервера: с debug-сборкой или с тестовой, собранной под адрес туннеля.
@@ -25,7 +25,7 @@ Android-сборка ставится из Google Play (внутреннее т�
 | Что | Откуда | Обновления |
 |---|---|---|
 | Основной сервер | `https://hovanki.duckdns.org` в AWS ([deploy.md](deploy.md)); своя версия — `./gradlew :server:bootRun` + [Cloudflare Quick Tunnel](#сервер-через-туннель) | AWS: сам, через несколько минут после каждого push в `main` ([deploy.md](deploy.md#автообновление)); туннель: новый запуск — новый адрес и новая сборка под него |
-| Staging | `https://hovanki-staging.duckdns.org`, вторая машина AWS ([deploy.md](deploy.md#staging)) | как основной; в день теста автообновление выключают |
+| Staging | пока нет; описан в [deploy.md](deploy.md#staging) на случай, если понадобится | — |
 | Android, основной путь | Google Play, внутреннее тестирование, приложение «Hovanki β» (`app.hovanki.preview`): [Google Play](#google-play-внутреннее-тестирование) | каждый push в `main`: Play обновляет приложение сам |
 | Android, запасной путь | pre-release [`preview`](https://github.com/denysbohusevych/hovanki/releases/tag/preview), файл `hovanki-preview.apk` | каждый push в `main`; ставить вручную или через Obtainium |
 | iPhone | TestFlight, когда подтверждён Apple Developer Program | каждый push в `main`; TestFlight предлагает обновить. Внешним тестерам сборку добавляют в группу вручную ([внешняя группа](#testflight-внешняя-группа-и-beta-app-review)) |
@@ -74,14 +74,14 @@ Android-сборка ставится из Google Play (внутреннее т�
 hovanki.serverUrl=https://hovanki.duckdns.org
 ```
 
-Тестовые сборки CI (`preview.yml`) подставляют вместо него [staging](deploy.md#staging). Другого адреса у сборки нет: поле адреса убрано, адрес зашит при сборке, а аккаунты каждого сервера живут на нём ([ADR 0004](adr/0004-accounts-friends-chat.md#12-один-сервер)).
+Тестовые сборки CI (`preview.yml`) берут его же; адрес [staging](deploy.md#staging) они подставляют, только если задана `STAGING_SERVER_URL`. Другого адреса у сборки нет: поле адреса убрано, адрес зашит при сборке, а аккаунты каждого сервера живут на нём ([ADR 0004](adr/0004-accounts-friends-chat.md#12-один-сервер)).
 
 - Действует на Android и iOS, локально и в CI: при сборке значение попадает в сгенерированный `BuildConstants` модуля `:composeApp` (задача `generateBuildConstants`).
 - Свойство обязательно и только `https://`, иначе сборка падает с понятной ошибкой: вне debug Android не пускает HTTP, а iOS закрывает его App Transport Security.
 - Debug-сборка на телефоне ходит на этот же адрес. В эмуляторе и симуляторе — на компьютер разработчика (`http://10.0.2.2:8080` в эмуляторе, `http://localhost:8080` в симуляторе); параметр запуска `server` ведёт куда угодно.
 - Для одной сборки: `./gradlew :androidApp:assemblePreview -Phovanki.serverUrl=https://…`.
 
-**Как `preview.yml` ставит staging** (`-Phovanki.serverUrl` из переменной репозитория `STAGING_SERVER_URL`; если она пуста, остаётся адрес из `gradle.properties`, сборка только проверяется и не публикуется, в сводке запуска — предупреждение):
+**Как `preview.yml` ставит адрес** (по умолчанию адрес основного сервера из `gradle.properties`; `-Phovanki.serverUrl` из переменной репозитория `STAGING_SERVER_URL`, только если она задана):
 
 - **Android:** обычные флаги Gradle: `-Phovanki.serverUrl=…`, `-Phovanki.channel=preview`, `-Phovanki.sentryDsn=…` (DSN Sentry из секрета `SENTRY_DSN`, пустой — без Sentry).
 - **iOS:** Gradle запускает не job, а build phase «Compile Kotlin Framework» проекта Xcode (`./gradlew :composeApp:embedAndSignAppleFrameworkForXcode`), поэтому флаги job'а до него не доходят. Job пишет те же три свойства в `gradle.properties` домашней папки Gradle (`$GRADLE_USER_HOME` или `~/.gradle`): его читает каждый запуск Gradle на раннере, в том числе из Xcode, и он главнее `gradle.properties` проекта. Переменная окружения `ORG_GRADLE_PROJECT_hovanki.serverUrl` не годится: точка в имени, а оболочки скрипт-фаз Xcode не обещают её передать. Раннер чистый, ничего после себя не оставляет.
@@ -93,7 +93,7 @@ hovanki.serverUrl=https://hovanki.duckdns.org
 Каждый push в `main` собирает сборку `preview` и заменяет ею pre-release [`preview`](https://github.com/denysbohusevych/hovanki/releases/tag/preview). Ссылка на свежий APK постоянная:
 <https://github.com/denysbohusevych/hovanki/releases/download/preview/hovanki-preview.apk>
 
-`preview` — это release-сборка (R8, без debug-хуков `LaunchOptions` и e2e, только HTTPS) с отдельным application id `app.hovanki.preview` и названием «Hovanki β», см. [Тестовые сборки](#тестовые-сборки-previewyml). Она ходит на [staging](deploy.md#staging): аккаунт основного сервера в ней не работает, нужен свой, а адрес сервера и версия — в описании релиза. Тот же билд лежит в Google Play ([внутреннее тестирование](#google-play-внутреннее-тестирование)): тестерам удобнее он, а APK с GitHub — запасной путь для тех, у кого есть доступ к репозиторию.
+`preview` — это release-сборка (R8, без debug-хуков `LaunchOptions` и e2e, только HTTPS) с отдельным application id `app.hovanki.preview` и названием «Hovanki β», см. [Тестовые сборки](#тестовые-сборки-previewyml). Она ходит на основной сервер, аккаунт тот же, что в релизной сборке; адрес сервера и версия — в описании релиза. Тот же билд лежит в Google Play ([внутреннее тестирование](#google-play-внутреннее-тестирование)): тестерам удобнее он, а APK с GitHub — запасной путь для тех, у кого есть доступ к репозиторию.
 
 **Первая установка** (Android 8+):
 
@@ -118,7 +118,7 @@ hovanki.serverUrl=https://hovanki.duckdns.org
 
 ### iPhone: TestFlight
 
-После настройки из раздела [iOS: TestFlight](#ios-testflight) каждый push в `main` загружает сборку в TestFlight. Эта сборка ходит на [staging](deploy.md#staging), **в App Store её отправлять нельзя**: для него есть сборка из `release.yml` ([Номера сборок](#номера-сборок)). В списке сборок App Store Connect они стоят рядом, тестовые — с «staging» в «What to Test».
+После настройки из раздела [iOS: TestFlight](#ios-testflight) каждый push в `main` загружает сборку в TestFlight. Это полевая сборка (экран согласия, Sentry), **в App Store её отправлять нельзя**: для него есть сборка из `release.yml` ([Номера сборок](#номера-сборок)). В списке сборок App Store Connect они стоят рядом, тестовые — с «preview» в «What to Test».
 
 1. Поставить на iPhone приложение [TestFlight](https://apps.apple.com/app/testflight/id899247664) из App Store.
 2. **Себе** (внутреннее тестирование, без проверки Apple): App Store Connect → приложение → TestFlight → Internal Testing → «+» → группа → добавить себя. Приглашение придёт на почту Apple ID, дальше — «Установить» в TestFlight. Новые сборки группа получает сама, когда App Store Connect их обработает (5–30 минут после job'а).
@@ -154,10 +154,10 @@ Push в `main` (кроме правок только в `*.md` и `docs/`) и р
 
 | Job | Раннер | Что делает |
 |---|---|---|
-| `Android preview APK` | `ubuntu-latest` | `./gradlew :androidApp:assemblePreview :androidApp:bundlePreview` с `-Phovanki.versionCode=<номер>`, `-Phovanki.channel=preview`, `-Phovanki.sentryDsn=…` и `-Phovanki.serverUrl=<STAGING_SERVER_URL>` (если переменная задана, [иначе предупреждение](#переменные-и-секреты)) и keystore из [секретов релиза](#секреты-для-подписи-android); проверка APK (`aapt2`): пакет и `versionCode`, не debuggable, без cleartext и debug deep link `hovanki://`, в нём зашит нужный адрес сервера; проверка AAB: манифест `app.hovanki.preview`; APK — артефакт `android-preview`, подписанный AAB — `android-preview-aab` (14 дней) |
+| `Android preview APK` | `ubuntu-latest` | `./gradlew :androidApp:assemblePreview :androidApp:bundlePreview` с `-Phovanki.versionCode=<номер>`, `-Phovanki.channel=preview`, `-Phovanki.sentryDsn=…` и `-Phovanki.serverUrl=<STAGING_SERVER_URL>` (только если переменная задана, иначе адрес основного сервера, [Переменные и секреты](#переменные-и-секреты)) и keystore из [секретов релиза](#секреты-для-подписи-android); проверка APK (`aapt2`): пакет и `versionCode`, не debuggable, без cleartext и debug deep link `hovanki://`, в нём зашит нужный адрес сервера; проверка AAB: манифест `app.hovanki.preview`; APK — артефакт `android-preview`, подписанный AAB — `android-preview-aab` (14 дней) |
 | `Android pre-release` | `ubuntu-latest` | Только из `main` и только подписанный APK: удаляет и заново создаёт pre-release с тегом `preview` на текущем коммите; в описании — версия, commit, адрес сервера, ссылка на запуск |
-| `Google Play internal` | `ubuntu-latest` | Только из `main` и только подписанный AAB: загружает его в трек `internal` приложения `app.hovanki.preview` (`r0adkll/upload-google-play`, закреплён на коммите `e738b9d…` = v1.1.5, секрет `PLAY_SERVICE_ACCOUNT_JSON`). Только для сборки на staging: без `STAGING_SERVER_URL` job пропускается, как и `Android pre-release`. Без секрета пропускает загрузку с сообщением в сводке, job зелёный; секрет не похож на ключ сервисного аккаунта — job красный. Настройка — [Google Play](#google-play-внутреннее-тестирование) |
-| `iOS TestFlight` | `macos-26` | Вызывает общий workflow `ios-testflight.yml` с адресом staging: Release-архив, проверка бандла и адреса сервера, загрузка в TestFlight (только из `main`), см. [iOS: TestFlight](#ios-testflight) |
+| `Google Play internal` | `ubuntu-latest` | Только из `main` и только подписанный AAB: загружает его в трек `internal` приложения `app.hovanki.preview` (`r0adkll/upload-google-play`, закреплён на коммите `e738b9d…` = v1.1.5, секрет `PLAY_SERVICE_ACCOUNT_JSON`). Без секрета пропускает загрузку с сообщением в сводке, job зелёный; секрет не похож на ключ сервисного аккаунта — job красный. Настройка — [Google Play](#google-play-внутреннее-тестирование) |
+| `iOS TestFlight` | `macos-26` | Вызывает общий workflow `ios-testflight.yml` с адресом основного сервера (или `STAGING_SERVER_URL`): Release-архив, проверка бандла и адреса сервера, загрузка в TestFlight (только из `main`), см. [iOS: TestFlight](#ios-testflight) |
 
 Сборка `preview` на Android:
 
@@ -260,7 +260,7 @@ git push origin v0.1.0
 
 - `versionName` = тег без `v` (`0.1.0`), `versionCode` = номер запуска workflow (`github.run_number`), он растёт с каждым запуском. Если переименовать файл workflow, счётчик начнётся заново — тогда в Gradle-сборке нужно добавить смещение, иначе Google Play не примет сборку с меньшим `versionCode`.
 - Тег с дефисом (`v0.2.0-rc.1`) создаёт pre-release, образ получает только тег `0.2.0-rc.1`, `latest` не двигается. Версия iOS для такого тега — `0.2.0` (в версии iOS только числа).
-- **iOS (App Store).** Тот же тег собирает и загружает в TestFlight сборку для App Store с адресом основного сервера: версия — тег без `v`, номер сборки — `100000 + номер запуска` ([Номера сборок](#номера-сборок)). Её, и только её, отправляют на ревью: App Store Connect → приложение → версия → Build → выбрать сборку. Сборки из `preview.yml` ходят на staging и для App Store не годятся.
+- **iOS (App Store).** Тот же тег собирает и загружает в TestFlight сборку для App Store с адресом основного сервера: версия — тег без `v`, номер сборки — `100000 + номер запуска` ([Номера сборок](#номера-сборок)). Её, и только её, отправляют на ревью: App Store Connect → приложение → версия → Build → выбрать сборку. Сборки из `preview.yml` — полевые (согласие, Sentry) и для App Store не годятся.
 - **После тега** поднять `MARKETING_VERSION` в `iosApp/Configuration/Config.xcconfig` до следующей версии: тестовые сборки той же версии, что и тег, App Store Connect уже не примет. Job предупреждает, если версия тега и `MARKETING_VERSION` совпадают.
 - Ручной запуск (Actions → Release → Run workflow) собирает APK/AAB, сборку iOS (без загрузки) и образ (с тегом `sha-<коммит>`), но GitHub Release не создаёт — удобно проверить пайплайн.
 
@@ -343,10 +343,10 @@ curl http://localhost:8080/actuator/health
 
 ## iOS: TestFlight
 
-Шаги iOS живут в общем workflow `ios-testflight.yml`; его вызывают `preview.yml` (job `iOS TestFlight`: тестовая сборка, адрес staging) и `release.yml` (job `iOS App Store build`: сборка для App Store, адрес основного сервера, версия из тега). Release-архив → проверка бандла и адреса сервера → `xcodebuild -exportArchive` с `destination: upload` → App Store Connect. Без `altool` и fastlane, только Xcode из образа раннера.
+Шаги iOS живут в общем workflow `ios-testflight.yml`; его вызывают `preview.yml` (job `iOS TestFlight`: тестовая сборка, адрес основного сервера или `STAGING_SERVER_URL`) и `release.yml` (job `iOS App Store build`: сборка для App Store, адрес основного сервера, версия из тега). Release-архив → проверка бандла и адреса сервера → `xcodebuild -exportArchive` с `destination: upload` → App Store Connect. Без `altool` и fastlane, только Xcode из образа раннера.
 
 - **Bundle id постоянный**: `BUNDLE_ID = app.hovanki.ios` в `iosApp/Configuration/Config.xcconfig`, без `$(TEAM_ID)` в конце. Team ID CI берёт из provisioning profile; для локальной сборки — `TEAM_ID` в `Config.xcconfig` (его можно закоммитить, он не секрет) или в `Local.xcconfig`.
-- **Версия тестовых сборок** — `MARKETING_VERSION` в `Config.xcconfig` (`0.1.0`), **build number** — номер запуска `preview.yml`. **Версия сборки для App Store** — тег `v*`, build number — `100000 +` номер запуска `release.yml` ([Номера сборок](#номера-сборок)). Релиз в App Store — это отправка на ревью сборки из `release.yml`, уже загруженной в TestFlight; сборку из `preview.yml` на ревью не отправляют (она ходит на staging).
+- **Версия тестовых сборок** — `MARKETING_VERSION` в `Config.xcconfig` (`0.1.0`), **build number** — номер запуска `preview.yml`. **Версия сборки для App Store** — тег `v*`, build number — `100000 +` номер запуска `release.yml` ([Номера сборок](#номера-сборок)). Релиз в App Store — это отправка на ревью сборки из `release.yml`, уже загруженной в TestFlight; сборку из `preview.yml` на ревью не отправляют (это полевая сборка).
 - **Release без dev-исключений ATS**: в `Info.plist` нет `NSAllowsLocalNetworking` и `NSLocalNetworkUsageDescription`. Их добавляет только в Debug build phase «Debug: local network» (`iosApp/Configuration/debug-info-plist.sh`), а job проверяет, что в Release-бандле их нет.
 - **Экспортное шифрование**: `ITSAppUsesNonExemptEncryption = NO` (только HTTPS) — App Store Connect не спрашивает про шифрование у каждой сборки.
 - **Приватность**: `PrivacyInfo.xcprivacy` — точная геолокация и игровые данные (имя, заявки, голоса) собираются для работы приложения, не связаны с личностью, без трекинга; причины для required-reason API из Compose и Kotlin/Native. Тексты разрешений на en/uk/ru: английские — в `Info.plist`, переводы — `InfoPlist.xcstrings`, список языков — `CFBundleLocalizations` (без него iOS показала бы русские тексты телефону с языками «английский, русский»: Xcode не создаёт `en.lproj` для текстов из `Info.plist`). Анкету App Privacy в App Store Connect заполнить так же.
@@ -358,7 +358,7 @@ curl http://localhost:8080/actuator/health
 
 | | Тестовая сборка (`preview.yml`) | Сборка для App Store (`release.yml`, тег `vX.Y.Z`) |
 |---|---|---|
-| Сервер | staging | основной |
+| Сервер | основной (или `STAGING_SERVER_URL`, если задана) | основной |
 | Версия (`CFBundleShortVersionString`) | `MARKETING_VERSION` из `Config.xcconfig` | `X.Y.Z`: тег без `v` и без суффикса (`v1.0.0-rc.1` → `1.0.0`) |
 | Номер сборки (`CFBundleVersion`) | номер запуска `preview.yml` (1, 2, … — как `versionCode` Android) | `100000 +` номер запуска `release.yml` |
 | Куда | TestFlight; **не в App Store** | TestFlight, оттуда на ревью |
@@ -423,22 +423,22 @@ Job проверяет профиль до сборки: тип App Store (бе�
 
 - собирает Release-архив для устройства без подписи: release-фреймворк Kotlin (без `LaunchOptions`), Swift, ресурсы;
 - проверяет бандл: `CFBundleVersion` равен номеру сборки, у сборки из тега версия — тег, в `Info.plist` нет `NSAppTransportSecurity` и `NSLocalNetworkUsageDescription`, есть `PrivacyInfo.xcprivacy`, `CFBundleLocalizations` и переводы текстов разрешений (`ru.lproj`, `uk.lproj`);
-- проверяет адрес сервера в исполняемом файле: тот, что просили (staging для `preview.yml`, основной для `release.yml`); чужой адрес — отказ, никакого — предупреждение.
+- проверяет адрес сервера в исполняемом файле: тот, что просили (основной или `STAGING_SERVER_URL` для `preview.yml`, основной для `release.yml`); чужой адрес — отказ, никакого — предупреждение.
 
 Подпись, экспорт и загрузка впервые выполнятся, когда появятся секреты; без них их не проверить.
 
 ### TestFlight: внешняя группа и Beta App Review
 
-Для полевого теста ([ADR 0018, §8](adr/0018-field-test-build.md#8-раздача)): организаторы ставят сборку как внутренние тестеры, остальные — по публичной ссылке, без приглашений по e-mail. Всё делает владелец в App Store Connect; сборки приходят из `preview.yml` (staging).
+Для полевого теста ([ADR 0018, §8](adr/0018-field-test-build.md#8-раздача)): организаторы ставят сборку как внутренние тестеры, остальные — по публичной ссылке, без приглашений по e-mail. Всё делает владелец в App Store Connect; сборки приходят из `preview.yml`.
 
-1. **Test Information.** App Store Connect → приложение → TestFlight → Test Information (левая колонка): Beta App Description («Hovanki β — полевой тест игры в прятки на улицах»), e-mail для отзывов, контакт и **Sign-In Information**: ник и пароль **демо-аккаунта на staging** (создать в сборке, которая ходит на staging; подтверждать e-mail необязательно, [deploy.md](deploy.md#первый-запуск-staging)) и «Sign-in required». Без демо-аккаунта ревьюер не доберётся до игры.
+1. **Test Information.** App Store Connect → приложение → TestFlight → Test Information (левая колонка): Beta App Description («Hovanki β — полевой тест игры в прятки на улицах»), e-mail для отзывов, контакт и **Sign-In Information**: ник и пароль **демо-аккаунта** на сервере, куда ходит тестовая сборка (сейчас основной; подтверждать e-mail необязательно) и «Sign-in required». Без демо-аккаунта ревьюер не доберётся до игры.
 2. **Внутренняя группа** (`Organizers`): до 100 пользователей App Store Connect (Users and Access → добавить организаторов с ролью Developer или Marketing), без ревью. Автоматическую раздачу включить: организаторы получают каждую сборку.
 3. **Внешняя группа** (`Field testers`): TestFlight → «+» рядом с External Testing → New Group → имя. В группе:
    - **Enable Public Link** → задать лимит тестеров (до 10 000), скопировать ссылку вида `https://testflight.apple.com/join/…`. Её и раздают; e-mail тестеров Apple не показывает.
-   - **Автоматическую раздачу выключить.** В App Store Connect рядом лежат и сборки `preview.yml` (staging), и сборка для App Store из `release.yml` (основной сервер, номер выше): с автораздачей тестеры получили бы любую из них, а сборка не должна меняться посреди теста. Нужную сборку добавляют вручную: Builds → «+» → выбрать сборку `preview`.
-4. **«What to Test»** обязателен для сборок внешней группы. Начинать со слова «staging», чтобы тестовую сборку не перепутали со сборкой для App Store ([ADR 0018](adr/0018-field-test-build.md#1-сборка)). Пример:
+   - **Автоматическую раздачу выключить.** В App Store Connect рядом лежат и сборки `preview.yml` (полевые), и сборка для App Store из `release.yml` (основной сервер, номер выше): с автораздачей тестеры получили бы любую из них, а сборка не должна меняться посреди теста. Нужную сборку добавляют вручную: Builds → «+» → выбрать сборку `preview`.
+4. **«What to Test»** обязателен для сборок внешней группы. Начинать со слова «preview», чтобы тестовую сборку не перепутали со сборкой для App Store ([ADR 0018](adr/0018-field-test-build.md#1-сборка)). Пример:
 
-   > staging: полевой тест. Сервер тестовый, аккаунт нужен новый. Согласись на запись журнала при первом запуске, разреши точную геолокацию, Bluetooth и уведомления. Играй как обычно. Если что-то не так — отметь в приложении.
+   > preview: полевой тест. Согласись на запись журнала при первом запуске, разреши точную геолокацию, Bluetooth и уведомления. Играй как обычно. Если что-то не так — отметь в приложении.
 5. **Beta App Review.** Первая сборка каждой версии (`MARKETING_VERSION`) во внешней группе проходит ревью Apple, обычно до суток; следующие сборки той же версии — как правило, без него. **Подавать за 2–3 дня до теста**: выбрать сборку в группе → Submit for Review. Ревьюеру в заметках (Test Information → Notes) объяснить, зачем фоновая геолокация и Bluetooth; пример на английском:
 
    > Hovanki is a street hide-and-seek game for a group of people. A player shares their location with the other players of the same game only while a round is running.
@@ -450,7 +450,7 @@ Job проверяет профиль до сборки: тип App Store (бе�
 
 ## Google Play: внутреннее тестирование
 
-Для полевого теста ([ADR 0018, §8](adr/0018-field-test-build.md#8-раздача)): тестовая сборка Android «Hovanki β» (`app.hovanki.preview`, она ходит на [staging](deploy.md#staging)) раздаётся через **внутреннее тестирование** Google Play: до 100 тестеров по e-mail или из Google Group, без ревью, ссылка-приглашение, обновления Play ставит сам. Это отдельное приложение в Play Console, в продакшен оно не выходит. Job `Google Play internal` в `preview.yml` загружает в него подписанный AAB после каждого push в `main`. APK на pre-release `preview` остаётся запасным путём.
+Для полевого теста ([ADR 0018, §8](adr/0018-field-test-build.md#8-раздача)): тестовая сборка Android «Hovanki β» (`app.hovanki.preview`, она ходит на основной сервер) раздаётся через **внутреннее тестирование** Google Play: до 100 тестеров по e-mail или из Google Group, без ревью, ссылка-приглашение, обновления Play ставит сам. Это отдельное приложение в Play Console, в продакшен оно не выходит. Job `Google Play internal` в `preview.yml` загружает в него подписанный AAB после каждого push в `main`. APK на pre-release `preview` остаётся запасным путём.
 
 ### Что сделать в Play Console (владелец, один раз)
 
@@ -461,7 +461,7 @@ Job проверяет профиль до сборки: тип App Store (бе�
 3. **Разделы «App content»** (Policy → App content; Play не даст выпустить сборку, пока они не заполнены):
    - **Foreground service permissions.** В манифесте `FOREGROUND_SERVICE_LOCATION` и `FOREGROUND_SERVICE_CONNECTED_DEVICE`: объяснить, зачем, и приложить ссылку на видео. Для `location`: раунд продолжается при погашенном экране, телефон отправляет положение игрока другим игрокам той же игры. Для `connectedDevice`: Bluetooth-радар между телефонами игроков. Видео — запись экрана тестовой сборки: игра с погашенным экраном и уведомление службы.
    - **Background location.** `ACCESS_BACKGROUND_LOCATION` в манифесте нет (раунд держит служба переднего плана), поэтому декларацию фоновой геолокации Play не просит. Попросит — если разрешение добавят в манифест.
-   - **App access**: вход обязателен, указать демо-аккаунт на staging (тот же, что для Beta App Review).
+   - **App access**: вход обязателен, указать демо-аккаунт (тот же, что для Beta App Review).
    - **Privacy policy**: ссылка на страницу с политикой конфиденциальности; для приложения с точной геолокацией она обязательна. Что собирается — [metrics.md](metrics.md). Страница может лежать на любом хостинге.
    - **Data safety**, **Content rating**, **Target audience**, **Ads** (рекламы нет) — анкеты. Данные: точная геолокация, имя, e-mail, идентификаторы устройства и игры; шифруются при передаче (HTTPS), удаляются вместе с аккаунтом. Для полевой сборки добавляются диагностический журнал и Sentry ([ADR 0018, §7](adr/0018-field-test-build.md#7-sentry)).
 4. **Play App Signing**: при первой загрузке согласиться на «Use Play App Signing». Наш keystore (секреты `ANDROID_KEYSTORE_*`) становится ключом загрузки (upload key): приложение Google подписывает своим ключом.
@@ -494,7 +494,7 @@ Settings → Secrets and variables → Actions. Переменные (вклад
 
 | Имя | Вид | Кто читает | Что это |
 |---|---|---|---|
-| `STAGING_SERVER_URL` | переменная | `preview.yml`; `release.yml` (проверка) | Адрес [staging](deploy.md#staging): `https://hovanki-staging.duckdns.org`. Задана — тестовые сборки Android и iOS ходят туда и публикуются. Нет — они только собираются и проверяются, никуда не публикуются, в сводке запуска — предупреждение. Только `https://` (иначе job падает с понятной ошибкой, пробелы и `/` в конце срезаются). В `release.yml` по ней проверяют, что в сборке для App Store нет staging |
+| `STAGING_SERVER_URL` | переменная, необязательно; **пока staging нет, не задавать** | `preview.yml`; `release.yml` (проверка) | Адрес отдельного [staging](deploy.md#staging), если он появится. Не задана — тестовые сборки Android и iOS ходят на основной сервер. Задана — ходят туда. Только `https://` (иначе job падает с понятной ошибкой, пробелы и `/` в конце срезаются). В `release.yml` по ней проверяют, что в сборке для App Store нет staging |
 | `SENTRY_DSN` | секрет | `preview.yml` | DSN проекта Sentry приложения (регион EU), только для тестовых сборок; пустой или не задан — Sentry в сборке выключен. DSN сервера — в `.env` staging, [`deploy/.env.staging.example`](../deploy/.env.staging.example) |
 | `PLAY_SERVICE_ACCOUNT_JSON` | секрет | `preview.yml` | Ключ сервисного аккаунта Google Play: весь JSON-файл как текст ([Google Play](#google-play-внутреннее-тестирование)). Нет — загрузка в Play пропускается с сообщением в сводке |
 | `PLAY_RELEASE_STATUS` | переменная, необязательно | `preview.yml` | Статус релиза в Play: по умолчанию `completed`, `draft` — если Play ещё не принимает `completed` ([Если загрузка не проходит](#если-загрузка-не-проходит)) |
@@ -502,12 +502,11 @@ Settings → Secrets and variables → Actions. Переменные (вклад
 | `IOS_*`, `APP_STORE_CONNECT_*` (6) | секреты | `ios-testflight.yml` через `preview.yml` и `release.yml` | [Секреты iOS](#секреты-ios) |
 
 ```bash
-gh variable set STAGING_SERVER_URL --body https://hovanki-staging.duckdns.org
 gh secret set SENTRY_DSN --body '<DSN>'
 gh secret set PLAY_SERVICE_ACCOUNT_JSON < hovanki-play-upload.json
 ```
 
-Без `STAGING_SERVER_URL` тестовые сборки не ломаются, но и не публикуются: `preview.yml` собирает и проверяет их с адресом основного сервера, пишет `::warning` и в сводке запуска «preview build not published: no staging server»; `Android pre-release` и `Google Play internal` пропускаются, `ios-testflight.yml` не загружает сборку `preview` без адреса, даже если его попросили. Сборка с полевым журналом и Sentry не должна попасть к тестерам с адресом основного сервера. Сервер со своей стороны тоже не даст: `FIELD_LOG` работает только там, где `hovanki.field.allowed` (профиль `staging`), на основном админ его не включит.
+Без `STAGING_SERVER_URL` (так сейчас) тестовые сборки ходят на основной сервер и публикуются как обычно. Полевой журнал при этом не пишется: `FIELD_LOG` работает только там, где `hovanki.field.allowed` (профиль `staging`), на основном админ его не включит. Чтобы вернуть отдельный staging: поднять его ([deploy.md](deploy.md#staging)) и задать `gh variable set STAGING_SERVER_URL --body https://hovanki-staging.duckdns.org`.
 
 ## Инструкция тестеру
 
