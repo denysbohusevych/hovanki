@@ -8,10 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -37,22 +33,19 @@ import app.hovanki.client.ui.common.formatCountdown
 import app.hovanki.client.ui.common.perkText
 import app.hovanki.client.ui.common.perkTitle
 import app.hovanki.client.ui.theme.Palette
-import app.hovanki.shared.protocol.PerkKind
 import app.hovanki.shared.protocol.PerkView
-import app.hovanki.shared.rules.PerkCatalog
 import org.jetbrains.compose.resources.stringResource
 
 /**
  * The perks (docs/adr/0013-quests-sparks-and-sensors.md, section 3): what the viewer may use, for sparks or from what
- * they found on the map. A perk aimed at a hider asks which one; the decoy goes to the map ([onPickDecoy]).
+ * they found on the map. A perk aimed at a hider asks which one; the decoy goes to the map ([GameEvent.UsePerk]).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PerksPanel(state: GameUiState, viewModel: GameViewModel, onClose: () -> Unit, onPickDecoy: () -> Unit) {
-    var targeting by remember { mutableStateOf<PerkKind?>(null) }
+fun PerksPanel(state: GameUiState, onEvent: (GameEvent) -> Unit) {
     Panel(
         title = stringResource(Res.string.perks_title),
-        onClose = onClose,
+        onClose = { onEvent(GameEvent.ClosePanel) },
         modifier = Modifier.testTag(TestTags.PERKS_PANEL),
         screen = "perks",
     ) {
@@ -63,25 +56,9 @@ fun PerksPanel(state: GameUiState, viewModel: GameViewModel, onClose: () -> Unit
                 PerkCard(
                     perk = perk,
                     state = state,
-                    isTargeting = targeting == perk.perk,
-                    onUse = {
-                        val spec = PerkCatalog.spec(perk.perk)
-                        when {
-                            spec.needsTarget -> targeting = perk.perk
-
-                            spec.needsPoint -> onPickDecoy()
-
-                            else -> {
-                                viewModel.usePerk(perk.perk)
-                                onClose()
-                            }
-                        }
-                    },
-                    onTarget = { hider ->
-                        viewModel.usePerk(perk.perk, targetId = hider)
-                        targeting = null
-                        onClose()
-                    },
+                    isTargeting = state.perkTargeting == perk.perk,
+                    onUse = { onEvent(GameEvent.UsePerk(perk.perk)) },
+                    onTarget = { hider -> onEvent(GameEvent.UsePerk(perk.perk, targetId = hider)) },
                 )
             }
         }
