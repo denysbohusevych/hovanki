@@ -55,6 +55,7 @@ import app.hovanki.client.resources.reason_radar_off
 import app.hovanki.client.resources.reason_spotlight
 import app.hovanki.client.resources.reason_stale_signal
 import app.hovanki.client.resources.reason_teammate
+import app.hovanki.client.resources.sos_marker
 import app.hovanki.client.session.ZoneCue
 import app.hovanki.client.ui.common.formatCountdown
 import app.hovanki.client.ui.common.itemKindTitle
@@ -193,7 +194,9 @@ fun GameMap(
     val look = zoneLook(cue, reduceMotion)
     val ping = if (markers.any { it.isRevealed } && !reduceMotion) revealPing() else null
     val smoothMarkers = markers.map { marker -> key(marker.id) { marker.copy(point = smoothPoint(marker.point)) } }
+    val sosLabel = stringResource(Res.string.sos_marker)
     val labelTexts = markers.associate { marker ->
+        if (marker.isSos) return@associate marker.id to "${marker.name} · $sosLabel"
         val why = marker.markAgeMillis?.let { age ->
             key(marker.id) { stringResource(Res.string.reason_glow_mark, formatCountdown(age)) }
         } ?: reasonLabels[marker.reason].orEmpty()
@@ -351,6 +354,16 @@ fun GameMap(
             radius = const(MARKER_RADIUS),
             strokeColor = const(Palette.Ink),
             strokeWidth = const(2.5.dp),
+        )
+        // Who calls for help (docs/adr/0019-pause-and-sos.md): big, red, on top of everybody.
+        val sosPoints = rememberGeoJsonSource(GeoJsonData.Features(points(smoothMarkers.filter { it.isSos })))
+        CircleLayer(
+            id = "players-sos",
+            source = sosPoints,
+            color = const(Palette.Sos),
+            radius = const(SOS_RADIUS),
+            strokeColor = const(Color.White),
+            strokeWidth = const(3.dp),
         )
         val labels = rememberGeoJsonSource(
             GeoJsonData.Features(
@@ -689,6 +702,7 @@ private const val SNAP_METERS = 150.0
 internal val RING_CASING_WIDTH = 8.dp
 internal val RING_CORE_WIDTH = 4.dp
 private val MARKER_RADIUS = 9.dp
+private val SOS_RADIUS = 13.dp
 private val ITEM_RADIUS = 8.dp
 
 /** The map's short side before it is measured, for fitting the camera. */
@@ -731,11 +745,12 @@ internal object MapStyle {
     )
 }
 
-private val MapMarker.isTeammate: Boolean get() = reason == VisibilityReason.TEAMMATE
+private val MapMarker.isTeammate: Boolean get() = !isSos && reason == VisibilityReason.TEAMMATE
 
 /** Where a player was, not where they are: an old fix, or the spot the last glow left. */
-private val MapMarker.isStale: Boolean get() = reason == VisibilityReason.STALE_SIGNAL || markAgeMillis != null
-private val MapMarker.isRevealed: Boolean get() = !isTeammate && !isStale
+private val MapMarker.isStale: Boolean get() =
+    !isSos && (reason == VisibilityReason.STALE_SIGNAL || markAgeMillis != null)
+private val MapMarker.isRevealed: Boolean get() = !isSos && !isTeammate && !isStale
 
 private fun List<GeoPoint>.toRing(): List<Position> = map { it.toPosition() }.let { ring ->
     if (ring.first() == ring.last()) ring else ring + listOf(ring.first())

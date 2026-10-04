@@ -164,6 +164,9 @@ enum class PopStyle(val container: Color, val content: Color, val border: Color?
 
     /** Destructive or against the flow (dispute, block). */
     Danger(Palette.Paper, Palette.PinkInk, Palette.PinkInk, shadow = false),
+
+    /** Help in an SOS: the emergency number (docs/adr/0019-pause-and-sos.md). */
+    Sos(Palette.Sos, Color.White, Palette.Ink, shadow = true),
 }
 
 /** A button in the style; [content] is laid out in a row, centered, with the style's colors and text. */

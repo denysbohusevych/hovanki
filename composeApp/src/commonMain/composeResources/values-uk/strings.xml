@@ -872,4 +872,24 @@
   <string name="field_touch_dismiss">Не зараз</string>
   <string name="field_pocket_hint">Покладіть телефон у кишеню, не блокуючи: екран згасне сам.</string>
   <string name="field_pocket_hint_ok">Зрозуміло</string>
+  <string name="pause_title">Пауза</string>
+  <string name="pause_text">Гра стоїть: таймери чекають, ловити не можна, радар мовчить.</string>
+  <string name="pause_host_resumes">Продовжить хост.</string>
+  <string name="pause_resume">Продовжити</string>
+  <string name="pause_action">Поставити гру на паузу</string>
+  <string name="sos_title">SOS</string>
+  <string name="sos_marker">SOS</string>
+  <string name="sos_needs_help">%1$s просить допомоги</string>
+  <string name="sos_distance">%1$d м від вас</string>
+  <string name="sos_no_place">Де — невідомо: телефон ще не надіслав місце.</string>
+  <string name="sos_mine">Ви покликали на допомогу. Усі в грі бачать, де ви.</string>
+  <string name="sos_im_ok">Я в порядку</string>
+  <string name="sos_end">Зняти SOS</string>
+  <string name="sos_call_emergency">Подзвонити %1$s</string>
+  <string name="sos_menu">SOS: мені потрібна допомога</string>
+  <string name="sos_dialog_title">Покликати на допомогу?</string>
+  <string name="sos_dialog_text">Гра зупиниться в усіх, і всі в грі побачать, де ви. Якщо все серйозно, одразу дзвоніть %1$s.</string>
+  <string name="sos_hold">Утримуйте, щоб надіслати SOS</string>
+  <string name="error_game_paused">Гра на паузі.</string>
+  <string name="error_sos_active">Чийсь SOS ще не знято: гра продовжиться, коли його знімуть.</string>
 </resources>

@@ -21,12 +21,14 @@ import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.LoginRequest
+import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.RegisterRequest
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.SendChatRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SosRequest
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.TracksResponse
@@ -47,6 +49,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** Full HTTP round trips with the shared DTOs and the shared JSON settings, exactly as the app talks to the server. */
@@ -83,6 +86,38 @@ class GameApiTest(@Autowired private val mvc: MockMvc, @Autowired private val re
 
         assertEquals(PlayerStatus.CAUGHT, after.players.single { it.id == host.playerId }.status)
         assertEquals(GamePhase.FINISHED, after.phase)
+    }
+
+    @Test
+    fun pauseAndSosOverHttp() {
+        val created = post<SessionResponse>(ApiRoutes.GAMES, CreateGameRequest("Host", settings).toJson())
+        val host = created.session
+        val seeker = post<SessionResponse>(ApiRoutes.JOIN, JoinGameRequest(created.snapshot.joinCode, "S").toJson())
+            .session
+        post<GameSnapshot>(ApiRoutes.start(host.gameId), StartGameRequest(listOf(seeker.playerId)).toJson(), host)
+        sync(host)
+        sync(seeker)
+
+        val paused = post<GameSnapshot>(ApiRoutes.pause(host.gameId), PauseRequest(paused = true).toJson(), host)
+        assertNotNull(paused.pause)
+        val refused = postRaw(ApiRoutes.pause(host.gameId), PauseRequest(paused = false).toJson(), seeker, 403)
+        assertError(refused, ErrorCode.FORBIDDEN, null)
+
+        val called = post<GameSnapshot>(ApiRoutes.sos(host.gameId), SosRequest().toJson(), seeker)
+        assertEquals(seeker.playerId, called.sos.single().playerId)
+        sync(seeker)
+        assertEquals(park, sync(host).sos.single().location?.point)
+        val stillSos = postRaw(ApiRoutes.pause(host.gameId), PauseRequest(paused = false).toJson(), host, 409)
+        assertError(stillSos, ErrorCode.WRONG_STATE, ErrorReason.SOS_ACTIVE)
+
+        post<GameSnapshot>(
+            ApiRoutes.sos(host.gameId),
+            SosRequest(active = false, playerId = seeker.playerId).toJson(),
+            host,
+        )
+        val goesOn = post<GameSnapshot>(ApiRoutes.pause(host.gameId), PauseRequest(paused = false).toJson(), host)
+        assertNull(goesOn.pause)
+        assertTrue(goesOn.sos.isEmpty())
     }
 
     @Test

@@ -866,4 +866,24 @@
   <string name="field_touch_dismiss">Not now</string>
   <string name="field_pocket_hint">Put the phone in your pocket without locking it: the screen goes dark by itself.</string>
   <string name="field_pocket_hint_ok">Got it</string>
+  <string name="pause_title">Pause</string>
+  <string name="pause_text">The round stands still: the timers wait, nobody is caught, the radar is quiet.</string>
+  <string name="pause_host_resumes">The host lets it go on.</string>
+  <string name="pause_resume">Go on</string>
+  <string name="pause_action">Pause the round</string>
+  <string name="sos_title">SOS</string>
+  <string name="sos_marker">SOS</string>
+  <string name="sos_needs_help">%1$s needs help</string>
+  <string name="sos_distance">%1$d m from you</string>
+  <string name="sos_no_place">Where is unknown: their phone has sent no location yet.</string>
+  <string name="sos_mine">You called for help. Everybody in the game sees where you are.</string>
+  <string name="sos_im_ok">I’m OK</string>
+  <string name="sos_end">Remove the SOS</string>
+  <string name="sos_call_emergency">Call %1$s</string>
+  <string name="sos_menu">SOS: I need help</string>
+  <string name="sos_dialog_title">Call for help?</string>
+  <string name="sos_dialog_text">The round stops for everybody, and everybody in the game sees where you are. If it’s serious, call %1$s right away.</string>
+  <string name="sos_hold">Hold to send the SOS</string>
+  <string name="error_game_paused">The round is on pause.</string>
+  <string name="error_sos_active">Somebody’s SOS is still on: the round goes on once it is over.</string>
 </resources>

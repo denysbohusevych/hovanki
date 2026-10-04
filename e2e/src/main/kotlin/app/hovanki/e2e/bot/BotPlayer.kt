@@ -335,6 +335,17 @@ class BotPlayer(
     /** The host taps «Play anyway» on the warning of a crowded zone (docs/adr/0010-big-games.md). */
     suspend fun playsAnyway(): CommandResult = command("plays anyway in a crowded zone") { it.acceptCrowding() }
 
+    /** The host puts the round on pause ([paused]) or lets it go on (docs/adr/0019-pause-and-sos.md). */
+    suspend fun setsPaused(paused: Boolean): CommandResult =
+        command(if (paused) "puts the round on pause" else "lets the round go on") { it.setPaused(paused) }
+
+    /** Calls for help: the round stops for everybody, everybody sees where this bot is. */
+    suspend fun callsSos(): CommandResult = command("calls for help") { it.callSos() }
+
+    /** Ends an SOS: the own one, or, as the host, [of]'s. */
+    suspend fun endsSos(of: BotPlayer? = null): CommandResult =
+        command(if (of == null) "says they are fine" else "ends ${of.name}'s SOS") { it.endSos(of?.id) }
+
     suspend fun claimCatch(hider: BotPlayer): CommandResult = claimCatch(hider.id, hider.name)
 
     /** Claim on any player, e.g. one playing on a device. */

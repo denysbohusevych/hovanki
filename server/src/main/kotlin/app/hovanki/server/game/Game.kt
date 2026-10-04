@@ -33,6 +33,7 @@ import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.FeatureMode
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GamePause
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
@@ -60,6 +61,8 @@ import app.hovanki.shared.protocol.RadarContact
 import app.hovanki.shared.protocol.RadarState
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.SettingsPreviewResponse
+import app.hovanki.shared.protocol.SosCall
+import app.hovanki.shared.protocol.SosLocation
 import app.hovanki.shared.protocol.SpectatedPlayer
 import app.hovanki.shared.protocol.SpectatorId
 import app.hovanki.shared.protocol.SpectatorSnapshot
@@ -286,6 +289,24 @@ class Game(
     /** When [trackField] last looked at the hiders. */
     private var fieldTrackedMillis: Long? = null
     private var fieldTrackedPhase: GamePhase? = null
+
+    /**
+     * Since when the round stands still (docs/adr/0019-pause-and-sos.md); null: it goes on. Nothing happens by the clock
+     * while it stands, and when it goes on every time of the round moves by the pause's length ([shiftRound]).
+     */
+    private var pausedAtMillis: Long? = null
+
+    /** An SOS stopped the round (the host's pause otherwise). */
+    private var pausedBySos = false
+
+    /** The real start of the search, never moved by a pause: what the spectators' delayed view goes by. */
+    private var seekingBeganAtMillis: Long? = null
+
+    /** Who called for help, and since when (docs/adr/0019-pause-and-sos.md); everybody in the game sees them. */
+    private val sosCalls = LinkedHashMap<PlayerId, Long>()
+
+    /** The round stands still. */
+    val isPaused: Boolean get() = pausedAtMillis != null
 
     init {
         if (settings.zoneShape.hasPolygons) streetZoneState = StreetZoneState.LOADING
@@ -597,6 +618,8 @@ class Game(
         pokes.addEveryone()
         // Out of the game, out of its field log: the phone's log stops with it.
         fieldConsenting -= playerId
+        // Gone from the game, nobody else could end their SOS.
+        if (sosCalls.containsKey(playerId)) endSosOf(playerId, nowMillis)
         when (phase) {
             GamePhase.LOBBY -> {
                 players.remove(playerId)
@@ -629,6 +652,8 @@ class Game(
                         .forEach { resolve(it, confirmed = false, nowMillis, how = "left") }
                     if (players.values.none { it.role == Role.SEEKER && !it.left }) finish(nowMillis)
                 }
+                // Nobody would let the round go on any more.
+                if (playerId == hostId && sosCalls.isEmpty()) resumeAt(nowMillis)
             }
 
             GamePhase.FINISHED -> player.left = true
@@ -769,6 +794,8 @@ class Game(
     fun recordSightings(playerId: PlayerId, sightings: List<NearbySighting>, nowMillis: Long) {
         val observer = player(playerId)
         if (!settings.features.hasRadar || (phase != GamePhase.HIDING && phase != GamePhase.SEEKING)) return
+        // On pause the radar hears nothing: nobody hunts.
+        if (pausedAtMillis != null) return
         val secrets = { players.values.mapNotNull { p -> p.radarSecret?.let { p.id to it } }.toMap() }
         val dwellMillis = rules.nearbyDwellSeconds * 1000L
         for (sighting in sightings.take(MAX_SIGHTINGS_PER_SYNC)) {
@@ -942,6 +969,7 @@ class Game(
         code: String?,
         onOpened: (CatchId) -> Unit = {},
     ) {
+        requireNotPaused()
         requirePhase(GamePhase.SEEKING)
         val seeker = player(seekerId)
         val hider = player(hiderId)
@@ -992,6 +1020,7 @@ class Game(
     }
 
     fun confirmCatch(catchId: CatchId, by: PlayerId, code: String, nowMillis: Long) {
+        requireNotPaused()
         val claim = catch(catchId)
         if (claim.seekerId != by) throw GameException(ErrorCode.FORBIDDEN, "Only the claiming seeker enters the code")
         if (claim.status != CatchStatus.AWAITING_CODE) throw GameException(ErrorCode.WRONG_STATE, "The claim is closed")
@@ -1009,6 +1038,7 @@ class Game(
     }
 
     fun disputeCatch(catchId: CatchId, by: PlayerId, nowMillis: Long) {
+        requireNotPaused()
         val claim = catch(catchId)
         if (claim.hiderId != by) throw GameException(ErrorCode.FORBIDDEN, "Only the hider can dispute")
         if (claim.status != CatchStatus.AWAITING_CODE) throw GameException(ErrorCode.WRONG_STATE, "The claim is closed")
@@ -1026,6 +1056,7 @@ class Game(
     }
 
     fun vote(catchId: CatchId, voter: PlayerId, confirm: Boolean, nowMillis: Long) {
+        requireNotPaused()
         val claim = catch(catchId)
         if (claim.status != CatchStatus.DISPUTED) throw GameException(ErrorCode.WRONG_STATE, "Voting is closed")
         val eligible = eligibleVoters(claim)
@@ -1146,11 +1177,14 @@ class Game(
         if (capacityState == CapacityState.LOADING && nowMillis - terrainSinceMillis >= MAP_PATIENCE_MILLIS) {
             onTerrainUnavailable()
         }
+        // On pause nothing happens by the clock: no phase ends, no claim times out, nobody is judged.
+        if (pausedAtMillis != null) return
         if (phase == GamePhase.HIDING) {
             val hidingEnds = phaseStartedAtMillis + settings.hidingSeconds * 1000L
             if (nowMillis >= hidingEnds) {
                 enterPhase(GamePhase.SEEKING, hidingEnds)
                 zoneStartedAtMillis = hidingEnds
+                seekingBeganAtMillis = hidingEnds
             }
         }
         if (phase != GamePhase.SEEKING) return
@@ -1300,7 +1334,7 @@ class Game(
     private class DueMoment(val atMillis: Long, val concerns: PlayerId? = null)
 
     private fun dueMoments(nowMillis: Long): List<DueMoment> {
-        if (phase != GamePhase.HIDING && phase != GamePhase.SEEKING) return emptyList()
+        if ((phase != GamePhase.HIDING && phase != GamePhase.SEEKING) || pausedAtMillis != null) return emptyList()
         return buildList {
             phaseEndsAtMillis()?.let { add(DueMoment(it)) }
             for (claim in catches.values) if (claim.isOpen) add(DueMoment(claim.deadlineMillis))
@@ -1432,6 +1466,8 @@ class Game(
             bigGame = bigGame,
             counts = if (isServerHosted) counts() else null,
             spectators = spectatorCount(nowMillis),
+            pause = pausedAtMillis?.let { GamePause(it, sos = pausedBySos) },
+            sos = sosViews(),
         )
     }
 
@@ -1584,10 +1620,12 @@ class Game(
     private fun momentAt(atMillis: Long, trailMillis: Long): Moment {
         val hidingStart = hidingStartedAtMillis
         val seekingStart = zoneStartedAtMillis
+        // The search began then, whatever a pause later did to the zone's start.
+        val seekingBegan = seekingBeganAtMillis
         val finished = finishedAtMillis
         val phaseThen = when {
             hidingStart == null || atMillis < hidingStart -> GamePhase.LOBBY
-            seekingStart == null || atMillis < seekingStart -> GamePhase.HIDING
+            seekingBegan == null || atMillis < seekingBegan -> GamePhase.HIDING
             finished == null || atMillis < finished -> GamePhase.SEEKING
             else -> GamePhase.FINISHED
         }
@@ -1599,7 +1637,10 @@ class Game(
         return Moment(
             phase = phaseThen,
             phaseEndsAtMillis = endsAt,
-            zoneStartedAtMillis = seekingStart?.takeIf { atMillis >= it },
+            zoneStartedAtMillis = seekingStart?.takeIf {
+                phaseThen == GamePhase.SEEKING ||
+                    phaseThen == GamePhase.FINISHED
+            },
             finishedAtMillis = finished?.takeIf { atMillis >= it },
             players = players.values.map { player ->
                 val outThen = player.outAtMillis?.takeIf { it <= atMillis }
@@ -1640,6 +1681,8 @@ class Game(
         bigGameId = bigGame?.id,
         openGame = isOpenToSpectators,
         spectators = spectatorCount(nowMillis),
+        paused = isPaused,
+        sosCalls = sosCalls.size,
     )
 
     /**
@@ -1816,6 +1859,7 @@ class Game(
 
     /** [playerId] says they did the host's quest [questId], during the round; the host answers ([reviewQuest]). */
     fun markQuestDone(playerId: PlayerId, questId: QuestId, nowMillis: Long) {
+        requireNotPaused()
         val player = player(playerId)
         if (!isPlaying(playerId)) {
             throw GameException(ErrorCode.WRONG_STATE, "Not in a round", ErrorReason.QUEST_NOT_ACTIVE)
@@ -1837,6 +1881,7 @@ class Game(
      */
     fun scanCheckpoint(playerId: PlayerId, code: String, nowMillis: Long) {
         requirePhase(GamePhase.SEEKING)
+        requireNotPaused()
         val player = player(playerId)
         if (!player.isPlayingNow) throw GameException(ErrorCode.FORBIDDEN, "You are out of the round")
         if (!settings.features.checkpoints) throw featureOff("Checkpoints")
@@ -1850,6 +1895,7 @@ class Game(
      */
     fun usePerk(playerId: PlayerId, request: UsePerkRequest, nowMillis: Long) {
         requirePhase(GamePhase.SEEKING)
+        requireNotPaused()
         val features = settings.features
         if (!features.perks && !features.pickups) throw featureOff("Perks")
         val player = player(playerId)
@@ -1990,6 +2036,7 @@ class Game(
      * and how far they are, as a band, from where both are right now. No coordinates leave the server.
      */
     private fun hintFor(viewer: Player, nowMillis: Long): Hint? {
+        if (pausedAtMillis != null) return null
         val hint = viewer.hint?.takeIf { phase == GamePhase.SEEKING && nowMillis < it.untilMillis } ?: return null
         val here = viewer.track.latestUsable()?.point ?: return hint
         val nearest = players.values
@@ -2002,6 +2049,137 @@ class Game(
         )
     }
 
+    // ---- The pause and the SOS (docs/adr/0019-pause-and-sos.md) ----
+
+    /**
+     * The host puts the round on pause ([paused]) or lets it go on. Not in a big game: its host is the server. The
+     * round goes on only once every SOS is over ([ErrorReason.SOS_ACTIVE]). Asking for what already is changes nothing.
+     */
+    fun setPaused(by: PlayerId, paused: Boolean, nowMillis: Long) {
+        if (isServerHosted) throw GameException(ErrorCode.FORBIDDEN, "A big game's round is paused by an SOS only")
+        requireHost(by, if (paused) "pause the round" else "let the round go on")
+        requireRound()
+        lastActivityMillis = nowMillis
+        if (paused) {
+            if (pausedAtMillis == null) pauseAt(nowMillis, sos = false)
+        } else if (pausedAtMillis != null) {
+            if (sosCalls.isNotEmpty()) {
+                throw GameException(ErrorCode.WRONG_STATE, "Somebody's SOS is on", ErrorReason.SOS_ACTIVE)
+            }
+            resumeAt(nowMillis)
+        }
+    }
+
+    /**
+     * [playerId] calls for help, in the round: it stands still for everybody, and everybody sees where the caller is
+     * until the SOS is over. Caught players and seekers call too; calling again changes nothing.
+     */
+    fun callSos(playerId: PlayerId, nowMillis: Long) {
+        val player = player(playerId)
+        requireRound()
+        if (player.left) throw GameException(ErrorCode.WRONG_STATE, "You left the round")
+        lastActivityMillis = nowMillis
+        if (sosCalls.containsKey(playerId)) return
+        sosCalls[playerId] = nowMillis
+        fieldEvent(nowMillis, ServerKinds.SOS) {
+            put(ServerFields.EVENT, "start")
+            put(ServerFields.PLAYER, fieldName(playerId))
+        }
+        if (pausedAtMillis == null) pauseAt(nowMillis, sos = true) else pausedBySos = true
+        pokes.addEveryone()
+    }
+
+    /**
+     * [by] ends the SOS of [playerId]: their own, or anybody's when [by] is the host of an ordinary game. An ordinary
+     * round stays on pause after the last one, until the host lets it go on; a big game's goes on by itself.
+     */
+    fun endSos(by: PlayerId, playerId: PlayerId, nowMillis: Long) {
+        player(by)
+        if (by != playerId) {
+            if (isServerHosted) throw GameException(ErrorCode.FORBIDDEN, "Only the caller ends their SOS")
+            requireHost(by, "end somebody else's SOS")
+        }
+        lastActivityMillis = nowMillis
+        endSosOf(playerId, nowMillis)
+    }
+
+    private fun endSosOf(playerId: PlayerId, nowMillis: Long) {
+        sosCalls.remove(playerId) ?: return
+        fieldEvent(nowMillis, ServerKinds.SOS) {
+            put(ServerFields.EVENT, "end")
+            put(ServerFields.PLAYER, fieldName(playerId))
+        }
+        pokes.addEveryone()
+        // The host of an ordinary game lets it go on, unless they left it: then nobody would.
+        if (sosCalls.isEmpty() && (isServerHosted || players[hostId]?.left != false)) resumeAt(nowMillis)
+    }
+
+    /** How many players call for help right now. */
+    fun sosCount(): Int = sosCalls.size
+
+    private fun pauseAt(nowMillis: Long, sos: Boolean) {
+        pausedAtMillis = nowMillis
+        pausedBySos = sos
+        fieldEvent(nowMillis, ServerKinds.PAUSE) {
+            put(ServerFields.EVENT, "start")
+            put(ServerFields.REASON, if (sos) "sos" else "host")
+        }
+        pokes.addEveryone()
+    }
+
+    private fun resumeAt(nowMillis: Long) {
+        val since = pausedAtMillis ?: return
+        pausedAtMillis = null
+        pausedBySos = false
+        val length = (nowMillis - since).coerceAtLeast(0)
+        fieldEvent(nowMillis, ServerKinds.PAUSE) {
+            put(ServerFields.EVENT, "end")
+            put(ServerFields.SECONDS, length / 1000.0)
+        }
+        if (length > 0) shiftRound(since, length, nowMillis)
+        pokes.addEveryone()
+    }
+
+    /**
+     * The round goes on after a pause from [since] of [length]: every time it counts by moves by [length], as if the
+     * pause never was. A start before the pause moves on by its length; one during it (a phone that turned Bluetooth off
+     * then) starts now. A deadline moves on by the length.
+     */
+    private fun shiftRound(since: Long, length: Long, nowMillis: Long) {
+        fun started(at: Long): Long = if (at <= since) at + length else nowMillis
+        phaseStartedAtMillis = started(phaseStartedAtMillis)
+        zoneStartedAtMillis = zoneStartedAtMillis?.let(::started)
+        for (claim in catches.values) if (claim.isOpen) claim.deadlineMillis += length
+        for (player in players.values) {
+            player.outOfZoneSinceMillis = player.outOfZoneSinceMillis?.let(::started)
+            player.insideBuildingSinceMillis = player.insideBuildingSinceMillis?.let(::started)
+            player.bluetoothOffSinceMillis = player.bluetoothOffSinceMillis?.let(::started)
+            player.lastFixReceivedMillis = player.lastFixReceivedMillis?.let(::started)
+            player.lastPerkAtMillis = player.lastPerkAtMillis?.let(::started)
+            player.spotlightUntilMillis = player.spotlightUntilMillis?.plus(length)
+            player.hint = player.hint?.let { it.copy(untilMillis = it.untilMillis + length) }
+        }
+        board.shift(players.values, length)
+    }
+
+    private fun sosViews(): List<SosCall> = sosCalls.mapNotNull { (playerId, since) ->
+        val player = players[playerId] ?: return@mapNotNull null
+        // Live, whatever the round shows of them: whoever helps needs where they are now.
+        val fix = player.track.latest
+        SosCall(
+            playerId = playerId,
+            name = player.name,
+            sinceMillis = since,
+            location = fix?.let { SosLocation(it.point, it.accuracyMeters, it.timestampMillis) },
+        )
+    }
+
+    private fun requireRound() {
+        if (phase != GamePhase.HIDING && phase != GamePhase.SEEKING) {
+            throw GameException(ErrorCode.WRONG_STATE, "Not possible in phase $phase")
+        }
+    }
+
     // ---- The radar (docs/adr/0012-nearby-radar.md) ----
 
     /**
@@ -2010,6 +2188,7 @@ class Game(
      */
     private fun radarStateFor(viewer: Player, nowMillis: Long): RadarState? {
         if (!settings.features.hasRadar || phase != GamePhase.SEEKING || !viewer.isPlayingNow) return null
+        if (pausedAtMillis != null) return null
         val contacts = when (viewer.role) {
             Role.SEEKER ->
                 players.values
@@ -2039,7 +2218,7 @@ class Game(
      * the hiders.
      */
     private fun seekerTokensFor(viewer: Player, nowMillis: Long): List<String> {
-        if (!settings.features.hiderSense || phase != GamePhase.SEEKING) return emptyList()
+        if (!settings.features.hiderSense || phase != GamePhase.SEEKING || pausedAtMillis != null) return emptyList()
         if (viewer.role != Role.HIDER || !viewer.isPlayingNow) return emptyList()
         return players.values
             .filter { it.role == Role.SEEKER && !it.left }
@@ -2054,7 +2233,7 @@ class Game(
      * a hider.
      */
     private fun hiderTokensFor(viewer: Player, nowMillis: Long): List<String> {
-        if (!settings.features.hasRadar || phase != GamePhase.SEEKING) return emptyList()
+        if (!settings.features.hasRadar || phase != GamePhase.SEEKING || pausedAtMillis != null) return emptyList()
         if (viewer.role != Role.SEEKER || !viewer.isPlayingNow) return emptyList()
         return players.values
             .filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE && !it.left }
@@ -2071,6 +2250,7 @@ class Game(
     private fun uwbPeersFor(viewer: Player, nowMillis: Long): List<UwbPeer> {
         val features = settings.features
         if (!features.precisionRadar || phase != GamePhase.SEEKING || !viewer.isPlayingNow) return emptyList()
+        if (pausedAtMillis != null) return emptyList()
         val mine = viewer.device?.takeIf { viewer.isReporting(nowMillis) && it.uwb && it.onScreen }
         val myPlatform = mine?.platform?.takeIf { it != Platform.OTHER } ?: return emptyList()
         if (mine.uwbToken == null) return emptyList()
@@ -2096,9 +2276,12 @@ class Game(
 
     private fun visibleLocation(viewer: Player, target: Player, nowMillis: Long): VisibleLocation? {
         if (viewer.id == target.id || viewer.role != Role.SEEKER) return null
-        val reason = revealReason(target, nowMillis)
+        // On pause the seekers' map stands still with the round: what they saw then, never where a hider goes since.
+        val pausedAt = pausedAtMillis
+        val reason = revealReason(target, pausedAt ?: nowMillis)
         // Between glows: where the last glow left the hider (or what a perk put there), not where they are now.
-        val fix = if (reason != null) target.track.latest else target.shownMark()
+        val live = if (pausedAt != null) target.track.latestAtOrBefore(pausedAt) else target.track.latest
+        val fix = if (reason != null) live else target.shownMark()
         val cause = reason ?: markCause(target)
         if (fix == null || cause == null) return null
         return VisibleLocation(fix.point, fix.accuracyMeters, fix.timestampMillis, cause.forFirstClients(), cause)
@@ -2333,6 +2516,9 @@ class Game(
         if (phase == GamePhase.FINISHED) return
         enterPhase(GamePhase.FINISHED, atMillis)
         finishedAtMillis = atMillis
+        // The round is over: nothing stands still any more. An SOS stays until its caller or the host ends it.
+        pausedAtMillis = null
+        pausedBySos = false
         catches.values.filter { it.isOpen }.forEach {
             it.status = CatchStatus.REJECTED
             fieldCatchEvent(it, atMillis, how = "end")
@@ -2477,6 +2663,12 @@ class Game(
 
     private fun requireHost(by: PlayerId, what: String) {
         if (by != hostId) throw GameException(ErrorCode.FORBIDDEN, "Only the host can $what")
+    }
+
+    private fun requireNotPaused() {
+        if (pausedAtMillis != null) {
+            throw GameException(ErrorCode.WRONG_STATE, "The round is on pause", ErrorReason.GAME_PAUSED)
+        }
     }
 
     private fun requirePhase(expected: GamePhase) {

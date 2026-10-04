@@ -626,7 +626,7 @@ async function gamesView() {
         .map((t) => el("th", {}, t))),
       games.map((game) => el("tr", {},
         el("td", { class: "mono" }, game.gameId),
-        el("td", {}, PHASE[game.phase]),
+        el("td", {}, PHASE[game.phase], pauseSummary(game)),
         el("td", {}, game.hostName),
         el("td", {}, `${game.players} (${game.guests}, ${game.seekers})`),
         el("td", {}, fmt.ago(game.createdAtMillis)),
@@ -650,6 +650,13 @@ async function gamesView() {
             gamesView();
           },
         }, "Завершить") : null)))) : el("p", { class: "muted" }, "Сейчас никто не играет."));
+}
+
+/** The round on pause, and how many call for help (docs/adr/0019-pause-and-sos.md): never who or where. */
+function pauseSummary(game) {
+  if (!game.paused && !game.sosCalls) return null;
+  return el("div", { class: "small" }, game.paused ? el("span", { class: "tag mute" }, "пауза") : null,
+    game.sosCalls ? [" ", el("span", { class: "tag" }, `SOS: ${game.sosCalls}`)] : null);
 }
 
 /** How many players the zone fits (docs/adr/0010-big-games.md), and whether the host played anyway in a crowded one. */

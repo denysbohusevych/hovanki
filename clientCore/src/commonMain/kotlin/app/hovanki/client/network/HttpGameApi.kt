@@ -13,6 +13,7 @@ import app.hovanki.shared.protocol.InviteRequest
 import app.hovanki.shared.protocol.ItemId
 import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
+import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
@@ -26,6 +27,7 @@ import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsPreviewRequest
 import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SettingsRequest
+import app.hovanki.shared.protocol.SosRequest
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
@@ -131,6 +133,12 @@ class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
 
     override suspend fun usePerk(session: PlayerSession, request: UsePerkRequest): GameSnapshot =
         http.post(ApiRoutes.perks(session.gameId), session.token, request)
+
+    override suspend fun setPaused(session: PlayerSession, request: PauseRequest): GameSnapshot =
+        http.post(ApiRoutes.pause(session.gameId), session.token, request)
+
+    override suspend fun sos(session: PlayerSession, request: SosRequest): GameSnapshot =
+        http.post(ApiRoutes.sos(session.gameId), session.token, request)
 
     override suspend fun addQuest(session: PlayerSession, request: CustomQuestRequest): GameSnapshot =
         http.post(ApiRoutes.quests(session.gameId), session.token, request)

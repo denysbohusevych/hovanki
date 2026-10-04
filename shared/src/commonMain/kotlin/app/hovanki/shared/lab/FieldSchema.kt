@@ -283,6 +283,15 @@ object ServerKinds {
      * game (then both are the same).
      */
     const val BAND = "band"
+
+    /**
+     * The round went on pause ([ServerFields.EVENT] `start`, [ServerFields.REASON] `host` / `sos`) or on again (`end`,
+     * [ServerFields.SECONDS]: how long it stood), docs/adr/0019-pause-and-sos.md.
+     */
+    const val PAUSE = "pause"
+
+    /** A player called for help ([ServerFields.EVENT] `start`) or it is over (`end`), [ServerFields.PLAYER]; never where. */
+    const val SOS = "sos"
 }
 
 /** The fields of [ServerKinds]. */

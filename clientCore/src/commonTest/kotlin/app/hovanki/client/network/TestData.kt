@@ -20,6 +20,7 @@ import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.MyState
+import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
@@ -34,6 +35,7 @@ import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsPreviewRequest
 import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SettingsRequest
+import app.hovanki.shared.protocol.SosRequest
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
@@ -132,6 +134,19 @@ class FakeGameApi(
 
     override suspend fun usePerk(session: PlayerSession, request: UsePerkRequest): GameSnapshot {
         perksUsed += request
+        return onBoard()
+    }
+
+    val pauses = mutableListOf<PauseRequest>()
+    val sosRequests = mutableListOf<SosRequest>()
+
+    override suspend fun setPaused(session: PlayerSession, request: PauseRequest): GameSnapshot {
+        pauses += request
+        return onBoard()
+    }
+
+    override suspend fun sos(session: PlayerSession, request: SosRequest): GameSnapshot {
+        sosRequests += request
         return onBoard()
     }
 

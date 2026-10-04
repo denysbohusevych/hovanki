@@ -96,4 +96,8 @@ object FieldActions {
     const val PERK_USE = "perk_use"
     const val QUEST_DONE = "quest_done"
     const val LEAVE = "leave"
+    const val PAUSE = "pause"
+    const val RESUME = "resume"
+    const val SOS = "sos"
+    const val SOS_END = "sos_end"
 }

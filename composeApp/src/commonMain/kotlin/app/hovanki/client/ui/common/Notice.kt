@@ -17,6 +17,7 @@ import app.hovanki.client.resources.error_email_taken
 import app.hovanki.client.resources.error_feature_disabled
 import app.hovanki.client.resources.error_feature_missing
 import app.hovanki.client.resources.error_game_not_open
+import app.hovanki.client.resources.error_game_paused
 import app.hovanki.client.resources.error_in_another_game
 import app.hovanki.client.resources.error_invalid_email
 import app.hovanki.client.resources.error_invalid_group_name
@@ -37,6 +38,7 @@ import app.hovanki.client.resources.error_perk_unavailable
 import app.hovanki.client.resources.error_playing_this_game
 import app.hovanki.client.resources.error_quest_not_active
 import app.hovanki.client.resources.error_session_expired
+import app.hovanki.client.resources.error_sos_active
 import app.hovanki.client.resources.error_too_many_requests
 import app.hovanki.client.resources.error_too_many_requests_wait
 import app.hovanki.client.resources.error_user_not_found
@@ -157,6 +159,10 @@ fun reasonNotice(
         ErrorReason.ZONE_TOO_FAR -> Res.string.error_zone_too_far
 
         ErrorReason.LAB_RUN_CLOSED -> Res.string.error_lab_run_closed
+
+        ErrorReason.GAME_PAUSED -> Res.string.error_game_paused
+
+        ErrorReason.SOS_ACTIVE -> Res.string.error_sos_active
 
         ErrorReason.ACCOUNT_BANNED -> return untilMillis?.let {
             Notice.Text(Res.string.error_account_banned, listOf(formatDateTime(it)))

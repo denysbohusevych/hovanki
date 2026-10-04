@@ -16,6 +16,7 @@ import app.hovanki.client.session.momentAt
 import app.hovanki.client.session.myCatchCode
 import app.hovanki.radar.PeerRange
 import app.hovanki.shared.geo.bearingTo
+import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.protocol.BoardItem
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
@@ -103,8 +104,21 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             ),
         )
 
-    /** The server time now, for what moves on its own between the once-a-second states (the map's zone). */
-    fun serverNow(): Long = clock.now()
+    /**
+     * The round's time now, for what moves on its own between the once-a-second states (the map's zone): the server's,
+     * standing still at the pause's start while the round is on pause (docs/adr/0019-pause-and-sos.md).
+     */
+    fun serverNow(): Long = roundTime(sessionManager.state.value.snapshot?.pause?.sinceMillis, clock.now())
+
+    // The pause and the SOS (docs/adr/0019-pause-and-sos.md).
+
+    /** The host puts the round on pause ([paused]) or lets it go on. */
+    fun setPaused(paused: Boolean) = runCommand { sessionManager.setPaused(paused) }
+
+    fun callSos() = runCommand { sessionManager.callSos() }
+
+    /** Ends an SOS: the own one, or, for the host, [playerId]'s. */
+    fun endSos(playerId: PlayerId? = null) = runCommand { sessionManager.endSos(playerId) }
 
     fun claimCatch(hiderId: PlayerId) = runCommand { sessionManager.claimCatch(hiderId) }
 
@@ -189,12 +203,14 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
     private fun buildUiState(
         state: SessionState,
         myLocation: LocationSample?,
-        now: Long,
+        realNow: Long,
         busy: Boolean,
         phone: Phone,
     ): GameUiState? {
         val snapshot = state.snapshot ?: return null
         val me = snapshot.me
+        // The catch code goes by the real time; everything the round counts stands still on pause.
+        val now = roundTime(snapshot.pause?.sinceMillis, realNow)
         val rules = snapshot.settings.rules
         val features = snapshot.settings.features
         val names = snapshot.players.associate { it.id to it.name }
@@ -227,11 +243,11 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
         val myClaim = openClaims.firstOrNull { it.seekerId == me.playerId }
         val claimAgainstMe = openClaims.firstOrNull { it.hiderId == me.playerId }
         // Computed locally from the secret and server time: works even if the network drops right now.
-        val catchCode = snapshot.catchCodeToShow(now)
+        val catchCode = snapshot.catchCodeToShow(realNow)
         val canClaim = me.role == Role.SEEKER && me.status == PlayerStatus.ACTIVE &&
-            snapshot.phase == GamePhase.SEEKING && myClaim == null
+            snapshot.phase == GamePhase.SEEKING && myClaim == null && snapshot.pause == null
         val hiders = snapshot.players.filter { it.role == Role.HIDER }
-        val myCode = snapshot.myCatchCode(now)?.takeIf { claimAgainstMe == null }
+        val myCode = snapshot.myCatchCode(realNow)?.takeIf { claimAgainstMe == null }
         val metersToBorder = myLocation?.let { -zoneArea.signedDistanceMeters(it.point) }
         val isHiding = me.role == Role.HIDER && me.status == PlayerStatus.ACTIVE
         val isOutside = me.outOfZoneDeadlineMillis != null || (metersToBorder ?: 0.0) < 0
@@ -239,6 +255,22 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
         val items = snapshot.items.map { it.toMapItem(me.playerId) }
         val checkpoints = snapshot.items.filter {
             it.kind == ItemKind.CHECKPOINT_GEO || it.kind == ItemKind.CHECKPOINT_SCAN
+        }
+        val inRound = snapshot.phase == GamePhase.HIDING || snapshot.phase == GamePhase.SEEKING
+        val sos = snapshot.sos.map { call ->
+            SosUi(
+                playerId = call.playerId,
+                name = call.name,
+                isMe = call.playerId == me.playerId,
+                point = call.location?.point,
+                metersAway = call.location?.point?.let { there -> myLocation?.point?.distanceTo(there) }
+                    ?.takeIf { call.playerId != me.playerId },
+            )
+        }
+        val sosMarkers = sos.mapNotNull { call ->
+            val point = call.point?.takeIf { !call.isMe } ?: return@mapNotNull null
+            val accuracy = snapshot.sos.first { it.playerId == call.playerId }.location?.accuracyMeters ?: 0.0
+            MapMarker(call.playerId, call.name, point, accuracy, VisibilityReason.TEAMMATE, isSos = true)
         }
 
         return GameUiState(
@@ -273,24 +305,25 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             isStreetZoneOff = snapshot.streetZone == StreetZoneState.UNAVAILABLE,
             glow = glow,
             spectators = if (snapshot.settings.openGame) snapshot.spectators else 0,
-            markers = snapshot.players.mapNotNull { player ->
-                player.location?.let {
-                    val reason = it.exactReason
-                    MapMarker(
-                        id = player.id,
-                        name = player.name,
-                        point = it.point,
-                        accuracyMeters = it.accuracyMeters,
-                        reason = reason,
-                        // Between glows the seekers see where the last one left the hider: a spot, not the hider.
-                        markAgeMillis = if (reason == VisibilityReason.GLOW && glow?.isGlowing != true) {
-                            (now - it.atMillis).coerceAtLeast(0)
-                        } else {
-                            null
-                        },
-                    )
-                }
-            },
+            markers = sosMarkers + snapshot.players.filter { player -> sosMarkers.none { it.id == player.id } }
+                .mapNotNull { player ->
+                    player.location?.let {
+                        val reason = it.exactReason
+                        MapMarker(
+                            id = player.id,
+                            name = player.name,
+                            point = it.point,
+                            accuracyMeters = it.accuracyMeters,
+                            reason = reason,
+                            // Between glows the seekers see where the last one left the hider: a spot, not the hider.
+                            markAgeMillis = if (reason == VisibilityReason.GLOW && glow?.isGlowing != true) {
+                                (now - it.atMillis).coerceAtLeast(0)
+                            } else {
+                                null
+                            },
+                        )
+                    }
+                },
             // A big game lists only some players: how many there are in all comes with the snapshot.
             hidersLeft = snapshot.counts?.hidersActive ?: hiders.count { it.status == PlayerStatus.ACTIVE },
             hidersTotal = snapshot.counts?.let { it.players - it.seekers } ?: hiders.size,
@@ -346,9 +379,15 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             perks = me.perks,
             items = items,
             canScanCheckpoint = features.checkpoints && playing && snapshot.phase == GamePhase.SEEKING &&
+                snapshot.pause == null &&
                 checkpoints.any { it.kind == ItemKind.CHECKPOINT_SCAN && me.playerId !in it.takenBy },
             checkpointsTaken = checkpoints.count { me.playerId in it.takenBy },
             pendingReviews = if (snapshot.hostId == me.playerId) snapshot.quests.sumOf { it.pending.size } else 0,
+            pause = snapshot.pause?.let { PauseUi(bySos = it.sos) },
+            sos = sos,
+            // A big game's host is the server: only an SOS stops its round.
+            canPause = inRound && snapshot.hostId == me.playerId && snapshot.bigGame == null,
+            canSos = inRound && snapshot.players.none { it.id == me.playerId && it.left },
         )
     }
 
@@ -368,6 +407,9 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
 
     private companion object {
         const val TICK_MILLIS = 1_000L
+
+        /** The round's time at [now]: it stands at [pausedAt] while the round is on pause. */
+        fun roundTime(pausedAt: Long?, now: Long): Long = pausedAt?.let { minOf(it, now) } ?: now
 
         /** A closed ring of a triangle at least; the server never sends less. */
         const val MIN_OUTLINE_POINTS = 4
@@ -480,6 +522,26 @@ data class GameUiState(
     val checkpointsTaken: Int = 0,
     /** The host: players waiting for the host's answer on the host's quests. */
     val pendingReviews: Int = 0,
+    /** The round stands still (docs/adr/0019-pause-and-sos.md); null: it goes on. */
+    val pause: PauseUi? = null,
+    /** Who calls for help right now, with where they are. */
+    val sos: List<SosUi> = emptyList(),
+    /** The host of an ordinary game, in the round: may put it on pause and let it go on. */
+    val canPause: Boolean = false,
+    /** In the round: may call for help. */
+    val canSos: Boolean = false,
+)
+
+/** The round on pause; [bySos]: an SOS stopped it (else the host). */
+data class PauseUi(val bySos: Boolean)
+
+/** A player who calls for help: where they are ([point], null: unknown), [metersAway] from this phone. */
+data class SosUi(
+    val playerId: PlayerId,
+    val name: String,
+    val isMe: Boolean,
+    val point: GeoPoint?,
+    val metersAway: Double?,
 )
 
 /** A hint a perk bought ([HintKind]): a compass sector, a distance band, or both, for [millisLeft] more. */
@@ -525,6 +587,8 @@ data class MapMarker(
     val reason: VisibilityReason,
     /** A spot the last glow left ([VisibilityReason.GLOW] between glows): how old it is. Null: the player right now. */
     val markAgeMillis: Long? = null,
+    /** The player calls for help (docs/adr/0019-pause-and-sos.md): shown to everybody, wherever they are. */
+    val isSos: Boolean = false,
 )
 
 /** The glow at the moment: on ([isGlowing]) until [millisLeft] from now, or the next one in [millisLeft]. */
