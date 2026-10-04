@@ -179,7 +179,8 @@ private suspend fun DeviceRun.watchAndRecording() = with(scenario) {
     // The spectators see the hiding the delay later: everybody on the map, with their last minute.
     delay((WATCH_DELAY_SECONDS + 5).seconds)
     screenshot("watching the round", listOf(fan))
-    for (bot in hiders) seeker.catches(bot)
+    // The host hides too: the round ends when the seeker has caught everybody.
+    for (bot in hiders + host) seeker.catches(bot)
     awaitPhase(GamePhase.FINISHED)
     delay((WATCH_DELAY_SECONDS + 5).seconds)
     screenshot("watching the end", listOf(fan))

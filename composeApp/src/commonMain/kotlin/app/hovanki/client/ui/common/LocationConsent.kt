@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -114,7 +113,9 @@ fun LocationConsentLayer(state: LocationConsentState) {
 
 @Composable
 private fun LocationConsentScreen(onAllow: () -> Unit, onLater: () -> Unit) {
-    Box(
+    // The answer stays at the bottom and the text scrolls above it: on a small phone the points alone fill the screen,
+    // and «Allow» below them was out of sight.
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
@@ -123,9 +124,9 @@ private fun LocationConsentScreen(onAllow: () -> Unit, onLater: () -> Unit) {
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 24.dp),
+                .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             PopSurface(
@@ -147,7 +148,11 @@ private fun LocationConsentScreen(onAllow: () -> Unit, onLater: () -> Unit) {
             ConsentPoint(Res.drawable.ic_friends, Palette.Violet, Color.White, stringResource(Res.string.consent_who))
             ConsentPoint(Res.drawable.ic_clock, Palette.Lime, Palette.Ink, stringResource(Res.string.consent_when))
             ConsentPoint(Res.drawable.ic_pocket, Palette.Orange, Palette.Ink, stringResource(Res.string.consent_pocket))
-            Spacer(Modifier.weight(1f))
+        }
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
             PopButton(
                 text = stringResource(Res.string.consent_allow),
                 onClick = onAllow,
