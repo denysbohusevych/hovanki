@@ -1,0 +1,17 @@
+# Scrolls the settings' tab to its end, then taps the element ID there (e.g. settings_buildings, the last row of
+# «Zone»). On iOS Compose reports a row the tab's scroll clips as visible, at its unclipped place: tap.yaml's
+# scrollUntilVisible then does not scroll, and the tap lands on «Save» over the row («No changes yet»: the settings
+# close). So the tab is swiped first, in its own middle, away from the map above and the bar below.
+appId: ${APP_ID}
+---
+- repeat:
+    times: 3
+    commands:
+      - swipe:
+          start: 50%, 78%
+          end: 50%, 56%
+          duration: 500
+- runFlow:
+    file: tap.yaml
+    env:
+      ID: ${ID}
