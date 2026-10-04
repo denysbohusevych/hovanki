@@ -36,7 +36,6 @@ import app.hovanki.shared.protocol.PerkView
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
-import app.hovanki.shared.protocol.QuestId
 import app.hovanki.shared.protocol.QuestView
 import app.hovanki.shared.protocol.RadarBand
 import app.hovanki.shared.protocol.Role
@@ -46,6 +45,7 @@ import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.rules.CheckpointPayload
 import app.hovanki.shared.rules.Glow
+import app.hovanki.shared.rules.PerkCatalog
 import app.hovanki.shared.rules.StreetZone
 import app.hovanki.shared.rules.ZoneArea
 import app.hovanki.shared.rules.ZoneState
@@ -61,10 +61,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/**
+ * The round. One state for the whole screen, [uiState], and one way in, [onEvent] (docs/architecture.md, «Состояние
+ * экрана»): the round as the server sent it, rebuilt every second, with what this phone has open over the map
+ * ([GameLocal]).
+ */
 class GameViewModel(private val sessionManager: GameSessionManager, private val clock: ServerClock) : ViewModel() {
-    private val isBusy = MutableStateFlow(false)
+    private val local = MutableStateFlow(GameLocal())
 
     /**
      * Server time once per second, aligned to whole seconds so the countdowns and the catch code (which changes
@@ -84,25 +90,140 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
     }
 
     val uiState: StateFlow<GameUiState?> =
-        combine(sessionManager.state, sessionManager.myLocation, ticks, isBusy, phone) {
+        combine(sessionManager.state, sessionManager.myLocation, ticks, local, phone) {
                 state,
                 myLocation,
                 now,
-                busy,
+                local,
                 phone,
             ->
-            buildUiState(state, myLocation, now, busy, phone)
+            withLocal(buildUiState(state, myLocation, now, phone), local)
         }.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            buildUiState(
-                sessionManager.state.value,
-                sessionManager.myLocation.value,
-                clock.now(),
-                busy = false,
-                phone = Phone(sessionManager.pulse.value, sessionManager.ranges.value),
+            withLocal(
+                buildUiState(
+                    sessionManager.state.value,
+                    sessionManager.myLocation.value,
+                    clock.now(),
+                    phone = Phone(sessionManager.pulse.value, sessionManager.ranges.value),
+                ),
+                local.value,
             ),
         )
+
+    /** The round with what is open over it; what the round took away is forgotten for good. */
+    private fun withLocal(state: GameUiState?, current: GameLocal): GameUiState? {
+        if (state == null) return null
+        val reconciled = current.reconciled(state)
+        if (reconciled != current) local.compareAndSet(current, reconciled)
+        return reconciled.applyTo(state)
+    }
+
+    fun onEvent(event: GameEvent) {
+        when (event) {
+            is GameEvent.SetPaused -> runCommand { sessionManager.setPaused(event.paused) }
+
+            GameEvent.CallSos -> {
+                update { it.copy(dialog = null) }
+                runCommand { sessionManager.callSos() }
+            }
+
+            is GameEvent.EndSos -> runCommand { sessionManager.endSos(event.playerId) }
+
+            is GameEvent.ClaimCatch -> runCommand { sessionManager.claimCatch(event.hiderId) }
+
+            is GameEvent.ConfirmCatch -> confirmCatch(event.catchId, event.code)
+
+            is GameEvent.Dispute -> runCommand { sessionManager.dispute(event.catchId) }
+
+            is GameEvent.Vote -> runCommand { sessionManager.vote(event.catchId, event.confirm) }
+
+            is GameEvent.QuestDone -> runCommand { sessionManager.questDone(event.questId) }
+
+            is GameEvent.ReviewQuest -> runCommand {
+                sessionManager.reviewQuest(event.questId, event.playerId, event.approved)
+            }
+
+            GameEvent.Leave -> sessionManager.leave()
+
+            GameEvent.DismissError -> sessionManager.clearError()
+
+            GameEvent.LocationPermissionGranted -> sessionManager.onLocationPermissionGranted()
+
+            is GameEvent.OpenDialog -> update { it.copy(dialog = event.dialog) }
+
+            GameEvent.CloseDialog -> update { it.copy(dialog = null) }
+
+            is GameEvent.OpenPanel -> update { it.copy(panel = event.panel, perkTargeting = null) }
+
+            GameEvent.ClosePanel -> update { it.copy(panel = null, perkTargeting = null) }
+
+            is GameEvent.UsePerk -> usePerk(event.perk, event.targetId)
+
+            is GameEvent.PickDecoy -> update { it.copy(decoy = it.decoy?.copy(pick = event.point)) }
+
+            GameEvent.PutDecoy -> {
+                local.value.decoy?.pick?.let { point ->
+                    runCommand { sessionManager.usePerk(PerkKind.DECOY, null, point) }
+                }
+                update { it.copy(decoy = null) }
+            }
+
+            GameEvent.CancelDecoy -> update { it.copy(decoy = null) }
+
+            is GameEvent.ShowMyCode -> update { it.copy(showingMyCode = event.shown) }
+
+            is GameEvent.OpenScanner -> update {
+                when (event.scanner) {
+                    GameScanner.CLAIM -> it.copy(scanningClaim = uiState.value?.myClaim?.id)
+                    GameScanner.FREE -> it.copy(scanningFree = true)
+                    GameScanner.CHECKPOINT -> it.copy(scanningCheckpoint = true)
+                }
+            }
+
+            is GameEvent.CloseScanner -> closeScanner(event.scanner)
+
+            is GameEvent.Scanned -> if (scanned(event.scanner, event.text)) closeScanner(event.scanner)
+        }
+    }
+
+    private fun update(change: (GameLocal) -> GameLocal) = local.update(change)
+
+    private fun closeScanner(scanner: GameScanner) = update {
+        when (scanner) {
+            GameScanner.CLAIM -> it.copy(scanningClaim = null)
+            GameScanner.FREE -> it.copy(scanningFree = false)
+            GameScanner.CHECKPOINT -> it.copy(scanningCheckpoint = false)
+        }
+    }
+
+    /** True when the camera read a code it takes: it closes. */
+    private fun scanned(scanner: GameScanner, text: String): Boolean = when (scanner) {
+        GameScanner.CLAIM -> uiState.value?.scannedClaim?.let { onCodeScanned(it, text) } == true
+        GameScanner.FREE -> onFreeScan(text)
+        GameScanner.CHECKPOINT -> onCheckpointScanned(text)
+    }
+
+    /** A perk aimed at a hider asks which one first; the decoy goes to the map; the others are used at once. */
+    private fun usePerk(perk: PerkKind, targetId: PlayerId?) {
+        val spec = PerkCatalog.spec(perk)
+        when {
+            targetId != null -> {
+                runCommand { sessionManager.usePerk(perk, targetId, null) }
+                update { it.copy(panel = null, perkTargeting = null) }
+            }
+
+            spec.needsTarget -> update { it.copy(perkTargeting = perk) }
+
+            spec.needsPoint -> update { it.copy(panel = null, perkTargeting = null, decoy = DecoyUi()) }
+
+            else -> {
+                runCommand { sessionManager.usePerk(perk, null, null) }
+                update { it.copy(panel = null) }
+            }
+        }
+    }
 
     /**
      * The round's time now, for what moves on its own between the once-a-second states (the map's zone): the server's,
@@ -110,25 +231,13 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
      */
     fun serverNow(): Long = roundTime(sessionManager.state.value.snapshot?.pause?.sinceMillis, clock.now())
 
-    // The pause and the SOS (docs/adr/0019-pause-and-sos.md).
-
-    /** The host puts the round on pause ([paused]) or lets it go on. */
-    fun setPaused(paused: Boolean) = runCommand { sessionManager.setPaused(paused) }
-
-    fun callSos() = runCommand { sessionManager.callSos() }
-
-    /** Ends an SOS: the own one, or, for the host, [playerId]'s. */
-    fun endSos(playerId: PlayerId? = null) = runCommand { sessionManager.endSos(playerId) }
-
-    fun claimCatch(hiderId: PlayerId) = runCommand { sessionManager.claimCatch(hiderId) }
-
-    fun confirmCatch(catchId: CatchId, code: String) = runCommand { sessionManager.confirmCatch(catchId, code) }
+    private fun confirmCatch(catchId: CatchId, code: String) = runCommand { sessionManager.confirmCatch(catchId, code) }
 
     /**
      * Text of a scanned QR code; ignored unless it is the code of the hider this claim is about. True when it was:
      * the camera can close.
      */
-    fun onCodeScanned(claim: ClaimUi, text: String): Boolean {
+    private fun onCodeScanned(claim: ClaimUi, text: String): Boolean {
         val payload = CatchCodePayload.decode(text) ?: return false
         val gameId = sessionManager.state.value.session?.gameId
         if (payload.gameId != gameId || payload.hiderId != claim.hiderId) return false
@@ -140,54 +249,31 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
      * Text the seeker's camera read with no claim open («Found!»): when it is the QR code of a hider still playing, the
      * claim and the code go in one request. True when it was: the camera can close.
      */
-    fun onFreeScan(text: String): Boolean {
+    private fun onFreeScan(text: String): Boolean {
         val payload = sessionManager.state.value.snapshot?.catchableScan(text) ?: return false
         runCommand { sessionManager.catchByScan(payload.hiderId, payload.code) }
         return true
     }
 
-    fun dispute(catchId: CatchId) = runCommand { sessionManager.dispute(catchId) }
-
-    // The board, the quests and the perks (docs/adr/0013-quests-sparks-and-sensors.md).
-
-    /** A perk: with [targetId] for the ones aimed at a hider, with [point] for the decoy. */
-    fun usePerk(perk: PerkKind, targetId: PlayerId? = null, point: GeoPoint? = null) =
-        runCommand { sessionManager.usePerk(perk, targetId, point) }
-
-    /** «Done!» on the host's quest: the host answers. */
-    fun questDone(questId: QuestId) = runCommand { sessionManager.questDone(questId) }
-
-    /** The host confirms or refuses what [playerId] said about their quest. */
-    fun reviewQuest(questId: QuestId, playerId: PlayerId, approved: Boolean) =
-        runCommand { sessionManager.reviewQuest(questId, playerId, approved) }
-
     /**
      * Text the camera read at a checkpoint: when it is a checkpoint's code, it goes to the server (which may still
      * refuse it). True when it was: the camera can close.
      */
-    fun onCheckpointScanned(text: String): Boolean {
+    private fun onCheckpointScanned(text: String): Boolean {
         if (CheckpointPayload.decode(text) == null) return false
         runCommand { sessionManager.scanCheckpoint(text) }
         return true
     }
 
-    fun vote(catchId: CatchId, confirm: Boolean) = runCommand { sessionManager.vote(catchId, confirm) }
-
-    fun leave() = sessionManager.leave()
-
-    fun dismissError() = sessionManager.clearError()
-
-    fun onLocationPermissionGranted() = sessionManager.onLocationPermissionGranted()
-
     private fun runCommand(command: suspend () -> Boolean) {
         // One request at a time: double taps must not send two claims.
-        if (isBusy.value) return
-        isBusy.value = true
+        if (local.value.isBusy) return
+        update { it.copy(isBusy = true) }
         viewModelScope.launch {
             try {
                 command()
             } finally {
-                isBusy.value = false
+                update { it.copy(isBusy = false) }
             }
         }
     }
@@ -204,7 +290,6 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
         state: SessionState,
         myLocation: LocationSample?,
         realNow: Long,
-        busy: Boolean,
         phone: Phone,
     ): GameUiState? {
         val snapshot = state.snapshot ?: return null
@@ -360,7 +445,6 @@ class GameViewModel(private val sessionManager: GameSessionManager, private val 
             connectionStatus = state.connectionStatus,
             isSharingLocation = state.isSharingLocation,
             error = state.lastError,
-            isBusy = busy,
             joinCode = snapshot.joinCode,
             hasAccount = snapshot.players.any { it.id == me.playerId && it.userId != null },
             activeHiders = hiders.filter { it.status == PlayerStatus.ACTIVE && !it.left },
@@ -492,7 +576,7 @@ data class GameUiState(
     val connectionStatus: ConnectionStatus,
     val isSharingLocation: Boolean,
     val error: SessionError?,
-    val isBusy: Boolean,
+    val isBusy: Boolean = false,
     val joinCode: String,
     /** Playing with an account: joining again with [joinCode] gives the player back (e.g. after leaving). */
     val hasAccount: Boolean,
@@ -530,6 +614,21 @@ data class GameUiState(
     val canPause: Boolean = false,
     /** In the round: may call for help. */
     val canSos: Boolean = false,
+    /** What this phone has open over the round (docs/architecture.md, «Состояние экрана»). */
+    val dialog: GameDialog? = null,
+    val panel: GamePanel? = null,
+    /** The perk on the perks panel waiting for which hider it is aimed at. */
+    val perkTargeting: PerkKind? = null,
+    /** The decoy being placed on the map; null: not placing one. */
+    val decoy: DecoyUi? = null,
+    /** The claim whose hider's code the seeker's camera looks for, while it waits for the code. */
+    val scannedClaim: ClaimUi? = null,
+    /** «Found!»: the camera with no claim yet, while the seeker can still find somebody. */
+    val isFreeScanOpen: Boolean = false,
+    /** The camera at a checkpoint's code, while there is one left to scan. */
+    val isCheckpointScanOpen: Boolean = false,
+    /** «My code»: the hider shows the code without a claim. */
+    val isMyCodeOpen: Boolean = false,
 )
 
 /** The round on pause; [bySos]: an SOS stopped it (else the host). */

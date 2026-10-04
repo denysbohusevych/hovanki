@@ -47,17 +47,17 @@ import org.jetbrains.compose.resources.stringResource
  * they give; «Done!» on the host's own quests, and for the host the players waiting for an answer.
  */
 @Composable
-fun QuestsPanel(state: GameUiState, viewModel: GameViewModel, onClose: () -> Unit) {
+fun QuestsPanel(state: GameUiState, onEvent: (GameEvent) -> Unit) {
     Panel(
         title = stringResource(Res.string.quests_title),
-        onClose = onClose,
+        onClose = { onEvent(GameEvent.ClosePanel) },
         modifier = Modifier.testTag(TestTags.QUESTS_PANEL),
         screen = "quests",
     ) {
         ScreenColumn {
             state.sparks?.let { SparksLine(it) }
             if (state.quests.isEmpty()) SecondaryText(stringResource(Res.string.quests_none))
-            state.quests.forEach { quest -> QuestCard(quest, state, viewModel) }
+            state.quests.forEach { quest -> QuestCard(quest, state, onEvent) }
         }
     }
 }
@@ -73,7 +73,7 @@ internal fun SparksLine(sparks: Int) {
 }
 
 @Composable
-private fun QuestCard(quest: QuestView, state: GameUiState, viewModel: GameViewModel) {
+private fun QuestCard(quest: QuestView, state: GameUiState, onEvent: (GameEvent) -> Unit) {
     val custom = quest.kind == QuestKind.CUSTOM
     PopCard(
         modifier = Modifier.fillMaxWidth().testTag(TestTags.quest(quest.id.value)),
@@ -114,7 +114,7 @@ private fun QuestCard(quest: QuestView, state: GameUiState, viewModel: GameViewM
         if (custom && quest.status == QuestStatus.ACTIVE && !state.isHost) {
             PopButton(
                 text = stringResource(Res.string.quests_mark_done),
-                onClick = { viewModel.questDone(quest.id) },
+                onClick = { onEvent(GameEvent.QuestDone(quest.id)) },
                 enabled = !state.isBusy,
                 height = 44.dp,
                 modifier = Modifier.testTag(TestTags.questDone(quest.id.value)),
@@ -134,14 +134,14 @@ private fun QuestCard(quest: QuestView, state: GameUiState, viewModel: GameViewM
                     )
                     PopButton(
                         text = stringResource(Res.string.quests_approve),
-                        onClick = { viewModel.reviewQuest(quest.id, playerId, approved = true) },
+                        onClick = { onEvent(GameEvent.ReviewQuest(quest.id, playerId, approved = true)) },
                         enabled = !state.isBusy,
                         height = 40.dp,
                         modifier = Modifier.testTag(TestTags.questApprove(quest.id.value, playerId)),
                     )
                     PopButton(
                         text = stringResource(Res.string.quests_refuse),
-                        onClick = { viewModel.reviewQuest(quest.id, playerId, approved = false) },
+                        onClick = { onEvent(GameEvent.ReviewQuest(quest.id, playerId, approved = false)) },
                         enabled = !state.isBusy,
                         style = PopStyle.Outline,
                         height = 40.dp,

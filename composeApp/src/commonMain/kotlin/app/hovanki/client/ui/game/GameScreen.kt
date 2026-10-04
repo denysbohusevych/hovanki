@@ -151,6 +151,7 @@ import app.hovanki.client.ui.common.Toast
 import app.hovanki.client.ui.common.appSafeDrawing
 import app.hovanki.client.ui.common.appSafeDrawingPadding
 import app.hovanki.client.ui.common.bandTitle
+import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.client.ui.common.formatCountdown
 import app.hovanki.client.ui.common.rememberHaptics
 import app.hovanki.client.ui.common.rememberReduceMotion
@@ -160,12 +161,9 @@ import app.hovanki.client.ui.field.PocketHint
 import app.hovanki.client.ui.invite.InviteBannerViewModel
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
-import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.GameInvite
 import app.hovanki.shared.protocol.GamePhase
-import app.hovanki.shared.protocol.GeoPoint
-import app.hovanki.shared.protocol.PerkKind
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
@@ -187,7 +185,7 @@ fun GameScreen(
     chat: ChatViewModel = koinViewModel(),
     invites: InviteBannerViewModel = koinViewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectScreenState()
     val chatState by chat.uiState.collectAsStateWithLifecycle()
     // An invitation into another game: no banner in a round, only a badge on «More» (see the leave dialog).
     val invite by invites.invite.collectAsStateWithLifecycle()
@@ -200,7 +198,8 @@ fun GameScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         GameContent(
             state,
-            viewModel,
+            serverNow = viewModel::serverNow,
+            onEvent = viewModel::onEvent,
             chatUnread = chatState.unread,
             onOpenChat = chat::open,
             invite = invite,
@@ -222,15 +221,13 @@ fun GameScreen(
 @Composable
 private fun GameContent(
     state: GameUiState,
-    viewModel: GameViewModel,
+    serverNow: () -> Long,
+    onEvent: (GameEvent) -> Unit,
     chatUnread: Int,
     onOpenChat: () -> Unit,
     invite: GameInvite?,
     onGoToInvite: (GameInvite) -> Unit,
 ) {
-    var showLeaveDialog by rememberSaveable { mutableStateOf(false) }
-    var showSosDialog by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(state.canSos) { if (!state.canSos) showSosDialog = false }
     // The field test build's «Something is wrong» in the menu, while its log runs (nothing in other builds).
     val fieldSession = koinInject<FieldSession>()
     val fieldMarks = koinInject<FieldMarks>()
@@ -244,13 +241,8 @@ private fun GameContent(
         state.bluetoothMillisLeft != null -> GameAlert.BLUETOOTH_OFF
         else -> null
     }
-    // The quests and the perks (docs/adr/0013) as panels over the round; the decoy is placed on the map itself.
-    var panel by remember { mutableStateOf<GamePanel?>(null) }
-    var placingDecoy by remember { mutableStateOf(false) }
-    var decoyPick by remember { mutableStateOf<GeoPoint?>(null) }
-    // The camera at a checkpoint's code, while there is one left to scan.
-    var scanningCheckpoint by remember { mutableStateOf(false) }
-    LaunchedEffect(state.canScanCheckpoint) { if (!state.canScanCheckpoint) scanningCheckpoint = false }
+    // The decoy is placed on the map itself.
+    val decoy = state.decoy
     // A checkpoint reached (by GPS or by its code): a toast and a vibration.
     var checkpointsSeen by remember { mutableIntStateOf(state.checkpointsTaken) }
     var checkpointToasts by remember { mutableIntStateOf(0) }
@@ -258,20 +250,10 @@ private fun GameContent(
         it.status == CatchStatus.AWAITING_CODE && state.myStatus == PlayerStatus.ACTIVE
     }
     val hasSheet = hasBottomSheet(state)
-    // The seeker's camera for the hider's QR code, while that claim waits for the code.
-    var scanning by remember { mutableStateOf<CatchId?>(null) }
-    val scannedClaim = state.myClaim?.takeIf { it.id == scanning && it.status == CatchStatus.AWAITING_CODE }
-    // «Found!»: the camera with no claim yet (one scan), while the seeker can still find somebody.
-    var scanningFree by remember { mutableStateOf(false) }
-    val freeScan = scanningFree && state.canScan
-    // «My code»: the hider shows the code without a claim; a claim or the end of the search takes it away.
-    var showingMyCode by rememberSaveable { mutableStateOf(false) }
-    val myCodeShown = showingMyCode && state.myCode != null
-    LaunchedEffect(state.myCode == null) { if (state.myCode == null) showingMyCode = false }
     val main = mainControl(
         state,
-        onFound = { scanningFree = true },
-        onMyCode = { showingMyCode = true },
+        onFound = { onEvent(GameEvent.OpenScanner(GameScanner.FREE)) },
+        onMyCode = { onEvent(GameEvent.ShowMyCode(true)) },
     )
     // Where the HUD ends and the controls begin: the arrow back into the zone keeps between them.
     var hudBottom by remember { mutableIntStateOf(0) }
@@ -312,7 +294,7 @@ private fun GameContent(
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 GameMap(
                     zone = state.zoneTimeline,
-                    serverNow = viewModel::serverNow,
+                    serverNow = serverNow,
                     cue = state.zoneMoment.cue,
                     myLocation = state.myLocation,
                     myRole = state.myRole,
@@ -323,9 +305,9 @@ private fun GameContent(
                     attributionPadding = bottomInset,
                     onCameraBearing = { cameraBearing = it },
                     items = state.items,
-                    pickedPoint = decoyPick.takeIf { placingDecoy },
-                    onMapClick = if (placingDecoy) {
-                        { point -> decoyPick = point }
+                    pickedPoint = decoy?.pick,
+                    onMapClick = if (decoy != null) {
+                        { point -> onEvent(GameEvent.PickDecoy(point)) }
                     } else {
                         null
                     },
@@ -353,11 +335,8 @@ private fun GameContent(
                 ) {
                     TopHud(
                         state,
-                        viewModel,
+                        onEvent,
                         reduceMotion = reduceMotion,
-                        onOpenQuests = { panel = GamePanel.QUESTS },
-                        onOpenPerks = { panel = GamePanel.PERKS },
-                        onScanCheckpoint = { scanningCheckpoint = true },
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .onGloballyPositioned { hudBottom = it.boundsInParent().bottom.toInt() }
@@ -383,18 +362,11 @@ private fun GameContent(
                     text = stringResource(Res.string.checkpoint_taken),
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottomInset).padding(bottom = 132.dp),
                 )
-                if (placingDecoy) {
+                if (decoy != null) {
                     DecoyBar(
-                        canPut = decoyPick != null && !state.isBusy,
-                        onPut = {
-                            decoyPick?.let { viewModel.usePerk(PerkKind.DECOY, point = it) }
-                            placingDecoy = false
-                            decoyPick = null
-                        },
-                        onCancel = {
-                            placingDecoy = false
-                            decoyPick = null
-                        },
+                        canPut = decoy.pick != null && !state.isBusy,
+                        onPut = { onEvent(GameEvent.PutDecoy) },
+                        onCancel = { onEvent(GameEvent.CancelDecoy) },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottomInset)
@@ -408,7 +380,7 @@ private fun GameContent(
                         main = main,
                         onRecenter = { recenter++ },
                         canRecenter = state.myLocation != null,
-                        onMore = { showLeaveDialog = true },
+                        onMore = { onEvent(GameEvent.OpenDialog(GameDialog.MENU)) },
                         moreBadge = if (invite != null) 1 else 0,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -421,8 +393,8 @@ private fun GameContent(
                 if (state.pause != null || state.sos.isNotEmpty()) {
                     PauseCard(
                         state = state,
-                        onResume = { viewModel.setPaused(false) },
-                        onEndSos = { call -> viewModel.endSos(call.playerId.takeIf { !call.isMe }) },
+                        onResume = { onEvent(GameEvent.SetPaused(false)) },
+                        onEndSos = { call -> onEvent(GameEvent.EndSos(call.playerId.takeIf { !call.isMe })) },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottomInset)
@@ -430,7 +402,7 @@ private fun GameContent(
                     )
                 }
                 // With a main action in the middle, «where am I» moves up to the side, like in map apps.
-                if (main != null && !placingDecoy) {
+                if (main != null && decoy == null) {
                     PopIconButton(
                         icon = Res.drawable.ic_navigation,
                         contentDescription = stringResource(Res.string.hud_me),
@@ -445,7 +417,7 @@ private fun GameContent(
                     )
                 }
             }
-            if (hasSheet) BottomSheet(state, viewModel, onOpenScanner = { scanning = state.myClaim?.id })
+            if (hasSheet) BottomSheet(state, onEvent)
         }
 
         // The last claim, kept while its layer slides out after the claim is gone.
@@ -464,14 +436,14 @@ private fun GameContent(
                 codePeriodMillis = state.codePeriodMillis,
                 claimTimeoutMillis = state.claimTimeoutMillis,
                 isBusy = state.isBusy,
-                onDispute = { viewModel.dispute(claim.id) },
+                onDispute = { onEvent(GameEvent.Dispute(claim.id)) },
             )
         }
         // The code without a claim, kept while its layer slides out (caught meanwhile, or the search is over).
         var shownMyCode by remember { mutableStateOf(state.myCode to state.myQr) }
         if (state.myCode != null) shownMyCode = state.myCode to state.myQr
         AnimatedVisibility(
-            visible = myCodeShown,
+            visible = state.isMyCodeOpen,
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),
         ) {
@@ -479,44 +451,45 @@ private fun GameContent(
                 code = shownMyCode.first,
                 qr = shownMyCode.second,
                 codePeriodMillis = state.codePeriodMillis,
-                onClose = { showingMyCode = false },
+                onClose = { onEvent(GameEvent.ShowMyCode(false)) },
             )
         }
         AnimatedVisibility(
-            visible = scannedClaim != null,
+            visible = state.scannedClaim != null,
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),
         ) {
             ScannerLayer(
-                onScanned = { text -> scannedClaim != null && viewModel.onCodeScanned(scannedClaim, text) },
-                onClose = { scanning = null },
+                onScanned = { text -> onEvent(GameEvent.Scanned(GameScanner.CLAIM, text)) },
+                onClose = { onEvent(GameEvent.CloseScanner(GameScanner.CLAIM)) },
                 manualText = stringResource(Res.string.catch_or_type),
             )
         }
         AnimatedVisibility(
-            visible = freeScan,
+            visible = state.isFreeScanOpen,
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),
         ) {
             ScannerLayer(
-                onScanned = viewModel::onFreeScan,
-                onClose = { scanningFree = false },
+                onScanned = { text -> onEvent(GameEvent.Scanned(GameScanner.FREE, text)) },
+                onClose = { onEvent(GameEvent.CloseScanner(GameScanner.FREE)) },
                 manualText = stringResource(Res.string.catch_pick_name),
             )
         }
         AnimatedVisibility(
-            visible = scanningCheckpoint && state.canScanCheckpoint,
+            visible = state.isCheckpointScanOpen,
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),
         ) {
             ScannerLayer(
-                onScanned = viewModel::onCheckpointScanned,
-                onClose = { scanningCheckpoint = false },
+                onScanned = { text -> onEvent(GameEvent.Scanned(GameScanner.CHECKPOINT, text)) },
+                onClose = { onEvent(GameEvent.CloseScanner(GameScanner.CHECKPOINT)) },
                 manualText = stringResource(Res.string.checkpoint_scan_close),
                 hint = stringResource(Res.string.checkpoint_scan_hint),
             )
         }
-        panel?.let { open ->
+        // The quests and the perks (docs/adr/0013) as panels over the round.
+        state.panel?.let { open ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -524,18 +497,8 @@ private fun GameContent(
                     .appSafeDrawingPadding(),
             ) {
                 when (open) {
-                    GamePanel.QUESTS -> QuestsPanel(state, viewModel, onClose = { panel = null })
-
-                    GamePanel.PERKS -> PerksPanel(
-                        state,
-                        viewModel,
-                        onClose = { panel = null },
-                        onPickDecoy = {
-                            panel = null
-                            decoyPick = null
-                            placingDecoy = true
-                        },
-                    )
+                    GamePanel.QUESTS -> QuestsPanel(state, onEvent)
+                    GamePanel.PERKS -> PerksPanel(state, onEvent)
                 }
             }
         }
@@ -545,19 +508,16 @@ private fun GameContent(
         StartCountdown(state.hidingElapsedMillis, state.myRole, reduceMotion)
     }
 
-    if (showSosDialog) {
+    if (state.dialog == GameDialog.SOS) {
         SosDialog(
-            onSend = {
-                showSosDialog = false
-                viewModel.callSos()
-            },
-            onDismiss = { showSosDialog = false },
+            onSend = { onEvent(GameEvent.CallSos) },
+            onDismiss = { onEvent(GameEvent.CloseDialog) },
         )
     }
 
-    if (showLeaveDialog) {
+    if (state.dialog == GameDialog.MENU) {
         AlertDialog(
-            onDismissRequest = { showLeaveDialog = false },
+            onDismissRequest = { onEvent(GameEvent.CloseDialog) },
             title = { Text(stringResource(Res.string.leave_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -579,25 +539,22 @@ private fun GameContent(
                     if (state.canPause && state.pause == null) {
                         TextButton(
                             onClick = {
-                                showLeaveDialog = false
-                                viewModel.setPaused(true)
+                                onEvent(GameEvent.CloseDialog)
+                                onEvent(GameEvent.SetPaused(true))
                             },
                             modifier = Modifier.testTag(TestTags.PAUSE_OPEN),
                         ) { Text(stringResource(Res.string.pause_action)) }
                     }
                     if (state.canSos && state.sos.none { it.isMe }) {
                         TextButton(
-                            onClick = {
-                                showLeaveDialog = false
-                                showSosDialog = true
-                            },
+                            onClick = { onEvent(GameEvent.OpenDialog(GameDialog.SOS)) },
                             modifier = Modifier.testTag(TestTags.SOS_OPEN),
                         ) { Text(stringResource(Res.string.sos_menu), color = Palette.Sos) }
                     }
                     if (fieldState.status == FieldStatus.ON) {
                         TextButton(
                             onClick = {
-                                showLeaveDialog = false
+                                onEvent(GameEvent.CloseDialog)
                                 fieldMarks.request()
                             },
                         ) { Text(stringResource(Res.string.field_wrong_menu)) }
@@ -609,34 +566,30 @@ private fun GameContent(
                     invite?.let {
                         TextButton(
                             onClick = {
-                                showLeaveDialog = false
+                                onEvent(GameEvent.CloseDialog)
                                 onGoToInvite(it)
                             },
                             modifier = Modifier.testTag(TestTags.LEAVE_AND_GO),
                         ) { Text(stringResource(Res.string.action_leave_and_go)) }
                     }
-                    TextButton(onClick = viewModel::leave) { Text(stringResource(Res.string.action_leave)) }
+                    TextButton(onClick = { onEvent(GameEvent.Leave) }) { Text(stringResource(Res.string.action_leave)) }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showLeaveDialog = false }) { Text(stringResource(Res.string.action_cancel)) }
+                TextButton(onClick = {
+                    onEvent(GameEvent.CloseDialog)
+                }) { Text(stringResource(Res.string.action_cancel)) }
             },
         )
     }
 }
 
-/** A panel over the round: the quests or the perks (docs/adr/0013-quests-sparks-and-sensors.md). */
-private enum class GamePanel { QUESTS, PERKS }
-
 /** The capsule, the chips, the alerts and the notices, stacked at the top of the map. */
 @Composable
 private fun TopHud(
     state: GameUiState,
-    viewModel: GameViewModel,
+    onEvent: (GameEvent) -> Unit,
     reduceMotion: Boolean,
-    onOpenQuests: () -> Unit,
-    onOpenPerks: () -> Unit,
-    onScanCheckpoint: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -648,9 +601,9 @@ private fun TopHud(
         HudChips(
             state,
             reduceMotion = reduceMotion,
-            onOpenQuests = onOpenQuests,
-            onOpenPerks = onOpenPerks,
-            onScanCheckpoint = onScanCheckpoint,
+            onOpenQuests = { onEvent(GameEvent.OpenPanel(GamePanel.QUESTS)) },
+            onOpenPerks = { onEvent(GameEvent.OpenPanel(GamePanel.PERKS)) },
+            onScanCheckpoint = { onEvent(GameEvent.OpenScanner(GameScanner.CHECKPOINT)) },
         )
         state.bluetoothMillisLeft?.let { millisLeft ->
             AlertPill(
@@ -685,8 +638,8 @@ private fun TopHud(
             connectionStatus = state.connectionStatus,
             isSharingLocation = state.isSharingLocation,
             error = state.error,
-            onDismissError = viewModel::dismissError,
-            onLocationPermissionGranted = viewModel::onLocationPermissionGranted,
+            onDismissError = { onEvent(GameEvent.DismissError) },
+            onLocationPermissionGranted = { onEvent(GameEvent.LocationPermissionGranted) },
         )
         if (state.isBuildingRuleOff) {
             Banner(
@@ -795,7 +748,7 @@ private fun BottomControls(
  * hiding phase. Nothing when there is nothing to do: the map gets the room.
  */
 @Composable
-private fun BottomSheet(state: GameUiState, viewModel: GameViewModel, onOpenScanner: () -> Unit) {
+private fun BottomSheet(state: GameUiState, onEvent: (GameEvent) -> Unit) {
     val status = statusText(state)
     val hint = if (state.myStatus == PlayerStatus.ACTIVE && state.phase == GamePhase.HIDING) {
         stringResource(Res.string.hint_hider_hiding)
@@ -829,13 +782,13 @@ private fun BottomSheet(state: GameUiState, viewModel: GameViewModel, onOpenScan
             status?.let { (text, tag) -> Banner(text = text, modifier = Modifier.testTag(tag)) }
             hint?.let { Text(text = it, style = MaterialTheme.typography.titleMedium) }
             if (hiderDisputed) Banner(text = stringResource(Res.string.hider_disputed))
-            if (seeking) SeekerCatch(state, viewModel, onOpenScanner)
+            if (seeking) SeekerCatch(state, onEvent)
             state.votes.forEach { claim ->
                 VoteCard(
                     claim = claim,
                     voteTimeoutMillis = state.voteTimeoutMillis,
                     isBusy = state.isBusy,
-                    onVote = { confirm -> viewModel.vote(claim.id, confirm) },
+                    onVote = { confirm -> onEvent(GameEvent.Vote(claim.id, confirm)) },
                 )
             }
         }
@@ -866,7 +819,7 @@ private fun statusText(state: GameUiState): Pair<String, String>? = when (state.
 
 /** The seeker: tap who was caught, then type their code; or wait for the vote on a disputed claim. */
 @Composable
-private fun ColumnScope.SeekerCatch(state: GameUiState, viewModel: GameViewModel, onOpenScanner: () -> Unit) {
+private fun ColumnScope.SeekerCatch(state: GameUiState, onEvent: (GameEvent) -> Unit) {
     val claim = state.myClaim
     when {
         claim != null && claim.status == CatchStatus.AWAITING_CODE -> EnterCode(
@@ -874,13 +827,18 @@ private fun ColumnScope.SeekerCatch(state: GameUiState, viewModel: GameViewModel
             codeDigits = state.codeDigits,
             isBusy = state.isBusy,
             error = state.error,
-            onConfirm = { code -> viewModel.confirmCatch(claim.id, code) },
-            onOpenScanner = onOpenScanner,
+            onConfirm = { code -> onEvent(GameEvent.ConfirmCatch(claim.id, code)) },
+            onOpenScanner = { onEvent(GameEvent.OpenScanner(GameScanner.CLAIM)) },
         )
 
         claim != null -> Banner(text = stringResource(Res.string.claim_disputed_mine, claim.hiderName))
 
-        else -> HiderChips(state.huntableHiders, state.radar, isBusy = state.isBusy, onClaim = viewModel::claimCatch)
+        else -> HiderChips(
+            state.huntableHiders,
+            state.radar,
+            isBusy = state.isBusy,
+            onClaim = { onEvent(GameEvent.ClaimCatch(it)) },
+        )
     }
 }
 
@@ -1242,13 +1200,12 @@ private fun CodeLayer(
 }
 
 /**
- * The seeker's camera over the whole round: the hider's QR code in the frame confirms the catch
- * ([GameViewModel.onCodeScanned] for an open claim, [GameViewModel.onFreeScan] for one scan); [manualText] goes back
- * to typing the digits or picking the name.
+ * The seeker's camera over the whole round: the hider's QR code in the frame confirms the catch ([GameEvent.Scanned],
+ * the camera closes once the code is taken); [manualText] goes back to typing the digits or picking the name.
  */
 @Composable
 private fun ScannerLayer(
-    onScanned: (String) -> Boolean,
+    onScanned: (String) -> Unit,
     onClose: () -> Unit,
     manualText: String,
     hint: String = stringResource(Res.string.scanner_hint),
@@ -1256,7 +1213,7 @@ private fun ScannerLayer(
     SystemBackHandler(enabled = true, onBack = onClose)
     Box(modifier = Modifier.fillMaxSize().background(Palette.Ink).testTag(TestTags.SCANNER)) {
         CatchCodeScanner(
-            onScanned = { text -> if (onScanned(text)) onClose() },
+            onScanned = onScanned,
             modifier = Modifier.fillMaxSize(),
         )
         // Where to hold the code.
