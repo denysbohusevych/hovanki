@@ -3,10 +3,8 @@ package app.hovanki.client.ui.lobby
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_dismiss
@@ -36,16 +34,16 @@ import org.jetbrains.compose.resources.stringResource
  * lobby.
  */
 @Composable
-fun InvitePanel(state: LobbyUiState, viewModel: LobbyViewModel) {
-    val friends by viewModel.friends.collectAsStateWithLifecycle()
-    val groups by viewModel.groups.collectAsStateWithLifecycle()
-    val isSending = viewModel.isSendingInvites
+fun InvitePanel(state: LobbyUiState, invite: InvitePanelState, onEvent: (LobbyEvent) -> Unit) {
+    val friends = invite.friends
+    val groups = invite.groups
+    val isSending = invite.isSending
     val friendList = friends?.friends.orEmpty()
     val groupList = groups?.groups.orEmpty()
 
     Panel(
         title = stringResource(Res.string.invite_title),
-        onClose = viewModel::closeInvites,
+        onClose = { onEvent(LobbyEvent.Invite.Close) },
         modifier = Modifier.testTag(TestTags.INVITE_PANEL),
         screen = "invite",
     ) {
@@ -56,8 +54,8 @@ fun InvitePanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                     PickRow(
                         title = group.name,
                         subtitle = stringResource(Res.string.group_members, group.members.size),
-                        checked = group.id in viewModel.pickedGroups,
-                        onCheckedChange = { viewModel.toggleGroup(group.id) },
+                        checked = group.id in invite.pickedGroups,
+                        onCheckedChange = { onEvent(LobbyEvent.Invite.ToggleGroup(group.id)) },
                         enabled = !isSending,
                         modifier = Modifier.testTag(TestTags.inviteGroup(group.id)),
                     )
@@ -70,8 +68,8 @@ fun InvitePanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                     PickRow(
                         title = friend.nickname,
                         subtitle = if (isInGame) stringResource(Res.string.invite_in_game) else null,
-                        checked = friend.id in viewModel.pickedFriends,
-                        onCheckedChange = { viewModel.toggleFriend(friend.id) },
+                        checked = friend.id in invite.pickedFriends,
+                        onCheckedChange = { onEvent(LobbyEvent.Invite.ToggleFriend(friend.id)) },
                         enabled = !isSending && !isInGame,
                         modifier = Modifier.testTag(TestTags.inviteFriend(friend.id)),
                     )
@@ -84,24 +82,24 @@ fun InvitePanel(state: LobbyUiState, viewModel: LobbyViewModel) {
 
             PopButton(
                 text = stringResource(Res.string.invite_send),
-                onClick = viewModel::sendInvites,
-                enabled = !isSending && (viewModel.pickedFriends.isNotEmpty() || viewModel.pickedGroups.isNotEmpty()),
+                onClick = { onEvent(LobbyEvent.Invite.Send) },
+                enabled = invite.canSend,
                 modifier = Modifier.fillMaxWidth().testTag(TestTags.INVITE_SEND),
             )
             if (isSending) BusyRow(stringResource(Res.string.working))
-            state.error?.let { error -> InviteError(error, viewModel) }
+            state.error?.let { error -> InviteError(error, onDismiss = { onEvent(LobbyEvent.DismissError) }) }
         }
     }
 }
 
 /** Why the invitations did not go out (not friends any more, the game started...). */
 @Composable
-private fun InviteError(error: SessionError, viewModel: LobbyViewModel) {
+private fun InviteError(error: SessionError, onDismiss: () -> Unit) {
     Banner(
         text = error.describe(),
         modifier = Modifier.testTag(TestTags.BANNER_ERROR),
         isError = true,
         actionLabel = stringResource(Res.string.action_dismiss),
-        onAction = viewModel::dismissError,
+        onAction = onDismiss,
     )
 }

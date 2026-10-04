@@ -252,10 +252,10 @@ internal fun WherePlayCard(state: LobbyUiState, onExpand: () -> Unit) {
 
 /** The zone full screen, for everybody before the start: where it is, its buildings and the board they may see. */
 @Composable
-fun LobbyMapPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
+fun LobbyMapPanel(state: LobbyUiState, onEvent: (LobbyEvent) -> Unit) {
     Panel(
         title = stringResource(Res.string.lobby_map_title),
-        onClose = viewModel::closeMap,
+        onClose = { onEvent(LobbyEvent.CloseMap) },
         modifier = Modifier.testTag(TestTags.LOBBY_MAP_PANEL),
         screen = "lobby_map",
     ) {
@@ -472,7 +472,7 @@ internal fun RecordingLine() {
  * my phone»; what is wrong and what to do only when something is; the rest behind «i».
  */
 @Composable
-internal fun RadarRow(state: LobbyUiState, viewModel: LobbyViewModel) {
+internal fun RadarRow(state: LobbyUiState, onEvent: (LobbyEvent) -> Unit) {
     val requestPermission = rememberBluetoothPermissionRequester {}
     var expanded by rememberSaveable { mutableStateOf(false) }
     val bluetooth = state.bluetooth
@@ -532,7 +532,7 @@ internal fun RadarRow(state: LobbyUiState, viewModel: LobbyViewModel) {
             SwitchRow(
                 text = stringResource(Res.string.lobby_my_radar),
                 checked = state.radarEnabled,
-                onCheckedChange = viewModel::setRadarEnabled,
+                onCheckedChange = { onEvent(LobbyEvent.SetRadarEnabled(it)) },
                 tag = TestTags.LOBBY_MY_RADAR,
             )
             if (expanded) SecondaryText(stringResource(Res.string.lobby_my_radar_hint))
