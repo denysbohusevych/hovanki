@@ -186,8 +186,9 @@ import app.hovanki.client.ui.common.SystemBackHandler
 import app.hovanki.client.ui.common.audienceTitle
 import app.hovanki.client.ui.common.describe
 import app.hovanki.client.ui.common.questTitle
+import app.hovanki.client.ui.lobby.LobbyEvent
 import app.hovanki.client.ui.lobby.LobbyUiState
-import app.hovanki.client.ui.lobby.LobbyViewModel
+import app.hovanki.client.ui.lobby.SettingsPanelState
 import app.hovanki.client.ui.lobby.SwitchRow
 import app.hovanki.client.ui.lobby.spectatorDelayText
 import app.hovanki.client.ui.theme.Hovanki
@@ -254,9 +255,10 @@ internal fun SettingsTabs(selected: SettingsTab, onPick: (SettingsTab) -> Unit, 
 // ---- Zone ----
 
 @Composable
-internal fun ZoneTab(state: LobbyUiState, viewModel: LobbyViewModel, draft: GameSettings) {
-    val setup = viewModel.setupDraft
-    val edit = { changed: GameSetup -> if (!viewModel.isSavingSettings) viewModel.editSetup(changed) }
+internal fun ZoneTab(state: LobbyUiState, settings: SettingsPanelState, onEvent: (LobbyEvent) -> Unit) {
+    val setup = settings.setup
+    val draft = settings.draft
+    val edit = { changed: GameSetup -> onEvent(LobbyEvent.Settings.Edit(changed)) }
     val isSavedZone = draft.zone == state.zone.schedule && draft.zoneShape == state.zoneShape
 
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -310,7 +312,9 @@ internal fun ZoneTab(state: LobbyUiState, viewModel: LobbyViewModel, draft: Game
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SettingLabel(stringResource(Res.string.settings_shape), Explainer.SHAPE) { viewModel.showHelp(Explainer.SHAPE) }
+        SettingLabel(stringResource(Res.string.settings_shape), Explainer.SHAPE) {
+            onEvent(LobbyEvent.Settings.ShowHelp(Explainer.SHAPE))
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ShapeCard(
                 title = stringResource(Res.string.settings_shape_circle),
@@ -341,7 +345,7 @@ internal fun ZoneTab(state: LobbyUiState, viewModel: LobbyViewModel, draft: Game
         onCheckedChange = { edit(setup.copy(shrinks = it)) },
         tag = TestTags.SETTINGS_SHRINKS,
         explainer = Explainer.SHRINK,
-        onHelp = { viewModel.showHelp(Explainer.SHRINK) },
+        onHelp = { onEvent(LobbyEvent.Settings.ShowHelp(Explainer.SHRINK)) },
     )
 
     val buildings = state.buildings?.takeIf { state.buildingsState == BuildingsState.READY }
@@ -369,10 +373,10 @@ internal fun ZoneTab(state: LobbyUiState, viewModel: LobbyViewModel, draft: Game
             else -> stringResource(Res.string.settings_buildings_open_hint)
         },
         enabled = buildings != null && isSavedZone,
-        onClick = viewModel::openBuildings,
+        onClick = { onEvent(LobbyEvent.Buildings.Open) },
         tag = TestTags.SETTINGS_BUILDINGS,
         explainer = Explainer.BUILDINGS,
-        onHelp = { viewModel.showHelp(Explainer.BUILDINGS) },
+        onHelp = { onEvent(LobbyEvent.Settings.ShowHelp(Explainer.BUILDINGS)) },
     )
 }
 
@@ -380,9 +384,10 @@ internal fun ZoneTab(state: LobbyUiState, viewModel: LobbyViewModel, draft: Game
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun TimeTab(viewModel: LobbyViewModel, draft: GameSettings, elapsed: State<Long?>) {
-    val setup = viewModel.setupDraft
-    val edit = { changed: GameSetup -> if (!viewModel.isSavingSettings) viewModel.editSetup(changed) }
+internal fun TimeTab(settings: SettingsPanelState, onEvent: (LobbyEvent) -> Unit, elapsed: State<Long?>) {
+    val setup = settings.setup
+    val draft = settings.draft
+    val edit = { changed: GameSetup -> onEvent(LobbyEvent.Settings.Edit(changed)) }
     val total = setup.hidingMinutes + setup.seekingMinutes
 
     PopCard(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -393,7 +398,7 @@ internal fun TimeTab(viewModel: LobbyViewModel, draft: GameSettings, elapsed: St
                 style = Hovanki.text.code.copy(fontSize = 18.sp, lineHeight = 22.sp),
             )
         }
-        val playhead = elapsed.value?.takeIf { viewModel.preview == SettingsPreview.GAME }?.let { played ->
+        val playhead = elapsed.value?.takeIf { settings.preview == SettingsPreview.GAME }?.let { played ->
             played.toFloat() / ((draft.hidingSeconds + draft.seekingSeconds) * 1000f)
         }
         GameTimeline(draft, playhead)
@@ -448,7 +453,7 @@ internal fun TimeTab(viewModel: LobbyViewModel, draft: GameSettings, elapsed: St
         onCheckedChange = { on -> edit(setup.copy(glowEveryMinutes = if (on) GameSetup().glowEveryMinutes else 0)) },
         tag = TestTags.SETTINGS_GLOW,
         explainer = Explainer.GLOW,
-        onHelp = { viewModel.showHelp(Explainer.GLOW) },
+        onHelp = { onEvent(LobbyEvent.Settings.ShowHelp(Explainer.GLOW)) },
     ) {
         if (glowOn) {
             ChipRow(
@@ -645,9 +650,10 @@ private class FeatureItem(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun MoreTab(state: LobbyUiState, viewModel: LobbyViewModel) {
-    val setup = viewModel.setupDraft
-    val edit = { changed: GameSetup -> if (!viewModel.isSavingSettings) viewModel.editSetup(changed) }
+internal fun MoreTab(state: LobbyUiState, settings: SettingsPanelState, onEvent: (LobbyEvent) -> Unit) {
+    val setup = settings.setup
+    val edit = { changed: GameSetup -> onEvent(LobbyEvent.Settings.Edit(changed)) }
+    val focus = { explainer: Explainer -> onEvent(LobbyEvent.Settings.FocusExtra(explainer)) }
 
     ToggleCard(
         icon = Res.drawable.ic_eye,
@@ -656,11 +662,11 @@ internal fun MoreTab(state: LobbyUiState, viewModel: LobbyViewModel) {
         checked = setup.openGame,
         onCheckedChange = {
             edit(setup.copy(openGame = it))
-            viewModel.focusExtra(Explainer.OPEN_GAME)
+            focus(Explainer.OPEN_GAME)
         },
         tag = TestTags.SETTINGS_OPEN_GAME,
         explainer = Explainer.OPEN_GAME,
-        onHelp = { viewModel.focusExtra(Explainer.OPEN_GAME) },
+        onHelp = { focus(Explainer.OPEN_GAME) },
     ) {
         if (setup.openGame) {
             FlowRow(
@@ -699,11 +705,11 @@ internal fun MoreTab(state: LobbyUiState, viewModel: LobbyViewModel) {
                     item = item,
                     checked = item.isOn && !disabled,
                     enabled = !disabled,
-                    focused = viewModel.focusedExtra == item.explainer,
-                    onFocus = { viewModel.focusExtra(item.explainer) },
+                    focused = settings.focusedExtra == item.explainer,
+                    onFocus = { focus(item.explainer) },
                     onToggle = { on ->
                         set(item.set(on))
-                        viewModel.focusExtra(item.explainer)
+                        focus(item.explainer)
                     },
                     modifier = Modifier.weight(1f),
                 )
@@ -897,8 +903,8 @@ private fun FeatureTile(
 
 /** What changed so far, and «Save»; the server's refusal right under it. */
 @Composable
-internal fun SaveBar(state: LobbyUiState, viewModel: LobbyViewModel) {
-    val parts = viewModel.changedParts()
+internal fun SaveBar(state: LobbyUiState, settings: SettingsPanelState, onEvent: (LobbyEvent) -> Unit) {
+    val parts = settings.changedParts
     val names = parts.map { part ->
         stringResource(
             when (part) {
@@ -934,18 +940,18 @@ internal fun SaveBar(state: LobbyUiState, viewModel: LobbyViewModel) {
         )
         PopButton(
             text = stringResource(Res.string.settings_save),
-            onClick = viewModel::saveSettings,
-            enabled = !viewModel.isSavingSettings,
+            onClick = { onEvent(LobbyEvent.Settings.Save) },
+            enabled = !settings.isSaving,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.SETTINGS_SAVE),
         )
-        if (viewModel.isSavingSettings) BusyRow(stringResource(Res.string.working))
+        if (settings.isSaving) BusyRow(stringResource(Res.string.working))
         state.error?.let { error ->
             Banner(
                 text = error.describe(),
                 modifier = Modifier.testTag(TestTags.BANNER_ERROR),
                 isError = true,
                 actionLabel = stringResource(Res.string.action_dismiss),
-                onAction = viewModel::dismissError,
+                onAction = { onEvent(LobbyEvent.DismissError) },
             )
         }
     }

@@ -21,8 +21,9 @@ import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.settings_title
 import app.hovanki.client.ui.common.Panel
+import app.hovanki.client.ui.lobby.LobbyEvent
 import app.hovanki.client.ui.lobby.LobbyUiState
-import app.hovanki.client.ui.lobby.LobbyViewModel
+import app.hovanki.client.ui.lobby.SettingsPanelState
 import app.hovanki.shared.protocol.GameSettings
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.stringResource
@@ -35,13 +36,13 @@ import kotlin.time.TimeSource
  * Back and the close button leave without saving.
  */
 @Composable
-fun SettingsPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
-    val draft = viewModel.draftSettings() ?: return
-    val tab = viewModel.settingsTab
-    val elapsed = rememberPreviewClock(viewModel.preview, draft, onEnd = viewModel::stopPreview)
+fun SettingsPanel(state: LobbyUiState, settings: SettingsPanelState, onEvent: (LobbyEvent) -> Unit) {
+    val draft = settings.draft
+    val tab = settings.tab
+    val elapsed = rememberPreviewClock(settings.preview, draft, onEnd = { onEvent(LobbyEvent.Settings.StopPreview) })
     Panel(
         title = stringResource(Res.string.settings_title),
-        onClose = viewModel::closeSettings,
+        onClose = { onEvent(LobbyEvent.Settings.Close) },
         modifier = Modifier.testTag(TestTags.SETTINGS_PANEL),
         screen = "settings",
     ) {
@@ -50,20 +51,21 @@ fun SettingsPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                 when (tab) {
                     SettingsTab.ZONE, SettingsTab.TIME -> SettingsMap(
                         state = state,
-                        viewModel = viewModel,
+                        settings = settings,
+                        onEvent = onEvent,
                         draft = draft,
                         elapsed = elapsed,
                         modifier = Modifier.fillMaxWidth().height(MAP_HEIGHT),
                     )
 
                     SettingsTab.MORE -> ExplainerCard(
-                        explainer = viewModel.focusedExtra,
+                        explainer = settings.focusedExtra,
                         modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().height(MAP_HEIGHT - 20.dp),
                     )
                 }
                 SettingsTabs(
                     selected = tab,
-                    onPick = viewModel::pickSettingsTab,
+                    onPick = { onEvent(LobbyEvent.Settings.PickTab(it)) },
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
                 )
                 Column(
@@ -75,20 +77,22 @@ fun SettingsPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     when (tab) {
-                        SettingsTab.ZONE -> ZoneTab(state, viewModel, draft)
-                        SettingsTab.TIME -> TimeTab(viewModel, draft, elapsed)
-                        SettingsTab.MORE -> MoreTab(state, viewModel)
+                        SettingsTab.ZONE -> ZoneTab(state, settings, onEvent)
+                        SettingsTab.TIME -> TimeTab(settings, onEvent, elapsed)
+                        SettingsTab.MORE -> MoreTab(state, settings, onEvent)
                     }
                 }
-                SaveBar(state, viewModel)
+                SaveBar(state, settings, onEvent)
             }
-            viewModel.helpFor?.let { explainer -> HelpSheet(explainer, onClose = viewModel::closeHelp) }
-            viewModel.pendingChanges?.let { changes ->
+            settings.helpFor?.let { explainer ->
+                HelpSheet(explainer, onClose = { onEvent(LobbyEvent.Settings.CloseHelp) })
+            }
+            settings.pendingChanges?.let { changes ->
                 ChangesSheet(
                     changes = changes,
-                    isSaving = viewModel.isSavingSettings,
-                    onSave = viewModel::confirmSave,
-                    onBack = viewModel::cancelSave,
+                    isSaving = settings.isSaving,
+                    onSave = { onEvent(LobbyEvent.Settings.ConfirmSave) },
+                    onBack = { onEvent(LobbyEvent.Settings.CancelSave) },
                 )
             }
         }

@@ -44,15 +44,15 @@ import app.hovanki.client.ui.common.PopCard
 import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.game.GameMap
+import app.hovanki.client.ui.lobby.BuildingPickerState
+import app.hovanki.client.ui.lobby.LobbyEvent
 import app.hovanki.client.ui.lobby.LobbyUiState
-import app.hovanki.client.ui.lobby.LobbyViewModel
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.geo.offsetFrom
 import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.rules.SettingsLimits
-import app.hovanki.shared.rules.contains
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
 
@@ -62,16 +62,13 @@ import kotlin.math.roundToInt
  * houses, outlined in ink); «Allow hiding» opens it for everybody right away, «Close again» takes it back.
  */
 @Composable
-fun BuildingsPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
+fun BuildingsPanel(state: LobbyUiState, picker: BuildingPickerState, onEvent: (LobbyEvent) -> Unit) {
     val buildings = state.buildings
-    val tap = viewModel.buildingTap
-    val picked = tap?.let { point ->
-        buildings?.let { (it.buildings + it.open).firstOrNull { b -> b.contains(point) } }
-    }
-    val isOpen = picked != null && buildings?.open?.contains(picked) == true
+    val picked = picker.picked
+    val onClose = { onEvent(LobbyEvent.Buildings.Close) }
     Panel(
         title = stringResource(Res.string.settings_buildings_title),
-        onClose = viewModel::closeBuildings,
+        onClose = onClose,
         modifier = Modifier.testTag(TestTags.BUILDINGS_PANEL),
         screen = "buildings",
     ) {
@@ -84,7 +81,7 @@ fun BuildingsPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                 myRole = if (state.amSeeker) Role.SEEKER else Role.HIDER,
                 markers = emptyList(),
                 buildings = buildings,
-                onMapClick = viewModel::pickBuilding,
+                onMapClick = { onEvent(LobbyEvent.Buildings.Pick(it)) },
                 highlightedBuilding = picked,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -123,11 +120,11 @@ fun BuildingsPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
             } else {
                 PickedBuilding(
                     building = picked,
-                    isOpen = isOpen,
+                    isOpen = picker.isPickedOpen,
                     openCount = buildings?.open?.size ?: 0,
-                    busy = viewModel.isTogglingBuilding,
-                    onToggle = viewModel::toggleBuilding,
-                    onDone = viewModel::closeBuildings,
+                    busy = picker.isToggling,
+                    onToggle = { onEvent(LobbyEvent.Buildings.Toggle) },
+                    onDone = onClose,
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }

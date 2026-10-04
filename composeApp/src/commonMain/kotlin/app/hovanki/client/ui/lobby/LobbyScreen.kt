@@ -103,6 +103,7 @@ import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SectionTitle
 import app.hovanki.client.ui.common.SessionBanners
 import app.hovanki.client.ui.common.Toast
+import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.client.ui.common.formatDateTimeIn
 import app.hovanki.client.ui.common.rememberReduceMotion
 import app.hovanki.client.ui.common.rememberToastVisible
@@ -133,7 +134,7 @@ import app.hovanki.shared.protocol.Role as GameRole
  */
 @Composable
 fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel = koinViewModel()) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectScreenState()
     val chatState by chat.uiState.collectAsStateWithLifecycle()
     val state = uiState
     if (state == null) {
@@ -144,28 +145,32 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
         ChatPanel(chat)
         return
     }
-    if (state.canInvite && viewModel.invitePanelIn == state.gameId) {
-        InvitePanel(state, viewModel)
+    LobbyContent(state, chatUnread = chatState.unread, onOpenChat = chat::open, onEvent = viewModel::onEvent)
+}
+
+/** The lobby as [state] has it; what the player does goes to [onEvent]. */
+@Composable
+private fun LobbyContent(state: LobbyUiState, chatUnread: Int, onOpenChat: () -> Unit, onEvent: (LobbyEvent) -> Unit) {
+    state.invite?.let { invite ->
+        InvitePanel(state, invite, onEvent)
         return
     }
-    if (state.isHost && viewModel.buildingsPanelIn == state.gameId) {
-        BuildingsPanel(state, viewModel)
+    state.buildingPicker?.let { picker ->
+        BuildingsPanel(state, picker, onEvent)
         return
     }
-    if (state.isHost && viewModel.settingsPanelIn == state.gameId) {
-        SettingsPanel(state, viewModel)
+    state.settings?.let { settings ->
+        SettingsPanel(state, settings, onEvent)
         return
     }
-    if (viewModel.mapPanelIn == state.gameId) {
-        LobbyMapPanel(state, viewModel)
+    if (state.isMapOpen) {
+        LobbyMapPanel(state, onEvent)
         return
     }
-    if (state.isHost && viewModel.boardPanelIn == state.gameId) {
-        BoardPanel(state, viewModel)
+    state.board?.let { board ->
+        BoardPanel(state, board, onEvent)
         return
     }
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
     val reduceMotion = rememberReduceMotion()
     // «Random»: on every phone the dice wobbles and the pills flicker for a moment, then show the server's draw.
     var shuffles by remember { mutableIntStateOf(0) }
@@ -181,7 +186,7 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().testTag(TestTags.LOBBY_SCREEN)) {
             ScreenColumn(modifier = Modifier.weight(1f)) {
-                Header(chatUnread = chatState.unread, onOpenChat = chat::open, onLeave = viewModel::leave)
+                Header(chatUnread = chatUnread, onOpenChat = onOpenChat, onLeave = { onEvent(LobbyEvent.Leave) })
                 val bigGame = state.bigGame
                 if (bigGame != null) {
                     BigGameCard(bigGame, playersHere = state.playerCount)
@@ -193,12 +198,16 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                     connectionStatus = state.connectionStatus,
                     isSharingLocation = state.isSharingLocation,
                     error = state.error,
-                    onDismissError = viewModel::dismissError,
-                    onLocationPermissionGranted = viewModel::onLocationPermissionGranted,
+                    onDismissError = { onEvent(LobbyEvent.DismissError) },
+                    onLocationPermissionGranted = { onEvent(LobbyEvent.LocationPermissionGranted) },
                 )
-                WherePlayCard(state, onExpand = viewModel::openMap)
-                SettingsTiles(state, onOpenSettings = viewModel::openSettings, onOpenBoard = viewModel::openBoard)
-                if (state.features.hasRadar) RadarRow(state, viewModel)
+                WherePlayCard(state, onExpand = { onEvent(LobbyEvent.OpenMap) })
+                SettingsTiles(
+                    state,
+                    onOpenSettings = { tab -> onEvent(LobbyEvent.Settings.Open(tab)) },
+                    onOpenBoard = { onEvent(LobbyEvent.Board.Open) },
+                )
+                if (state.features.hasRadar) RadarRow(state, onEvent)
                 // The field test build's «touch phones with a neighbour»; nothing in other builds.
                 TouchCard(state.players.filter { !it.isMe }.map { TouchNeighbour(it.id, it.name) })
                 // Everybody is told before the round (docs/adr/0011-spectators-and-recordings.md), guests too. A big
@@ -217,17 +226,17 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                     )
                 }
                 state.crowding?.let { crowding ->
-                    CrowdingBanner(crowding, onPlayAnyway = viewModel::playAnyway)
+                    CrowdingBanner(crowding, onPlayAnyway = { onEvent(LobbyEvent.PlayAnyway) })
                 }
                 if (state.bigGame != null) {
-                    BigGameFriends(state, isBusy = isBusy, onAddFriend = viewModel::addFriend)
+                    BigGameFriends(state, isBusy = state.isBusy, onAddFriend = { onEvent(LobbyEvent.AddFriend(it)) })
                 } else {
-                    PlayersSection(state, viewModel, isBusy, reduceMotion, shuffles, initialPlayers)
+                    PlayersSection(state, onEvent, reduceMotion, shuffles, initialPlayers)
                 }
                 CommandStatus(
                     isBusy = false,
-                    message = message,
-                    onDismiss = viewModel::dismissMessage,
+                    message = state.message,
+                    onDismiss = { onEvent(LobbyEvent.DismissMessage) },
                     errorTag = TestTags.SOCIAL_ERROR,
                 )
             }
@@ -243,7 +252,7 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
                 } else if (state.isHost) {
                     PopButton(
                         text = stringResource(Res.string.lobby_start),
-                        onClick = viewModel::start,
+                        onClick = { onEvent(LobbyEvent.Start) },
                         enabled = state.canStart && !state.isStarting,
                         height = 60.dp,
                         textStyle = MaterialTheme.typography.headlineSmall.copy(fontSize = 18.sp),
@@ -278,8 +287,7 @@ fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel
 @Composable
 private fun PlayersSection(
     state: LobbyUiState,
-    viewModel: LobbyViewModel,
-    isBusy: Boolean,
+    onEvent: (LobbyEvent) -> Unit,
     reduceMotion: Boolean,
     shuffles: Int,
     initialPlayers: Set<PlayerId>,
@@ -297,7 +305,7 @@ private fun PlayersSection(
             )
             if (state.isHost) {
                 PopButton(
-                    onClick = viewModel::drawSeekers,
+                    onClick = { onEvent(LobbyEvent.DrawSeekers) },
                     enabled = state.players.size >= 2,
                     style = PopStyle.Pink,
                     height = 40.dp,
@@ -321,7 +329,7 @@ private fun PlayersSection(
                 PopIconButton(
                     icon = Res.drawable.ic_person_add,
                     contentDescription = stringResource(Res.string.lobby_invite),
-                    onClick = { viewModel.openInvites(state.gameId) },
+                    onClick = { onEvent(LobbyEvent.Invite.Open) },
                     size = 40.dp,
                     iconSize = 20.dp,
                     shape = RoundedCornerShape(14.dp),
@@ -329,12 +337,12 @@ private fun PlayersSection(
                 )
             }
         }
-        if (viewModel.invitesSentIn == state.gameId) {
+        if (state.invitesSent) {
             Banner(
                 text = stringResource(Res.string.invites_sent),
                 modifier = Modifier.testTag(TestTags.INVITES_SENT),
                 actionLabel = stringResource(Res.string.action_dismiss),
-                onAction = viewModel::dismissInvitesSent,
+                onAction = { onEvent(LobbyEvent.DismissInvitesSent) },
             )
         }
         if (state.isHost) SecondaryText(stringResource(Res.string.lobby_pick_seekers))
@@ -355,11 +363,11 @@ private fun PlayersSection(
                                 player = player,
                                 showRadar = state.features.hasRadar,
                                 canPickRoles = state.isHost,
-                                isBusy = isBusy,
+                                isBusy = state.isBusy,
                                 isNew = isNew,
                                 shuffles = if (reduceMotion) 0 else shuffles,
-                                onToggleSeeker = { viewModel.toggleSeeker(player.id) },
-                                onAddFriend = { player.account.userId?.let(viewModel::addFriend) },
+                                onToggleSeeker = { onEvent(LobbyEvent.ToggleSeeker(player.id)) },
+                                onAddFriend = { player.account.userId?.let { onEvent(LobbyEvent.AddFriend(it)) } },
                             )
                         }
                     }

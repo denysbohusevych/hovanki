@@ -70,7 +70,6 @@ import app.hovanki.shared.protocol.ItemKind
 import app.hovanki.shared.protocol.PerkKind
 import app.hovanki.shared.protocol.QuestKind
 import app.hovanki.shared.protocol.Role
-import app.hovanki.shared.rules.BoardRules
 import app.hovanki.shared.rules.CheckpointPayload
 import app.hovanki.shared.rules.QuestCatalog
 import org.jetbrains.compose.resources.stringResource
@@ -82,13 +81,13 @@ import org.jetbrains.compose.resources.stringResource
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun BoardPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
-    val kinds = viewModel.allowedKinds(state.features)
-    val kind = viewModel.boardKind
-    val pick = viewModel.boardPick
+fun BoardPanel(state: LobbyUiState, board: BoardPanelState, onEvent: (LobbyEvent) -> Unit) {
+    val kinds = board.kinds
+    val kind = board.kind
+    val pick = board.pick
     Panel(
         title = stringResource(Res.string.board_title),
-        onClose = viewModel::closeBoard,
+        onClose = { onEvent(LobbyEvent.Board.Close) },
         modifier = Modifier.testTag(TestTags.BOARD_PANEL),
         screen = "board",
     ) {
@@ -110,7 +109,7 @@ fun BoardPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                     buildings = null,
                     items = state.items.map { it.toMapItem(null) },
                     pickedPoint = pick,
-                    onMapClick = viewModel::pickBoardPoint,
+                    onMapClick = { onEvent(LobbyEvent.Board.PickPoint(it)) },
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(18.dp)),
                 )
             }
@@ -126,18 +125,18 @@ fun BoardPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                         ShapeButton(
                             text = itemKindTitle(option),
                             selected = option == kind,
-                            onClick = { viewModel.pickBoardKind(option) },
+                            onClick = { onEvent(LobbyEvent.Board.PickKind(option)) },
                             modifier = Modifier.testTag(TestTags.boardKind(option.name)),
                         )
                     }
                 }
                 AudiencePicker(
-                    audience = viewModel.boardAudience,
-                    onPick = viewModel::pickBoardAudience,
+                    audience = board.audience,
+                    onPick = { onEvent(LobbyEvent.Board.PickAudience(it)) },
                 )
                 PopTextField(
-                    value = viewModel.boardName,
-                    onValueChange = viewModel::editBoardName,
+                    value = board.name,
+                    onValueChange = { onEvent(LobbyEvent.Board.EditName(it)) },
                     label = { Text(stringResource(Res.string.board_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().testTag(TestTags.BOARD_NAME),
@@ -152,19 +151,19 @@ fun BoardPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                         PerkKind.entries.forEach { perk ->
                             ShapeButton(
                                 text = perkTitle(perk),
-                                selected = perk == viewModel.boardPerk,
-                                onClick = { viewModel.pickBoardPerk(perk) },
+                                selected = perk == board.perk,
+                                onClick = { onEvent(LobbyEvent.Board.PickPerk(perk)) },
                             )
                         }
                     }
                 } else {
-                    val sparks = viewModel.boardSparks ?: BoardRules.defaultSparks(kind)
+                    val sparks = board.sparks
                     LabeledStepper(
                         label = stringResource(Res.string.board_sparks),
                         name = "board_sparks",
                         value = stringResource(Res.string.sparks_count, sparks),
-                        onMinus = { viewModel.editBoardSparks(sparks - 1) },
-                        onPlus = { viewModel.editBoardSparks(sparks + 1) },
+                        onMinus = { onEvent(LobbyEvent.Board.EditSparks(sparks - 1)) },
+                        onPlus = { onEvent(LobbyEvent.Board.EditSparks(sparks + 1)) },
                         canMinus = sparks > 1,
                         canPlus = sparks < QuestCatalog.MAX_SPARKS,
                     )
@@ -174,11 +173,11 @@ fun BoardPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                 }
                 PopButton(
                     text = stringResource(Res.string.board_place),
-                    onClick = viewModel::placeItem,
-                    enabled = pick != null && !viewModel.isPlacing,
+                    onClick = { onEvent(LobbyEvent.Board.Place) },
+                    enabled = pick != null && !board.isPlacing,
                     modifier = Modifier.fillMaxWidth().testTag(TestTags.BOARD_PLACE),
                 )
-                if (viewModel.isPlacing) BusyRow(stringResource(Res.string.working))
+                if (board.isPlacing) BusyRow(stringResource(Res.string.working))
             }
             state.error?.let { error ->
                 Banner(
@@ -186,7 +185,7 @@ fun BoardPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                     modifier = Modifier.testTag(TestTags.BANNER_ERROR),
                     isError = true,
                     actionLabel = stringResource(Res.string.action_dismiss),
-                    onAction = viewModel::dismissError,
+                    onAction = { onEvent(LobbyEvent.DismissError) },
                 )
             }
 
@@ -198,11 +197,11 @@ fun BoardPanel(state: LobbyUiState, viewModel: LobbyViewModel) {
                     style = MaterialTheme.typography.titleMedium,
                 )
                 state.items.forEach { item ->
-                    ItemCard(item, state.gameId, onRemove = { viewModel.removeItem(item.id) })
+                    ItemCard(item, state.gameId, onRemove = { onEvent(LobbyEvent.Board.Remove(item.id)) })
                 }
             }
 
-            if (state.features.quests) CustomQuests(state, viewModel)
+            if (state.features.quests) CustomQuests(state, board, onEvent)
         }
     }
 }
@@ -273,21 +272,21 @@ private fun ItemCard(item: BoardItem, gameId: GameId, onRemove: () -> Unit) {
 
 /** The host's own quests in words: what to do, for whom; and the ones made so far. */
 @Composable
-private fun CustomQuests(state: LobbyUiState, viewModel: LobbyViewModel) {
+private fun CustomQuests(state: LobbyUiState, board: BoardPanelState, onEvent: (LobbyEvent) -> Unit) {
     PopCard(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(stringResource(Res.string.board_custom_quests), style = MaterialTheme.typography.titleMedium)
         SecondaryText(stringResource(Res.string.board_custom_hint))
         PopTextField(
-            value = viewModel.questText,
-            onValueChange = viewModel::editQuestText,
+            value = board.questText,
+            onValueChange = { onEvent(LobbyEvent.Board.EditQuestText(it)) },
             label = { Text(stringResource(Res.string.board_custom_text)) },
             modifier = Modifier.fillMaxWidth().testTag(TestTags.BOARD_QUEST_TEXT),
         )
-        AudiencePicker(audience = viewModel.questAudience, onPick = viewModel::pickQuestAudience)
+        AudiencePicker(audience = board.questAudience, onPick = { onEvent(LobbyEvent.Board.PickQuestAudience(it)) })
         PopButton(
             text = stringResource(Res.string.board_custom_add),
-            onClick = viewModel::addQuest,
-            enabled = viewModel.questText.isNotBlank() && !viewModel.isAddingQuest,
+            onClick = { onEvent(LobbyEvent.Board.AddQuest) },
+            enabled = board.questText.isNotBlank() && !board.isAddingQuest,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.BOARD_QUEST_ADD),
         )
         state.quests.filter { it.kind == QuestKind.CUSTOM }.forEach { quest ->

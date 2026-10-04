@@ -66,8 +66,9 @@ import app.hovanki.client.ui.common.formatCountdown
 import app.hovanki.client.ui.game.GameMap
 import app.hovanki.client.ui.game.MapMarker
 import app.hovanki.client.ui.game.ZoneTimeline
+import app.hovanki.client.ui.lobby.LobbyEvent
 import app.hovanki.client.ui.lobby.LobbyUiState
-import app.hovanki.client.ui.lobby.LobbyViewModel
+import app.hovanki.client.ui.lobby.SettingsPanelState
 import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.geo.moveBy
@@ -97,17 +98,17 @@ import kotlin.math.sin
 @Composable
 internal fun SettingsMap(
     state: LobbyUiState,
-    viewModel: LobbyViewModel,
+    settings: SettingsPanelState,
+    onEvent: (LobbyEvent) -> Unit,
     draft: GameSettings,
     elapsed: State<Long?>,
     modifier: Modifier = Modifier,
 ) {
-    val preview = viewModel.preview
-    val moving = viewModel.isMovingCenter
+    val preview = settings.preview
+    val moving = settings.isMovingCenter
     val saved = state.zone.schedule
     val isSavedZone = draft.zone == saved && draft.zoneShape == state.zoneShape
-    val draftZone by viewModel.draftZone.collectAsStateWithLifecycle()
-    val draftStreets = draftZone?.takeIf { draft.zoneShape == ZoneShape.STREETS && it.zone == draft.zone }
+    val draftStreets = settings.draftZone?.takeIf { draft.zoneShape == ZoneShape.STREETS && it.zone == draft.zone }
     val streets = if (isSavedZone) state.streets else draftStreets?.streets
     val zoneStart = when (preview) {
         null -> null
@@ -116,7 +117,7 @@ internal fun SettingsMap(
     }
     val timeline = remember(draft.zone, streets, zoneStart) { ZoneTimeline(draft.zone, zoneStart, streets) }
     val fit = remember(timeline) { timeline.shapeAt(0L).extent }
-    val origin = viewModel.zoneOrigin(state.gameId) ?: saved.initial.center
+    val origin = settings.origin
     val now = elapsed.value ?: 0L
     val zoneElapsed = zoneStart?.let { now - it }?.takeIf { it >= 0 }
     val cue = draft.zone.momentAt(zoneElapsed).cue
@@ -138,7 +139,7 @@ internal fun SettingsMap(
             } else {
                 null
             },
-            onCameraIdle = if (moving) viewModel::moveDraftCenter else null,
+            onCameraIdle = if (moving) ({ onEvent(LobbyEvent.Settings.MoveCenter(it)) }) else null,
             animateZone = preview != null,
             modifier = Modifier.fillMaxSize(),
         )
@@ -175,7 +176,7 @@ internal fun SettingsMap(
             modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val kind = if (viewModel.settingsTab == SettingsTab.TIME) SettingsPreview.GAME else SettingsPreview.SHRINK
+            val kind = if (settings.tab == SettingsTab.TIME) SettingsPreview.GAME else SettingsPreview.SHRINK
             if (kind == SettingsPreview.GAME || draft.zone.stages.isNotEmpty()) {
                 PopButton(
                     text = when {
@@ -183,17 +184,17 @@ internal fun SettingsMap(
                         kind == SettingsPreview.GAME -> stringResource(Res.string.settings_play_game)
                         else -> stringResource(Res.string.settings_play_shrink)
                     },
-                    onClick = { viewModel.togglePreview(kind) },
+                    onClick = { onEvent(LobbyEvent.Settings.TogglePreview(kind)) },
                     style = if (kind == SettingsPreview.GAME) PopStyle.Primary else PopStyle.Outline,
                     height = 40.dp,
                     icon = if (preview == kind) Res.drawable.ic_pause else Res.drawable.ic_play,
                     modifier = Modifier.testTag(TestTags.SETTINGS_PREVIEW),
                 )
             }
-            if (viewModel.settingsTab == SettingsTab.ZONE) {
+            if (settings.tab == SettingsTab.ZONE) {
                 PopButton(
                     text = stringResource(if (moving) Res.string.settings_center_done else Res.string.settings_center),
-                    onClick = viewModel::toggleMovingCenter,
+                    onClick = { onEvent(LobbyEvent.Settings.ToggleMovingCenter) },
                     style = if (moving) PopStyle.Primary else PopStyle.Outline,
                     height = 40.dp,
                     icon = Res.drawable.ic_crosshair,
