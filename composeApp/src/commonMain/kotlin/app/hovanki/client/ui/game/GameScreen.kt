@@ -132,6 +132,7 @@ import app.hovanki.client.resources.vote_title
 import app.hovanki.client.session.CatchCode
 import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.ZoneCue
+import app.hovanki.client.ui.chat.ChatEvent
 import app.hovanki.client.ui.chat.ChatPanel
 import app.hovanki.client.ui.chat.ChatViewModel
 import app.hovanki.client.ui.common.Banner
@@ -158,6 +159,7 @@ import app.hovanki.client.ui.common.rememberReduceMotion
 import app.hovanki.client.ui.common.rememberToastVisible
 import app.hovanki.client.ui.field.FieldMarks
 import app.hovanki.client.ui.field.PocketHint
+import app.hovanki.client.ui.invite.InviteBannerEvent
 import app.hovanki.client.ui.invite.InviteBannerViewModel
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
@@ -186,9 +188,9 @@ fun GameScreen(
     invites: InviteBannerViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectScreenState()
-    val chatState by chat.uiState.collectAsStateWithLifecycle()
+    val chatState by chat.uiState.collectScreenState()
     // An invitation into another game: no banner in a round, only a badge on «More» (see the leave dialog).
-    val invite by invites.invite.collectAsStateWithLifecycle()
+    val inviteState by invites.uiState.collectAsStateWithLifecycle()
     val state = uiState
     if (state == null) {
         LoadingScreen()
@@ -201,9 +203,9 @@ fun GameScreen(
             serverNow = viewModel::serverNow,
             onEvent = viewModel::onEvent,
             chatUnread = chatState.unread,
-            onOpenChat = chat::open,
-            invite = invite,
-            onGoToInvite = { invites.go(it, leaveRound = true) },
+            onOpenChat = { chat.onEvent(ChatEvent.Open) },
+            invite = inviteState.invite,
+            onGoToInvite = { invites.onEvent(InviteBannerEvent.Go(it, leaveRound = true)) },
         )
         if (chatState.isOpen) {
             Box(
@@ -212,7 +214,7 @@ fun GameScreen(
                     .background(MaterialTheme.colorScheme.background)
                     .appSafeDrawingPadding(),
             ) {
-                ChatPanel(chat)
+                ChatPanel(chatState, chat::onEvent)
             }
         }
     }

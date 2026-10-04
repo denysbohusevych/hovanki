@@ -14,12 +14,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_cancel
@@ -136,7 +134,13 @@ private fun StatTile(label: StringResource, value: String, modifier: Modifier = 
  * asks first, because every saved route is deleted.
  */
 @Composable
-fun RoutesCard(viewModel: HistoryViewModel, saveRoutes: Boolean, isBusy: Boolean, modifier: Modifier = Modifier) {
+fun RoutesCard(
+    state: HistoryUiState,
+    onEvent: (HistoryEvent) -> Unit,
+    saveRoutes: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val isBusy = state.isBusy
     PopCard(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(text = stringResource(Res.string.routes_title), style = MaterialTheme.typography.titleMedium)
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -146,8 +150,8 @@ fun RoutesCard(viewModel: HistoryViewModel, saveRoutes: Boolean, isBusy: Boolean
                 modifier = Modifier.weight(1f),
             )
             Switch(
-                checked = saveRoutes && !viewModel.confirmingRoutesOff,
-                onCheckedChange = viewModel::setSaveRoutes,
+                checked = saveRoutes && !state.confirmingRoutesOff,
+                onCheckedChange = { onEvent(HistoryEvent.SetSaveRoutes(it)) },
                 enabled = !isBusy,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Palette.Ink,
@@ -161,7 +165,7 @@ fun RoutesCard(viewModel: HistoryViewModel, saveRoutes: Boolean, isBusy: Boolean
             )
         }
         SecondaryText(stringResource(Res.string.routes_explain))
-        if (viewModel.confirmingRoutesOff) {
+        if (state.confirmingRoutesOff) {
             PopCard(
                 modifier = Modifier.fillMaxWidth(),
                 color = Palette.Pink,
@@ -170,14 +174,14 @@ fun RoutesCard(viewModel: HistoryViewModel, saveRoutes: Boolean, isBusy: Boolean
                 Text(text = stringResource(Res.string.routes_off_warning), style = MaterialTheme.typography.bodyMedium)
                 PopButton(
                     text = stringResource(Res.string.routes_off_confirm),
-                    onClick = viewModel::confirmRoutesOff,
+                    onClick = { onEvent(HistoryEvent.ConfirmRoutesOff) },
                     enabled = !isBusy,
                     style = PopStyle.Danger,
                     modifier = Modifier.fillMaxWidth().testTag(TestTags.PROFILE_SAVE_ROUTES_OFF_CONFIRM),
                 )
                 PopButton(
                     text = stringResource(Res.string.action_cancel),
-                    onClick = viewModel::cancelRoutesOff,
+                    onClick = { onEvent(HistoryEvent.CancelRoutesOff) },
                     style = PopStyle.Quiet,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -238,13 +242,12 @@ fun HistoryButton(onClick: () -> Unit, enabled: Boolean, modifier: Modifier = Mo
 
 /** The player's games, newest first; a game with a saved route opens it, one with a recording that. */
 @Composable
-fun HistoryPanel(viewModel: HistoryViewModel) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
+fun HistoryPanel(uiState: HistoryUiState, onEvent: (HistoryEvent) -> Unit) {
+    val state = uiState.history
+    val isBusy = uiState.isBusy
     Panel(
         title = stringResource(Res.string.history_open),
-        onClose = viewModel::close,
+        onClose = { onEvent(HistoryEvent.Close) },
         modifier = Modifier.testTag(TestTags.HISTORY_PANEL),
     ) {
         ScreenColumn {
@@ -254,21 +257,25 @@ fun HistoryPanel(viewModel: HistoryViewModel) {
             for (game in state.games) {
                 GameRow(
                     game = game,
-                    onRoute = { viewModel.openRoute(game) },
-                    onRecording = { viewModel.openRecording(game) },
+                    onRoute = { onEvent(HistoryEvent.OpenRoute(game)) },
+                    onRecording = { onEvent(HistoryEvent.OpenRecording(game)) },
                     enabled = !isBusy,
                 )
             }
             if (state.hasMore) {
                 PopButton(
                     text = stringResource(Res.string.history_more),
-                    onClick = viewModel::loadMore,
+                    onClick = { onEvent(HistoryEvent.LoadMore) },
                     enabled = !isBusy,
                     style = PopStyle.Quiet,
                     modifier = Modifier.fillMaxWidth().testTag(TestTags.HISTORY_MORE),
                 )
             }
-            CommandStatus(isBusy = isBusy, message = message, onDismiss = viewModel::dismissMessage)
+            CommandStatus(
+                isBusy = isBusy,
+                message = uiState.message,
+                onDismiss = { onEvent(HistoryEvent.DismissMessage) },
+            )
         }
     }
 }
@@ -345,13 +352,12 @@ private fun GameHistoryEntry.outcome(): StringResource = when {
 
 /** A saved route on the map, the game's numbers under it, and deleting it. */
 @Composable
-fun RoutePanel(viewModel: HistoryViewModel, open: OpenRoute) {
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
+fun RoutePanel(state: HistoryUiState, open: OpenRoute, onEvent: (HistoryEvent) -> Unit) {
+    val isBusy = state.isBusy
     val game = open.game
     Panel(
         title = "${stringResource(Res.string.route_title)} · ${formatDate(game.finishedAtMillis)}",
-        onClose = viewModel::closeRoute,
+        onClose = { onEvent(HistoryEvent.CloseRoute) },
         modifier = Modifier.testTag(TestTags.ROUTE_PANEL),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -370,7 +376,7 @@ fun RoutePanel(viewModel: HistoryViewModel, open: OpenRoute) {
                     }
                 }
                 SecondaryText(stringResource(Res.string.route_expires, formatDate(open.route.expiresAtMillis)))
-                if (viewModel.confirmingRouteDelete) {
+                if (state.confirmingRouteDelete) {
                     Text(
                         text = stringResource(Res.string.route_delete_warning),
                         style = MaterialTheme.typography.bodyMedium,
@@ -378,13 +384,13 @@ fun RoutePanel(viewModel: HistoryViewModel, open: OpenRoute) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         PopButton(
                             text = stringResource(Res.string.action_cancel),
-                            onClick = viewModel::cancelDeleteRoute,
+                            onClick = { onEvent(HistoryEvent.CancelDeleteRoute) },
                             style = PopStyle.Quiet,
                             modifier = Modifier.weight(1f),
                         )
                         PopButton(
                             text = stringResource(Res.string.route_delete_confirm),
-                            onClick = viewModel::deleteRoute,
+                            onClick = { onEvent(HistoryEvent.DeleteRoute) },
                             enabled = !isBusy,
                             style = PopStyle.Danger,
                             modifier = Modifier.weight(1f).testTag(TestTags.ROUTE_DELETE_CONFIRM),
@@ -393,13 +399,17 @@ fun RoutePanel(viewModel: HistoryViewModel, open: OpenRoute) {
                 } else {
                     PopButton(
                         text = stringResource(Res.string.route_delete),
-                        onClick = viewModel::askDeleteRoute,
+                        onClick = { onEvent(HistoryEvent.AskDeleteRoute) },
                         enabled = !isBusy,
                         style = PopStyle.Danger,
                         modifier = Modifier.fillMaxWidth().testTag(TestTags.ROUTE_DELETE),
                     )
                 }
-                CommandStatus(isBusy = isBusy, message = message, onDismiss = viewModel::dismissMessage)
+                CommandStatus(
+                    isBusy = isBusy,
+                    message = state.message,
+                    onDismiss = { onEvent(HistoryEvent.DismissMessage) },
+                )
             }
         }
     }

@@ -45,7 +45,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_dismiss
@@ -84,6 +83,7 @@ import app.hovanki.client.resources.lobby_waiting
 import app.hovanki.client.resources.lobby_you
 import app.hovanki.client.resources.street_zone_off
 import app.hovanki.client.session.ServerClock
+import app.hovanki.client.ui.chat.ChatEvent
 import app.hovanki.client.ui.chat.ChatIconButton
 import app.hovanki.client.ui.chat.ChatPanel
 import app.hovanki.client.ui.chat.ChatViewModel
@@ -135,17 +135,19 @@ import app.hovanki.shared.protocol.Role as GameRole
 @Composable
 fun LobbyScreen(viewModel: LobbyViewModel = koinViewModel(), chat: ChatViewModel = koinViewModel()) {
     val uiState by viewModel.uiState.collectScreenState()
-    val chatState by chat.uiState.collectAsStateWithLifecycle()
+    val chatState by chat.uiState.collectScreenState()
     val state = uiState
     if (state == null) {
         LoadingScreen()
         return
     }
     if (chatState.isOpen) {
-        ChatPanel(chat)
+        ChatPanel(chatState, chat::onEvent)
         return
     }
-    LobbyContent(state, chatUnread = chatState.unread, onOpenChat = chat::open, onEvent = viewModel::onEvent)
+    LobbyContent(state, chatUnread = chatState.unread, onOpenChat = {
+        chat.onEvent(ChatEvent.Open)
+    }, onEvent = viewModel::onEvent)
 }
 
 /** The lobby as [state] has it; what the player does goes to [onEvent]. */

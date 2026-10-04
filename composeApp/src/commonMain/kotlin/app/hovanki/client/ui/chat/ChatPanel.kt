@@ -23,7 +23,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -34,7 +33,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_cancel
@@ -121,10 +119,7 @@ fun ChatIconButton(
  * block its sender. Back and the close button return to the screen.
  */
 @Composable
-fun ChatPanel(viewModel: ChatViewModel) {
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
+fun ChatPanel(state: ChatUiState, onEvent: (ChatEvent) -> Unit) {
     val listState = rememberLazyListState()
     val lines = state.lines
     // Follow the conversation: the newest message in view whenever one arrives.
@@ -135,7 +130,7 @@ fun ChatPanel(viewModel: ChatViewModel) {
 
     Panel(
         title = stringResource(Res.string.chat_title),
-        onClose = viewModel::close,
+        onClose = { onEvent(ChatEvent.Close) },
         modifier = Modifier.testTag(TestTags.CHAT_PANEL),
         screen = "chat",
     ) {
@@ -156,11 +151,11 @@ fun ChatPanel(viewModel: ChatViewModel) {
                         line = line,
                         isSelected = line.seq == state.selectedSeq,
                         canBlock = state.canBlock && line.senderUserId != null,
-                        isBusy = isBusy,
-                        onLongPress = { viewModel.select(line) },
-                        onReport = { viewModel.report(line.seq) },
-                        onBlock = { line.senderUserId?.let(viewModel::block) },
-                        onCancel = viewModel::cancelSelection,
+                        isBusy = state.isBusy,
+                        onLongPress = { onEvent(ChatEvent.Select(line)) },
+                        onReport = { onEvent(ChatEvent.Report(line.seq)) },
+                        onBlock = { line.senderUserId?.let { onEvent(ChatEvent.Block(it)) } },
+                        onCancel = { onEvent(ChatEvent.CancelSelection) },
                     )
                 }
             }
@@ -174,17 +169,19 @@ fun ChatPanel(viewModel: ChatViewModel) {
                         modifier = Modifier.testTag(TestTags.BANNER_ERROR),
                         isError = true,
                         actionLabel = stringResource(Res.string.action_dismiss),
-                        onAction = viewModel::dismissMessage,
+                        onAction = { onEvent(ChatEvent.DismissMessage) },
                     )
                 }
                 CommandStatus(
                     isBusy = false,
-                    message = message,
-                    onDismiss = viewModel::dismissMessage,
+                    message = state.message,
+                    onDismiss = { onEvent(ChatEvent.DismissMessage) },
                     errorTag = TestTags.SOCIAL_ERROR,
                 )
-                if (state.hasTeamChannel) ChannelPicker(toTeam = viewModel.toTeam, onSelect = viewModel::selectChannel)
-                MessageInput(viewModel)
+                if (state.hasTeamChannel) {
+                    ChannelPicker(toTeam = state.toTeam, onSelect = { onEvent(ChatEvent.SelectChannel(it)) })
+                }
+                MessageInput(state, onEvent)
             }
         }
     }
@@ -226,13 +223,12 @@ private fun ChannelPill(text: String, selected: Boolean, onClick: () -> Unit, mo
 }
 
 @Composable
-private fun MessageInput(viewModel: ChatViewModel) {
-    val text = viewModel.text
-    val canSend = !viewModel.isSending && ChatRules.clean(text).isNotEmpty()
+private fun MessageInput(state: ChatUiState, onEvent: (ChatEvent) -> Unit) {
+    val text = state.text
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         PopTextField(
             value = text,
-            onValueChange = viewModel::onTextChange,
+            onValueChange = { onEvent(ChatEvent.EditText(it)) },
             label = { Text(stringResource(Res.string.chat_input_label)) },
             supportingText = { Text("${text.length}/${ChatRules.MAX_LENGTH}") },
             maxLines = 4,
@@ -240,14 +236,14 @@ private fun MessageInput(viewModel: ChatViewModel) {
                 capitalization = KeyboardCapitalization.Sentences,
                 imeAction = ImeAction.Send,
             ),
-            keyboardActions = KeyboardActions(onSend = { viewModel.send() }),
+            keyboardActions = KeyboardActions(onSend = { onEvent(ChatEvent.Send) }),
             modifier = Modifier.weight(1f).testTag(TestTags.CHAT_INPUT),
         )
         PopIconButton(
             icon = Res.drawable.ic_send,
             contentDescription = stringResource(Res.string.chat_send),
-            onClick = viewModel::send,
-            enabled = canSend,
+            onClick = { onEvent(ChatEvent.Send) },
+            enabled = state.canSend,
             style = PopStyle.Primary,
             size = 52.dp,
             modifier = Modifier.testTag(TestTags.CHAT_SEND),

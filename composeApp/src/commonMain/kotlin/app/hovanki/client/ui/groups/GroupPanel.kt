@@ -13,14 +13,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.location.rememberLocationPermissionRequester
 import app.hovanki.client.resources.Res
@@ -63,24 +61,25 @@ import org.jetbrains.compose.resources.stringResource
  * members, rename, delete) or a member (leave) can do. Back and the close button return to the list.
  */
 @Composable
-fun GroupPanel(group: GroupView, viewModel: GroupsViewModel) {
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
-
-    Panel(title = group.name, onClose = viewModel::closePanel, modifier = Modifier.testTag(TestTags.GROUP_PANEL)) {
+fun GroupPanel(group: GroupView, state: GroupsUiState, onEvent: (GroupsEvent) -> Unit) {
+    Panel(
+        title = group.name,
+        onClose = { onEvent(GroupsEvent.ClosePanel) },
+        modifier = Modifier.testTag(TestTags.GROUP_PANEL),
+    ) {
         // A form of the panel goes back to the panel first (added after the panel's own back handler: it wins).
-        SystemBackHandler(enabled = viewModel.panelMode != GroupPanelMode.VIEW, onBack = viewModel::back)
+        SystemBackHandler(enabled = state.panelMode != GroupPanelMode.VIEW, onBack = { onEvent(GroupsEvent.Back) })
         ScreenColumn {
-            when (viewModel.panelMode) {
-                GroupPanelMode.VIEW -> GroupOverview(group, viewModel, isBusy)
-                GroupPanelMode.ADD_MEMBERS -> AddMembersForm(group, viewModel, isBusy)
-                GroupPanelMode.RENAME -> RenameForm(viewModel, isBusy)
-                GroupPanelMode.CONFIRM_DELETE -> ConfirmDelete(group, viewModel, isBusy)
+            when (state.panelMode) {
+                GroupPanelMode.VIEW -> GroupOverview(group, state, onEvent)
+                GroupPanelMode.ADD_MEMBERS -> AddMembersForm(group, state, onEvent)
+                GroupPanelMode.RENAME -> RenameForm(state, onEvent)
+                GroupPanelMode.CONFIRM_DELETE -> ConfirmDelete(group, state, onEvent)
             }
             CommandStatus(
-                isBusy = isBusy,
-                message = message,
-                onDismiss = viewModel::dismissMessage,
+                isBusy = state.isBusy,
+                message = state.message,
+                onDismiss = { onEvent(GroupsEvent.DismissMessage) },
                 errorTag = TestTags.SOCIAL_ERROR,
             )
         }
@@ -88,13 +87,14 @@ fun GroupPanel(group: GroupView, viewModel: GroupsViewModel) {
 }
 
 @Composable
-private fun GroupOverview(group: GroupView, viewModel: GroupsViewModel, isBusy: Boolean) {
-    val account by viewModel.accountState.collectAsStateWithLifecycle()
-    val startStatus by viewModel.startStatus.collectAsStateWithLifecycle()
-    val sessionError by viewModel.sessionError.collectAsStateWithLifecycle()
-    val requestLocationThenPlay = rememberLocationPermissionRequester { granted -> viewModel.playWithGroup(granted) }
-    val isOwner = viewModel.isOwner(group)
-    val myId = account.user?.id
+private fun GroupOverview(group: GroupView, state: GroupsUiState, onEvent: (GroupsEvent) -> Unit) {
+    val isBusy = state.isBusy
+    val startStatus = state.startStatus
+    val requestLocationThenPlay = rememberLocationPermissionRequester { granted ->
+        onEvent(GroupsEvent.PlayWithGroup(granted))
+    }
+    val isOwner = state.isOwner(group)
+    val myId = state.myId
 
     PopButton(
         text = stringResource(Res.string.group_play),
@@ -105,9 +105,9 @@ private fun GroupOverview(group: GroupView, viewModel: GroupsViewModel, isBusy: 
     SecondaryText(stringResource(Res.string.group_play_hint))
     StartStatusBanners(
         status = startStatus,
-        sessionError = sessionError,
-        onDismiss = viewModel::dismissMessage,
-        onLeaveOtherGame = viewModel::leaveOtherGameAndRetry,
+        sessionError = state.sessionError,
+        onDismiss = { onEvent(GroupsEvent.DismissMessage) },
+        onLeaveOtherGame = { onEvent(GroupsEvent.LeaveOtherGameAndRetry) },
     )
     HorizontalDivider()
 
@@ -120,7 +120,7 @@ private fun GroupOverview(group: GroupView, viewModel: GroupsViewModel, isBusy: 
             canRemove = isOwner && member.id != myId,
             isBusy = isBusy,
             userId = member.id,
-            onRemove = { viewModel.removeMember(member.id) },
+            onRemove = { onEvent(GroupsEvent.RemoveMember(member.id)) },
         )
     }
     HorizontalDivider()
@@ -128,14 +128,14 @@ private fun GroupOverview(group: GroupView, viewModel: GroupsViewModel, isBusy: 
     if (isOwner) {
         PopButton(
             text = stringResource(Res.string.group_add_members),
-            onClick = viewModel::startAdding,
+            onClick = { onEvent(GroupsEvent.StartAdding) },
             enabled = !isBusy,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.GROUP_ADD_MEMBERS),
             style = PopStyle.Outline,
         )
         PopButton(
             text = stringResource(Res.string.group_rename),
-            onClick = { viewModel.startRenaming(group) },
+            onClick = { onEvent(GroupsEvent.StartRenaming(group)) },
             enabled = !isBusy,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.GROUP_RENAME),
             style = PopStyle.Outline,
@@ -143,7 +143,7 @@ private fun GroupOverview(group: GroupView, viewModel: GroupsViewModel, isBusy: 
     }
     PopButton(
         text = stringResource(Res.string.group_leave),
-        onClick = viewModel::leave,
+        onClick = { onEvent(GroupsEvent.Leave) },
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.GROUP_LEAVE),
         style = PopStyle.Outline,
@@ -151,7 +151,7 @@ private fun GroupOverview(group: GroupView, viewModel: GroupsViewModel, isBusy: 
     if (isOwner) {
         SecondaryText(stringResource(Res.string.group_leave_owner_hint))
         TextButton(
-            onClick = viewModel::askToDelete,
+            onClick = { onEvent(GroupsEvent.AskToDelete) },
             enabled = !isBusy,
             colors = ButtonDefaults.textButtonColors(contentColor = Palette.PinkInk),
             modifier = Modifier.fillMaxWidth().testTag(TestTags.GROUP_DELETE),
@@ -194,18 +194,17 @@ private fun MemberRow(
 
 /** Owner: friends who are not in the group yet, to pick. */
 @Composable
-private fun AddMembersForm(group: GroupView, viewModel: GroupsViewModel, isBusy: Boolean) {
-    val friends by viewModel.friends.collectAsStateWithLifecycle()
-    val memberIds = group.members.map { it.id }.toSet()
-    val candidates = friends?.friends.orEmpty().filter { it.id !in memberIds }
+private fun AddMembersForm(group: GroupView, state: GroupsUiState, onEvent: (GroupsEvent) -> Unit) {
+    val isBusy = state.isBusy
+    val candidates = state.candidates(group)
 
     SectionTitle(stringResource(Res.string.group_add_members))
     if (candidates.isEmpty()) SecondaryText(stringResource(Res.string.group_all_friends_in))
     candidates.forEach { friend ->
         PickRow(
             title = friend.nickname,
-            checked = friend.id in viewModel.picked,
-            onCheckedChange = { viewModel.togglePick(friend.id) },
+            checked = friend.id in state.picked,
+            onCheckedChange = { onEvent(GroupsEvent.TogglePick(friend.id)) },
             enabled = !isBusy,
             modifier = Modifier.testTag(TestTags.groupPick(friend.id)),
         )
@@ -213,17 +212,18 @@ private fun AddMembersForm(group: GroupView, viewModel: GroupsViewModel, isBusy:
     FormButtons(
         confirm = stringResource(Res.string.group_add_confirm),
         confirmTag = TestTags.GROUP_ADD_CONFIRM,
-        enabled = !isBusy && viewModel.picked.isNotEmpty(),
-        onConfirm = viewModel::addMembers,
-        onCancel = viewModel::back,
+        enabled = !isBusy && state.picked.isNotEmpty(),
+        onConfirm = { onEvent(GroupsEvent.AddMembers) },
+        onCancel = { onEvent(GroupsEvent.Back) },
     )
 }
 
 @Composable
-private fun RenameForm(viewModel: GroupsViewModel, isBusy: Boolean) {
+private fun RenameForm(state: GroupsUiState, onEvent: (GroupsEvent) -> Unit) {
+    val isBusy = state.isBusy
     PopTextField(
-        value = viewModel.name,
-        onValueChange = viewModel::onNameChange,
+        value = state.name,
+        onValueChange = { onEvent(GroupsEvent.NameChanged(it)) },
         label = { Text(stringResource(Res.string.group_name_label)) },
         singleLine = true,
         enabled = !isBusy,
@@ -231,20 +231,21 @@ private fun RenameForm(viewModel: GroupsViewModel, isBusy: Boolean) {
             capitalization = KeyboardCapitalization.Sentences,
             imeAction = ImeAction.Done,
         ),
-        keyboardActions = KeyboardActions(onDone = { viewModel.saveName() }),
+        keyboardActions = KeyboardActions(onDone = { onEvent(GroupsEvent.SaveName) }),
         modifier = Modifier.fillMaxWidth().testTag(TestTags.GROUP_NAME),
     )
     FormButtons(
         confirm = stringResource(Res.string.action_save),
         confirmTag = TestTags.GROUP_SAVE_NAME,
         enabled = !isBusy,
-        onConfirm = viewModel::saveName,
-        onCancel = viewModel::back,
+        onConfirm = { onEvent(GroupsEvent.SaveName) },
+        onCancel = { onEvent(GroupsEvent.Back) },
     )
 }
 
 @Composable
-private fun ConfirmDelete(group: GroupView, viewModel: GroupsViewModel, isBusy: Boolean) {
+private fun ConfirmDelete(group: GroupView, state: GroupsUiState, onEvent: (GroupsEvent) -> Unit) {
+    val isBusy = state.isBusy
     Text(
         text = stringResource(Res.string.group_delete_text, group.name),
         style = MaterialTheme.typography.bodyLarge,
@@ -254,8 +255,8 @@ private fun ConfirmDelete(group: GroupView, viewModel: GroupsViewModel, isBusy: 
         confirmTag = TestTags.GROUP_DELETE_CONFIRM,
         enabled = !isBusy,
         isDestructive = true,
-        onConfirm = viewModel::delete,
-        onCancel = viewModel::back,
+        onConfirm = { onEvent(GroupsEvent.Delete) },
+        onCancel = { onEvent(GroupsEvent.Back) },
     )
 }
 

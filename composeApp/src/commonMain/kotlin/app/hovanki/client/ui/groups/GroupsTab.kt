@@ -17,7 +17,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,7 +24,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_cancel
@@ -52,57 +50,55 @@ import app.hovanki.client.ui.common.SectionTitle
 import app.hovanki.client.ui.common.SystemBackHandler
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.protocol.GroupView
-import app.hovanki.shared.protocol.UserSummary
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
 /** «Groups»: the player's groups (tap one for its panel) and a form for a new one. */
 @Composable
-fun GroupsTab(viewModel: GroupsViewModel) {
-    val groups by viewModel.groups.collectAsStateWithLifecycle()
-    val friends by viewModel.friends.collectAsStateWithLifecycle()
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { viewModel.refresh() }
-    SystemBackHandler(enabled = viewModel.isCreating, onBack = viewModel::cancelCreating)
+fun GroupsTab(state: GroupsUiState, onEvent: (GroupsEvent) -> Unit) {
+    val isBusy = state.isBusy
+    LaunchedEffect(Unit) { onEvent(GroupsEvent.Refresh) }
+    SystemBackHandler(enabled = state.isCreating, onBack = { onEvent(GroupsEvent.CancelCreating) })
 
     ScreenColumn(modifier = Modifier.testTag(TestTags.GROUPS_SCREEN)) {
         SecondaryText(stringResource(Res.string.groups_hint))
-        if (viewModel.isCreating) {
-            NewGroupForm(viewModel, friends?.friends.orEmpty(), isBusy)
+        if (state.isCreating) {
+            NewGroupForm(state, onEvent)
         } else {
             PopButton(
                 text = stringResource(Res.string.group_new),
-                onClick = viewModel::startCreating,
+                onClick = { onEvent(GroupsEvent.StartCreating) },
                 enabled = !isBusy,
                 modifier = Modifier.fillMaxWidth().testTag(TestTags.GROUP_NEW),
             )
         }
         CommandStatus(
             isBusy = isBusy,
-            message = message,
-            onDismiss = viewModel::dismissMessage,
+            message = state.message,
+            onDismiss = { onEvent(GroupsEvent.DismissMessage) },
             errorTag = TestTags.SOCIAL_ERROR,
         )
 
-        val loaded = groups
+        val loaded = state.groups
         when {
             loaded == null -> BusyRow(stringResource(Res.string.working))
 
             loaded.groups.isEmpty() -> SecondaryText(stringResource(Res.string.groups_empty))
 
             else -> loaded.groups.forEach { group ->
-                GroupCard(group, isMine = viewModel.isOwner(group), onOpen = { viewModel.open(group.id) })
+                GroupCard(group, isMine = state.isOwner(group), onOpen = { onEvent(GroupsEvent.Open(group.id)) })
             }
         }
     }
 }
 
 @Composable
-private fun NewGroupForm(viewModel: GroupsViewModel, friends: List<UserSummary>, isBusy: Boolean) {
+private fun NewGroupForm(state: GroupsUiState, onEvent: (GroupsEvent) -> Unit) {
+    val isBusy = state.isBusy
+    val friends = state.friends
     PopTextField(
-        value = viewModel.name,
-        onValueChange = viewModel::onNameChange,
+        value = state.name,
+        onValueChange = { onEvent(GroupsEvent.NameChanged(it)) },
         label = { Text(stringResource(Res.string.group_name_label)) },
         singleLine = true,
         enabled = !isBusy,
@@ -117,8 +113,8 @@ private fun NewGroupForm(viewModel: GroupsViewModel, friends: List<UserSummary>,
     friends.forEach { friend ->
         PickRow(
             title = friend.nickname,
-            checked = friend.id in viewModel.picked,
-            onCheckedChange = { viewModel.togglePick(friend.id) },
+            checked = friend.id in state.picked,
+            onCheckedChange = { onEvent(GroupsEvent.TogglePick(friend.id)) },
             enabled = !isBusy,
             modifier = Modifier.testTag(TestTags.groupPick(friend.id)),
         )
@@ -126,11 +122,11 @@ private fun NewGroupForm(viewModel: GroupsViewModel, friends: List<UserSummary>,
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         PopButton(
             text = stringResource(Res.string.group_create),
-            onClick = viewModel::create,
+            onClick = { onEvent(GroupsEvent.Create) },
             enabled = !isBusy,
             modifier = Modifier.testTag(TestTags.GROUP_CREATE),
         )
-        TextButton(onClick = viewModel::cancelCreating, enabled = !isBusy) {
+        TextButton(onClick = { onEvent(GroupsEvent.CancelCreating) }, enabled = !isBusy) {
             Text(stringResource(Res.string.action_cancel))
         }
     }

@@ -35,7 +35,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.big_games_title
@@ -69,11 +68,13 @@ import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SectionTitle
 import app.hovanki.client.ui.common.StartStatusBanners
+import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.client.ui.common.rememberLocationRequest
 import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.verify.ConfirmEmailCard
-import app.hovanki.client.ui.verify.VerifyEmailViewModel
+import app.hovanki.client.ui.verify.VerifyEmailEvent
+import app.hovanki.client.ui.verify.VerifyEmailUiState
 import app.hovanki.shared.protocol.BigGameCard
 import app.hovanki.shared.protocol.GameInvite
 import org.jetbrains.compose.resources.painterResource
@@ -86,28 +87,30 @@ import org.koin.compose.viewmodel.koinViewModel
  * (docs/adr/0010-big-games.md).
  */
 @Composable
-fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: PlayViewModel = koinViewModel()) {
-    val account by viewModel.accountState.collectAsStateWithLifecycle()
-    val status by viewModel.startStatus.collectAsStateWithLifecycle()
-    val sessionError by viewModel.sessionError.collectAsStateWithLifecycle()
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val bigGames by viewModel.bigGames.collectAsStateWithLifecycle()
-    val isSigningUp by viewModel.isSigningUp.collectAsStateWithLifecycle()
-    val requestLocationThenCreate = rememberLocationRequest { granted -> viewModel.createGame(granted) }
+fun PlayTab(
+    invites: List<GameInvite>,
+    verify: VerifyEmailUiState,
+    onVerifyEvent: (VerifyEmailEvent) -> Unit,
+    viewModel: PlayViewModel = koinViewModel(),
+) {
+    val state by viewModel.uiState.collectScreenState()
+    val onEvent = viewModel::onEvent
+    val status = state.startStatus
+    val requestLocationThenCreate = rememberLocationRequest { granted -> onEvent(PlayEvent.CreateGame(granted)) }
     // Asked before joining as well, so location is already on when the round starts.
-    val requestLocationThenJoin = rememberLocationRequest { viewModel.joinGame() }
+    val requestLocationThenJoin = rememberLocationRequest { onEvent(PlayEvent.JoinGame) }
     var acceptedInvite by remember { mutableStateOf<GameInvite?>(null) }
     val requestLocationThenAccept = rememberLocationRequest {
-        acceptedInvite?.let(viewModel::acceptInvite)
+        acceptedInvite?.let { onEvent(PlayEvent.AcceptInvite(it)) }
     }
     var joinedBigGame by remember { mutableStateOf<BigGameCard?>(null) }
     val requestLocationThenJoinBigGame = rememberLocationRequest {
-        joinedBigGame?.let(viewModel::joinBigGame)
+        joinedBigGame?.let { onEvent(PlayEvent.JoinBigGame(it)) }
     }
     val isBusy = status.isBusy
 
     ScreenColumn(modifier = Modifier.testTag(TestTags.HOME_SCREEN)) {
-        account.user?.let { user ->
+        state.user?.let { user ->
             Column {
                 Text(
                     text = stringResource(Res.string.play_hello, user.nickname),
@@ -123,7 +126,11 @@ fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: 
                 )
             }
             if (!user.emailVerified && !verify.isCardDismissed) {
-                ConfirmEmailCard(email = user.email, onOpen = verify::open, onLater = verify::dismissCard)
+                ConfirmEmailCard(
+                    email = user.email,
+                    onOpen = { onVerifyEvent(VerifyEmailEvent.Open) },
+                    onLater = { onVerifyEvent(VerifyEmailEvent.DismissCard) },
+                )
             }
         }
         if (invites.isNotEmpty()) {
@@ -136,7 +143,7 @@ fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: 
                         acceptedInvite = invite
                         requestLocationThenAccept()
                     },
-                    onDismiss = { viewModel.dismissInvite(invite) },
+                    onDismiss = { onEvent(PlayEvent.DismissInvite(invite)) },
                 )
             }
         }
@@ -150,8 +157,8 @@ fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: 
         SectionTitle(stringResource(Res.string.home_or_join))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Bottom) {
             PopTextField(
-                value = viewModel.joinCode,
-                onValueChange = viewModel::onJoinCodeChange,
+                value = state.joinCode,
+                onValueChange = { onEvent(PlayEvent.EditJoinCode(it)) },
                 label = { Text(stringResource(Res.string.home_code_label)) },
                 singleLine = true,
                 enabled = !isBusy,
@@ -164,7 +171,10 @@ fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: 
             )
             PopButton(
                 text = stringResource(Res.string.home_join_short),
-                onClick = { if (viewModel.canJoinGame()) requestLocationThenJoin() },
+                onClick = {
+                    onEvent(PlayEvent.CheckJoinCode)
+                    if (state.canJoin) requestLocationThenJoin()
+                },
                 enabled = !isBusy,
                 style = PopStyle.Hider,
                 modifier = Modifier.testTag(TestTags.HOME_JOIN),
@@ -176,7 +186,7 @@ fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: 
             SecondaryText(stringResource(Res.string.home_watch_hint), Modifier.weight(1f))
             PopButton(
                 text = stringResource(Res.string.home_watch),
-                onClick = viewModel::watchGame,
+                onClick = { onEvent(PlayEvent.WatchGame) },
                 enabled = !isBusy,
                 style = PopStyle.Outline,
                 icon = Res.drawable.ic_eye,
@@ -185,14 +195,14 @@ fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: 
             )
         }
 
-        if (bigGames.games.isNotEmpty()) {
+        if (state.bigGames.isNotEmpty()) {
             SectionTitle(stringResource(Res.string.big_games_title))
-            bigGames.games.forEach { game ->
+            state.bigGames.forEach { game ->
                 BigGameCardView(
                     game = game,
-                    isBusy = isBusy || isSigningUp,
-                    onSignUp = { viewModel.signUp(game) },
-                    onCancel = { viewModel.cancelSignup(game) },
+                    isBusy = isBusy || state.isSigningUp,
+                    onSignUp = { onEvent(PlayEvent.SignUp(game)) },
+                    onCancel = { onEvent(PlayEvent.CancelSignup(game)) },
                     onJoin = {
                         joinedBigGame = game
                         requestLocationThenJoinBigGame()
@@ -203,14 +213,14 @@ fun PlayTab(invites: List<GameInvite>, verify: VerifyEmailViewModel, viewModel: 
 
         StartStatusBanners(
             status = status,
-            sessionError = sessionError,
-            onDismiss = viewModel::dismissProblems,
-            onLeaveOtherGame = viewModel::leaveOtherGameAndRetry,
+            sessionError = state.sessionError,
+            onDismiss = { onEvent(PlayEvent.DismissProblems) },
+            onLeaveOtherGame = { onEvent(PlayEvent.LeaveOtherGameAndRetry) },
         )
         CommandStatus(
             isBusy = false,
-            message = message,
-            onDismiss = viewModel::dismissProblems,
+            message = state.message,
+            onDismiss = { onEvent(PlayEvent.DismissProblems) },
             errorTag = TestTags.SOCIAL_ERROR,
         )
     }

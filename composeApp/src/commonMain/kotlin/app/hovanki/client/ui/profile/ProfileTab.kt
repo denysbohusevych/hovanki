@@ -18,7 +18,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_log_out
@@ -45,13 +44,15 @@ import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.client.ui.field.FieldConsentWithdraw
 import app.hovanki.client.ui.history.HistoryButton
+import app.hovanki.client.ui.history.HistoryEvent
 import app.hovanki.client.ui.history.HistoryViewModel
 import app.hovanki.client.ui.history.RoutesCard
 import app.hovanki.client.ui.history.StatsCard
 import app.hovanki.client.ui.theme.Palette
-import app.hovanki.client.ui.verify.VerifyEmailViewModel
+import app.hovanki.client.ui.verify.VerifyEmailEvent
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -60,18 +61,20 @@ import org.koin.compose.viewmodel.koinViewModel
  * my routes», change the password, log out, delete the account.
  */
 @Composable
-fun ProfileTab(verify: VerifyEmailViewModel, history: HistoryViewModel, viewModel: ProfileViewModel = koinViewModel()) {
-    val account by viewModel.accountState.collectAsStateWithLifecycle()
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
-    val historyState by history.state.collectAsStateWithLifecycle()
-    val historyMessage by history.message.collectAsStateWithLifecycle()
-    val historyBusy by history.isBusy.collectAsStateWithLifecycle()
-    val user = account.user ?: return
-    val form = viewModel.form
-    SystemBackHandler(enabled = form != null, onBack = viewModel::closeForm)
+fun ProfileTab(
+    onVerifyEvent: (VerifyEmailEvent) -> Unit,
+    history: HistoryViewModel,
+    viewModel: ProfileViewModel = koinViewModel(),
+) {
+    val state by viewModel.uiState.collectScreenState()
+    val onEvent = viewModel::onEvent
+    val isBusy = state.isBusy
+    val historyState by history.uiState.collectScreenState()
+    val user = state.user ?: return
+    val form = state.form
+    SystemBackHandler(enabled = form != null, onBack = { onEvent(ProfileEvent.CloseForm) })
     // Fresh numbers every time the profile opens: a game may have ended meanwhile.
-    LaunchedEffect(user.id) { history.refresh() }
+    LaunchedEffect(user.id) { history.onEvent(HistoryEvent.Refresh) }
 
     ScreenColumn(modifier = Modifier.testTag(TestTags.PROFILE_SCREEN)) {
         PopCard(modifier = Modifier.fillMaxWidth(), shadow = 5.dp, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -104,7 +107,7 @@ fun ProfileTab(verify: VerifyEmailViewModel, history: HistoryViewModel, viewMode
                     )
                     PopButton(
                         text = stringResource(Res.string.profile_confirm_email),
-                        onClick = verify::open,
+                        onClick = { onVerifyEvent(VerifyEmailEvent.Open) },
                         style = PopStyle.Dark,
                         height = 40.dp,
                         modifier = Modifier.testTag(TestTags.PROFILE_CONFIRM_EMAIL),
@@ -113,41 +116,45 @@ fun ProfileTab(verify: VerifyEmailViewModel, history: HistoryViewModel, viewMode
             }
         }
 
-        StatsCard(historyState.stats)
-        HistoryButton(onClick = history::open, enabled = !historyBusy)
-        RoutesCard(history, saveRoutes = user.saveRoutes, isBusy = historyBusy)
-        CommandStatus(isBusy = false, message = historyMessage, onDismiss = history::dismissMessage)
+        StatsCard(historyState.history.stats)
+        HistoryButton(onClick = { history.onEvent(HistoryEvent.Open) }, enabled = !historyState.isBusy)
+        RoutesCard(historyState, history::onEvent, saveRoutes = user.saveRoutes)
+        CommandStatus(
+            isBusy = false,
+            message = historyState.message,
+            onDismiss = { history.onEvent(HistoryEvent.DismissMessage) },
+        )
 
         PopButton(
             text = stringResource(Res.string.profile_change_password),
-            onClick = { viewModel.toggle(ProfileForm.CHANGE_PASSWORD) },
+            onClick = { onEvent(ProfileEvent.Toggle(ProfileForm.CHANGE_PASSWORD)) },
             enabled = !isBusy,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.PROFILE_CHANGE_PASSWORD),
             style = PopStyle.Outline,
         )
-        if (form == ProfileForm.CHANGE_PASSWORD) ChangePasswordForm(viewModel, isBusy)
+        if (form == ProfileForm.CHANGE_PASSWORD) ChangePasswordForm(state, onEvent)
 
         PopButton(
             text = stringResource(Res.string.action_log_out),
-            onClick = viewModel::logOut,
+            onClick = { onEvent(ProfileEvent.LogOut) },
             enabled = !isBusy,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.PROFILE_LOG_OUT),
             style = PopStyle.Outline,
         )
         TextButton(
-            onClick = { viewModel.toggle(ProfileForm.DELETE_ACCOUNT) },
+            onClick = { onEvent(ProfileEvent.Toggle(ProfileForm.DELETE_ACCOUNT)) },
             enabled = !isBusy,
             colors = ButtonDefaults.textButtonColors(contentColor = Palette.PinkInk),
             modifier = Modifier.fillMaxWidth().testTag(TestTags.PROFILE_DELETE),
         ) {
             Text(stringResource(Res.string.profile_delete))
         }
-        if (form == ProfileForm.DELETE_ACCOUNT) DeleteAccountForm(viewModel, isBusy)
+        if (form == ProfileForm.DELETE_ACCOUNT) DeleteAccountForm(state, onEvent)
 
         CommandStatus(
             isBusy = isBusy,
-            message = message,
-            onDismiss = viewModel::dismissMessage,
+            message = state.message,
+            onDismiss = { onEvent(ProfileEvent.DismissMessage) },
             infoTag = TestTags.PROFILE_PASSWORD_CHANGED,
         )
 
@@ -155,33 +162,34 @@ fun ProfileTab(verify: VerifyEmailViewModel, history: HistoryViewModel, viewMode
         FieldConsentWithdraw()
 
         Spacer(Modifier.height(24.dp))
-        BuildLabel(viewModel.buildLabel)
+        BuildLabel(state.buildLabel)
     }
 }
 
 @Composable
-private fun ChangePasswordForm(viewModel: ProfileViewModel, isBusy: Boolean) {
+private fun ChangePasswordForm(state: ProfileUiState, onEvent: (ProfileEvent) -> Unit) {
+    val isBusy = state.isBusy
     PasswordField(
-        value = viewModel.currentPassword,
-        onValueChange = viewModel::onCurrentPasswordChange,
+        value = state.currentPassword,
+        onValueChange = { onEvent(ProfileEvent.CurrentPasswordChanged(it)) },
         label = stringResource(Res.string.profile_current_password),
-        isError = viewModel.showFieldErrors && viewModel.currentPassword.isEmpty(),
+        isError = state.showFieldErrors && state.currentPassword.isEmpty(),
         enabled = !isBusy,
         modifier = Modifier.testTag(TestTags.PROFILE_CURRENT_PASSWORD),
     )
     PasswordField(
-        value = viewModel.newPassword,
-        onValueChange = viewModel::onNewPasswordChange,
+        value = state.newPassword,
+        onValueChange = { onEvent(ProfileEvent.NewPasswordChanged(it)) },
         label = stringResource(Res.string.new_password_label),
         supportingText = stringResource(Res.string.register_password_hint),
-        isError = viewModel.showFieldErrors && !viewModel.isNewPasswordValid,
+        isError = state.showFieldErrors && !state.isNewPasswordValid,
         enabled = !isBusy,
-        onImeAction = viewModel::changePassword,
+        onImeAction = { onEvent(ProfileEvent.ChangePassword) },
         modifier = Modifier.testTag(TestTags.PROFILE_NEW_PASSWORD),
     )
     PopButton(
         text = stringResource(Res.string.profile_save_password),
-        onClick = viewModel::changePassword,
+        onClick = { onEvent(ProfileEvent.ChangePassword) },
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.PROFILE_SAVE_PASSWORD),
     )
@@ -189,7 +197,8 @@ private fun ChangePasswordForm(viewModel: ProfileViewModel, isBusy: Boolean) {
 
 /** A clear warning, the password, and a red button: nothing to undo afterwards. */
 @Composable
-private fun DeleteAccountForm(viewModel: ProfileViewModel, isBusy: Boolean) {
+private fun DeleteAccountForm(state: ProfileUiState, onEvent: (ProfileEvent) -> Unit) {
+    val isBusy = state.isBusy
     PopCard(
         modifier = Modifier.fillMaxWidth(),
         color = Palette.Pink,
@@ -197,16 +206,16 @@ private fun DeleteAccountForm(viewModel: ProfileViewModel, isBusy: Boolean) {
     ) {
         Text(text = stringResource(Res.string.profile_delete_warning), style = MaterialTheme.typography.bodyMedium)
         PasswordField(
-            value = viewModel.deletePassword,
-            onValueChange = viewModel::onDeletePasswordChange,
+            value = state.deletePassword,
+            onValueChange = { onEvent(ProfileEvent.DeletePasswordChanged(it)) },
             label = stringResource(Res.string.password_label),
             enabled = !isBusy,
             modifier = Modifier.testTag(TestTags.PROFILE_DELETE_PASSWORD),
         )
         PopButton(
             text = stringResource(Res.string.profile_delete_confirm),
-            onClick = viewModel::deleteAccount,
-            enabled = !isBusy && viewModel.deletePassword.isNotEmpty(),
+            onClick = { onEvent(ProfileEvent.DeleteAccount) },
+            enabled = !isBusy && state.deletePassword.isNotEmpty(),
             modifier = Modifier.fillMaxWidth().testTag(TestTags.PROFILE_DELETE_CONFIRM),
             style = PopStyle.Danger,
         )

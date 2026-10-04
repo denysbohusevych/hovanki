@@ -18,7 +18,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_dismiss
@@ -67,6 +66,7 @@ import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.StartStatusBanners
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.client.ui.common.rememberLocationRequest
 import app.hovanki.client.ui.field.FieldConsentWithdraw
 import org.jetbrains.compose.resources.stringResource
@@ -75,13 +75,15 @@ import org.koin.compose.viewmodel.koinViewModel
 /** Logged out: log in, register, reset the password, or join a friend's game as a guest. */
 @Composable
 fun WelcomeScreen(viewModel: WelcomeViewModel = koinViewModel()) {
-    val account by viewModel.accountState.collectAsStateWithLifecycle()
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val isCommandBusy by viewModel.isBusy.collectAsStateWithLifecycle()
-    // Also busy while the app logs in with the launch options' account (debug builds).
-    val isBusy = isCommandBusy || account.isBusy
-    val mode = viewModel.mode
-    SystemBackHandler(enabled = mode != WelcomeMode.START, onBack = viewModel::back)
+    val state by viewModel.uiState.collectScreenState()
+    WelcomeContent(state, viewModel::onEvent)
+}
+
+@Composable
+private fun WelcomeContent(state: WelcomeUiState, onEvent: (WelcomeEvent) -> Unit) {
+    val isBusy = state.isBusy
+    val mode = state.mode
+    SystemBackHandler(enabled = mode != WelcomeMode.START, onBack = { onEvent(WelcomeEvent.Back) })
 
     ScreenColumn(modifier = Modifier.testTag(TestTags.WELCOME_SCREEN)) {
         if (mode == WelcomeMode.START) {
@@ -96,52 +98,52 @@ fun WelcomeScreen(viewModel: WelcomeViewModel = koinViewModel()) {
                 modifier = Modifier.padding(bottom = 8.dp),
             )
         } else {
-            BackButton(onClick = viewModel::back, modifier = Modifier.testTag(TestTags.FORM_BACK))
+            BackButton(onClick = { onEvent(WelcomeEvent.Back) }, modifier = Modifier.testTag(TestTags.FORM_BACK))
         }
-        if (account.sessionExpired) {
+        if (state.sessionExpired) {
             Banner(
                 text = stringResource(Res.string.error_session_expired),
                 modifier = Modifier.testTag(TestTags.WELCOME_SESSION_EXPIRED),
                 actionLabel = stringResource(Res.string.action_dismiss),
-                onAction = viewModel::dismissSessionExpired,
+                onAction = { onEvent(WelcomeEvent.DismissSessionExpired) },
             )
         }
 
         when (mode) {
-            WelcomeMode.START -> StartContent(viewModel, isBusy)
-            WelcomeMode.LOG_IN -> LoginForm(viewModel, isBusy)
-            WelcomeMode.REGISTER -> RegisterForm(viewModel, isBusy)
-            WelcomeMode.RESET_REQUEST -> ResetRequestForm(viewModel, isBusy)
-            WelcomeMode.RESET_CONFIRM -> ResetConfirmForm(viewModel, isBusy)
+            WelcomeMode.START -> StartContent(state, onEvent)
+            WelcomeMode.LOG_IN -> LoginForm(state, onEvent)
+            WelcomeMode.REGISTER -> RegisterForm(state, onEvent)
+            WelcomeMode.RESET_REQUEST -> ResetRequestForm(state, onEvent)
+            WelcomeMode.RESET_CONFIRM -> ResetConfirmForm(state, onEvent)
         }
-        CommandStatus(isBusy = isBusy, message = message, onDismiss = viewModel::dismissMessage)
+        CommandStatus(isBusy = isBusy, message = state.message, onDismiss = { onEvent(WelcomeEvent.DismissMessage) })
 
         // The field test build's consent can be taken back by guests too (the profile is for accounts only).
         if (mode == WelcomeMode.START) FieldConsentWithdraw()
 
         Spacer(Modifier.height(24.dp))
-        BuildLabel(viewModel.buildLabel)
+        BuildLabel(state.buildLabel)
     }
 }
 
 /** Log in or register, and below it the guest's way into a game. */
 @Composable
-private fun StartContent(viewModel: WelcomeViewModel, isBusy: Boolean) {
-    val startStatus by viewModel.startStatus.collectAsStateWithLifecycle()
-    val sessionError by viewModel.sessionError.collectAsStateWithLifecycle()
+private fun StartContent(state: WelcomeUiState, onEvent: (WelcomeEvent) -> Unit) {
+    val isBusy = state.isBusy
+    val startStatus = state.startStatus
     // Asked before joining, so location is already on when the round starts.
-    val requestLocationThenJoin = rememberLocationRequest { viewModel.joinAsGuest() }
+    val requestLocationThenJoin = rememberLocationRequest { onEvent(WelcomeEvent.JoinAsGuest) }
     val isStarting = startStatus.isBusy
 
     PopButton(
         text = stringResource(Res.string.welcome_log_in),
-        onClick = { viewModel.open(WelcomeMode.LOG_IN) },
+        onClick = { onEvent(WelcomeEvent.Open(WelcomeMode.LOG_IN)) },
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.WELCOME_LOG_IN),
     )
     PopButton(
         text = stringResource(Res.string.welcome_register),
-        onClick = { viewModel.open(WelcomeMode.REGISTER) },
+        onClick = { onEvent(WelcomeEvent.Open(WelcomeMode.REGISTER)) },
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.WELCOME_REGISTER),
         style = PopStyle.Outline,
@@ -155,8 +157,8 @@ private fun StartContent(viewModel: WelcomeViewModel, isBusy: Boolean) {
         Text(text = stringResource(Res.string.welcome_guest_title), style = MaterialTheme.typography.titleLarge)
         SecondaryText(stringResource(Res.string.welcome_guest_hint))
         PopTextField(
-            value = viewModel.guestName,
-            onValueChange = viewModel::onGuestNameChange,
+            value = state.guestName,
+            onValueChange = { onEvent(WelcomeEvent.GuestNameChanged(it)) },
             label = { Text(stringResource(Res.string.home_name_label)) },
             singleLine = true,
             enabled = !isStarting,
@@ -167,8 +169,8 @@ private fun StartContent(viewModel: WelcomeViewModel, isBusy: Boolean) {
             modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_NAME),
         )
         PopTextField(
-            value = viewModel.joinCode,
-            onValueChange = viewModel::onJoinCodeChange,
+            value = state.joinCode,
+            onValueChange = { onEvent(WelcomeEvent.JoinCodeChanged(it)) },
             label = { Text(stringResource(Res.string.home_code_label)) },
             singleLine = true,
             enabled = !isStarting,
@@ -180,22 +182,30 @@ private fun StartContent(viewModel: WelcomeViewModel, isBusy: Boolean) {
         )
         PopButton(
             text = stringResource(Res.string.home_join),
-            onClick = { if (viewModel.canJoinAsGuest()) requestLocationThenJoin() },
+            onClick = {
+                onEvent(WelcomeEvent.CheckGuestForm)
+                if (state.isGuestFormComplete) requestLocationThenJoin()
+            },
             enabled = !isStarting,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.HOME_JOIN),
             style = PopStyle.Hider,
         )
         SecondaryText(stringResource(Res.string.home_location_note))
     }
-    StartStatusBanners(status = startStatus, sessionError = sessionError, onDismiss = viewModel::dismissStartProblems)
+    StartStatusBanners(
+        status = startStatus,
+        sessionError = state.sessionError,
+        onDismiss = { onEvent(WelcomeEvent.DismissStartProblems) },
+    )
 }
 
 @Composable
-private fun LoginForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
+private fun LoginForm(state: WelcomeUiState, onEvent: (WelcomeEvent) -> Unit) {
+    val isBusy = state.isBusy
     FormTitle(stringResource(Res.string.login_title))
     PopTextField(
-        value = viewModel.login,
-        onValueChange = viewModel::onLoginChange,
+        value = state.login,
+        onValueChange = { onEvent(WelcomeEvent.LoginChanged(it)) },
         label = { Text(stringResource(Res.string.login_login_label)) },
         singleLine = true,
         enabled = !isBusy,
@@ -207,21 +217,21 @@ private fun LoginForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
         modifier = Modifier.fillMaxWidth().testTag(TestTags.LOGIN_LOGIN),
     )
     PasswordField(
-        value = viewModel.loginPassword,
-        onValueChange = viewModel::onLoginPasswordChange,
+        value = state.loginPassword,
+        onValueChange = { onEvent(WelcomeEvent.LoginPasswordChanged(it)) },
         label = stringResource(Res.string.password_label),
         enabled = !isBusy,
-        onImeAction = viewModel::logIn,
+        onImeAction = { onEvent(WelcomeEvent.LogIn) },
         modifier = Modifier.testTag(TestTags.LOGIN_PASSWORD),
     )
     PopButton(
         text = stringResource(Res.string.login_submit),
-        onClick = viewModel::logIn,
+        onClick = { onEvent(WelcomeEvent.LogIn) },
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.LOGIN_SUBMIT),
     )
     TextButton(
-        onClick = { viewModel.open(WelcomeMode.RESET_REQUEST) },
+        onClick = { onEvent(WelcomeEvent.Open(WelcomeMode.RESET_REQUEST)) },
         enabled = !isBusy,
         modifier = Modifier.testTag(TestTags.LOGIN_FORGOT),
     ) {
@@ -230,26 +240,27 @@ private fun LoginForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
 }
 
 @Composable
-private fun RegisterForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
-    val showErrors = viewModel.showFieldErrors
+private fun RegisterForm(state: WelcomeUiState, onEvent: (WelcomeEvent) -> Unit) {
+    val isBusy = state.isBusy
+    val showErrors = state.showFieldErrors
     FormTitle(stringResource(Res.string.register_title))
     PopTextField(
-        value = viewModel.nickname,
-        onValueChange = viewModel::onNicknameChange,
+        value = state.nickname,
+        onValueChange = { onEvent(WelcomeEvent.NicknameChanged(it)) },
         label = { Text(stringResource(Res.string.register_nickname_label)) },
         supportingText = { Text(stringResource(Res.string.register_nickname_hint)) },
-        isError = showErrors && !viewModel.isNicknameValid,
+        isError = showErrors && !state.isNicknameValid,
         singleLine = true,
         enabled = !isBusy,
         keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Next),
         modifier = Modifier.fillMaxWidth().testTag(TestTags.REGISTER_NICKNAME),
     )
     PopTextField(
-        value = viewModel.email,
-        onValueChange = viewModel::onEmailChange,
+        value = state.email,
+        onValueChange = { onEvent(WelcomeEvent.EmailChanged(it)) },
         label = { Text(stringResource(Res.string.register_email_label)) },
         supportingText = { Text(stringResource(Res.string.register_email_hint)) },
-        isError = showErrors && !viewModel.isEmailValid,
+        isError = showErrors && !state.isEmailValid,
         singleLine = true,
         enabled = !isBusy,
         keyboardOptions = KeyboardOptions(
@@ -260,30 +271,31 @@ private fun RegisterForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
         modifier = Modifier.fillMaxWidth().testTag(TestTags.REGISTER_EMAIL),
     )
     PasswordField(
-        value = viewModel.registerPassword,
-        onValueChange = viewModel::onRegisterPasswordChange,
+        value = state.registerPassword,
+        onValueChange = { onEvent(WelcomeEvent.RegisterPasswordChanged(it)) },
         label = stringResource(Res.string.password_label),
         supportingText = stringResource(Res.string.register_password_hint),
-        isError = showErrors && !viewModel.isRegisterPasswordValid,
+        isError = showErrors && !state.isRegisterPasswordValid,
         enabled = !isBusy,
-        onImeAction = viewModel::register,
+        onImeAction = { onEvent(WelcomeEvent.Register) },
         modifier = Modifier.testTag(TestTags.REGISTER_PASSWORD),
     )
     PopButton(
         text = stringResource(Res.string.register_submit),
-        onClick = viewModel::register,
+        onClick = { onEvent(WelcomeEvent.Register) },
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.REGISTER_SUBMIT),
     )
 }
 
 @Composable
-private fun ResetRequestForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
+private fun ResetRequestForm(state: WelcomeUiState, onEvent: (WelcomeEvent) -> Unit) {
+    val isBusy = state.isBusy
     FormTitle(stringResource(Res.string.reset_title))
     Text(text = stringResource(Res.string.reset_text), style = MaterialTheme.typography.bodyMedium)
     PopTextField(
-        value = viewModel.resetEmail,
-        onValueChange = viewModel::onResetEmailChange,
+        value = state.resetEmail,
+        onValueChange = { onEvent(WelcomeEvent.ResetEmailChanged(it)) },
         label = { Text(stringResource(Res.string.register_email_label)) },
         singleLine = true,
         enabled = !isBusy,
@@ -292,28 +304,29 @@ private fun ResetRequestForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
             keyboardType = KeyboardType.Email,
             imeAction = ImeAction.Done,
         ),
-        keyboardActions = KeyboardActions(onDone = { viewModel.requestPasswordReset() }),
+        keyboardActions = KeyboardActions(onDone = { onEvent(WelcomeEvent.RequestPasswordReset) }),
         modifier = Modifier.fillMaxWidth().testTag(TestTags.RESET_EMAIL),
     )
     PopButton(
         text = stringResource(Res.string.reset_send_code),
-        onClick = viewModel::requestPasswordReset,
+        onClick = { onEvent(WelcomeEvent.RequestPasswordReset) },
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.RESET_SEND_CODE),
     )
 }
 
 @Composable
-private fun ResetConfirmForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
-    val showErrors = viewModel.showFieldErrors
+private fun ResetConfirmForm(state: WelcomeUiState, onEvent: (WelcomeEvent) -> Unit) {
+    val isBusy = state.isBusy
+    val showErrors = state.showFieldErrors
     FormTitle(stringResource(Res.string.reset_title))
     Text(
-        text = stringResource(Res.string.reset_code_sent, viewModel.resetEmail.trim()),
+        text = stringResource(Res.string.reset_code_sent, state.resetEmail.trim()),
         style = MaterialTheme.typography.bodyMedium,
     )
     PopTextField(
-        value = viewModel.resetCode,
-        onValueChange = viewModel::onResetCodeChange,
+        value = state.resetCode,
+        onValueChange = { onEvent(WelcomeEvent.ResetCodeChanged(it)) },
         label = { Text(stringResource(Res.string.code_label)) },
         singleLine = true,
         enabled = !isBusy,
@@ -321,22 +334,22 @@ private fun ResetConfirmForm(viewModel: WelcomeViewModel, isBusy: Boolean) {
         modifier = Modifier.fillMaxWidth().testTag(TestTags.RESET_CODE),
     )
     PasswordField(
-        value = viewModel.resetPassword,
-        onValueChange = viewModel::onResetPasswordChange,
+        value = state.resetPassword,
+        onValueChange = { onEvent(WelcomeEvent.ResetPasswordChanged(it)) },
         label = stringResource(Res.string.new_password_label),
         supportingText = stringResource(Res.string.register_password_hint),
-        isError = showErrors && !viewModel.isResetPasswordValid,
+        isError = showErrors && !state.isResetPasswordValid,
         enabled = !isBusy,
-        onImeAction = viewModel::confirmPasswordReset,
+        onImeAction = { onEvent(WelcomeEvent.ConfirmPasswordReset) },
         modifier = Modifier.testTag(TestTags.RESET_PASSWORD),
     )
     PopButton(
         text = stringResource(Res.string.reset_submit),
-        onClick = viewModel::confirmPasswordReset,
+        onClick = { onEvent(WelcomeEvent.ConfirmPasswordReset) },
         enabled = !isBusy,
         modifier = Modifier.fillMaxWidth().testTag(TestTags.RESET_SUBMIT),
     )
-    TextButton(onClick = viewModel::resendResetCode, enabled = !isBusy) {
+    TextButton(onClick = { onEvent(WelcomeEvent.ResendResetCode) }, enabled = !isBusy) {
         Text(stringResource(Res.string.resend_code))
     }
 }

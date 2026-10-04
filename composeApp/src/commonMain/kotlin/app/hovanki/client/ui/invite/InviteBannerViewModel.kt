@@ -18,6 +18,9 @@ import kotlinx.coroutines.launch
  * An invitation into another game while the player is in a lobby or looks at the results: shown over the screen, so
  * it is not missed (the start screen has its own list). Going there joins that game; the server takes the account out
  * of the lobby it is in (one game at a time).
+ *
+ * One state, [uiState], and one way in, [onEvent] (docs/architecture.md, «Состояние экрана»). Used by the banner and by
+ * the round's «More» (`GameScreen`), which shows the invitation without a banner.
  */
 class InviteBannerViewModel(
     private val sessionManager: GameSessionManager,
@@ -27,22 +30,24 @@ class InviteBannerViewModel(
     private val commands = CommandRunner(viewModelScope)
     private val isJoining = MutableStateFlow(false)
 
-    /** The newest invitation into a game other than this one; null: none. Collecting it polls the inbox. */
-    val invite: StateFlow<GameInvite?> =
-        combine(social.inbox, sessionManager.state) { inbox, state ->
+    /** Collecting it polls the inbox. */
+    val uiState: StateFlow<InviteBannerUiState> =
+        combine(social.inbox, sessionManager.state, commands.isBusy, isJoining) { inbox, state, dismissing, joining ->
             val here = state.snapshot?.gameId
-            inbox.invites.filter { it.gameId != here }.maxByOrNull { it.createdAtMillis }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            InviteBannerUiState(
+                invite = inbox.invites.filter { it.gameId != here }.maxByOrNull { it.createdAtMillis },
+                isBusy = dismissing || joining,
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InviteBannerUiState())
 
-    val isBusy: StateFlow<Boolean> =
-        combine(commands.isBusy, isJoining) { dismissing, joining -> dismissing || joining }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    fun onEvent(event: InviteBannerEvent) {
+        when (event) {
+            is InviteBannerEvent.Go -> go(event.invite, event.leaveRound)
+            is InviteBannerEvent.Dismiss -> commands.execute({ social.dismissInvite(event.invite.id) })
+        }
+    }
 
-    /**
-     * Joins the invitation's game; a refusal shows on the screen of the game the player is still in. [leaveRound]: the
-     * player is in a round and chose to leave it for the invitation (a hider there is out).
-     */
-    fun go(invite: GameInvite, leaveRound: Boolean = false) {
+    private fun go(invite: GameInvite, leaveRound: Boolean) {
         if (isJoining.value) return
         isJoining.value = true
         viewModelScope.launch {
@@ -55,6 +60,21 @@ class InviteBannerViewModel(
             }
         }
     }
+}
 
-    fun dismiss(invite: GameInvite) = commands.execute({ social.dismissInvite(invite.id) })
+data class InviteBannerUiState(
+    /** The newest invitation into a game other than this one; null: none. */
+    val invite: GameInvite? = null,
+    /** Joining it or dismissing it is under way. */
+    val isBusy: Boolean = false,
+)
+
+sealed interface InviteBannerEvent {
+    /**
+     * Joins the invitation's game; a refusal shows on the screen of the game the player is still in. [leaveRound]: the
+     * player is in a round and chose to leave it for the invitation (a hider there is out).
+     */
+    data class Go(val invite: GameInvite, val leaveRound: Boolean = false) : InviteBannerEvent
+
+    data class Dismiss(val invite: GameInvite) : InviteBannerEvent
 }

@@ -3,30 +3,20 @@ package app.hovanki.client.ui.results
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.hovanki.client.account.AccountManager
-import app.hovanki.client.account.AccountState
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.session.GameSessionManager
-import app.hovanki.client.session.SessionState
 import app.hovanki.client.social.SocialManager
 import app.hovanki.client.ui.common.CommandRunner
-import app.hovanki.client.ui.common.FormMessage
-import app.hovanki.client.ui.common.PlayerAccount
-import app.hovanki.client.ui.common.playerAccount
-import app.hovanki.shared.protocol.FriendsResponse
-import app.hovanki.shared.protocol.PlayerId
-import app.hovanki.shared.protocol.TracksResponse
-import app.hovanki.shared.protocol.UserId
-import app.hovanki.shared.rules.StreetZone
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 /**
  * The results screen: who played with an account, friend requests to them, keeping the player's route, and the tracks
  * for the replay. The standings and awards come from the final snapshot.
+ *
+ * One state for the whole screen, [uiState], and one way in, [onEvent] (docs/architecture.md, «Состояние экрана»).
  */
 class ResultsViewModel(
     private val sessionManager: GameSessionManager,
@@ -35,78 +25,41 @@ class ResultsViewModel(
     account: AccountManager,
 ) : ViewModel() {
     private val commands = CommandRunner(viewModelScope)
+    private val builder = ResultsStateBuilder()
 
-    /** The players of the finished game as far as friends go, by player. */
-    val accounts: StateFlow<Map<PlayerId, PlayerAccount>> =
-        combine(sessionManager.state, social.friends, account.state) { state, friends, accountState ->
-            playerAccounts(state, friends, accountState)
+    val uiState: StateFlow<ResultsUiState> =
+        combine(
+            sessionManager.state,
+            social.friends,
+            account.state,
+            commands.message,
+            commands.isBusy,
+        ) { session, friends, accountState, message, busy ->
+            builder.build(session, friends, accountState, message, busy)
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            builder.build(
+                sessionManager.state.value,
+                social.friends.value,
+                account.state.value,
+                commands.message.value,
+                commands.isBusy.value,
+            ),
+        )
+
+    fun onEvent(event: ResultsEvent) {
+        when (event) {
+            is ResultsEvent.AddFriend -> commands.execute({ social.sendFriendRequest(event.userId) })
+
+            ResultsEvent.TurnOnSaveRoutes -> commands.execute({ history.setSaveRoutes(true) })
+
+            ResultsEvent.DismissMessage -> commands.dismiss()
+
+            ResultsEvent.Leave -> {
+                commands.dismiss()
+                sessionManager.leave()
+            }
         }
-            .stateIn(
-                viewModelScope,
-                SharingStarted.WhileSubscribed(5_000),
-                playerAccounts(sessionManager.state.value, social.friends.value, account.state.value),
-            )
-
-    /** Everybody's way through the round for the replay; null until loaded. */
-    val tracks: StateFlow<TracksResponse?> = sessionManager.state.map { it.tracks }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), sessionManager.state.value.tracks)
-
-    /** The zone by streets of the game, for the replay; null when it played with circles. */
-    val streetZone: StateFlow<StreetZone?> = sessionManager.state.map(::streetZoneOf).distinctUntilChanged { a, b ->
-        a?.stages == b?.stages
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), streetZoneOf(sessionManager.state.value))
-
-    /**
-     * Whether the player keeps their routes; null: this game has no history of theirs (played as a guest, or logged in
-     * as someone else since).
-     */
-    val saveRoutes: StateFlow<Boolean?> =
-        combine(sessionManager.state, account.state) { state, accountState -> saveRoutes(state, accountState) }
-            .stateIn(
-                viewModelScope,
-                SharingStarted.WhileSubscribed(5_000),
-                saveRoutes(sessionManager.state.value, account.state.value),
-            )
-
-    /** A friend request failed. */
-    val message: StateFlow<FormMessage?> = commands.message
-    val isBusy: StateFlow<Boolean> = commands.isBusy
-
-    fun addFriend(userId: UserId) = commands.execute({ social.sendFriendRequest(userId) })
-
-    /** «Save my routes» on: from now on, and this game's route too (the server still has the game). */
-    fun turnOnSaveRoutes() = commands.execute({ history.setSaveRoutes(true) })
-
-    fun dismissMessage() = commands.dismiss()
-
-    /** Back to the start: the game is over for this phone (polling for the chat stops too). */
-    fun leave() {
-        commands.dismiss()
-        sessionManager.leave()
-    }
-
-    private fun streetZoneOf(state: SessionState): StreetZone? {
-        val snapshot = state.snapshot ?: return null
-        val zone = state.streetZone ?: return null
-        val usable = zone.mapRevision == snapshot.mapRevision &&
-            zone.stages.size == snapshot.settings.zone.stages.size + 1 &&
-            zone.stages.all { it.outline.size >= 4 }
-        return if (usable) StreetZone(zone.stages) else null
-    }
-
-    private fun saveRoutes(state: SessionState, accountState: AccountState): Boolean? {
-        val user = accountState.user ?: return null
-        val snapshot = state.snapshot ?: return null
-        val me = snapshot.players.firstOrNull { it.id == snapshot.me.playerId }
-        return user.saveRoutes.takeIf { me?.userId == user.id }
-    }
-
-    private fun playerAccounts(
-        state: SessionState,
-        friends: FriendsResponse?,
-        accountState: AccountState,
-    ): Map<PlayerId, PlayerAccount> {
-        val snapshot = state.snapshot ?: return emptyMap()
-        return snapshot.players.associate { it.id to playerAccount(it, snapshot.me.playerId, accountState, friends) }
     }
 }
