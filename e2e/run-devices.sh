@@ -159,6 +159,10 @@ fi
 export E2E_OPTS=${E2E_OPTS:--Xmx768m}
 # The Maestro CLI and MCP server take up to a quarter of the RAM by default.
 export MAESTRO_OPTS=${MAESTRO_OPTS:--Xmx1g}
+# The first flow on a simulator installs and starts Maestro's XCTest driver; on the macOS runner, busy with the
+# simulator it has just booted, that took longer than Maestro waits by default («iOS driver not ready in time»), and
+# the first scenario failed before its first step. Milliseconds; the first call may take 10 minutes (Maestro.kt).
+export MAESTRO_DRIVER_STARTUP_TIMEOUT=${MAESTRO_DRIVER_STARTUP_TIMEOUT:-300000}
 
 # ---- Server ----
 # `e2e devices` starts the server jar itself (--server-jar below) once the devices are ready: profile e2e, a fresh
