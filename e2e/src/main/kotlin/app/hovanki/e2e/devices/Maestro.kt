@@ -58,10 +58,15 @@ class Maestro(
      */
     private val driverReady = mutableSetOf<String>()
 
-    private val mcp: McpClient by lazy {
-        val stderr = File(logDir ?: File(System.getProperty("java.io.tmpdir")), "maestro-mcp.log")
-        McpClient(listOf(binary, "mcp", "--no-viewer", "--working-dir", flowsDir.absolutePath), stderr)
-    }
+    /** The `maestro mcp` server, started on its first call; a new one after a lost driver ([mcpCall]). */
+    private var mcpClient: McpClient? = null
+
+    private val mcp: McpClient
+        get() = mcpClient ?: run {
+            val stderr = File(logDir ?: File(System.getProperty("java.io.tmpdir")), "maestro-mcp.log")
+            McpClient(listOf(binary, "mcp", "--no-viewer", "--working-dir", flowsDir.absolutePath), stderr)
+                .also { mcpClient = it }
+        }
 
     /** Runs `<flowsDir>/<flow>.yaml`; [env] becomes the flow's environment, `APP_ID` is always set. */
     suspend fun run(
@@ -129,15 +134,34 @@ class Maestro(
         return if (usesMcp(device)) UiTree.parseCompact(result.stdout) else UiTree.parse(result.stdout)
     }
 
-    /** A tool call as a [Shell.Result] (exit 0 or 1, the tool's text as stdout), logged like a command. */
+    /**
+     * A tool call as a [Shell.Result] (exit 0 or 1, the tool's text as stdout), logged like a command.
+     *
+     * On the macOS runner the simulator's XCTest driver has died between two steps, with the app still on screen;
+     * the MCP server keeps the dead session, and every later step, of every later scenario, failed with «Device
+     * became unreachable». Then the server is replaced, which starts the driver again, and the call is made once
+     * more; a second loss fails the step.
+     */
     private fun mcpCall(device: Device, tool: String, arguments: JsonObject, label: String, timeout: Duration) =
+        callOnce(device, tool, arguments, label, timeout).let { first ->
+            if (first.ok || DRIVER_LOST !in first.stdout) return@let first
+            shell.record(listOf("maestro-mcp", "restart", "--device", device.id, "(the driver was lost)")) {
+                mcpClient?.let { runCatching { it.close() } }
+                mcpClient = null
+                driverReady -= device.id
+                0 to ""
+            }
+            callOnce(device, tool, arguments, label, timeout)
+        }
+
+    private fun callOnce(device: Device, tool: String, arguments: JsonObject, label: String, timeout: Duration) =
         shell.record(listOf("maestro-mcp", "--device", device.id, label)) {
             val result = mcp.callTool(tool, arguments, processTimeout(device, timeout))
             (if (result.isError) 1 else 0) to result.text
         }
 
     override fun close() {
-        if (mcpDevices.isNotEmpty()) runCatching { mcp.close() }
+        mcpClient?.let { runCatching { it.close() } }
     }
 
     /**
@@ -155,6 +179,7 @@ class Maestro(
 
     private companion object {
         val FIRST_CALL_TIMEOUT = 10.minutes
+        const val DRIVER_LOST = "Device became unreachable"
         val DEBUG_OUTPUT = Regex("""==== Debug output \(logs & screenshots\) ====\s+(\S+?)\*{0,2}\s""")
         val ACTION_WORDS = listOf("tap", "element", "bounds", "point", "hierarchy", "assert")
     }
