@@ -114,12 +114,14 @@ import app.hovanki.client.resources.my_code_hint
 import app.hovanki.client.resources.my_code_title
 import app.hovanki.client.resources.no_hiders_to_claim
 import app.hovanki.client.resources.out_of_zone_warning
+import app.hovanki.client.resources.pause_action
 import app.hovanki.client.resources.perk_pick_point
 import app.hovanki.client.resources.perk_put_here
 import app.hovanki.client.resources.scanner_close
 import app.hovanki.client.resources.scanner_hint
 import app.hovanki.client.resources.scanner_open
 import app.hovanki.client.resources.seeker_found_title
+import app.hovanki.client.resources.sos_menu
 import app.hovanki.client.resources.status_caught
 import app.hovanki.client.resources.status_eliminated
 import app.hovanki.client.resources.street_zone_off
@@ -227,6 +229,8 @@ private fun GameContent(
     onGoToInvite: (GameInvite) -> Unit,
 ) {
     var showLeaveDialog by rememberSaveable { mutableStateOf(false) }
+    var showSosDialog by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.canSos) { if (!state.canSos) showSosDialog = false }
     // The field test build's «Something is wrong» in the menu, while its log runs (nothing in other builds).
     val fieldSession = koinInject<FieldSession>()
     val fieldMarks = koinInject<FieldMarks>()
@@ -413,6 +417,18 @@ private fun GameContent(
                             .onGloballyPositioned { controlsTop = it.boundsInParent().top.toInt() },
                     )
                 }
+                // On pause (docs/adr/0019-pause-and-sos.md): above the controls, the map with an SOS stays in sight.
+                if (state.pause != null || state.sos.isNotEmpty()) {
+                    PauseCard(
+                        state = state,
+                        onResume = { viewModel.setPaused(false) },
+                        onEndSos = { call -> viewModel.endSos(call.playerId.takeIf { !call.isMe }) },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottomInset)
+                            .padding(start = 16.dp, end = 16.dp, bottom = 104.dp),
+                    )
+                }
                 // With a main action in the middle, «where am I» moves up to the side, like in map apps.
                 if (main != null && !placingDecoy) {
                     PopIconButton(
@@ -529,6 +545,16 @@ private fun GameContent(
         StartCountdown(state.hidingElapsedMillis, state.myRole, reduceMotion)
     }
 
+    if (showSosDialog) {
+        SosDialog(
+            onSend = {
+                showSosDialog = false
+                viewModel.callSos()
+            },
+            onDismiss = { showSosDialog = false },
+        )
+    }
+
     if (showLeaveDialog) {
         AlertDialog(
             onDismissRequest = { showLeaveDialog = false },
@@ -549,6 +575,24 @@ private fun GameContent(
                             color = Palette.PinkInk,
                             style = MaterialTheme.typography.titleSmall,
                         )
+                    }
+                    if (state.canPause && state.pause == null) {
+                        TextButton(
+                            onClick = {
+                                showLeaveDialog = false
+                                viewModel.setPaused(true)
+                            },
+                            modifier = Modifier.testTag(TestTags.PAUSE_OPEN),
+                        ) { Text(stringResource(Res.string.pause_action)) }
+                    }
+                    if (state.canSos && state.sos.none { it.isMe }) {
+                        TextButton(
+                            onClick = {
+                                showLeaveDialog = false
+                                showSosDialog = true
+                            },
+                            modifier = Modifier.testTag(TestTags.SOS_OPEN),
+                        ) { Text(stringResource(Res.string.sos_menu), color = Palette.Sos) }
                     }
                     if (fieldState.status == FieldStatus.ON) {
                         TextButton(

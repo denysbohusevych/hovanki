@@ -329,6 +329,15 @@ object TestTags {
     const val GAME_MAP = "game_map"
     const val MAP_ATTRIBUTION = "map_attribution"
     const val GAME_IN_BUILDING = "game_in_building"
+
+    /** The pause and the SOS (docs/adr/0019-pause-and-sos.md): the card, «Go on», the menu's entries, the SOS dialog. */
+    const val GAME_PAUSE = "game_pause"
+    const val PAUSE_RESUME = "pause_resume"
+    const val PAUSE_OPEN = "pause_open"
+    const val SOS_OPEN = "sos_open"
+    const val SOS_HOLD = "sos_hold"
+    const val SOS_END = "sos_end"
+    const val SOS_EMERGENCY = "sos_emergency"
     const val BUILDING_RULE_OFF = "building_rule_off"
 
     /** The glow's countdown (or «glowing») in the HUD, and the notice that the zone by streets fell back to circles. */

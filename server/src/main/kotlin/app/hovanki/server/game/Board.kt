@@ -108,6 +108,25 @@ internal class Board(private val rules: GameRules) {
         player.quests.values.filter { it.isActive }.forEach { it.status = QuestStatus.FAILED }
     }
 
+    /**
+     * The round goes on after a pause of [length] (docs/adr/0019-pause-and-sos.md): every time a quest counts by moves
+     * on by it, so the pause counts for no quest.
+     */
+    fun shift(players: Collection<Player>, length: Long) {
+        for (player in players) {
+            for (quest in player.quests.values) {
+                quest.deadlineMillis = quest.deadlineMillis?.plus(length)
+                quest.anchorAtMillis = quest.anchorAtMillis?.plus(length)
+                quest.sinceMillis = quest.sinceMillis?.plus(length)
+                quest.lastSectorAtMillis = quest.lastSectorAtMillis?.plus(length)
+                val log = quest.metersLog.map { (at, meters) -> at + length to meters }
+                quest.metersLog.clear()
+                quest.metersLog.addAll(log)
+            }
+        }
+        teamQuest?.let { it.sinceMillis = it.sinceMillis?.plus(length) }
+    }
+
     /** Applies everything that happens by itself as time passes, during the search. */
     fun advance(players: Collection<Player>, context: BoardContext) {
         val playing = players.filter { it.isPlayingNow }

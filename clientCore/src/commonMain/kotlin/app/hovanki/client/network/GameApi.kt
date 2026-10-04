@@ -12,6 +12,7 @@ import app.hovanki.shared.protocol.InviteRequest
 import app.hovanki.shared.protocol.ItemId
 import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
+import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
@@ -23,6 +24,7 @@ import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsPreviewRequest
 import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SettingsRequest
+import app.hovanki.shared.protocol.SosRequest
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.SyncRequest
@@ -125,6 +127,12 @@ interface GameApi {
     suspend fun scanCheckpoint(session: PlayerSession, code: String): GameSnapshot
 
     suspend fun usePerk(session: PlayerSession, request: UsePerkRequest): GameSnapshot
+
+    /** The host puts the round on pause or lets it go on (docs/adr/0019-pause-and-sos.md). */
+    suspend fun setPaused(session: PlayerSession, request: PauseRequest): GameSnapshot
+
+    /** A call for help, or its end (docs/adr/0019-pause-and-sos.md). */
+    suspend fun sos(session: PlayerSession, request: SosRequest): GameSnapshot
 
     /** The host makes up a quest in words. */
     suspend fun addQuest(session: PlayerSession, request: CustomQuestRequest): GameSnapshot

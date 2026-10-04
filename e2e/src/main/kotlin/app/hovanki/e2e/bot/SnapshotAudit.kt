@@ -73,8 +73,14 @@ object SnapshotAudit {
         val phase = snapshot.phase
         // On the wire, not in the decoded snapshot, which drops fields this client doesn't know. Keys only: a chat
         // message or a player's name saying "location" is text, not a position.
-        if (me.role == Role.HIDER && hasKey(Json.parseToJsonElement(rawJson), "location")) {
+        // The one exception: who calls for help, for everybody (docs/adr/0019-pause-and-sos.md), under `sos` only.
+        val wire = Json.parseToJsonElement(rawJson)
+        val outsideSos = (wire as? JsonObject)?.let { JsonObject(it - "sos") } ?: wire
+        if (me.role == Role.HIDER && hasKey(outsideSos, "location")) {
             problems += "hider ${me.playerId.value} received a position in $phase"
+        }
+        if (snapshot.sos.any { it.location != null } && snapshot.pause == null && phase != GamePhase.FINISHED) {
+            problems += "${me.playerId.value} sees where an SOS caller is while the round goes on"
         }
         if (me.role != Role.HIDER && me.catchCodeSecret != null) {
             problems += "seeker ${me.playerId.value} received a catch code secret"

@@ -6,6 +6,7 @@ import app.hovanki.client.network.testSnapshot
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.CatchView
+import app.hovanki.shared.protocol.GamePause
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.MyState
 import app.hovanki.shared.protocol.PlayerId
@@ -55,6 +56,17 @@ class HiderAlertsTest {
             ),
             snapshot.hiderAlerts(),
         )
+    }
+
+    @Test
+    fun nothingRunsOutOnPause() {
+        val paused = testSnapshot(phase = GamePhase.SEEKING, players = listOf(testPlayer, seeker)).copy(
+            me = me(outOfZone = 40_000L),
+            catches = listOf(claim(CatchStatus.AWAITING_CODE)),
+            pause = GamePause(sinceMillis = 30_000L),
+        )
+
+        assertTrue(paused.hiderAlerts().isEmpty())
     }
 
     @Test

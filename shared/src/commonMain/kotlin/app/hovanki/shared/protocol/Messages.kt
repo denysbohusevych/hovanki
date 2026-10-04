@@ -99,6 +99,17 @@ data class ConfirmCatchRequest(val code: String)
 @Serializable
 data class VoteRequest(val confirm: Boolean)
 
+/** The host puts the round on pause ([paused]) or lets it go on (docs/adr/0019-pause-and-sos.md). */
+@Serializable
+data class PauseRequest(val paused: Boolean)
+
+/**
+ * An SOS (docs/adr/0019-pause-and-sos.md): [active] calls for help, false says the caller is fine again. [playerId]: the
+ * host ends that player's SOS (null: the caller's own).
+ */
+@Serializable
+data class SosRequest(val active: Boolean = true, val playerId: PlayerId? = null)
+
 /** A chat message; the server picks the channel from the sender's role ([team] = own team only, not in the lobby). */
 @Serializable
 data class SendChatRequest(

@@ -56,6 +56,18 @@ object ApiRoutes {
      */
     const val CROWDING_ACCEPT = "$GAMES/{gameId}/crowding/accept"
 
+    /**
+     * POST [PauseRequest]: the host puts the round on pause or lets it go on (docs/adr/0019-pause-and-sos.md); not in a
+     * big game, whose host is the server.
+     */
+    const val PAUSE = "$GAMES/{gameId}/pause"
+
+    /**
+     * POST [SosRequest]: a player calls for help, or says they are fine again; the host may end anybody's
+     * (docs/adr/0019-pause-and-sos.md). An SOS puts the round on pause and shows everybody where the caller is.
+     */
+    const val SOS = "$GAMES/{gameId}/sos"
+
     /** GET: every player's track of the round ([TracksResponse]), once the game is FINISHED. */
     const val TRACKS = "$GAMES/{gameId}/tracks"
 
@@ -358,6 +370,10 @@ object ApiRoutes {
     fun leave(gameId: GameId): String = LEAVE.fill("gameId" to gameId.value)
 
     fun crowdingAccept(gameId: GameId): String = CROWDING_ACCEPT.fill("gameId" to gameId.value)
+
+    fun pause(gameId: GameId): String = PAUSE.fill("gameId" to gameId.value)
+
+    fun sos(gameId: GameId): String = SOS.fill("gameId" to gameId.value)
 
     fun tracks(gameId: GameId): String = TRACKS.fill("gameId" to gameId.value)
 

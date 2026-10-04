@@ -16,6 +16,7 @@ import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.InviteRequest
 import app.hovanki.shared.protocol.ItemId
 import app.hovanki.shared.protocol.JoinGameRequest
+import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.QuestId
 import app.hovanki.shared.protocol.QuestReviewRequest
@@ -26,6 +27,7 @@ import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsPreviewRequest
 import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SettingsRequest
+import app.hovanki.shared.protocol.SosRequest
 import app.hovanki.shared.protocol.SpectatorSnapshot
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
@@ -192,6 +194,16 @@ class GameController(private val games: GameService, private val invites: Invite
         @PathVariable gameId: String,
         @RequestBody request: ScanCheckpointRequest,
     ): GameSnapshot = games.scanCheckpoint(player, GameId(gameId), request)
+
+    /** The host puts the round on pause or lets it go on. */
+    @PostMapping(ApiRoutes.PAUSE)
+    fun pause(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: PauseRequest): GameSnapshot =
+        games.setPaused(player, GameId(gameId), request)
+
+    /** A player calls for help or says they are fine; the host ends anybody's SOS. */
+    @PostMapping(ApiRoutes.SOS)
+    fun sos(player: PlayerRef, @PathVariable gameId: String, @RequestBody request: SosRequest): GameSnapshot =
+        games.sos(player, GameId(gameId), request)
 
     /** The player uses a perk: one found on the map, else bought for sparks. */
     @PostMapping(ApiRoutes.PERKS)

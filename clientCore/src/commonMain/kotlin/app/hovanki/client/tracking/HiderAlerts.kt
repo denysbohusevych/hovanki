@@ -40,9 +40,13 @@ enum class AlertKind {
 /** An alert, until when it lasts (server time) and, for a claim, who made it. */
 data class HiderAlert(val kind: AlertKind, val deadlineMillis: Long?, val seekerName: String? = null)
 
-/** The alerts of the viewer of this snapshot: only an active hider in a running round has any. */
+/**
+ * The alerts of the viewer of this snapshot: only an active hider in a running round has any, none while it is on pause
+ * (docs/adr/0019-pause-and-sos.md): nothing runs out then.
+ */
 fun GameSnapshot.hiderAlerts(): List<HiderAlert> {
     if (phase != GamePhase.HIDING && phase != GamePhase.SEEKING) return emptyList()
+    if (pause != null) return emptyList()
     if (me.status != PlayerStatus.ACTIVE || me.role != Role.HIDER) return emptyList()
     return buildList {
         me.outOfZoneDeadlineMillis?.let { add(HiderAlert(AlertKind.OUT_OF_ZONE, it)) }
@@ -63,7 +67,7 @@ fun GameSnapshot.hiderAlerts(): List<HiderAlert> {
  * [AlertKind.GLOWING] while it is on. Null outside the search, between glows, and without glows.
  */
 fun GameSnapshot.glowAlert(nowMillis: Long): HiderAlert? {
-    if (phase != GamePhase.SEEKING) return null
+    if (phase != GamePhase.SEEKING || pause != null) return null
     val seekingStart = zoneStartedAtMillis ?: return null
     Glow.openAt(settings, seekingStart, nowMillis)?.let { return HiderAlert(AlertKind.GLOWING, it.endMillis) }
     val next = Glow.next(settings, seekingStart, nowMillis) ?: return null

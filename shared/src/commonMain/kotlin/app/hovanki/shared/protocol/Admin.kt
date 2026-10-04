@@ -224,6 +224,10 @@ data class AdminGame(
     /** Open to spectators: an admin may watch it live ([ApiRoutes.ADMIN_GAME_WATCH]). */
     val openGame: Boolean = false,
     val spectators: Int = 0,
+    /** The round stands still (docs/adr/0019-pause-and-sos.md). */
+    val paused: Boolean = false,
+    /** How many players call for help right now; never who or where. */
+    val sosCalls: Int = 0,
 )
 
 @Serializable

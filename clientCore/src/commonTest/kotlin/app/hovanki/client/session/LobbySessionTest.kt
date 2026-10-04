@@ -18,9 +18,11 @@ import app.hovanki.shared.protocol.CapacityState
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SessionResponse
+import app.hovanki.shared.protocol.SosRequest
 import app.hovanki.shared.protocol.StreetZoneResponse
 import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.TerrainAreas
@@ -130,6 +132,22 @@ class LobbySessionTest {
         manager.updateSettings(setup.settings(GeoPoint(50.0, 30.0)), setup)
 
         assertEquals(GameSetup(), manager.lastGameSetup())
+    }
+
+    @Test
+    fun thePauseAndTheSosGoToTheServer() = runTest {
+        val api = FakeGameApi(onJoin = { SessionResponse(testSession, testSnapshot()) }, onBoard = { testSnapshot() }) {
+            testSnapshot()
+        }
+        val manager = manager(api)
+        manager.join("ABC234", "Anna")
+
+        manager.setPaused(true)
+        manager.callSos()
+        manager.endSos(PlayerId("p2"))
+
+        assertEquals(listOf(PauseRequest(paused = true)), api.pauses)
+        assertEquals(listOf(SosRequest(), SosRequest(active = false, playerId = PlayerId("p2"))), api.sosRequests)
     }
 
     @Test

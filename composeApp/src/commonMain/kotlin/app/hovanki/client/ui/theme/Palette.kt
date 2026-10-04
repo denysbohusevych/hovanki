@@ -49,6 +49,9 @@ object Palette {
 
     /** A player without a signal. */
     val Stale = Color(0xFF4A4A55)
+
+    /** An SOS (docs/adr/0019-pause-and-sos.md): somebody needs help. Nothing else in the game is this red. */
+    val Sos = Color(0xFFE0182D)
 }
 
 /** The role's color: hiders violet, seekers orange. */

@@ -69,7 +69,35 @@ data class GameSnapshot(
     val counts: PlayerCounts? = null,
     /** How many people watch this open game right now ([GameSettings.openGame]): the players see it. */
     val spectators: Int = 0,
+    /**
+     * The round stands still (docs/adr/0019-pause-and-sos.md): the phase's time, the zone, the glows and every other
+     * timer wait; null: it goes on, and from older servers. Every time in the snapshot is the round's own: once it goes
+     * on, the server moves them by the pause's length.
+     */
+    val pause: GamePause? = null,
+    /** Who called for help (docs/adr/0019-pause-and-sos.md), with where they are now, for every player of the game. */
+    val sos: List<SosCall> = emptyList(),
 )
+
+/** Since when the round is on pause; [sos]: an SOS stopped it (else the host). */
+@Serializable
+data class GamePause(val sinceMillis: Long, val sos: Boolean = false)
+
+/**
+ * A player who called for help (docs/adr/0019-pause-and-sos.md): everybody in the game sees them, and where they are,
+ * until it is over. The one exception to «nobody sees where the others are».
+ */
+@Serializable
+data class SosCall(
+    val playerId: PlayerId,
+    val name: String,
+    val sinceMillis: Long,
+    /** Their last fix (live, not the round's view of them); null: their phone sent none. */
+    val location: SosLocation? = null,
+)
+
+@Serializable
+data class SosLocation(val point: GeoPoint, val accuracyMeters: Double, val atMillis: Long)
 
 /** How many players a game has in all, by role and state (the snapshot of a big game lists only some of them). */
 @Serializable

@@ -223,4 +223,10 @@ enum class ErrorReason {
      * (docs/adr/0017-radar-techniques-and-big-run.md §5); a phone neither joins it nor uploads to it any more.
      */
     LAB_RUN_CLOSED,
+
+    /** The round is on pause (docs/adr/0019-pause-and-sos.md): no claims, codes, perks or quests until it goes on. */
+    GAME_PAUSED,
+
+    /** Somebody's SOS is on (docs/adr/0019-pause-and-sos.md): the round goes on only once every SOS is over. */
+    SOS_ACTIVE,
 }

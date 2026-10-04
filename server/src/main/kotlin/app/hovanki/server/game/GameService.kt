@@ -36,6 +36,7 @@ import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.ItemId
 import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
+import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
@@ -49,6 +50,7 @@ import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsPreviewRequest
 import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SettingsRequest
+import app.hovanki.shared.protocol.SosRequest
 import app.hovanki.shared.protocol.SpectatorId
 import app.hovanki.shared.protocol.SpectatorSession
 import app.hovanki.shared.protocol.SpectatorSnapshot
@@ -68,6 +70,7 @@ import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.RequestIds
 import app.hovanki.shared.rules.SettingsLimits
 import app.hovanki.shared.rules.boundingCircle
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.time.Clock
 import java.time.Instant
@@ -437,6 +440,28 @@ class GameService(
         }
     }
 
+    // The pause and the SOS (docs/adr/0019-pause-and-sos.md); the rules are in the game.
+
+    /** The host puts the round on pause or lets it go on. */
+    fun setPaused(caller: PlayerRef, gameId: GameId, request: PauseRequest): GameSnapshot =
+        update(caller, gameId) { game, now -> game.setPaused(caller.playerId, request.paused, now) }
+
+    /** A player calls for help or says they are fine; the host ends anybody's SOS. */
+    fun sos(caller: PlayerRef, gameId: GameId, request: SosRequest): GameSnapshot {
+        var calls = 0
+        val snapshot = update(caller, gameId) { game, now ->
+            if (request.active) {
+                game.callSos(caller.playerId, now)
+            } else {
+                game.endSos(caller.playerId, request.playerId ?: caller.playerId, now)
+            }
+            calls = game.sosCount()
+        }
+        // Who and where never go to the log (docs/adr/0019-pause-and-sos.md): the game and how many call.
+        if (request.active) log.warn("SOS in game {}: {} calling", gameId.value, calls)
+        return snapshot
+    }
+
     // The board and the perks (docs/adr/0013-quests-sparks-and-sensors.md); the rules are in the game.
 
     /** The host places an item on the map in the lobby; a scan checkpoint gets a fresh code. */
@@ -739,6 +764,8 @@ class GameService(
         val problem = SettingsLimits.problem(settings)
         if (problem != null) throw GameException(ErrorCode.BAD_REQUEST, "Invalid game settings: $problem")
     }
+
+    private val log = LoggerFactory.getLogger(javaClass)
 
     private companion object {
         const val MAX_NAME_LENGTH = 32

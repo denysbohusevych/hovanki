@@ -55,6 +55,7 @@ import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.NearbySighting
+import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PerkKind
 import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.PlayerId
@@ -70,6 +71,7 @@ import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsPreviewRequest
 import app.hovanki.shared.protocol.SettingsPreviewResponse
 import app.hovanki.shared.protocol.SettingsRequest
+import app.hovanki.shared.protocol.SosRequest
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.StreetZoneState
 import app.hovanki.shared.protocol.UsePerkRequest
@@ -392,6 +394,21 @@ class GameSessionManager(
     /** Uses a perk: [targetId] for the ones aimed at a hider, [point] for a decoy. */
     suspend fun usePerk(perk: PerkKind, targetId: PlayerId? = null, point: GeoPoint? = null): Boolean =
         sessionCommand(FieldActions.PERK_USE) { api.usePerk(it, UsePerkRequest(perk, targetId, point)) }
+
+    // The pause and the SOS (docs/adr/0019-pause-and-sos.md).
+
+    /** The host puts the round on pause ([paused]) or lets it go on. */
+    suspend fun setPaused(paused: Boolean): Boolean =
+        sessionCommand(if (paused) FieldActions.PAUSE else FieldActions.RESUME) {
+            api.setPaused(it, PauseRequest(paused))
+        }
+
+    /** Calls for help: the round stops for everybody, and everybody sees where this player is. */
+    suspend fun callSos(): Boolean = sessionCommand(FieldActions.SOS) { api.sos(it, SosRequest(active = true)) }
+
+    /** Ends an SOS: this player's own, or, by the host, [playerId]'s. */
+    suspend fun endSos(playerId: PlayerId? = null): Boolean =
+        sessionCommand(FieldActions.SOS_END) { api.sos(it, SosRequest(active = false, playerId = playerId)) }
 
     /** The host makes up a quest in words for [audience], worth [sparks]. */
     suspend fun addQuest(
