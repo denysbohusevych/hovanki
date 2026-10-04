@@ -181,6 +181,10 @@ tasks.test {
     maxHeapSize = "2g"
     // A different target server is a different test run.
     inputs.property("externalServerUrl", externalServerUrl)
+    // Whole games against a live server are a check of now, not a function of the inputs: never up to date and never
+    // taken from the build cache (nightly restored the last green run's results and reported a pass without playing).
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
     // Scenario reports (timeline, final state, sync latency): e2e/build/reports/e2e/<scenario>.md.
     jvmArgumentProviders += ReportDir(layout.buildDirectory.dir("reports/e2e"))
     testLogging {

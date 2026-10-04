@@ -1,5 +1,6 @@
 package app.hovanki.e2e.beacon
 
+import app.hovanki.e2e.executableScript
 import app.hovanki.shared.protocol.BluetoothState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,23 +22,21 @@ class MacRadioTest {
         val dir = Files.createTempDirectory("mac-beacon").toFile()
         val commands = File(dir, "commands.txt")
         // Says it is on, hears two phones once it is told what to advertise, and writes down every command.
-        val helper = File(dir, "beacon").apply {
-            writeText(
-                """
-                #!/usr/bin/env bash
-                echo "state on"
-                while read -r line; do
-                  echo "${'$'}line" >> "${commands.path}"
-                  if [[ "${'$'}line" == advertise* ]]; then
-                    echo "heard 0123abcd -48 name"
-                    echo "log advertising"
-                    echo "heard 89abcdef -71 ibeacon"
-                  fi
-                done
-                """.trimIndent() + "\n",
-            )
-            setExecutable(true)
-        }
+        val helper = executableScript(
+            File(dir, "beacon"),
+            """
+            #!/usr/bin/env bash
+            echo "state on"
+            while read -r line; do
+              echo "${'$'}line" >> "${commands.path}"
+              if [[ "${'$'}line" == advertise* ]]; then
+                echo "heard 0123abcd -48 name"
+                echo "log advertising"
+                echo "heard 89abcdef -71 ibeacon"
+              fi
+            done
+            """.trimIndent() + "\n",
+        )
         val logged = mutableListOf<String>()
         MacRadio(helper, onLine = { synchronized(logged) { logged += it } }).use { radio ->
             withTimeout(10_000) { radio.state.first { it == BluetoothState.ON } }
@@ -59,19 +58,17 @@ class MacRadioTest {
     fun oneDirectionAtATime() = runBlocking {
         val dir = Files.createTempDirectory("mac-beacon").toFile()
         val commands = File(dir, "commands.txt")
-        val helper = File(dir, "beacon").apply {
-            writeText(
-                """
-                #!/usr/bin/env bash
-                echo "state on"
-                while read -r line; do
-                  echo "${'$'}line" >> "${commands.path}"
-                  echo "heard 0123abcd -48 name"
-                done
-                """.trimIndent() + "\n",
-            )
-            setExecutable(true)
-        }
+        val helper = executableScript(
+            File(dir, "beacon"),
+            """
+            #!/usr/bin/env bash
+            echo "state on"
+            while read -r line; do
+              echo "${'$'}line" >> "${commands.path}"
+              echo "heard 0123abcd -48 name"
+            done
+            """.trimIndent() + "\n",
+        )
         MacRadio(helper, onLine = {}, advertise = false).use { radio ->
             withTimeout(10_000) { radio.state.first { it == BluetoothState.ON } }
             val heard = withTimeout(10_000) { radio.run(MutableStateFlow("fedcba98")).first() }

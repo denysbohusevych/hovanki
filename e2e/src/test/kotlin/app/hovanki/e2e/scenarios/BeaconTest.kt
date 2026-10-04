@@ -3,6 +3,7 @@ package app.hovanki.e2e.scenarios
 import app.hovanki.e2e.beacon.BeaconCli
 import app.hovanki.e2e.bot.FakeRadio
 import app.hovanki.e2e.cli.CliArgs
+import app.hovanki.e2e.executableScript
 import app.hovanki.e2e.scenario
 import app.hovanki.e2e.scenario.GameSetups
 import app.hovanki.e2e.scenario.GameSetups.PARK
@@ -31,21 +32,19 @@ class BeaconTest {
         val dir = Files.createTempDirectory("mac-beacon").toFile()
         val advertised = File(dir, "advertised")
         val hear = File(dir, "hear")
-        val helper = File(dir, "beacon").apply {
-            writeText(
-                """
-                #!/usr/bin/env bash
-                echo "state on"
-                while true; do
-                  read -r -t 0.5 line; rc=${'$'}?
-                  if [[ ${'$'}rc -eq 0 ]]; then echo "${'$'}line" >> "${advertised.path}"
-                  elif [[ ${'$'}rc -le 128 ]]; then exit 0; fi
-                  [[ -f "${hear.path}" ]] && echo "heard ${'$'}(cat "${hear.path}") -45"
-                done
-                """.trimIndent() + "\n",
-            )
-            setExecutable(true)
-        }
+        val helper = executableScript(
+            File(dir, "beacon"),
+            """
+            #!/usr/bin/env bash
+            echo "state on"
+            while true; do
+              read -r -t 0.5 line; rc=${'$'}?
+              if [[ ${'$'}rc -eq 0 ]]; then echo "${'$'}line" >> "${advertised.path}"
+              elif [[ ${'$'}rc -le 128 ]]; then exit 0; fi
+              [[ -f "${hear.path}" ]] && echo "heard ${'$'}(cat "${hear.path}") -45"
+            done
+            """.trimIndent() + "\n",
+        )
         thread(isDaemon = true, name = "beacon") {
             BeaconCli.run(
                 CliArgs(listOf("--join", code, "--server", serverUrl, "--helper", helper.path, "--name", "MacBook")),
