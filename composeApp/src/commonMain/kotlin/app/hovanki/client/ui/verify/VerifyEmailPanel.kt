@@ -13,7 +13,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -21,7 +20,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_cancel
@@ -63,20 +61,18 @@ import org.jetbrains.compose.resources.stringResource
  * the close button and back return to the main screen without it (it stays optional).
  */
 @Composable
-fun VerifyEmailPanel(viewModel: VerifyEmailViewModel) {
-    val account by viewModel.accountState.collectAsStateWithLifecycle()
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
-    val resendSecondsLeft by viewModel.resendSecondsLeft.collectAsStateWithLifecycle()
-    val email = account.user?.email.orEmpty()
+fun VerifyEmailPanel(state: VerifyEmailUiState, onEvent: (VerifyEmailEvent) -> Unit) {
+    val isBusy = state.isBusy
+    val resendSecondsLeft = state.resendSecondsLeft
+    val email = state.email
 
     Panel(
         title = stringResource(Res.string.verify_title),
-        onClose = viewModel::close,
+        onClose = { onEvent(VerifyEmailEvent.Close) },
         modifier = Modifier.testTag(TestTags.VERIFY_PANEL),
     ) {
         // The change email form goes back to the code first (added after the panel's own back handler: it wins).
-        SystemBackHandler(enabled = viewModel.isChangingEmail, onBack = viewModel::cancelChangingEmail)
+        SystemBackHandler(enabled = state.isChangingEmail, onBack = { onEvent(VerifyEmailEvent.CancelChangingEmail) })
         ScreenColumn {
             Text(
                 text = stringResource(Res.string.verify_text, email),
@@ -85,8 +81,8 @@ fun VerifyEmailPanel(viewModel: VerifyEmailViewModel) {
             )
             SecondaryText(stringResource(Res.string.verify_why))
             PopTextField(
-                value = viewModel.code,
-                onValueChange = viewModel::onCodeChange,
+                value = state.code,
+                onValueChange = { onEvent(VerifyEmailEvent.CodeChanged(it)) },
                 label = { Text(stringResource(Res.string.code_label)) },
                 singleLine = true,
                 enabled = !isBusy,
@@ -95,17 +91,17 @@ fun VerifyEmailPanel(viewModel: VerifyEmailViewModel) {
                     keyboardType = KeyboardType.NumberPassword,
                     imeAction = ImeAction.Done,
                 ),
-                keyboardActions = KeyboardActions(onDone = { viewModel.verify() }),
+                keyboardActions = KeyboardActions(onDone = { onEvent(VerifyEmailEvent.Verify) }),
                 modifier = Modifier.fillMaxWidth().testTag(TestTags.VERIFY_CODE),
             )
             PopButton(
                 text = stringResource(Res.string.verify_submit),
-                onClick = viewModel::verify,
+                onClick = { onEvent(VerifyEmailEvent.Verify) },
                 enabled = !isBusy,
                 modifier = Modifier.fillMaxWidth().testTag(TestTags.VERIFY_SUBMIT),
             )
             TextButton(
-                onClick = viewModel::resend,
+                onClick = { onEvent(VerifyEmailEvent.Resend) },
                 enabled = !isBusy && resendSecondsLeft == 0L,
                 modifier = Modifier.testTag(TestTags.VERIFY_RESEND),
             ) {
@@ -120,28 +116,33 @@ fun VerifyEmailPanel(viewModel: VerifyEmailViewModel) {
             SecondaryText(stringResource(Res.string.verify_spam_hint))
             HorizontalDivider()
 
-            if (viewModel.isChangingEmail) {
-                ChangeEmailForm(viewModel, isBusy)
+            if (state.isChangingEmail) {
+                ChangeEmailForm(state, onEvent)
             } else {
                 TextButton(
-                    onClick = viewModel::startChangingEmail,
+                    onClick = { onEvent(VerifyEmailEvent.StartChangingEmail) },
                     enabled = !isBusy,
                     modifier = Modifier.testTag(TestTags.VERIFY_CHANGE_EMAIL),
                 ) {
                     Text(stringResource(Res.string.verify_change_email))
                 }
             }
-            CommandStatus(isBusy = isBusy, message = message, onDismiss = viewModel::dismissMessage)
+            CommandStatus(
+                isBusy = isBusy,
+                message = state.message,
+                onDismiss = { onEvent(VerifyEmailEvent.DismissMessage) },
+            )
         }
     }
 }
 
 /** A mistyped address: the new one and the current password (the email is how a forgotten password is reset). */
 @Composable
-private fun ChangeEmailForm(viewModel: VerifyEmailViewModel, isBusy: Boolean) {
+private fun ChangeEmailForm(state: VerifyEmailUiState, onEvent: (VerifyEmailEvent) -> Unit) {
+    val isBusy = state.isBusy
     PopTextField(
-        value = viewModel.newEmail,
-        onValueChange = viewModel::onNewEmailChange,
+        value = state.newEmail,
+        onValueChange = { onEvent(VerifyEmailEvent.NewEmailChanged(it)) },
         label = { Text(stringResource(Res.string.verify_new_email_label)) },
         singleLine = true,
         enabled = !isBusy,
@@ -153,21 +154,21 @@ private fun ChangeEmailForm(viewModel: VerifyEmailViewModel, isBusy: Boolean) {
         modifier = Modifier.fillMaxWidth().testTag(TestTags.VERIFY_NEW_EMAIL),
     )
     PasswordField(
-        value = viewModel.password,
-        onValueChange = viewModel::onPasswordChange,
+        value = state.password,
+        onValueChange = { onEvent(VerifyEmailEvent.PasswordChanged(it)) },
         label = stringResource(Res.string.profile_current_password),
         enabled = !isBusy,
-        onImeAction = viewModel::saveEmail,
+        onImeAction = { onEvent(VerifyEmailEvent.SaveEmail) },
         modifier = Modifier.testTag(TestTags.VERIFY_PASSWORD),
     )
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         PopButton(
             text = stringResource(Res.string.verify_save_email),
-            onClick = viewModel::saveEmail,
-            enabled = !isBusy && viewModel.password.isNotEmpty(),
+            onClick = { onEvent(VerifyEmailEvent.SaveEmail) },
+            enabled = !isBusy && state.password.isNotEmpty(),
             modifier = Modifier.testTag(TestTags.VERIFY_SAVE_EMAIL),
         )
-        TextButton(onClick = viewModel::cancelChangingEmail) {
+        TextButton(onClick = { onEvent(VerifyEmailEvent.CancelChangingEmail) }) {
             Text(stringResource(Res.string.action_cancel))
         }
     }

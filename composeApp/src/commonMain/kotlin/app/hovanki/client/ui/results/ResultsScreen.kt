@@ -40,7 +40,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.award_first_catch
@@ -86,6 +85,7 @@ import app.hovanki.client.session.awards
 import app.hovanki.client.session.catchesBy
 import app.hovanki.client.session.hiderTally
 import app.hovanki.client.session.searchMillisAt
+import app.hovanki.client.ui.chat.ChatEvent
 import app.hovanki.client.ui.chat.ChatIconButton
 import app.hovanki.client.ui.chat.ChatPanel
 import app.hovanki.client.ui.chat.ChatViewModel
@@ -101,6 +101,7 @@ import app.hovanki.client.ui.common.PopIconButton
 import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
+import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.client.ui.common.formatElapsed
 import app.hovanki.client.ui.common.rememberReduceMotion
 import app.hovanki.client.ui.field.FieldSurveyCard
@@ -138,26 +139,39 @@ fun ResultsScreen(
     viewModel: ResultsViewModel = koinViewModel(),
     chat: ChatViewModel = koinViewModel(),
 ) {
-    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
-    val saveRoutes by viewModel.saveRoutes.collectAsStateWithLifecycle()
-    val chatState by chat.uiState.collectAsStateWithLifecycle()
-    val tracks by viewModel.tracks.collectAsStateWithLifecycle()
-    val streetZone by viewModel.streetZone.collectAsStateWithLifecycle()
+    val state by viewModel.uiState.collectScreenState()
+    val chatState by chat.uiState.collectScreenState()
     if (chatState.isOpen) {
-        ChatPanel(chat)
+        ChatPanel(chatState, chat::onEvent)
         return
     }
+    ResultsContent(
+        snapshot = snapshot,
+        state = state,
+        onEvent = viewModel::onEvent,
+        chatUnread = chatState.unread,
+        onOpenChat = { chat.onEvent(ChatEvent.Open) },
+    )
+}
+
+@Composable
+private fun ResultsContent(
+    snapshot: GameSnapshot,
+    state: ResultsUiState,
+    onEvent: (ResultsEvent) -> Unit,
+    chatUnread: Int,
+    onOpenChat: () -> Unit,
+) {
+    val tracks = state.tracks
     val me = snapshot.me
     val hiders = snapshot.players.filter { it.role == Role.HIDER }
     val survivors = hiders.filter { it.status == PlayerStatus.ACTIVE }
     val list = PlayerList(
         snapshot = snapshot,
         myId = me.playerId,
-        accounts = accounts,
-        isBusy = isBusy,
-        onAddFriend = viewModel::addFriend,
+        accounts = state.accounts,
+        isBusy = state.isBusy,
+        onAddFriend = { onEvent(ResultsEvent.AddFriend(it)) },
     )
     val reduceMotion = rememberReduceMotion()
     // The title pops in once, when the results open.
@@ -172,7 +186,7 @@ fun ResultsScreen(
         ScreenColumn(modifier = Modifier.weight(1f).testTag(TestTags.RESULTS_SCREEN)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.weight(1f))
-                ChatIconButton(unread = chatState.unread, onClick = chat::open, size = 44.dp)
+                ChatIconButton(unread = chatUnread, onClick = onOpenChat, size = 44.dp)
             }
             PopCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -253,13 +267,17 @@ fun ResultsScreen(
                 val hidingSeconds = snapshot.settings.hidingSeconds
                 ReplayCard(
                     replay = replay,
-                    zone = ZoneTimeline(snapshot.settings.zone, snapshot.zoneStartedAtMillis, streetZone),
+                    zone = ZoneTimeline(snapshot.settings.zone, snapshot.zoneStartedAtMillis, state.streetZone),
                     hidingStartMillis = snapshot.zoneStartedAtMillis?.let { it - hidingSeconds * 1000L }
                         ?: replay?.startMillis,
                     reduceMotion = reduceMotion,
                 )
             }
-            SaveRoutesOffer(saveRoutes = saveRoutes, isBusy = isBusy, onSave = viewModel::turnOnSaveRoutes)
+            SaveRoutesOffer(
+                saveRoutes = state.saveRoutes,
+                isBusy = state.isBusy,
+                onSave = { onEvent(ResultsEvent.TurnOnSaveRoutes) },
+            )
             // The field test build asks to touch phones once more, for the drift, and three questions (nothing in other
             // builds).
             TouchCard(
@@ -271,14 +289,14 @@ fun ResultsScreen(
             FieldSurveyCard()
             CommandStatus(
                 isBusy = false,
-                message = message,
-                onDismiss = viewModel::dismissMessage,
+                message = state.message,
+                onDismiss = { onEvent(ResultsEvent.DismissMessage) },
                 errorTag = TestTags.SOCIAL_ERROR,
             )
         }
         PopButton(
             text = stringResource(Res.string.results_back),
-            onClick = viewModel::leave,
+            onClick = { onEvent(ResultsEvent.Leave) },
             style = PopStyle.Dark,
             height = 58.dp,
             icon = Res.drawable.ic_home,

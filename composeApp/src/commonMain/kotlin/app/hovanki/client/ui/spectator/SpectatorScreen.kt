@@ -29,7 +29,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_back
@@ -61,6 +60,7 @@ import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SpectatorsChip
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.client.ui.common.formatCountdown
 import app.hovanki.client.ui.game.ZoneTimeline
 import app.hovanki.client.ui.lobby.spectatorDelayText
@@ -85,15 +85,21 @@ import org.koin.compose.viewmodel.koinViewModel
  */
 @Composable
 fun SpectatorScreen(viewModel: SpectatorViewModel = koinViewModel()) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
-    SystemBackHandler(enabled = true, onBack = viewModel::leave)
+    val state by viewModel.uiState.collectScreenState()
+    SpectatorContent(state, viewModel::onEvent)
+}
+
+@Composable
+private fun SpectatorContent(state: SpectatorState, onEvent: (SpectatorEvent) -> Unit) {
+    val leave = { onEvent(SpectatorEvent.Leave) }
+    SystemBackHandler(enabled = true, onBack = leave)
     val snapshot = state.snapshot
     if (snapshot == null) {
         LoadingScreen()
         return
     }
     if (state.ended) {
-        Ended(onBack = viewModel::leave)
+        Ended(onBack = leave)
         return
     }
     // The moment shown moves on between the polls, for the zone and the clock.
@@ -122,7 +128,7 @@ fun SpectatorScreen(viewModel: SpectatorViewModel = koinViewModel()) {
                 )
                 PopButton(
                     text = stringResource(Res.string.spectator_leave),
-                    onClick = viewModel::leave,
+                    onClick = leave,
                     style = PopStyle.Outline,
                     icon = Res.drawable.ic_exit,
                     height = 40.dp,

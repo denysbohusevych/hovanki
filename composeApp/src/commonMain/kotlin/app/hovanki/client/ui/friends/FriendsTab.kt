@@ -21,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_accept
@@ -49,6 +48,7 @@ import app.hovanki.client.ui.common.PopTextField
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SectionTitle
+import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.shared.protocol.FriendsResponse
 import app.hovanki.shared.protocol.UserSummary
 import org.jetbrains.compose.resources.stringResource
@@ -57,62 +57,67 @@ import org.koin.compose.viewmodel.koinViewModel
 /** «Friends»: add by nickname, requests both ways, friends (tap one to remove or block), blocked users. */
 @Composable
 fun FriendsTab(viewModel: FriendsViewModel = koinViewModel()) {
-    val friends by viewModel.friends.collectAsStateWithLifecycle()
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    val state by viewModel.uiState.collectScreenState()
+    FriendsContent(state, viewModel::onEvent)
+}
+
+@Composable
+private fun FriendsContent(state: FriendsUiState, onEvent: (FriendsEvent) -> Unit) {
+    val isBusy = state.isBusy
+    LaunchedEffect(Unit) { onEvent(FriendsEvent.Refresh) }
 
     ScreenColumn(modifier = Modifier.testTag(TestTags.FRIENDS_SCREEN)) {
         Text(text = stringResource(Res.string.friends_add_title), style = MaterialTheme.typography.titleMedium)
         PopTextField(
-            value = viewModel.nickname,
-            onValueChange = viewModel::onNicknameChange,
+            value = state.nickname,
+            onValueChange = { onEvent(FriendsEvent.NicknameChanged(it)) },
             label = { Text(stringResource(Res.string.friends_nickname_label)) },
             singleLine = true,
             enabled = !isBusy,
             keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = { viewModel.sendRequest() }),
+            keyboardActions = KeyboardActions(onSend = { onEvent(FriendsEvent.SendRequest) }),
             modifier = Modifier.fillMaxWidth().testTag(TestTags.FRIENDS_NICKNAME),
         )
         PopButton(
             text = stringResource(Res.string.friends_add),
-            onClick = viewModel::sendRequest,
+            onClick = { onEvent(FriendsEvent.SendRequest) },
             enabled = !isBusy,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.FRIENDS_ADD),
         )
         CommandStatus(
             isBusy = isBusy,
-            message = message,
-            onDismiss = viewModel::dismissMessage,
+            message = state.message,
+            onDismiss = { onEvent(FriendsEvent.DismissMessage) },
             errorTag = TestTags.SOCIAL_ERROR,
             infoTag = TestTags.SOCIAL_INFO,
         )
 
-        val current = friends
+        val current = state.friends
         if (current == null) {
             BusyRow(stringResource(Res.string.working))
         } else {
-            FriendLists(current, viewModel, isBusy)
+            FriendLists(current, state, onEvent)
         }
     }
 }
 
 /** Requests to the player, friends, the player's own requests and blocked users. */
 @Composable
-private fun FriendLists(current: FriendsResponse, viewModel: FriendsViewModel, isBusy: Boolean) {
+private fun FriendLists(current: FriendsResponse, state: FriendsUiState, onEvent: (FriendsEvent) -> Unit) {
+    val isBusy = state.isBusy
     if (current.incoming.isNotEmpty()) {
         SectionTitle(stringResource(Res.string.friends_incoming))
         current.incoming.forEach { user ->
             PersonRow(user) {
                 TextButton(
-                    onClick = { viewModel.accept(user) },
+                    onClick = { onEvent(FriendsEvent.Accept(user)) },
                     enabled = !isBusy,
                     modifier = Modifier.testTag(TestTags.friendAccept(user.id)),
                 ) {
                     Text(stringResource(Res.string.action_accept))
                 }
                 TextButton(
-                    onClick = { viewModel.decline(user) },
+                    onClick = { onEvent(FriendsEvent.Decline(user)) },
                     enabled = !isBusy,
                     modifier = Modifier.testTag(TestTags.friendDecline(user.id)),
                 ) {
@@ -127,11 +132,11 @@ private fun FriendLists(current: FriendsResponse, viewModel: FriendsViewModel, i
     current.friends.forEach { user ->
         FriendRow(
             user = user,
-            isExpanded = viewModel.expanded == user.id,
+            isExpanded = state.expanded == user.id,
             isBusy = isBusy,
-            onToggle = { viewModel.toggle(user) },
-            onRemove = { viewModel.remove(user) },
-            onBlock = { viewModel.block(user) },
+            onToggle = { onEvent(FriendsEvent.Toggle(user)) },
+            onRemove = { onEvent(FriendsEvent.Remove(user)) },
+            onBlock = { onEvent(FriendsEvent.Block(user)) },
         )
     }
 
@@ -140,7 +145,7 @@ private fun FriendLists(current: FriendsResponse, viewModel: FriendsViewModel, i
         current.outgoing.forEach { user ->
             PersonRow(user) {
                 TextButton(
-                    onClick = { viewModel.decline(user) },
+                    onClick = { onEvent(FriendsEvent.Decline(user)) },
                     enabled = !isBusy,
                     modifier = Modifier.testTag(TestTags.friendCancel(user.id)),
                 ) {
@@ -155,7 +160,7 @@ private fun FriendLists(current: FriendsResponse, viewModel: FriendsViewModel, i
         current.blocked.forEach { user ->
             PersonRow(user) {
                 TextButton(
-                    onClick = { viewModel.unblock(user) },
+                    onClick = { onEvent(FriendsEvent.Unblock(user)) },
                     enabled = !isBusy,
                     modifier = Modifier.testTag(TestTags.friendUnblock(user.id)),
                 ) {

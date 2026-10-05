@@ -26,7 +26,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.ic_close
@@ -40,6 +39,7 @@ import app.hovanki.client.ui.common.PopButton
 import app.hovanki.client.ui.common.PopIconButton
 import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopSurface
+import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.client.ui.common.rememberHaptics
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.protocol.GameInvite
@@ -52,8 +52,17 @@ import org.koin.compose.viewmodel.koinViewModel
  */
 @Composable
 fun InviteBanner(modifier: Modifier = Modifier, viewModel: InviteBannerViewModel = koinViewModel()) {
-    val invite by viewModel.invite.collectAsStateWithLifecycle()
-    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
+    val state by viewModel.uiState.collectScreenState()
+    InviteBannerContent(state, viewModel::onEvent, modifier)
+}
+
+@Composable
+private fun InviteBannerContent(
+    state: InviteBannerUiState,
+    onEvent: (InviteBannerEvent) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val invite = state.invite
     val haptics = rememberHaptics()
     LaunchedEffect(invite?.id) { if (invite != null) haptics(Haptic.TICK) }
     // The last invitation, kept while the banner slides out.
@@ -68,9 +77,9 @@ fun InviteBanner(modifier: Modifier = Modifier, viewModel: InviteBannerViewModel
         shown?.let { current ->
             InviteBannerCard(
                 invite = current,
-                isBusy = isBusy,
-                onGo = { viewModel.go(current) },
-                onDismiss = { viewModel.dismiss(current) },
+                isBusy = state.isBusy,
+                onGo = { onEvent(InviteBannerEvent.Go(current)) },
+                onDismiss = { onEvent(InviteBannerEvent.Dismiss(current)) },
             )
         }
     }

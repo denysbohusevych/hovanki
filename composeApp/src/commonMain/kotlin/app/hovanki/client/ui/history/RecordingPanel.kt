@@ -9,13 +9,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.lobby_hider
@@ -52,9 +50,7 @@ import org.jetbrains.compose.resources.stringResource
  * the game's players with an account get it from the server.
  */
 @Composable
-fun RecordingPanel(viewModel: HistoryViewModel, open: OpenRecording) {
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
+fun RecordingPanel(state: HistoryUiState, open: OpenRecording, onEvent: (HistoryEvent) -> Unit) {
     val recording = open.recording
     val replay = remember(recording) { Replay.of(recording) }
     val streets = remember(recording) {
@@ -63,7 +59,7 @@ fun RecordingPanel(viewModel: HistoryViewModel, open: OpenRecording) {
     val reduceMotion = rememberReduceMotion()
     Panel(
         title = "${stringResource(Res.string.recording_title)} · ${formatDate(recording.finishedAtMillis)}",
-        onClose = viewModel::closeRecording,
+        onClose = { onEvent(HistoryEvent.CloseRecording) },
         modifier = Modifier.testTag(TestTags.RECORDING_PANEL),
     ) {
         ScreenColumn {
@@ -91,7 +87,11 @@ fun RecordingPanel(viewModel: HistoryViewModel, open: OpenRecording) {
                 }
             }
             SecondaryText(stringResource(Res.string.recording_expires, formatDate(recording.expiresAtMillis)))
-            CommandStatus(isBusy = isBusy, message = message, onDismiss = viewModel::dismissMessage)
+            CommandStatus(
+                isBusy = state.isBusy,
+                message = state.message,
+                onDismiss = { onEvent(HistoryEvent.DismissMessage) },
+            )
         }
     }
 }

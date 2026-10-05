@@ -28,7 +28,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.ic_friends
@@ -41,6 +40,7 @@ import app.hovanki.client.resources.tab_play
 import app.hovanki.client.resources.tab_profile
 import app.hovanki.client.ui.common.CountBadge
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.client.ui.friends.FriendsTab
 import app.hovanki.client.ui.groups.GroupPanel
 import app.hovanki.client.ui.groups.GroupsTab
@@ -54,6 +54,7 @@ import app.hovanki.client.ui.profile.ProfileTab
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.verify.EmailConfirmedNotice
+import app.hovanki.client.ui.verify.VerifyEmailEvent
 import app.hovanki.client.ui.verify.VerifyEmailPanel
 import app.hovanki.client.ui.verify.VerifyEmailViewModel
 import org.jetbrains.compose.resources.DrawableResource
@@ -74,52 +75,62 @@ fun MainScreen(
     verifyViewModel: VerifyEmailViewModel = koinViewModel(),
     historyViewModel: HistoryViewModel = koinViewModel(),
 ) {
-    val inbox by viewModel.inbox.collectAsStateWithLifecycle()
-    val groups by groupsViewModel.groups.collectAsStateWithLifecycle()
-    if (verifyViewModel.isOpen) {
-        VerifyEmailPanel(verifyViewModel)
+    val history by historyViewModel.uiState.collectScreenState()
+    val state by viewModel.uiState.collectScreenState()
+    val verify by verifyViewModel.uiState.collectScreenState()
+    val inbox = state.inbox
+    val groups by groupsViewModel.uiState.collectScreenState()
+    if (verify.isOpen) {
+        VerifyEmailPanel(verify, verifyViewModel::onEvent)
         return
     }
-    val openGroup = groupsViewModel.openGroupId?.let { id -> groups?.groups?.firstOrNull { it.id == id } }
+    val openGroup = groups.openGroup
     if (openGroup != null) {
-        GroupPanel(group = openGroup, viewModel = groupsViewModel)
+        GroupPanel(group = openGroup, state = groups, onEvent = groupsViewModel::onEvent)
         return
     }
-    val openRoute = historyViewModel.route
+    val openRoute = history.route
     if (openRoute != null) {
-        RoutePanel(historyViewModel, openRoute)
+        RoutePanel(history, openRoute, historyViewModel::onEvent)
         return
     }
-    val openRecording = historyViewModel.recording
+    val openRecording = history.recording
     if (openRecording != null) {
-        RecordingPanel(historyViewModel, openRecording)
+        RecordingPanel(history, openRecording, historyViewModel::onEvent)
         return
     }
-    if (historyViewModel.isOpen) {
-        HistoryPanel(historyViewModel)
+    if (history.isOpen) {
+        HistoryPanel(history, historyViewModel::onEvent)
         return
     }
 
-    val tab = viewModel.tab
+    val tab = state.tab
     // Back from another tab goes to «Play»; from «Play» it leaves the app as usual.
-    SystemBackHandler(enabled = tab != MainTab.PLAY, onBack = { viewModel.select(MainTab.PLAY) })
+    SystemBackHandler(enabled = tab != MainTab.PLAY, onBack = { viewModel.onEvent(MainEvent.SelectTab(MainTab.PLAY)) })
 
     Column(modifier = Modifier.fillMaxSize()) {
-        if (verifyViewModel.showConfirmed) {
+        if (verify.showConfirmed) {
             EmailConfirmedNotice(
-                onDismiss = verifyViewModel::dismissConfirmed,
+                onDismiss = { verifyViewModel.onEvent(VerifyEmailEvent.DismissConfirmed) },
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             )
         }
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
-                MainTab.PLAY -> PlayTab(invites = inbox.invites, verify = verifyViewModel)
+                MainTab.PLAY -> PlayTab(
+                    invites = inbox.invites,
+                    verify = verify,
+                    onVerifyEvent = verifyViewModel::onEvent,
+                )
+
                 MainTab.FRIENDS -> FriendsTab()
-                MainTab.GROUPS -> GroupsTab(groupsViewModel)
-                MainTab.PROFILE -> ProfileTab(verify = verifyViewModel, history = historyViewModel)
+
+                MainTab.GROUPS -> GroupsTab(groups, groupsViewModel::onEvent)
+
+                MainTab.PROFILE -> ProfileTab(onVerifyEvent = verifyViewModel::onEvent, history = historyViewModel)
             }
         }
-        FloatingTabBar(selected = tab, onSelect = viewModel::select, badges = { item ->
+        FloatingTabBar(selected = tab, onSelect = { viewModel.onEvent(MainEvent.SelectTab(it)) }, badges = { item ->
             when (item) {
                 MainTab.PLAY -> inbox.invites.size
                 MainTab.FRIENDS -> inbox.friendRequests.size
