@@ -143,7 +143,7 @@ import org.koin.compose.koinInject
  * details a tap away.
  */
 
-/** The join code on lime in one row: the code, «Share» (the system menu) and «Copy». */
+/** The join code on green in one row: the code, «Share» (the system menu) and «Copy». */
 @Composable
 internal fun JoinCodeRow(joinCode: String, onCopied: () -> Unit) {
     val clipboard = LocalClipboard.current
@@ -152,7 +152,7 @@ internal fun JoinCodeRow(joinCode: String, onCopied: () -> Unit) {
     val shareText = stringResource(Res.string.lobby_share_text, joinCode)
     PopCard(
         modifier = Modifier.fillMaxWidth(),
-        color = Palette.Lime,
+        color = Palette.Green,
         borderWidth = 2.5.dp,
         shadow = 5.dp,
         shape = RoundedCornerShape(24.dp),
@@ -194,7 +194,7 @@ internal fun JoinCodeRow(joinCode: String, onCopied: () -> Unit) {
 
 /**
  * «Where we play»: the zone on the map for everybody, its shape and whether it shrinks, the buildings (pink, open ones
- * lime) and the state of the map's data. A tap opens it full screen.
+ * green) and the state of the map's data. A tap opens it full screen.
  */
 @Composable
 internal fun WherePlayCard(state: LobbyUiState, onExpand: () -> Unit) {
@@ -230,7 +230,7 @@ internal fun WherePlayCard(state: LobbyUiState, onExpand: () -> Unit) {
             if (open > 0) {
                 MapLabel(
                     stringResource(Res.string.lobby_map_open, open),
-                    color = Palette.Lime,
+                    color = Palette.Green,
                     contentColor = Palette.Ink,
                 )
             }
@@ -376,7 +376,7 @@ internal fun SettingsTiles(state: LobbyUiState, onOpenSettings: (SettingsTab) ->
                     stringResource(Res.string.lobby_chip_open_live)
                 },
                 color = Palette.Ink,
-                contentColor = Palette.Lime,
+                contentColor = Palette.Green,
                 icon = Res.drawable.ic_eye,
                 modifier = Modifier.testTag(TestTags.LOBBY_OPEN),
             )
@@ -385,7 +385,7 @@ internal fun SettingsTiles(state: LobbyUiState, onOpenSettings: (SettingsTab) ->
         if (state.features.hasBoard) {
             PopChip(
                 text = stringResource(Res.string.lobby_board_count, state.items.size),
-                color = Palette.Orange,
+                color = Palette.Green,
                 contentColor = Palette.Ink,
                 border = Palette.Ink,
                 onClick = onOpenBoard.takeIf { state.isHost },
@@ -395,7 +395,7 @@ internal fun SettingsTiles(state: LobbyUiState, onOpenSettings: (SettingsTab) ->
         if (open != null) {
             PopChip(
                 text = stringResource(Res.string.lobby_settings),
-                color = Palette.Lime,
+                color = Palette.Green,
                 contentColor = Palette.Ink,
                 border = Palette.Ink,
                 icon = Res.drawable.ic_sliders,
@@ -442,7 +442,7 @@ private fun FeatureChips(state: LobbyUiState) {
         Res.string.lobby_chip_pickups.takeIf { features.pickups },
         Res.string.lobby_chip_activity.takeIf { features.activity },
     )
-    chips.forEach { chip -> PopChip(text = stringResource(chip), color = Palette.Violet, contentColor = Color.White) }
+    chips.forEach { chip -> PopChip(text = stringResource(chip), color = Palette.Pink, contentColor = Color.White) }
 }
 
 /**
@@ -480,7 +480,7 @@ internal fun RadarRow(state: LobbyUiState, onEvent: (LobbyEvent) -> Unit) {
         bluetooth == BluetoothState.ON && !state.radarEnabled ->
             stringResource(Res.string.lobby_bluetooth_by_player) to Palette.Sand
 
-        bluetooth == BluetoothState.ON -> stringResource(Res.string.lobby_bluetooth_on) to Palette.Lime
+        bluetooth == BluetoothState.ON -> stringResource(Res.string.lobby_bluetooth_on) to Palette.Green
 
         bluetooth == BluetoothState.DENIED -> stringResource(Res.string.lobby_bluetooth_denied) to Palette.Pink
 

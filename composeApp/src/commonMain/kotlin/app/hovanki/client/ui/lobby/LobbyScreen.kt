@@ -129,7 +129,7 @@ import kotlin.random.Random
 import app.hovanki.shared.protocol.Role as GameRole
 
 /**
- * The lobby (docs/design.md, «Лобби»): the join code on a lime card, the game's settings (the host changes them), the
+ * The lobby (docs/design.md, «Лобби»): the join code on a green card, the game's settings (the host changes them), the
  * players with their role pills (the host switches them, everybody sees them), and «Start» at the bottom.
  */
 @Composable
@@ -502,7 +502,7 @@ private fun PlayerRow(
     }
 }
 
-/** «Seeks» in orange or «hides» in violet; the host taps it to switch ([onClick]), the others only see it. */
+/** «Seeks» in ink or «hides» in pink; the host taps it to switch ([onClick]), the others only see it. */
 @Composable
 private fun RolePill(isSeeker: Boolean, onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
     val role = if (isSeeker) GameRole.SEEKER else GameRole.HIDER
@@ -575,14 +575,14 @@ private fun rememberFlicker(trigger: Int, actual: Boolean, seed: Int): Boolean {
 }
 
 /**
- * A big game's lobby (docs/adr/0010-big-games.md): the title on violet, when it starts in the place's time, and how many
+ * A big game's lobby (docs/adr/0010-big-games.md): the title on pink, when it starts in the place's time, and how many
  * are here and signed up. No join code: only the signed-up come in, from their «Play» tab.
  */
 @Composable
 private fun BigGameCard(bigGame: BigGameInfo, playersHere: Int) {
     PopCard(
         modifier = Modifier.fillMaxWidth().testTag(TestTags.BIG_LOBBY),
-        color = Palette.Violet,
+        color = Palette.Pink,
         borderWidth = 2.5.dp,
         shadow = 5.dp,
         shape = RoundedCornerShape(24.dp),

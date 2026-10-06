@@ -155,7 +155,7 @@ fun RoutesCard(
                 enabled = !isBusy,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Palette.Ink,
-                    checkedTrackColor = Palette.Lime,
+                    checkedTrackColor = Palette.Green,
                     checkedBorderColor = Palette.Ink,
                     uncheckedThumbColor = Palette.Ink3,
                     uncheckedTrackColor = Palette.Paper,

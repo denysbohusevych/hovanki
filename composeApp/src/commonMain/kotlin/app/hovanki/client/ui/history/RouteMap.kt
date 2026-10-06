@@ -28,6 +28,7 @@ import app.hovanki.client.ui.game.zoomToFit
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.client.ui.theme.color
 import app.hovanki.shared.protocol.GameRoute
+import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.rules.StreetZone
 import org.maplibre.compose.camera.CameraPosition
 import org.maplibre.compose.expressions.dsl.const
@@ -79,7 +80,8 @@ fun RouteMap(route: GameRoute, modifier: Modifier = Modifier) {
             LineLayer(
                 id = "route-casing",
                 source = line,
-                color = const(Palette.Ink),
+                // A seeker's path is ink itself: its casing is white.
+                color = const(if (route.role == Role.SEEKER) Color.White else Palette.Ink),
                 width = const(7.dp),
                 join = const(LineJoin.Round),
                 cap = const(LineCap.Round),

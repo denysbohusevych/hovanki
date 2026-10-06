@@ -115,7 +115,7 @@ private fun DebugTab(onClick: () -> Unit, label: String, accuracy: String?, modi
             .padding(horizontal = 6.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(label, color = Palette.Lime, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(label, color = Palette.Green, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         if (accuracy != null) Text(accuracy, color = Color.White, fontSize = 10.sp)
     }
 }
@@ -406,7 +406,7 @@ internal fun BenchSwitch(text: String, checked: Boolean, enabled: Boolean, onChe
             enabled = enabled,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Palette.Ink,
-                checkedTrackColor = Palette.Lime,
+                checkedTrackColor = Palette.Green,
                 checkedBorderColor = Palette.Ink,
                 uncheckedThumbColor = Palette.Ink3,
                 uncheckedTrackColor = Palette.Paper,

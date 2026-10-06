@@ -850,7 +850,7 @@ private fun DecoyBar(canPut: Boolean, onPut: () -> Unit, onCancel: () -> Unit, m
     PopSurface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        color = Palette.Violet,
+        color = Palette.Hider,
         shadow = 4.dp,
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -985,7 +985,7 @@ private fun VoteCard(claim: ClaimUi, voteTimeoutMillis: Long, isBusy: Boolean, o
                 CountdownRing(
                     progress = if (voteTimeoutMillis > 0) millisLeft.toFloat() / voteTimeoutMillis else 0f,
                     text = formatCountdown(millisLeft),
-                    color = Palette.Orange,
+                    color = Palette.Pink,
                     trackColor = Palette.Line,
                     textColor = Palette.Ink,
                     size = 48.dp,
@@ -1015,7 +1015,7 @@ private fun VoteCard(claim: ClaimUi, voteTimeoutMillis: Long, isBusy: Boolean, o
 }
 
 /**
- * The hider's side of a catch, over the whole screen in violet: who says they caught the hider, how long until it
+ * The hider's side of a catch, over the whole screen in pink: who says they caught the hider, how long until it
  * counts by itself, the code and «Dispute».
  */
 @Composable
@@ -1061,7 +1061,7 @@ private fun ShowCodeLayer(
                                 .fillMaxWidth(fraction)
                                 .height(10.dp)
                                 .clip(RoundedCornerShape(5.dp))
-                                .background(Palette.Lime),
+                                .background(Palette.Green),
                         )
                     }
                 }
@@ -1106,7 +1106,7 @@ private fun MyCodeLayer(code: CatchCode?, qr: String?, codePeriodMillis: Long, o
 }
 
 /**
- * The catch code over the whole screen in violet: [title] and [hint], what [top] adds, the QR code as big as the room
+ * The catch code over the whole screen in pink: [title] and [hint], what [top] adds, the QR code as big as the room
  * allows (for the seeker's camera), the digits as tiles (to read out) with the ring until the next code, and [bottom].
  */
 @Composable
@@ -1126,7 +1126,7 @@ private fun CodeLayer(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Palette.Violet)
+            .background(Palette.Hider)
             .appSafeDrawingPadding()
             .padding(horizontal = 24.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -1182,7 +1182,7 @@ private fun CodeLayer(
                 CountdownRing(
                     progress = if (codePeriodMillis > 0) code.millisUntilNext.toFloat() / codePeriodMillis else 0f,
                     text = formatCountdown(code.millisUntilNext),
-                    color = Palette.Lime,
+                    color = Palette.Green,
                     trackColor = Palette.Ink,
                     textColor = Color.White,
                     size = 52.dp,
@@ -1223,7 +1223,7 @@ private fun ScannerLayer(
             modifier = Modifier
                 .align(Alignment.Center)
                 .size(250.dp)
-                .border(4.dp, Palette.Lime, RoundedCornerShape(28.dp)),
+                .border(4.dp, Palette.Green, RoundedCornerShape(28.dp)),
         )
         Column(
             modifier = Modifier.fillMaxSize().appSafeDrawingPadding().padding(16.dp),

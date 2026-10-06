@@ -34,7 +34,7 @@ import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
 
-/** A short note in an ink capsule with a lime icon (docs/design.md, `Toast`), read out by screen readers. */
+/** A short note in an ink capsule with a green icon (docs/design.md, `Toast`), read out by screen readers. */
 @Composable
 fun Toast(
     visible: Boolean,
@@ -61,7 +61,7 @@ fun Toast(
                 Icon(
                     painter = painterResource(it),
                     contentDescription = null,
-                    tint = Palette.Lime,
+                    tint = Palette.Green,
                     modifier = Modifier.size(20.dp),
                 )
             }

@@ -232,7 +232,7 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
             scope.drawPath(circlePath(86f, 70f, next), Palette.Ink, style = dashed(1.8f))
         }
         val moving = (t in 0.2f..0.33f) || (t in 0.53f..0.66f)
-        ring(listOf(circlePath(86f, 70f, radius)), core = if (moving) Palette.Pink else Palette.Lime)
+        ring(listOf(circlePath(86f, 70f, radius)), core = if (moving) Palette.Pink else Palette.Green)
     }
 
     private fun glow(t: Float, labels: ExplainerLabels) {
@@ -242,8 +242,8 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
         if (on > 0f) {
             val ping = (t * 4f) % 1f
             hiders.forEach { at ->
-                scope.drawCircle(Palette.Violet.copy(alpha = on * (1f - ping) * 0.6f), 7f * k * (1f + 1.6f * ping), at)
-                dot(at, Palette.Violet, alpha = on)
+                scope.drawCircle(Palette.Hider.copy(alpha = on * (1f - ping) * 0.6f), 7f * k * (1f + 1.6f * ping), at)
+                dot(at, Palette.Hider, alpha = on)
             }
             chip(labels.glow, 60f, 116f, Palette.Orange, Palette.Ink, alpha = on)
         }
@@ -271,10 +271,10 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
         }
         val seen = window(t, 0.79f, 0.82f) - window(t, 0.97f, 1f)
         if (seen > 0f) {
-            scope.drawCircle(Palette.Violet.copy(alpha = seen * 0.25f), 16f * k, at)
+            scope.drawCircle(Palette.Hider.copy(alpha = seen * 0.25f), 16f * k, at)
             eye(at, seen)
         } else {
-            dot(at, Palette.Violet)
+            dot(at, Palette.Hider)
         }
     }
 
@@ -290,7 +290,7 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
         }
         val walk = ease(window(t, 0.48f, 0.75f))
         val at = p(lerp(43f, 121f, walk), lerp(114f, 62f, walk))
-        dot(at, Palette.Violet)
+        dot(at, Palette.Hider)
         val ok = window(t, 0.77f, 0.8f) - window(t, 0.97f, 1f)
         if (ok > 0f) check(p(138f, 44f), ok)
     }
@@ -331,20 +331,20 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
         scope.drawPath(curve, Palette.Ink.copy(alpha = 0.4f), style = dashed(1.5f))
         val late = t - SPECTATOR_LAG
         if (late >= 0f) mark(bezier(route, late), 1f)
-        dot(bezier(route, t), Palette.Violet)
-        chip("1:00", 8f, 8f, Palette.Ink, Palette.Lime)
+        dot(bezier(route, t), Palette.Hider)
+        chip("1:00", 8f, 8f, Palette.Ink, Palette.Green)
     }
 
     private fun radar(t: Float, labels: ExplainerLabels) {
         scope.drawLine(Color.White, p(0f, 70f), p(DESIGN_WIDTH, 70f), 10f * k)
         val hider = p(140f, 70f)
-        scope.drawCircle(Palette.Violet.copy(alpha = 0.25f), 8f * k, hider)
-        scope.drawCircle(Palette.Violet, 8f * k, hider, style = dashed(2f))
+        scope.drawCircle(Palette.Hider.copy(alpha = 0.25f), 8f * k, hider)
+        scope.drawCircle(Palette.Hider, 8f * k, hider, style = dashed(2f))
         val seeker = p(lerp(28f, 108f, ease(window(t, 0.05f, 0.8f))), 70f)
         val ping = (t * 3f) % 1f
         val wave = 9f * k * (1f + 2.2f * ping)
-        scope.drawCircle(Palette.Orange.copy(alpha = 1f - ping), wave, seeker, style = Stroke(3f * k))
-        dot(seeker, Palette.Orange, border = Palette.Ink)
+        scope.drawCircle(Palette.Seeker.copy(alpha = 1f - ping), wave, seeker, style = Stroke(3f * k))
+        dot(seeker, Palette.Seeker)
         val (text, color) = when {
             t < 0.33f -> labels.warm to Palette.Sand
             t < 0.66f -> labels.hot to Palette.Orange
@@ -355,10 +355,10 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
 
     private fun sense(t: Float) {
         scope.drawLine(Color.White, p(0f, 70f), p(DESIGN_WIDTH, 70f), 10f * k)
-        dot(p(lerp(20f, 96f, ease(window(t, 0.05f, 0.7f))), 70f), Palette.Orange, border = Palette.Ink)
+        dot(p(lerp(20f, 96f, ease(window(t, 0.05f, 0.7f))), 70f), Palette.Seeker)
         val buzzing = t in 0.55f..0.9f
         val shake = if (buzzing) sin(t * 160f) * 3f else 0f
-        phone(p(132f + shake, 70f), Palette.Violet, Palette.VioletLight)
+        phone(p(132f + shake, 70f), Palette.Hider, Palette.PinkLight)
         if (buzzing) {
             listOf(-1f, 1f).forEach { side ->
                 arc(p(132f + side * 24f, 70f), 10f, if (side < 0) 120f else -60f)
@@ -370,22 +370,22 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
     private fun proximity(t: Float) {
         scope.drawLine(Color.White, p(0f, 78f), p(DESIGN_WIDTH, 78f), 10f * k)
         val hider = p(130f, 78f)
-        scope.drawCircle(Palette.Violet.copy(alpha = 0.1f), 24f * k, hider)
+        scope.drawCircle(Palette.Hider.copy(alpha = 0.1f), 24f * k, hider)
         scope.drawCircle(Palette.Ink, 24f * k, hider, style = dashed(1.8f))
-        dot(hider, Palette.Violet)
+        dot(hider, Palette.Hider)
         val x = when {
             t < 0.35f -> lerp(30f, 80f, ease(window(t, 0f, 0.35f)))
             t < 0.55f -> 80f
             t < 0.8f -> lerp(80f, 118f, ease(window(t, 0.55f, 0.8f)))
             else -> 118f
         }
-        dot(p(x, 78f), Palette.Orange, border = Palette.Ink)
+        dot(p(x, 78f), Palette.Seeker)
         if (t in 0.36f..0.55f) chip("×", 72f, 20f, Palette.Pink, Palette.Ink)
         if (t > 0.82f) check(p(86f, 32f), 1f)
     }
 
     private fun pocket(t: Float, labels: ExplainerLabels) {
-        dot(p(36f, 76f), Palette.Orange, border = Palette.Ink)
+        dot(p(36f, 76f), Palette.Seeker)
         val inPocket = ease(window(t, 0.4f, 0.55f)) - ease(window(t, 0.92f, 1f))
         // The pocket: the phone slides into it, the screen goes dark.
         val pocket = Path().apply {
@@ -395,8 +395,8 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
             cubicTo(156f * k, 124f * k, 108f * k, 124f * k, 108f * k, 104f * k)
             close()
         }
-        val screen = if (inPocket > 0.5f) Palette.Ink else Palette.VioletLight
-        phone(p(132f, lerp(56f, 92f, inPocket)), Palette.Violet, screen)
+        val screen = if (inPocket > 0.5f) Palette.Ink else Palette.PinkLight
+        phone(p(132f, lerp(56f, 92f, inPocket)), Palette.Hider, screen)
         scope.drawPath(pocket, Palette.Sand)
         scope.drawPath(pocket, Palette.Ink, style = Stroke(2.5f * k))
         val (text, color) = if (inPocket > 0.5f) labels.warm to Palette.Sand else labels.hot to Palette.Orange
@@ -404,8 +404,8 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
     }
 
     private fun precision(t: Float) {
-        phone(p(40f, 70f), Palette.Ink, Palette.Lime)
-        phone(p(132f, 70f), Palette.Ink, Palette.Lime)
+        phone(p(40f, 70f), Palette.Ink, Palette.Green)
+        phone(p(132f, 70f), Palette.Ink, Palette.Green)
         val near = ease(window(t, 0.1f, 0.85f))
         val meters = lerp(12f, 2f, near).toInt()
         val angle = lerp(-25f, 0f, near) + sin(t * 12f) * 4f
@@ -419,7 +419,7 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
             }
             scope.drawPath(head, Palette.Ink)
         }
-        chip("$meters m", 70f, 16f, Palette.Lime, Palette.Ink)
+        chip("$meters m", 70f, 16f, Palette.Green, Palette.Ink)
     }
 
     private fun activity(t: Float, labels: ExplainerLabels) {
@@ -427,26 +427,26 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
         val x = lerp(20f, 150f, t)
         listOf(10f, 20f, 30f).forEach { back ->
             val y = 86f + back / 10f
-            val trail = Palette.Violet.copy(alpha = 0.5f)
+            val trail = Palette.Hider.copy(alpha = 0.5f)
             scope.drawLine(trail, p(x - back - 6f, y), p(x - back, y), 2.5f * k, StrokeCap.Round)
         }
-        dot(p(x, 90f), Palette.Violet)
-        if (t > 0.15f) chip(labels.running, 60f, 24f, Palette.Lime, Palette.Ink)
+        dot(p(x, 90f), Palette.Hider)
+        if (t > 0.15f) chip(labels.running, 60f, 24f, Palette.Green, Palette.Ink)
     }
 
     private fun quests(t: Float) {
         path(listOf(20f to 118f, 70f to 108f, 120f to 88f), Color.White, 8f)
         flag(p(128f, 88f))
         val walk = ease(window(t, 0.05f, 0.6f))
-        dot(p(lerp(26f, 120f, walk), lerp(116f, 88f, walk)), Palette.Violet)
+        dot(p(lerp(26f, 120f, walk), lerp(116f, 88f, walk)), Palette.Hider)
         val spark = window(t, 0.62f, 0.95f)
         if (spark > 0f && spark < 1f) {
-            chip("+3", 124f, 60f - 24f * spark, Palette.Lime, Palette.Ink, alpha = 1f - spark * 0.5f)
+            chip("+3", 124f, 60f - 24f * spark, Palette.Green, Palette.Ink, alpha = 1f - spark * 0.5f)
         }
     }
 
     private fun perks(t: Float) {
-        listOf(Palette.Violet, Palette.Orange, Palette.Pink).forEachIndexed { index, color ->
+        listOf(Palette.Pink, Palette.Green, Palette.Paper).forEachIndexed { index, color ->
             val start = index * 0.12f
             val pop = window(t, start, start + 0.12f)
             val scale = if (pop < 1f) 0.6f + 0.55f * sin(pop * PI.toFloat()) + 0.4f * pop else 1f
@@ -465,10 +465,10 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
             scope.drawRect(Palette.Ink, it, Size(12f * k, 12f * k))
         }
         scope.drawRect(Palette.Ink, p(140f, 68f), Size(5f * k, 5f * k))
-        phone(p(lerp(30f, 76f, ease(window(t, 0.05f, 0.55f))), 64f), Palette.Ink, Palette.Lime)
+        phone(p(lerp(30f, 76f, ease(window(t, 0.05f, 0.55f))), 64f), Palette.Ink, Palette.Green)
         val scan = window(t, 0.58f, 0.78f)
-        if (scan > 0f && scan < 1f) scope.drawRect(Palette.Lime, p(104f, 38f + 46f * scan), Size(60f * k, 4f * k))
-        if (t > 0.8f) chip("+2", 116f, 12f, Palette.Lime, Palette.Ink)
+        if (scan > 0f && scan < 1f) scope.drawRect(Palette.Green, p(104f, 38f + 46f * scan), Size(60f * k, 4f * k))
+        if (t > 0.8f) chip("+2", 116f, 12f, Palette.Green, Palette.Ink)
     }
 
     private fun pickups(t: Float) {
@@ -479,7 +479,7 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
             scope.drawCircle(Palette.Ink, 8f * k, p(130f, 60f), style = Stroke(2f * k))
         }
         val walk = ease(window(t, 0.05f, 0.6f))
-        dot(p(lerp(24f, 128f, walk), lerp(118f, 62f, walk)), Palette.Violet)
+        dot(p(lerp(24f, 128f, walk), lerp(118f, 62f, walk)), Palette.Hider)
         val sparkle = window(t, 0.6f, 0.85f)
         if (sparkle > 0f && sparkle < 1f) {
             repeat(6) { i ->
@@ -505,7 +505,7 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
 
     private fun house(x: Float, y: Float, w: Float, h: Float, open: Boolean) {
         if (open) {
-            scope.drawRect(Palette.Lime, p(x, y), Size(w * k, h * k))
+            scope.drawRect(Palette.Green, p(x, y), Size(w * k, h * k))
             scope.drawRect(Palette.Ink, p(x, y), Size(w * k, h * k), style = dashed(2f))
         } else {
             scope.drawRect(Palette.Pink.copy(alpha = 0.3f), p(x, y), Size(w * k, h * k))
@@ -513,7 +513,7 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
         }
     }
 
-    private fun ring(shapes: List<Path>, alpha: Float = 1f, core: Color = Palette.Lime) {
+    private fun ring(shapes: List<Path>, alpha: Float = 1f, core: Color = Palette.Green) {
         if (alpha <= 0f) return
         shapes.forEach { shape ->
             scope.drawPath(shape, Palette.Ink.copy(alpha = alpha), style = Stroke(7f * k, join = StrokeJoin.Round))
@@ -538,14 +538,14 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
     }
 
     private fun eye(at: Offset, alpha: Float) {
-        scope.drawCircle(Palette.Orange.copy(alpha = alpha), 10f * k, at)
+        scope.drawCircle(Palette.Seeker.copy(alpha = alpha), 10f * k, at)
         scope.drawCircle(Palette.Ink.copy(alpha = alpha), 10f * k, at, style = Stroke(2f * k))
         scope.drawOval(Color.White.copy(alpha = alpha), Offset(at.x - 7f * k, at.y - 4f * k), Size(14f * k, 8f * k))
         scope.drawCircle(Palette.Ink.copy(alpha = alpha), 2f * k, at)
     }
 
     private fun check(at: Offset, alpha: Float) {
-        scope.drawCircle(Palette.Lime.copy(alpha = alpha), 10f * k, at)
+        scope.drawCircle(Palette.Green.copy(alpha = alpha), 10f * k, at)
         scope.drawCircle(Palette.Ink.copy(alpha = alpha), 10f * k, at, style = Stroke(2f * k))
         val tick = Path().apply {
             moveTo(at.x - 4.5f * k, at.y)
@@ -563,8 +563,8 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
             lineTo(at.x + 8f * k, at.y - 15f * k)
             close()
         }
-        scope.drawPath(body, Palette.Lime)
-        scope.drawCircle(Palette.Lime, 10f * k, head)
+        scope.drawPath(body, Palette.Green)
+        scope.drawCircle(Palette.Green, 10f * k, head)
         scope.drawCircle(Palette.Ink, 10f * k, head, style = Stroke(2.2f * k))
         scope.drawCircle(Palette.Ink, 3.5f * k, head)
     }
@@ -587,7 +587,7 @@ private class Sketch(private val scope: DrawScope, private val k: Float, private
             lineTo(at.x, at.y - 24f * k)
             close()
         }
-        scope.drawPath(cloth, Palette.Lime)
+        scope.drawPath(cloth, Palette.Green)
         scope.drawPath(cloth, Palette.Ink, style = Stroke(2f * k, join = StrokeJoin.Round))
     }
 

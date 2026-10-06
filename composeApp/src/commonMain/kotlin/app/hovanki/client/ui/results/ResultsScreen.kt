@@ -129,7 +129,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import kotlin.math.roundToInt
 
 /**
- * Final standings of the finished game ([snapshot] no longer changes) on lime (docs/design.md, «Итоги»): when each
+ * Final standings of the finished game ([snapshot] no longer changes) on green (docs/design.md, «Итоги»): when each
  * hider was out and who found them, awards, the replay of everybody's way once the tracks are loaded, players to add as
  * friends, and the chat: the game keeps polling for it until the player goes back to the start.
  */
@@ -190,7 +190,7 @@ private fun ResultsContent(
             }
             PopCard(
                 modifier = Modifier.fillMaxWidth(),
-                color = Palette.Lime,
+                color = Palette.Green,
                 borderWidth = 2.5.dp,
                 shadow = 6.dp,
                 shape = RoundedCornerShape(28.dp),
@@ -320,7 +320,7 @@ private fun ResultCount(label: StringResource, count: Int, reduceMotion: Boolean
         Text(
             text = shown.value.roundToInt().toString(),
             style = Hovanki.text.timer,
-            color = Palette.Lime,
+            color = Palette.Green,
         )
         CapsText(stringResource(label), color = Color.White)
     }
@@ -388,14 +388,14 @@ private fun PlayerOutcome(player: PlayerView, snapshot: GameSnapshot) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         SecondaryText(text)
         if (seeker != null) {
-            PopChip(text = seeker.name, color = Palette.Orange, contentColor = Palette.Ink, border = Palette.Ink)
+            PopChip(text = seeker.name, color = Palette.Seeker, contentColor = Palette.Green, border = null)
         }
         // The sparks left at the end (docs/adr/0013-quests-sparks-and-sensors.md), in a game that had them.
         val sparks = player.sparks
         if (sparks != null && sparks > 0) {
             PopChip(
                 text = stringResource(Res.string.sparks_count, sparks),
-                color = Palette.Lime,
+                color = Palette.Green,
                 contentColor = Palette.Ink,
                 border = Palette.Ink,
                 modifier = if (player.id ==
@@ -431,6 +431,7 @@ private fun Awards(awards: List<Award>, snapshot: GameSnapshot, reduceMotion: Bo
                     translationY = (1f - drop.value) * -GROUP_DROP_DP.dp.toPx()
                 },
                 color = Palette.Pink,
+                contentColor = Color.White,
                 shadow = 3.dp,
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
             ) {
@@ -441,7 +442,7 @@ private fun Awards(awards: List<Award>, snapshot: GameSnapshot, reduceMotion: Bo
                     Icon(
                         painter = painterResource(Res.drawable.ic_trophy),
                         contentDescription = null,
-                        tint = Palette.Ink,
+                        tint = Color.White,
                         modifier = Modifier.size(28.dp),
                     )
                     Column(modifier = Modifier.weight(1f)) {

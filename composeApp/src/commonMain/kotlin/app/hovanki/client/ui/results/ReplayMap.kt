@@ -107,7 +107,7 @@ internal fun ReplayMap(replay: Replay, zone: ZoneTimeline, atMillis: Long, modif
                 source = source,
                 color = const(role.color),
                 radius = const(7.dp),
-                strokeColor = const(Palette.Ink),
+                strokeColor = const(if (role == Role.SEEKER) Color.White else Palette.Ink),
                 strokeWidth = const(2.dp),
             )
         }

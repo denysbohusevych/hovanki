@@ -79,7 +79,7 @@ fun ProfileTab(
     ScreenColumn(modifier = Modifier.testTag(TestTags.PROFILE_SCREEN)) {
         PopCard(modifier = Modifier.fillMaxWidth(), shadow = 5.dp, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Avatar(name = user.nickname, color = Palette.Violet, contentColor = Palette.Paper, size = 64.dp)
+                Avatar(name = user.nickname, color = Palette.Pink, contentColor = Palette.Paper, size = 64.dp)
                 Column(modifier = Modifier.weight(1f)) {
                     SecondaryText(stringResource(Res.string.profile_nickname))
                     Text(

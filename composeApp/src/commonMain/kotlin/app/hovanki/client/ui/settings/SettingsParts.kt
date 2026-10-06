@@ -230,7 +230,7 @@ internal fun SettingsTabs(selected: SettingsTab, onPick: (SettingsTab) -> Unit, 
                     .weight(1f)
                     .height(40.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (isSelected) Palette.Lime else Color.Transparent)
+                    .background(if (isSelected) Palette.Green else Color.Transparent)
                     .border(if (isSelected) 2.dp else 0.dp, Palette.Ink, RoundedCornerShape(12.dp))
                     .selectable(selected = isSelected, role = Role.Tab, onClick = { onPick(tab) })
                     .testTag(TestTags.settingsTab(tab.name)),
@@ -295,7 +295,7 @@ internal fun ZoneTab(state: LobbyUiState, settings: SettingsPanelState, onEvent:
                 valueRange = GameSetup.RADIUS_METERS.first.toFloat()..GameSetup.RADIUS_METERS.last.toFloat(),
                 colors = SliderDefaults.colors(
                     thumbColor = Palette.Ink,
-                    activeTrackColor = Palette.Lime,
+                    activeTrackColor = Palette.Green,
                     inactiveTrackColor = Palette.Sand,
                     activeTickColor = Color.Transparent,
                     inactiveTickColor = Color.Transparent,
@@ -405,7 +405,7 @@ internal fun TimeTab(settings: SettingsPanelState, onEvent: (LobbyEvent) -> Unit
         val glows = remember(draft) { glowStarts(draft).size }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Legend(Palette.Pink, stringResource(Res.string.settings_legend_shrink), diamond = false)
-            Legend(Palette.Lime, stringResource(Res.string.settings_legend_glow), diamond = true)
+            Legend(Palette.Green, stringResource(Res.string.settings_legend_glow), diamond = true)
             Spacer(Modifier.weight(1f))
             SecondaryText(
                 if (Glow.isOn(draft)) {
@@ -420,7 +420,7 @@ internal fun TimeTab(settings: SettingsPanelState, onEvent: (LobbyEvent) -> Unit
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         StepperTile(
             label = stringResource(Res.string.settings_hiding_short),
-            labelColor = Palette.Violet,
+            labelColor = Palette.Ink,
             name = "hiding",
             value = stringResource(Res.string.settings_minutes, setup.hidingMinutes),
             onMinus = { edit(setup.copy(hidingMinutes = setup.hidingMinutes - 1)) },
@@ -431,7 +431,7 @@ internal fun TimeTab(settings: SettingsPanelState, onEvent: (LobbyEvent) -> Unit
         )
         StepperTile(
             label = stringResource(Res.string.settings_seeking_short),
-            labelColor = Palette.OrangeInk,
+            labelColor = Palette.Ink,
             name = "seeking",
             value = stringResource(Res.string.settings_minutes, setup.seekingMinutes),
             onMinus = { edit(setup.copy(seekingMinutes = setup.seekingMinutes - GameSetup.SEEKING_STEP_MINUTES)) },
@@ -495,7 +495,7 @@ private fun GameTimeline(draft: GameSettings, playhead: Float?) {
                     .border(2.5.dp, Palette.Ink, RoundedCornerShape(12.dp)),
             ) {
                 Box(
-                    modifier = Modifier.weight(hiding.coerceAtLeast(1f)).fillMaxSize().background(Palette.Violet),
+                    modifier = Modifier.weight(hiding.coerceAtLeast(1f)).fillMaxSize().background(Palette.Hider),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Text(
@@ -508,7 +508,7 @@ private fun GameTimeline(draft: GameSettings, playhead: Float?) {
                     )
                 }
                 Box(
-                    modifier = Modifier.weight(draft.seekingSeconds.toFloat()).fillMaxSize().background(Palette.Orange),
+                    modifier = Modifier.weight(draft.seekingSeconds.toFloat()).fillMaxSize().background(Palette.Seeker),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Text(
@@ -552,7 +552,7 @@ private fun GameTimeline(draft: GameSettings, playhead: Float?) {
                     lineTo(x - half, y)
                     close()
                 }
-                drawPath(mark, Palette.Lime)
+                drawPath(mark, Palette.Green)
                 drawPath(mark, Palette.Ink, style = Stroke(border, join = StrokeJoin.Round))
             }
         }
@@ -922,7 +922,7 @@ internal fun SaveBar(state: LobbyUiState, settings: SettingsPanelState, onEvent:
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Palette.Cream)
+            .background(Palette.Fog)
             .padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -1028,11 +1028,11 @@ internal fun ChangesSheet(changes: List<SettingsChange>, isSaving: Boolean, onSa
 
 @Composable
 private fun ChangeRow(change: SettingsChange) {
-    val lime = Palette.Lime
+    val green = Palette.Green
     val (icon, tile, texts) = when (change) {
         is SettingsChange.ZoneSize -> Triple(
             Res.drawable.ic_rings,
-            lime,
+            green,
             stringResource(
                 Res.string.changes_zone_size,
                 distanceText(change.fromMeters.toDouble()),
@@ -1042,7 +1042,7 @@ private fun ChangeRow(change: SettingsChange) {
 
         is SettingsChange.ZoneShapeTo -> Triple(
             Res.drawable.ic_rings,
-            lime,
+            green,
             stringResource(
                 if (change.shape ==
                     ZoneShape.CIRCLE
@@ -1056,13 +1056,13 @@ private fun ChangeRow(change: SettingsChange) {
 
         is SettingsChange.ZoneMoved -> Triple(
             Res.drawable.ic_crosshair,
-            lime,
+            green,
             stringResource(Res.string.changes_zone_moved, distanceText(change.meters.toDouble())) to null,
         )
 
         is SettingsChange.Shrinks -> Triple(
             Res.drawable.ic_rings,
-            lime,
+            green,
             stringResource(if (change.on) Res.string.changes_shrink_on else Res.string.changes_shrink_off) to null,
         )
 
@@ -1074,7 +1074,7 @@ private fun ChangeRow(change: SettingsChange) {
 
         is SettingsChange.OpenBuildingsKept -> Triple(
             Res.drawable.ic_building,
-            lime,
+            green,
             stringResource(Res.string.changes_open_kept, change.count) to null,
         )
 
@@ -1145,7 +1145,7 @@ private fun Sheet(onDismiss: () -> Unit, modifier: Modifier = Modifier, content:
         PopSurface(
             modifier = modifier.align(Alignment.BottomCenter).fillMaxWidth(),
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-            color = Palette.Cream,
+            color = Palette.Fog,
         ) {
             Column(
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 20.dp),
@@ -1185,7 +1185,7 @@ private fun HelpButton(explainer: Explainer, onClick: () -> Unit) {
     }
 }
 
-/** A zone's shape to pick: a small picture of it, its name and one line; the picked one is lime. */
+/** A zone's shape to pick: a small picture of it, its name and one line; the picked one is green. */
 @Composable
 private fun ShapeCard(
     title: String,
@@ -1198,7 +1198,7 @@ private fun ShapeCard(
     PopSurface(
         modifier = modifier.semantics { this.selected = selected },
         shape = RoundedCornerShape(18.dp),
-        color = if (selected) Palette.Lime else Palette.Paper,
+        color = if (selected) Palette.Green else Palette.Paper,
         shadow = if (selected) 4.dp else 0.dp,
         onClick = onClick,
     ) {
@@ -1233,7 +1233,7 @@ private fun ShapePicture(shape: ZoneShape, modifier: Modifier) {
             }
         }
         drawPath(outline, Palette.Ink, style = Stroke(5f * u, join = StrokeJoin.Round))
-        drawPath(outline, Palette.Lime, style = Stroke(2.4f * u, join = StrokeJoin.Round))
+        drawPath(outline, Palette.Green, style = Stroke(2.4f * u, join = StrokeJoin.Round))
     }
 }
 
@@ -1306,7 +1306,7 @@ private fun ActionCard(
     }
 }
 
-/** The app's switch: lime when on, a whole 48 dp to tap. */
+/** The app's switch: green when on, a whole 48 dp to tap. */
 @Composable
 private fun PopSwitch(checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit, tag: String) {
     Box(
@@ -1321,7 +1321,7 @@ private fun PopSwitch(checked: Boolean, enabled: Boolean, onCheckedChange: (Bool
             enabled = enabled,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Palette.Ink,
-                checkedTrackColor = Palette.Lime,
+                checkedTrackColor = Palette.Green,
                 checkedBorderColor = Palette.Ink,
                 uncheckedThumbColor = Palette.Ink3,
                 uncheckedTrackColor = Palette.Paper,
@@ -1372,7 +1372,7 @@ private fun Chip(text: String, selected: Boolean, onClick: () -> Unit, modifier:
         modifier = modifier.semantics { this.selected = selected },
         shape = RoundedCornerShape(12.dp),
         color = if (selected) Palette.Ink else Palette.Paper,
-        contentColor = if (selected) Palette.Lime else Palette.Ink,
+        contentColor = if (selected) Palette.Green else Palette.Ink,
         borderWidth = 2.dp,
         onClick = onClick,
         contentAlignment = Alignment.Center,

@@ -9,8 +9,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -19,14 +17,13 @@ import app.hovanki.client.resources.app_name
 import app.hovanki.client.ui.theme.Palette
 import org.jetbrains.compose.resources.stringResource
 
-/** The mark: an ink disc, the lime zone ring on it and a pink hider inside. */
+/** The mark: a green disc in a thick ink ring. */
 @Composable
 fun LogoMark(modifier: Modifier = Modifier, size: Dp = 28.dp) {
     Canvas(modifier = modifier.size(size)) {
         val r = this.size.minDimension / 2
         drawCircle(Palette.Ink, radius = r)
-        drawCircle(Palette.Lime, radius = r * 0.64f, style = Stroke(width = r * 0.18f))
-        drawCircle(Palette.Pink, radius = r * 0.24f, center = Offset(center.x + r * 0.08f, center.y - r * 0.08f))
+        drawCircle(Palette.Green, radius = r * 0.5f)
     }
 }
 

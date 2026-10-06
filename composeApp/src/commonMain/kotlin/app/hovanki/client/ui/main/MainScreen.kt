@@ -141,7 +141,7 @@ fun MainScreen(
 }
 
 /**
- * The tabs as an ink capsule floating above the bottom of the screen; the selected one is a lime pill
+ * The tabs as an ink capsule floating above the bottom of the screen; the selected one is a green pill
  * (docs/design.md, «Компоненты»).
  */
 @Composable
@@ -159,7 +159,7 @@ private fun FloatingTabBar(selected: MainTab, onSelect: (MainTab) -> Unit, badge
     ) {
         MainTab.entries.forEach { item ->
             val isSelected = item == selected
-            val background by animateColorAsState(if (isSelected) Palette.Lime else Palette.Ink, Motion.base())
+            val background by animateColorAsState(if (isSelected) Palette.Green else Palette.Ink, Motion.base())
             val content by animateColorAsState(if (isSelected) Palette.Ink else TAB_IDLE, Motion.base())
             Column(
                 modifier = Modifier

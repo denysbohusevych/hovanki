@@ -162,7 +162,7 @@ private fun GroupCard(group: GroupView, isMine: Boolean, onOpen: () -> Unit) {
 /** A group's square: the first letters of its name on a color picked by the name. */
 @Composable
 private fun GroupTile(name: String) {
-    val colors = listOf(Palette.Lime, Palette.Violet, Palette.Orange, Palette.Pink)
+    val colors = listOf(Palette.Green, Palette.Pink, Palette.Ink, Palette.Paper)
     val color = colors[(name.hashCode() and Int.MAX_VALUE) % colors.size]
     val initials = name.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1) }.uppercase()
     Box(
@@ -176,7 +176,7 @@ private fun GroupTile(name: String) {
         Text(
             text = initials.ifEmpty { "?" },
             style = MaterialTheme.typography.titleLarge,
-            color = if (color == Palette.Violet) Palette.Paper else Palette.Ink,
+            color = if (color == Palette.Pink || color == Palette.Ink) Palette.Paper else Palette.Ink,
         )
     }
 }

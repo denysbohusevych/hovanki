@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
@@ -226,13 +227,13 @@ fun PlayTab(
     }
 }
 
-/** The screen's main action: a big lime card with the zone drawn as rings. */
+/** The screen's main action: a big green card with the zone drawn as rings. */
 @Composable
 private fun CreateGameCard(enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     PopSurface(
         modifier = modifier.fillMaxWidth().height(176.dp),
         shape = RoundedCornerShape(28.dp),
-        color = if (enabled) Palette.Lime else Palette.Sand,
+        color = if (enabled) Palette.Green else Palette.Sand,
         shadow = if (enabled) 6.dp else 0.dp,
         onClick = onClick,
         enabled = enabled,
@@ -248,7 +249,7 @@ private fun CreateGameCard(enabled: Boolean, onClick: () -> Unit, modifier: Modi
                 Text(
                     text = stringResource(Res.string.home_create_hint),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Palette.LimeInk,
+                    color = Palette.GreenInk,
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
@@ -259,7 +260,7 @@ private fun CreateGameCard(enabled: Boolean, onClick: () -> Unit, modifier: Modi
                 Icon(
                     painter = painterResource(Res.drawable.ic_arrow_right),
                     contentDescription = null,
-                    tint = Palette.Lime,
+                    tint = Palette.Green,
                     modifier = Modifier.size(24.dp),
                 )
             }
@@ -294,11 +295,12 @@ private fun InviteCard(invite: GameInvite, isBusy: Boolean, onAccept: () -> Unit
         modifier = Modifier.fillMaxWidth().testTag(TestTags.invite(invite.joinCode)),
         shape = RoundedCornerShape(20.dp),
         color = Palette.Pink,
+        contentColor = Color.White,
         shadow = 4.dp,
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Avatar(name = invite.from.nickname, color = Palette.Orange, size = 40.dp)
+                Avatar(name = invite.from.nickname, color = Palette.Green, size = 40.dp)
                 val groupName = invite.groupName
                 Text(
                     text = if (groupName != null) {
