@@ -814,6 +814,13 @@
   <string name="lobby_tile_capacity">players fit</string>
   <string name="lobby_tile_unknown">…</string>
   <string name="lobby_recorded_short">The game is recorded · 90 days</string>
+  <string name="lobby_summary_time">%1$d min</string>
+  <string name="lobby_summary_glow">glow every %1$d min</string>
+  <string name="lobby_summary_no_glow">no glow</string>
+  <string name="lobby_summary_capacity">up to %1$d players</string>
+  <string name="lobby_change">Change</string>
+  <string name="lobby_players_title">Players · %1$d</string>
+  <string name="lobby_seekers_count">%1$d seeking</string>
   <string name="lobby_recorded_more">Who sees the recording</string>
   <string name="lobby_radar_more">What the radar does</string>
   <plurals name="settings_buildings_count">

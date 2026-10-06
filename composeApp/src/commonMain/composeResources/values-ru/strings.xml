@@ -816,6 +816,13 @@
   <string name="lobby_tile_capacity">игроков</string>
   <string name="lobby_tile_unknown">…</string>
   <string name="lobby_recorded_short">Игра записывается · 90 дней</string>
+  <string name="lobby_summary_time">%1$d минут</string>
+  <string name="lobby_summary_glow">свечение раз в %1$d мин</string>
+  <string name="lobby_summary_no_glow">без свечения</string>
+  <string name="lobby_summary_capacity">до %1$d игроков</string>
+  <string name="lobby_change">Изменить</string>
+  <string name="lobby_players_title">Игроки · %1$d</string>
+  <string name="lobby_seekers_count">ищут %1$d</string>
   <string name="lobby_recorded_more">Кто видит запись</string>
   <string name="lobby_radar_more">Что делает радар</string>
   <plurals name="settings_buildings_count">

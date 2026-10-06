@@ -816,6 +816,13 @@
   <string name="lobby_tile_capacity">гравців</string>
   <string name="lobby_tile_unknown">…</string>
   <string name="lobby_recorded_short">Гра записується · 90 днів</string>
+  <string name="lobby_summary_time">%1$d хвилин</string>
+  <string name="lobby_summary_glow">світіння раз на %1$d хв</string>
+  <string name="lobby_summary_no_glow">без світіння</string>
+  <string name="lobby_summary_capacity">до %1$d гравців</string>
+  <string name="lobby_change">Змінити</string>
+  <string name="lobby_players_title">Гравці · %1$d</string>
+  <string name="lobby_seekers_count">шукають %1$d</string>
   <string name="lobby_recorded_more">Хто бачить запис</string>
   <string name="lobby_radar_more">Що робить радар</string>
   <plurals name="settings_buildings_count">
