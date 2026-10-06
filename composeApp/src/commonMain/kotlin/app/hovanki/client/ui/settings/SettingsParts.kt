@@ -24,6 +24,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -254,6 +255,7 @@ internal fun SettingsTabs(selected: SettingsTab, onPick: (SettingsTab) -> Unit, 
 
 // ---- Zone ----
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ZoneTab(state: LobbyUiState, settings: SettingsPanelState, onEvent: (LobbyEvent) -> Unit) {
     val setup = settings.setup
@@ -274,17 +276,12 @@ internal fun ZoneTab(state: LobbyUiState, settings: SettingsPanelState, onEvent:
                 },
             )
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(
                 text = distanceText(setup.radiusMeters.toDouble()),
-                style = Hovanki.text.code.copy(fontSize = 22.sp, lineHeight = 26.sp),
-                modifier = Modifier.widthIn(min = 96.dp).testTag(TestTags.settingValue("radius")),
-            )
-            StepButton(
-                text = "−",
-                enabled = setup.radiusMeters > GameSetup.RADIUS_METERS.first,
-                onClick = { edit(setup.copy(radiusMeters = setup.radiusMeters - GameSetup.RADIUS_STEP_METERS)) },
-                tag = TestTags.settingMinus("radius"),
+                style = Hovanki.text.code.copy(fontSize = 36.sp, lineHeight = 40.sp),
+                maxLines = 1,
+                modifier = Modifier.widthIn(min = 132.dp).testTag(TestTags.settingValue("radius")),
             )
             Slider(
                 value = setup.radiusMeters.toFloat(),
@@ -293,20 +290,25 @@ internal fun ZoneTab(state: LobbyUiState, settings: SettingsPanelState, onEvent:
                     edit(setup.copy(radiusMeters = (value / step).roundToInt() * step))
                 },
                 valueRange = GameSetup.RADIUS_METERS.first.toFloat()..GameSetup.RADIUS_METERS.last.toFloat(),
-                colors = SliderDefaults.colors(
-                    thumbColor = Palette.Ink,
-                    activeTrackColor = Palette.Green,
-                    inactiveTrackColor = Palette.Sand,
-                    activeTickColor = Color.Transparent,
-                    inactiveTickColor = Color.Transparent,
-                ),
+                thumb = {
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(CircleShape)
+                            .background(Palette.Green)
+                            .border(2.5.dp, Palette.Ink, CircleShape),
+                    )
+                },
+                track = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Palette.Ink),
+                    )
+                },
                 modifier = Modifier.weight(1f),
-            )
-            StepButton(
-                text = "+",
-                enabled = setup.radiusMeters < GameSetup.RADIUS_METERS.last,
-                onClick = { edit(setup.copy(radiusMeters = setup.radiusMeters + GameSetup.RADIUS_STEP_METERS)) },
-                tag = TestTags.settingPlus("radius"),
             )
         }
     }
@@ -616,15 +618,15 @@ private fun StepperTile(
 ) {
     PopCard(
         modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         CapsText(label, color = labelColor)
         Row(verticalAlignment = Alignment.CenterVertically) {
             StepButton("−", canMinus, onMinus, TestTags.settingMinus(name))
             Text(
                 text = value,
-                style = Hovanki.text.code.copy(fontSize = 17.sp, lineHeight = 22.sp),
+                style = Hovanki.text.code.copy(fontSize = 20.sp, lineHeight = 24.sp),
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 modifier = Modifier.weight(1f).testTag(TestTags.settingValue(name)),
@@ -1185,7 +1187,7 @@ private fun HelpButton(explainer: Explainer, onClick: () -> Unit) {
     }
 }
 
-/** A zone's shape to pick: a small picture of it, its name and one line; the picked one is green. */
+/** A zone's shape to pick: a small picture of it, its name and one line; the picked one is pink. */
 @Composable
 private fun ShapeCard(
     title: String,
@@ -1198,24 +1200,29 @@ private fun ShapeCard(
     PopSurface(
         modifier = modifier.semantics { this.selected = selected },
         shape = RoundedCornerShape(18.dp),
-        color = if (selected) Palette.Green else Palette.Paper,
+        color = if (selected) Palette.Pink else Palette.Paper,
+        contentColor = if (selected) Color.White else Palette.Ink,
         shadow = if (selected) 4.dp else 0.dp,
         onClick = onClick,
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            ShapePicture(shape, Modifier.size(40.dp))
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            ShapePicture(shape, onPink = selected, Modifier.size(40.dp))
             Text(text = title, style = MaterialTheme.typography.titleSmall)
-            Text(text = caption, style = MaterialTheme.typography.bodySmall, color = Palette.Ink2)
+            Text(
+                text = caption,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (selected) Color.White else Palette.Ink2,
+            )
         }
     }
 }
 
 /** Streets as a grid, and the zone on them: a circle across the blocks, or blocks along the streets. */
 @Composable
-private fun ShapePicture(shape: ZoneShape, modifier: Modifier) {
+private fun ShapePicture(shape: ZoneShape, onPink: Boolean, modifier: Modifier) {
     Canvas(modifier = modifier) {
         val u = size.width / 40f
-        val grid = Palette.Ink3.copy(alpha = 0.35f)
+        val grid = (if (onPink) Color.White else Palette.Ink3).copy(alpha = 0.35f)
         listOf(10f, 22f, 33f).forEach { at ->
             drawLine(grid, Offset(0f, at * u), Offset(size.width, at * u), 2f * u)
             drawLine(grid, Offset((at - 1f) * u, 0f), Offset((at - 1f) * u, size.height), 2f * u)
@@ -1233,7 +1240,7 @@ private fun ShapePicture(shape: ZoneShape, modifier: Modifier) {
             }
         }
         drawPath(outline, Palette.Ink, style = Stroke(5f * u, join = StrokeJoin.Round))
-        drawPath(outline, Palette.Green, style = Stroke(2.4f * u, join = StrokeJoin.Round))
+        drawPath(outline, if (onPink) Color.White else Palette.Green, style = Stroke(2.4f * u, join = StrokeJoin.Round))
     }
 }
 
@@ -1399,7 +1406,7 @@ private fun StepButton(text: String, enabled: Boolean, onClick: () -> Unit, tag:
     )
 }
 
-private val STEP_SIZE: Dp = 40.dp
+private val STEP_SIZE: Dp = 44.dp
 private const val SCRIM_ALPHA = 0.45f
 private const val SQUARE_METERS_PER_HECTARE = 10_000.0
 private const val SECONDS_PER_MINUTE = 60
