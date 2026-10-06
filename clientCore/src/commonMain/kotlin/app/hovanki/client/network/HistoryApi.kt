@@ -5,6 +5,8 @@ import app.hovanki.shared.protocol.GameHistoryResponse
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameRoute
+import app.hovanki.shared.protocol.LeaderboardResponse
+import app.hovanki.shared.protocol.LeaderboardScope
 import app.hovanki.shared.protocol.PlayerStats
 import io.ktor.client.HttpClient
 
@@ -32,6 +34,9 @@ interface HistoryApi {
      * 404 unless the player played it with their account and it is still kept.
      */
     suspend fun recording(token: String, gameId: GameId): GameRecording
+
+    /** The leaderboard's [scope] as the player sees it (docs/adr/0020-leaderboard.md). */
+    suspend fun leaderboard(token: String, scope: LeaderboardScope): LeaderboardResponse
 }
 
 /** [HistoryApi] over HTTP/JSON. */
@@ -52,4 +57,7 @@ class HttpHistoryApi(client: HttpClient, serverUrl: ServerUrl) : HistoryApi {
 
     override suspend fun recording(token: String, gameId: GameId): GameRecording =
         http.get(ApiRoutes.meGameRecording(gameId), token)
+
+    override suspend fun leaderboard(token: String, scope: LeaderboardScope): LeaderboardResponse =
+        http.get(ApiRoutes.meLeaderboard(scope), token)
 }

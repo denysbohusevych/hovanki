@@ -8,6 +8,8 @@ import app.hovanki.shared.protocol.GameHistoryEntry
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameRoute
+import app.hovanki.shared.protocol.LeaderboardResponse
+import app.hovanki.shared.protocol.LeaderboardScope
 import app.hovanki.shared.protocol.PlayerStats
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -70,6 +72,13 @@ class HistoryManager(
      * 404 (`NOT_FOUND`) when it is no longer kept.
      */
     suspend fun recording(gameId: GameId): ApiResult<GameRecording> = command { token -> api.recording(token, gameId) }
+
+    /**
+     * The leaderboard's [scope] (docs/adr/0020-leaderboard.md): this week's points of everybody, of the player and
+     * their friends, or of their last game's players. Not kept in [state]: the screen holds what it showed.
+     */
+    suspend fun leaderboard(scope: LeaderboardScope = LeaderboardScope.WORLD): ApiResult<LeaderboardResponse> =
+        command { token -> api.leaderboard(token, scope) }
 
     /** Deletes the saved route of [gameId]; the game stays in the history. */
     suspend fun deleteRoute(gameId: GameId): ApiResult<Unit> = command { token ->

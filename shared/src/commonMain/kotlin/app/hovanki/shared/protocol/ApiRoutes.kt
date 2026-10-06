@@ -153,6 +153,12 @@ object ApiRoutes {
     /** GET: [GameRecording], everybody's way through the game; 404 unless the caller played it with an account. */
     const val ME_GAME_RECORDING = "$ME_GAMES/{gameId}/recording"
 
+    /**
+     * GET, optional `?scope=LAST_GAME|FRIENDS|WORLD` (default WORLD): [LeaderboardResponse], the weekly points
+     * (docs/adr/0020-leaderboard.md).
+     */
+    const val ME_LEADERBOARD = "$ME/leaderboard"
+
     // Big games (docs/adr/0010-big-games.md), with the account token.
 
     /** GET: the big games ahead and going on ([BigGamesResponse]). */
@@ -415,6 +421,9 @@ object ApiRoutes {
     fun meGameRouteDelete(gameId: GameId): String = ME_GAME_ROUTE_DELETE.fill("gameId" to gameId.value)
 
     fun meGameRecording(gameId: GameId): String = ME_GAME_RECORDING.fill("gameId" to gameId.value)
+
+    /** [ME_LEADERBOARD] of [scope]. */
+    fun meLeaderboard(scope: LeaderboardScope): String = "$ME_LEADERBOARD?scope=${scope.name}"
 
     fun friendRequestAccept(userId: UserId): String = FRIEND_REQUEST_ACCEPT.fill("userId" to userId.value)
 
