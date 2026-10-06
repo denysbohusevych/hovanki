@@ -158,11 +158,12 @@ private val HUD_TRACK = Color(0xFF2E2E38)
 fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(32.dp))
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
             .background(Palette.Ink)
-            .padding(start = if (state.isZoneRunning) 8.dp else 20.dp, end = 18.dp, top = 8.dp, bottom = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (state.isZoneRunning) {
             val moment = state.zoneMoment
@@ -177,14 +178,8 @@ fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
                 size = 48.dp,
             )
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = state.phaseMillisLeft?.let(::formatCountdown) ?: "—",
-                style = Hovanki.text.timer,
-                color = Palette.Green,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(min = 92.dp).testTag(TestTags.GAME_TIMER),
-            )
+        // The label above its number, as in the designer's mockup.
+        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             CapsText(
                 text = stringResource(
                     if (state.phase == GamePhase.HIDING) Res.string.phase_hiding else Res.string.phase_seeking,
@@ -192,23 +187,30 @@ fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
                 color = HUD_MUTED,
                 modifier = Modifier.testTag(TestTags.phase(state.phase)),
             )
+            Text(
+                text = state.phaseMillisLeft?.let(::formatCountdown) ?: "—",
+                style = Hovanki.text.timer,
+                color = Palette.Green,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(min = 92.dp).testTag(TestTags.GAME_TIMER),
+            )
         }
-        Box(modifier = Modifier.width(1.dp).height(34.dp).background(HUD_TRACK))
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(modifier = Modifier.width(1.dp).height(40.dp).background(HUD_TRACK))
+        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            CapsText(
+                text = stringResource(
+                    if (state.myRole == Role.HIDER) Res.string.hud_hiders else Res.string.hud_to_find,
+                ),
+                color = HUD_MUTED,
+            )
             Text(
                 text = if (state.myRole == Role.HIDER) {
                     "${state.hidersLeft}/${state.hidersTotal}"
                 } else {
                     "${state.hidersLeft}"
                 },
-                style = Hovanki.text.timer.copy(fontSize = 19.sp, lineHeight = 22.sp),
+                style = Hovanki.text.timer,
                 color = Color.White,
-            )
-            CapsText(
-                text = stringResource(
-                    if (state.myRole == Role.HIDER) Res.string.hud_hiders else Res.string.hud_to_find,
-                ),
-                color = HUD_MUTED,
             )
         }
     }
@@ -416,8 +418,8 @@ private fun GlowChip(glow: GlowUi) {
         } else {
             stringResource(Res.string.hud_glow_in, left)
         },
-        color = if (glow.isGlowing) Palette.Orange else Palette.Ink,
-        contentColor = if (glow.isGlowing) Palette.Ink else Color.White,
+        color = if (glow.isGlowing) Palette.Orange else Palette.Green,
+        contentColor = Palette.Ink,
         border = Palette.Ink,
         modifier = Modifier
             .graphicsLayer {
@@ -606,7 +608,7 @@ fun RoundControl(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    style: PopStyle = PopStyle.Dark,
+    style: PopStyle = PopStyle.Outline,
     size: Dp = 56.dp,
     badge: Int = 0,
     badgeTag: String? = null,

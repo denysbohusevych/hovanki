@@ -57,6 +57,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.catchcode.CatchCodeScanner
@@ -72,6 +73,7 @@ import app.hovanki.client.resources.action_leave_and_go
 import app.hovanki.client.resources.back_in_zone
 import app.hovanki.client.resources.building_rule_off
 import app.hovanki.client.resources.catch_auto_in
+import app.hovanki.client.resources.catch_auto_label
 import app.hovanki.client.resources.catch_or_say
 import app.hovanki.client.resources.catch_or_type
 import app.hovanki.client.resources.catch_pick_name
@@ -83,10 +85,11 @@ import app.hovanki.client.resources.checkpoint_taken
 import app.hovanki.client.resources.claim_disputed_mine
 import app.hovanki.client.resources.claim_enter_code
 import app.hovanki.client.resources.claim_time_left
+import app.hovanki.client.resources.code_next_short
+import app.hovanki.client.resources.dispute_mistake
+import app.hovanki.client.resources.dispute_vote_hint
 import app.hovanki.client.resources.field_wrong_menu
-import app.hovanki.client.resources.hider_claim_hint
 import app.hovanki.client.resources.hider_claim_title
-import app.hovanki.client.resources.hider_code_next
 import app.hovanki.client.resources.hider_disputed
 import app.hovanki.client.resources.hider_qr
 import app.hovanki.client.resources.hint_hider_hiding
@@ -121,6 +124,7 @@ import app.hovanki.client.resources.scanner_close
 import app.hovanki.client.resources.scanner_hint
 import app.hovanki.client.resources.scanner_open
 import app.hovanki.client.resources.seeker_found_title
+import app.hovanki.client.resources.show_code_title
 import app.hovanki.client.resources.sos_menu
 import app.hovanki.client.resources.status_caught
 import app.hovanki.client.resources.status_eliminated
@@ -161,6 +165,7 @@ import app.hovanki.client.ui.field.FieldMarks
 import app.hovanki.client.ui.field.PocketHint
 import app.hovanki.client.ui.invite.InviteBannerEvent
 import app.hovanki.client.ui.invite.InviteBannerViewModel
+import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
 import app.hovanki.shared.protocol.CatchStatus
@@ -1029,8 +1034,9 @@ private fun ShowCodeLayer(
     onDispute: () -> Unit,
 ) {
     CodeLayer(
-        title = stringResource(Res.string.hider_claim_title, claim.seekerName),
-        hint = stringResource(Res.string.hider_claim_hint),
+        kicker = stringResource(Res.string.hider_claim_title, claim.seekerName),
+        title = stringResource(Res.string.show_code_title),
+        hint = null,
         code = code,
         qr = qr,
         codePeriodMillis = codePeriodMillis,
@@ -1039,11 +1045,21 @@ private fun ShowCodeLayer(
         top = {
             claim.millisLeft?.let { millisLeft ->
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(Res.string.catch_auto_in, formatCountdown(millisLeft)),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color.White,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = stringResource(Res.string.catch_auto_label),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White,
+                            modifier = Modifier.weight(1f),
+                        )
+                        // The designer: these digits are white, big enough to read at arm's length.
+                        Text(
+                            text = formatCountdown(millisLeft),
+                            style = Hovanki.text.timer.copy(fontSize = 20.sp, lineHeight = 24.sp),
+                            color = Color.White,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
                     val fraction = if (claimTimeoutMillis > 0) {
                         (millisLeft.toFloat() / claimTimeoutMillis).coerceIn(0f, 1f)
                     } else {
@@ -1054,7 +1070,7 @@ private fun ShowCodeLayer(
                             .fillMaxWidth()
                             .height(10.dp)
                             .clip(RoundedCornerShape(5.dp))
-                            .background(Palette.Ink),
+                            .background(Palette.Ink.copy(alpha = 0.22f)),
                     ) {
                         Box(
                             modifier = Modifier
@@ -1069,11 +1085,18 @@ private fun ShowCodeLayer(
         },
     ) {
         PopButton(
-            text = stringResource(Res.string.action_dispute),
+            text = stringResource(Res.string.dispute_mistake),
             onClick = onDispute,
             enabled = !isBusy,
-            style = PopStyle.Dark,
+            style = PopStyle.OnPink,
             modifier = Modifier.fillMaxWidth().testTag(TestTags.CATCH_DISPUTE),
+        )
+        Text(
+            text = stringResource(Res.string.dispute_vote_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }
@@ -1112,13 +1135,14 @@ private fun MyCodeLayer(code: CatchCode?, qr: String?, codePeriodMillis: Long, o
 @Composable
 private fun CodeLayer(
     title: String,
-    hint: String,
+    hint: String?,
     code: CatchCode?,
     qr: String?,
     codePeriodMillis: Long,
     codeTag: String,
     qrTag: String?,
     modifier: Modifier = Modifier,
+    kicker: String? = null,
     top: @Composable ColumnScope.() -> Unit = {},
     bottom: @Composable ColumnScope.() -> Unit,
 ) {
@@ -1131,8 +1155,11 @@ private fun CodeLayer(
             .padding(horizontal = 24.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(text = title, style = MaterialTheme.typography.headlineMedium, color = Color.White)
-        Text(text = hint, style = MaterialTheme.typography.bodyLarge, color = Color.White)
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            kicker?.let { Text(text = it, style = MaterialTheme.typography.titleSmall, color = Color.White) }
+            Text(text = title, style = MaterialTheme.typography.headlineMedium, color = Color.White)
+        }
+        hint?.let { Text(text = it, style = MaterialTheme.typography.bodyLarge, color = Color.White) }
         top()
         if (qr != null) {
             // As big as the room allows: the seeker's camera reads it from a step away.
@@ -1173,26 +1200,27 @@ private fun CodeLayer(
             Spacer(Modifier.weight(1f))
         }
         if (code != null) {
-            CodeTiles(code = code.code, tag = codeTag, modifier = Modifier.align(Alignment.CenterHorizontally))
             Row(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                CountdownRing(
-                    progress = if (codePeriodMillis > 0) code.millisUntilNext.toFloat() / codePeriodMillis else 0f,
-                    text = formatCountdown(code.millisUntilNext),
-                    color = Palette.Green,
-                    trackColor = Palette.Ink,
-                    textColor = Color.White,
-                    size = 52.dp,
-                )
-                Text(
-                    text = stringResource(Res.string.hider_code_next, formatCountdown(code.millisUntilNext)),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    textAlign = TextAlign.Start,
-                )
+                CodeTiles(code = code.code, tag = codeTag, tileWidth = 56.dp)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CountdownRing(
+                        progress = if (codePeriodMillis > 0) code.millisUntilNext.toFloat() / codePeriodMillis else 0f,
+                        text = formatCountdown(code.millisUntilNext),
+                        color = Palette.Green,
+                        trackColor = Palette.Ink,
+                        textColor = Color.White,
+                        size = 48.dp,
+                    )
+                    Text(
+                        text = stringResource(Res.string.code_next_short),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                    )
+                }
             }
         }
         // Without the QR code the tiles sit in the middle; with it the code takes the room.

@@ -278,6 +278,11 @@
   <string name="flash_seekers_out">Шукачі вийшли!</string>
   <string name="catch_auto_in">Зарахується само через %1$s</string>
   <string name="catch_or_say">Або назвіть цифри</string>
+  <string name="show_code_title">Покажи код!</string>
+  <string name="catch_auto_label">Якщо нічого не робити — зарахується через</string>
+  <string name="code_next_short">новий код</string>
+  <string name="dispute_mistake">Це помилка — оскаржити</string>
+  <string name="dispute_vote_hint">Суперечку вирішать інші гравці голосуванням</string>
   <string name="catch_seeker_hint">Знайшли когось? Натисніть «Знайшов!» і відскануйте QR з його екрана. Камера не читає — натисніть на ім’я, він покаже 4 цифри.</string>
   <string name="lobby_title">Лобі</string>
   <string name="lobby_random">Випадково</string>

@@ -278,6 +278,11 @@
   <string name="flash_seekers_out">The seekers are out!</string>
   <string name="catch_auto_in">Counts by itself in %1$s</string>
   <string name="catch_or_say">Or read out the digits</string>
+  <string name="show_code_title">Show your code!</string>
+  <string name="catch_auto_label">If you do nothing, it counts in</string>
+  <string name="code_next_short">new code</string>
+  <string name="dispute_mistake">It’s a mistake: dispute</string>
+  <string name="dispute_vote_hint">The other players settle a dispute by a vote</string>
   <string name="catch_seeker_hint">Found someone? Tap «Found!» and scan the QR code on their screen. The camera won’t read it: tap their name, they show 4 digits.</string>
   <string name="lobby_title">Lobby</string>
   <string name="lobby_random">Random</string>

@@ -167,6 +167,9 @@ enum class PopStyle(val container: Color, val content: Color, val border: Color?
     Seeker(Palette.Seeker, Palette.Green, Palette.Ink, shadow = false),
     Pink(Palette.Pink, Color.White, Palette.Ink, shadow = false),
 
+    /** White text in a white outline on a pink screen (the hider's code). */
+    OnPink(Palette.Pink, Color.White, Color.White, shadow = false),
+
     /** Destructive or against the flow (dispute, block). */
     Danger(Palette.Paper, Palette.PinkInk, Palette.PinkInk, shadow = false),
 
