@@ -6,6 +6,9 @@ import app.hovanki.shared.protocol.GameHistoryResponse
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GameRoute
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.LeaderboardEntry
+import app.hovanki.shared.protocol.LeaderboardResponse
+import app.hovanki.shared.protocol.LeaderboardScope
 import app.hovanki.shared.protocol.PlayerStats
 import app.hovanki.shared.protocol.PrivacyRequest
 import app.hovanki.shared.protocol.Role
@@ -32,6 +35,12 @@ class HttpHistoryApiTest {
         points = listOf(RoutePoint(50.45, 30.52, 5.0, 1)),
         expiresAtMillis = 3,
     )
+    private val leaderboard = LeaderboardResponse(
+        scope = LeaderboardScope.FRIENDS,
+        entries = listOf(LeaderboardEntry(1, UserId("u1"), "anna", 120, isMe = true)),
+        me = LeaderboardEntry(1, UserId("u1"), "anna", 120, isMe = true),
+        rankChange = 2,
+    )
     private val queries = mutableListOf<String>()
 
     private val server = MockServer { request ->
@@ -42,6 +51,7 @@ class HttpHistoryApiTest {
             path == "/api/v1/me/games" -> jsonOf(GameHistoryResponse(nextBefore = 7))
             path == "/api/v1/me/games/g1/route" -> jsonOf(route)
             path.endsWith("/route/delete") -> noContent()
+            path == "/api/v1/me/leaderboard" -> jsonOf(leaderboard)
             else -> apiError(HttpStatusCode.NotFound, ApiError(ErrorCode.NOT_FOUND, "No route"))
         }
     }
@@ -67,6 +77,16 @@ class HttpHistoryApiTest {
         )
         assertEquals(listOf("", "", "before=1700000000000", "", ""), queries)
         assertEquals(setOf("Bearer t"), server.recorded.map { it.authorization }.toSet())
+    }
+
+    @Test
+    fun theLeaderboardOfAScope() = runTest {
+        assertEquals(leaderboard, api.leaderboard("t", LeaderboardScope.FRIENDS))
+
+        val sent = server.recorded.single()
+        assertEquals(HttpMethod.Get to "/api/v1/me/leaderboard", sent.method to sent.path)
+        assertEquals(listOf("scope=FRIENDS"), queries)
+        assertEquals("Bearer t", sent.authorization)
     }
 
     @Test
