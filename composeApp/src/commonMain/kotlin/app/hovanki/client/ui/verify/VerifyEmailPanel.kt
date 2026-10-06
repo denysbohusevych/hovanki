@@ -182,8 +182,7 @@ private fun ChangeEmailForm(state: VerifyEmailUiState, onEvent: (VerifyEmailEven
 fun ConfirmEmailCard(email: String, onOpen: () -> Unit, onLater: () -> Unit) {
     PopSurface(
         modifier = Modifier.fillMaxWidth().testTag(TestTags.CONFIRM_EMAIL_CARD),
-        color = Palette.Orange,
-        shadow = 4.dp,
+        color = Palette.Paper,
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),

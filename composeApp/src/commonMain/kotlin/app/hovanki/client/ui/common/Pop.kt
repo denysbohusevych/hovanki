@@ -154,6 +154,9 @@ enum class PopStyle(val container: Color, val content: Color, val border: Color?
 
     /** Ink with green text. */
     Dark(Palette.Ink, Palette.Green, null, shadow = false),
+
+    /** Green text in a green outline: a secondary action on an ink card. */
+    DarkOutline(Palette.Ink, Palette.Green, Palette.Green, shadow = false),
     Outline(Palette.Paper, Palette.Ink, Palette.Ink, shadow = false),
 
     /** A secondary action on a light background, without an outline. */

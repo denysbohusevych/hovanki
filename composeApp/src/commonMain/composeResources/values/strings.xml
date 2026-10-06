@@ -632,6 +632,9 @@
   <string name="lobby_recorded">The game is recorded: everybody’s way is kept for 90 days, and only this game’s players with an account can watch it.</string>
   <string name="home_watch">Watch</string>
   <string name="home_watch_hint">An open game can be watched without playing: type its code and tap “Watch”.</string>
+  <string name="home_have_code">I have a code from a friend</string>
+  <string name="last_game_title">Last game · %1$s</string>
+  <string name="last_game_results">Results</string>
   <string name="spectator_title">You’re watching</string>
   <string name="spectator_delay">%1$s behind</string>
   <string name="spectator_live">Live</string>

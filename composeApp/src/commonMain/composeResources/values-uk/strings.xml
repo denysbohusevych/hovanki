@@ -634,6 +634,9 @@
   <string name="lobby_recorded">Гра записується: шляхи всіх гравців зберігаються 90 днів, дивитися їх можуть лише гравці цієї гри з акаунтом.</string>
   <string name="home_watch">Дивитися</string>
   <string name="home_watch_hint">Відкриту гру можна дивитися, не граючи: введіть її код і натисніть «Дивитися».</string>
+  <string name="home_have_code">Маю код від друга</string>
+  <string name="last_game_title">Минула гра · %1$s</string>
+  <string name="last_game_results">Результати</string>
   <string name="spectator_title">Ви дивитеся гру</string>
   <string name="spectator_delay">Затримка %1$s</string>
   <string name="spectator_live">Наживо</string>

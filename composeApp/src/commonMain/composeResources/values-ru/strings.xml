@@ -634,6 +634,9 @@
   <string name="lobby_recorded">Игра записывается: пути всех игроков хранятся 90 дней, смотреть их могут только игроки этой игры с аккаунтом.</string>
   <string name="home_watch">Смотреть</string>
   <string name="home_watch_hint">Открытую игру можно смотреть, не играя: введите её код и нажмите «Смотреть».</string>
+  <string name="home_have_code">Есть код от друга</string>
+  <string name="last_game_title">Прошлая игра · %1$s</string>
+  <string name="last_game_results">Результаты</string>
   <string name="spectator_title">Вы смотрите игру</string>
   <string name="spectator_delay">Задержка %1$s</string>
   <string name="spectator_live">Вживую</string>

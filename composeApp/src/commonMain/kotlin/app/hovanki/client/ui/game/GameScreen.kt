@@ -942,7 +942,7 @@ private fun EnterCode(
         style = MaterialTheme.typography.titleMedium,
     )
     claim.millisLeft?.let { millisLeft ->
-        CapsText(stringResource(Res.string.claim_time_left, formatCountdown(millisLeft)), color = Palette.OrangeInk)
+        CapsText(stringResource(Res.string.claim_time_left, formatCountdown(millisLeft)), color = Palette.PinkInk)
     }
     PopButton(
         text = stringResource(Res.string.scanner_open),

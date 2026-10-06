@@ -31,6 +31,13 @@ object TestTags {
     /** Watch the open game of the code typed (docs/adr/0011-spectators-and-recordings.md): «Play» tab only. */
     const val HOME_WATCH = "home_watch"
 
+    /** «I have a code from a friend»: opens the code field on the «Play» tab (open by itself when a code is there). */
+    const val HOME_HAVE_CODE = "home_have_code"
+
+    /** The last game played on the «Play» tab and its «Results». */
+    const val HOME_LAST_GAME = "home_last_game"
+    const val HOME_LAST_GAME_RESULTS = "home_last_game_results"
+
     /** Watching a game: the screen, the delay chip, the list of players, «Stop watching», the end of it. */
     const val SPECTATOR_SCREEN = "spectator_screen"
     const val SPECTATOR_DELAY = "spectator_delay"

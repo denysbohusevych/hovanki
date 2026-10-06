@@ -102,7 +102,7 @@ fun ProfileTab(
                     Text(
                         text = stringResource(Res.string.profile_email_unconfirmed),
                         style = MaterialTheme.typography.labelLarge,
-                        color = Palette.OrangeInk,
+                        color = Palette.PinkInk,
                         modifier = Modifier.weight(1f).testTag(TestTags.PROFILE_EMAIL_UNCONFIRMED),
                     )
                     PopButton(

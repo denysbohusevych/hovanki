@@ -343,7 +343,7 @@ private fun GameRow(game: GameHistoryEntry, onRoute: () -> Unit, onRecording: ()
     }
 }
 
-private fun GameHistoryEntry.outcome(): StringResource = when {
+internal fun GameHistoryEntry.outcome(): StringResource = when {
     won -> Res.string.history_won
     status == PlayerStatus.CAUGHT -> Res.string.history_caught
     status == PlayerStatus.ELIMINATED -> Res.string.history_eliminated

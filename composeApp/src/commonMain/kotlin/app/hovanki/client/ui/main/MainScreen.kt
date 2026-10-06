@@ -121,6 +121,9 @@ fun MainScreen(
                     invites = inbox.invites,
                     verify = verify,
                     onVerifyEvent = verifyViewModel::onEvent,
+                    history = history,
+                    onHistoryEvent = historyViewModel::onEvent,
+                    onOpenProfile = { viewModel.onEvent(MainEvent.SelectTab(MainTab.PROFILE)) },
                 )
 
                 MainTab.FRIENDS -> FriendsTab()
