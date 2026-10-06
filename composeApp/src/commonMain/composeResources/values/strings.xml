@@ -258,6 +258,10 @@
   <string name="results_eliminated">Eliminated</string>
   <string name="results_seekers">Seekers</string>
   <string name="results_back">Back to start</string>
+  <string name="results_your_result">Your result</string>
+  <string name="results_hider_place">Place %1$d of %2$d hiders</string>
+  <string name="results_share">Share</string>
+  <string name="results_share_text">Hovanki: %1$s (%2$s)</string>
 
   <!-- «Dopamine» UI (docs/design.md) -->
   <string name="play_subtitle">Gather your crew and head outside.</string>

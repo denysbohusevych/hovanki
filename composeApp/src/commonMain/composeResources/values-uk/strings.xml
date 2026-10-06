@@ -258,6 +258,10 @@
   <string name="results_eliminated">Вибули</string>
   <string name="results_seekers">Шукали</string>
   <string name="results_back">На початок</string>
+  <string name="results_your_result">Твій результат</string>
+  <string name="results_hider_place">Місце %1$d з %2$d серед тих, хто ховався</string>
+  <string name="results_share">Поділитися</string>
+  <string name="results_share_text">Хованки: %1$s (%2$s)</string>
 
   <!-- «Dopamine» UI (docs/design.md) -->
   <string name="play_subtitle">Зберіть компанію — і на вулицю.</string>

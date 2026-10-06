@@ -8,9 +8,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,6 +41,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.hovanki.client.automation.TestTags
@@ -54,6 +58,7 @@ import app.hovanki.client.resources.awards_title
 import app.hovanki.client.resources.ic_home
 import app.hovanki.client.resources.ic_pause
 import app.hovanki.client.resources.ic_play
+import app.hovanki.client.resources.ic_share
 import app.hovanki.client.resources.ic_trophy
 import app.hovanki.client.resources.lobby_you
 import app.hovanki.client.resources.phase_hiding
@@ -67,16 +72,20 @@ import app.hovanki.client.resources.results_back
 import app.hovanki.client.resources.results_caught
 import app.hovanki.client.resources.results_eliminated
 import app.hovanki.client.resources.results_finds
+import app.hovanki.client.resources.results_hider_place
 import app.hovanki.client.resources.results_hiders_win
 import app.hovanki.client.resources.results_into_search
 import app.hovanki.client.resources.results_seekers
 import app.hovanki.client.resources.results_seekers_win
+import app.hovanki.client.resources.results_share
+import app.hovanki.client.resources.results_share_text
 import app.hovanki.client.resources.results_survived
 import app.hovanki.client.resources.results_title
 import app.hovanki.client.resources.results_to_the_end
 import app.hovanki.client.resources.results_you_caught
 import app.hovanki.client.resources.results_you_eliminated
 import app.hovanki.client.resources.results_you_survived
+import app.hovanki.client.resources.results_your_result
 import app.hovanki.client.resources.sparks_count
 import app.hovanki.client.session.Award
 import app.hovanki.client.session.AwardKind
@@ -85,6 +94,7 @@ import app.hovanki.client.session.awards
 import app.hovanki.client.session.catchesBy
 import app.hovanki.client.session.hiderTally
 import app.hovanki.client.session.searchMillisAt
+import app.hovanki.client.share.ShareSheet
 import app.hovanki.client.ui.chat.ChatEvent
 import app.hovanki.client.ui.chat.ChatIconButton
 import app.hovanki.client.ui.chat.ChatPanel
@@ -99,6 +109,7 @@ import app.hovanki.client.ui.common.PopCard
 import app.hovanki.client.ui.common.PopChip
 import app.hovanki.client.ui.common.PopIconButton
 import app.hovanki.client.ui.common.PopStyle
+import app.hovanki.client.ui.common.PopSurface
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.collectScreenState
@@ -125,8 +136,8 @@ import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import kotlin.math.roundToInt
 
 /**
  * Final standings of the finished game ([snapshot] no longer changes) on green (docs/design.md, «Итоги»): when each
@@ -181,6 +192,10 @@ private fun ResultsContent(
     val eliminated = hiders.filter { it.status == PlayerStatus.ELIMINATED }
     // The numbers of everybody; a big game's list below has only the player and their friends.
     val tally = snapshot.hiderTally()
+    val headline = stringResource(
+        if (tally.survived == 0) Res.string.results_seekers_win else Res.string.results_hiders_win,
+    )
+    val roundLength = snapshot.searchMillisAt(snapshot.finishedAtMillis ?: 0L)?.let(::formatElapsed)
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenColumn(modifier = Modifier.weight(1f).testTag(TestTags.RESULTS_SCREEN)) {
@@ -188,20 +203,13 @@ private fun ResultsContent(
                 Box(modifier = Modifier.weight(1f))
                 ChatIconButton(unread = chatUnread, onClick = onOpenChat, size = 44.dp)
             }
-            PopCard(
-                modifier = Modifier.fillMaxWidth(),
-                color = Palette.Green,
-                borderWidth = 2.5.dp,
-                shadow = 6.dp,
-                shape = RoundedCornerShape(28.dp),
-                contentPadding = PaddingValues(20.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                CapsText(stringResource(Res.string.results_title))
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                CapsText(
+                    listOfNotNull(stringResource(Res.string.results_title), roundLength).joinToString(" · "),
+                    color = Palette.Ink2,
+                )
                 Text(
-                    text = stringResource(
-                        if (tally.survived == 0) Res.string.results_seekers_win else Res.string.results_hiders_win,
-                    ),
+                    text = headline,
                     style = MaterialTheme.typography.displaySmall,
                     modifier = Modifier.graphicsLayer {
                         scaleX = pop.value
@@ -209,25 +217,24 @@ private fun ResultsContent(
                         transformOrigin = TransformOrigin(0f, 0.5f)
                     },
                 )
-                if (me.role == Role.HIDER) {
-                    val personal = when (me.status) {
-                        PlayerStatus.ACTIVE -> Res.string.results_you_survived
-                        PlayerStatus.CAUGHT -> Res.string.results_you_caught
-                        PlayerStatus.ELIMINATED -> Res.string.results_you_eliminated
-                    }
-                    Text(text = stringResource(personal), style = MaterialTheme.typography.titleMedium)
-                }
-                Row(
-                    modifier = Modifier.padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ResultCount(Res.string.results_caught, tally.caught, reduceMotion, Modifier.weight(1f))
-                    ResultCount(Res.string.results_survived, tally.survived, reduceMotion, Modifier.weight(1f))
-                    if (tally.eliminated > 0) {
-                        ResultCount(Res.string.results_eliminated, tally.eliminated, reduceMotion, Modifier.weight(1f))
-                    }
-                }
             }
+            YourResult(snapshot)
+            // The replay right under the player's own result: the round at a glance.
+            // Keyed on what makes the replay, not on every poll: the slider stays where the player left it.
+            val replay = remember(tracks, snapshot.finishedAtMillis) { Replay.of(snapshot, tracks) }
+            if (tracks == null || replay != null) {
+                val hidingSeconds = snapshot.settings.hidingSeconds
+                ReplayCard(
+                    replay = replay,
+                    zone = ZoneTimeline(snapshot.settings.zone, snapshot.zoneStartedAtMillis, state.streetZone),
+                    hidingStartMillis = snapshot.zoneStartedAtMillis?.let { it - hidingSeconds * 1000L }
+                        ?: replay?.startMillis,
+                    reduceMotion = reduceMotion,
+                )
+            }
+            // The results keep polling for the chat: new snapshots, the same final state.
+            val awards = remember(tracks, snapshot.finishedAtMillis) { snapshot.awards(tracks) }
+            if (awards.isNotEmpty()) Awards(awards, snapshot, reduceMotion)
 
             PopCard(
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
@@ -258,21 +265,6 @@ private fun ResultsContent(
                     }
                 }
             }
-            // The results keep polling for the chat: new snapshots, the same final state.
-            val awards = remember(tracks, snapshot.finishedAtMillis) { snapshot.awards(tracks) }
-            if (awards.isNotEmpty()) Awards(awards, snapshot, reduceMotion)
-            // Keyed on what makes the replay, not on every poll: the slider stays where the player left it.
-            val replay = remember(tracks, snapshot.finishedAtMillis) { Replay.of(snapshot, tracks) }
-            if (tracks == null || replay != null) {
-                val hidingSeconds = snapshot.settings.hidingSeconds
-                ReplayCard(
-                    replay = replay,
-                    zone = ZoneTimeline(snapshot.settings.zone, snapshot.zoneStartedAtMillis, state.streetZone),
-                    hidingStartMillis = snapshot.zoneStartedAtMillis?.let { it - hidingSeconds * 1000L }
-                        ?: replay?.startMillis,
-                    reduceMotion = reduceMotion,
-                )
-            }
             SaveRoutesOffer(
                 saveRoutes = state.saveRoutes,
                 isBusy = state.isBusy,
@@ -294,39 +286,35 @@ private fun ResultsContent(
                 errorTag = TestTags.SOCIAL_ERROR,
             )
         }
-        PopButton(
-            text = stringResource(Res.string.results_back),
-            onClick = { onEvent(ResultsEvent.Leave) },
-            style = PopStyle.Dark,
-            height = 58.dp,
-            icon = Res.drawable.ic_home,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp)
-                .testTag(TestTags.RESULTS_BACK),
+        val shareSheet = koinInject<ShareSheet>()
+        val shareText = stringResource(
+            Res.string.results_share_text,
+            headline,
+            roundLength.orEmpty(),
         )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            PopButton(
+                text = stringResource(Res.string.results_back),
+                onClick = { onEvent(ResultsEvent.Leave) },
+                style = PopStyle.Dark,
+                height = 58.dp,
+                icon = Res.drawable.ic_home,
+                modifier = Modifier.weight(1f).testTag(TestTags.RESULTS_BACK),
+            )
+            PopButton(
+                text = stringResource(Res.string.results_share),
+                onClick = { shareSheet.share(shareText) },
+                style = PopStyle.Outline,
+                height = 58.dp,
+                icon = Res.drawable.ic_share,
+            )
+        }
     }
 }
 
-/** A number on the results card that counts up when the results open. */
-@Composable
-private fun ResultCount(label: StringResource, count: Int, reduceMotion: Boolean, modifier: Modifier = Modifier) {
-    val shown = remember { Animatable(if (reduceMotion) count.toFloat() else 0f) }
-    LaunchedEffect(count) { shown.animateTo(count.toFloat(), tween(COUNT_UP_MILLIS, easing = FastOutSlowInEasing)) }
-    Column(
-        modifier = modifier.clip(RoundedCornerShape(16.dp)).background(Palette.Ink).padding(vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = shown.value.roundToInt().toString(),
-            style = Hovanki.text.timer,
-            color = Palette.Green,
-        )
-        CapsText(stringResource(label), color = Color.White)
-    }
-}
-
-private const val COUNT_UP_MILLIS = 600
 private const val GROUP_DELAY_MILLIS = 80L
 private const val GROUP_DROP_DP = 24
 
@@ -419,44 +407,108 @@ private fun Awards(awards: List<Award>, snapshot: GameSnapshot, reduceMotion: Bo
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         CapsText(stringResource(Res.string.awards_title), color = Palette.Ink2)
-        awards.forEachIndexed { index, award ->
-            val drop = remember(award) { Animatable(if (reduceMotion) 1f else 0f) }
-            LaunchedEffect(award) {
-                delay(AWARD_DELAY_MILLIS * index)
-                drop.animateTo(1f, Motion.pop())
-            }
-            PopCard(
-                modifier = Modifier.fillMaxWidth().graphicsLayer {
-                    alpha = drop.value.coerceIn(0f, 1f)
-                    translationY = (1f - drop.value) * -GROUP_DROP_DP.dp.toPx()
-                },
-                color = Palette.Pink,
-                contentColor = Color.White,
-                shadow = 3.dp,
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_trophy),
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp),
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(text = stringResource(award.kind.title), style = MaterialTheme.typography.titleSmall)
+        awards.chunked(2).forEachIndexed { rowIndex, pair ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.height(IntrinsicSize.Min)) {
+                pair.forEachIndexed { column, award ->
+                    val index = rowIndex * 2 + column
+                    val drop = remember(award) { Animatable(if (reduceMotion) 1f else 0f) }
+                    LaunchedEffect(award) {
+                        delay(AWARD_DELAY_MILLIS * index)
+                        drop.animateTo(1f, Motion.pop())
+                    }
+                    // Pink and ink in turn, as in the mockup.
+                    val pink = index % 2 == 0
+                    PopCard(
+                        modifier = Modifier.weight(1f).fillMaxHeight().graphicsLayer {
+                            alpha = drop.value.coerceIn(0f, 1f)
+                            translationY = (1f - drop.value) * -GROUP_DROP_DP.dp.toPx()
+                        },
+                        color = if (pink) Palette.Pink else Palette.Ink,
+                        contentColor = if (pink) Color.White else Palette.Green,
+                        border = if (pink) Palette.Ink else null,
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        CapsText(stringResource(award.kind.title))
                         Text(
-                            text = "${names[award.playerId].orEmpty()} · ${awardDetail(award)}",
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = names[award.playerId].orEmpty(),
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
+                        Text(text = awardDetail(award), style = MaterialTheme.typography.bodySmall)
                     }
                 }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
         }
     }
 }
+
+/**
+ * The player's own result on ink (docs/design.md, «Итоги»): their avatar, how it went, and the number that matters in
+ * big green — the time a hider lasted into the search, a seeker's finds.
+ */
+@Composable
+private fun YourResult(snapshot: GameSnapshot) {
+    val me = snapshot.players.firstOrNull { it.id == snapshot.me.playerId } ?: return
+    val hiders = snapshot.players.filter { it.role == Role.HIDER }
+    val searchEnd = snapshot.searchMillisAt(snapshot.finishedAtMillis ?: 0L)
+    fun lasted(player: PlayerView): Long? =
+        if (player.status == PlayerStatus.ACTIVE) searchEnd else player.outAtMillis?.let(snapshot::searchMillisAt)
+    val (line, value) = if (me.role == Role.HIDER) {
+        val mine = lasted(me)
+        val place = 1 + hiders.count { other -> other.id != me.id && (lasted(other) ?: 0L) > (mine ?: 0L) }
+        val personal = when (me.status) {
+            PlayerStatus.ACTIVE -> Res.string.results_you_survived
+            PlayerStatus.CAUGHT -> Res.string.results_you_caught
+            PlayerStatus.ELIMINATED -> Res.string.results_you_eliminated
+        }
+        val placeText = if (hiders.size >
+            1
+        ) {
+            stringResource(Res.string.results_hider_place, place, hiders.size)
+        } else {
+            null
+        }
+        listOfNotNull(stringResource(personal), placeText).joinToString(" · ") to mine?.let(::formatElapsed)
+    } else {
+        val finds = snapshot.catchesBy(me.id)
+        stringResource(Res.string.results_finds, finds) to finds.toString()
+    }
+    PopSurface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = Palette.Ink,
+        contentColor = Color.White,
+        border = null,
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Avatar(
+                name = me.name,
+                color = me.role.color,
+                contentColor = me.role.onColor,
+                size = 48.dp,
+                border = Color.White,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(Res.string.results_your_result),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = RESULT_MUTED,
+                )
+                Text(text = line, style = MaterialTheme.typography.titleSmall)
+            }
+            if (value != null) Text(text = value, style = Hovanki.text.timer, color = Palette.Green)
+        }
+    }
+}
+
+private val RESULT_MUTED = Color(0xFFB4B4BE)
 
 private val AwardKind.title: StringResource
     get() = when (this) {
