@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.hovanki.client.automation.TestTags
@@ -466,15 +467,21 @@ private fun PlayerRow(
             modifier = avatarModifier,
         )
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(text = player.name, style = MaterialTheme.typography.titleSmall)
-                if (tags.isNotEmpty()) {
-                    Text(
-                        text = tags.joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Palette.Ink2,
-                    )
-                }
+            // One line each: next to the fixed-width role pill a long name would squeeze the tags to a letter a line.
+            Text(
+                text = player.name,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (tags.isNotEmpty()) {
+                Text(
+                    text = tags.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Palette.Ink2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             if (player.isOffline) {
                 Text(
