@@ -911,4 +911,19 @@
   <string name="sos_hold">Удерживайте, чтобы отправить SOS</string>
   <string name="error_game_paused">Игра на паузе.</string>
   <string name="error_sos_active">Чей-то SOS ещё не снят: игра продолжится, когда его снимут.</string>
+  <string name="tab_rating">Рейтинг</string>
+  <string name="leaderboard_title">Рейтинг</string>
+  <string name="leaderboard_last_game">Последняя игра</string>
+  <string name="leaderboard_friends">Друзья</string>
+  <string name="leaderboard_world">Мир</string>
+  <string name="leaderboard_week">Неделя %1$d</string>
+  <string name="leaderboard_ends_in">финал через %1$dд %2$dч</string>
+  <string name="leaderboard_you">Ты</string>
+  <string name="leaderboard_up">▲%1$d за неделю</string>
+  <string name="leaderboard_down">▼%1$d за неделю</string>
+  <string name="leaderboard_to_next">%1$d до %2$s</string>
+  <string name="leaderboard_empty_last_game">Сыграй игру со своим аккаунтом, и её очки появятся здесь.</string>
+  <string name="leaderboard_empty">На этой неделе ни у кого ещё нет очков. Сыграй и будь первым.</string>
+  <string name="leaderboard_rules">Каждая игра +%1$d. Прячешься: +%2$d за каждую минуту, пока тебя не нашли, и +%3$d, если не нашли совсем. Ищешь: +%4$d за находку и +%5$d, когда искавшие выиграли. Неделя идёт с понедельника до понедельника по киевскому времени.</string>
+  <string name="leaderboard_rules_button">Как считаются очки</string>
 </resources>

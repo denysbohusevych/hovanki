@@ -34,10 +34,12 @@ import app.hovanki.client.resources.ic_friends
 import app.hovanki.client.resources.ic_groups
 import app.hovanki.client.resources.ic_play
 import app.hovanki.client.resources.ic_profile
+import app.hovanki.client.resources.ic_trophy
 import app.hovanki.client.resources.tab_friends
 import app.hovanki.client.resources.tab_groups
 import app.hovanki.client.resources.tab_play
 import app.hovanki.client.resources.tab_profile
+import app.hovanki.client.resources.tab_rating
 import app.hovanki.client.ui.common.CountBadge
 import app.hovanki.client.ui.common.SystemBackHandler
 import app.hovanki.client.ui.common.collectScreenState
@@ -49,6 +51,7 @@ import app.hovanki.client.ui.history.HistoryPanel
 import app.hovanki.client.ui.history.HistoryViewModel
 import app.hovanki.client.ui.history.RecordingPanel
 import app.hovanki.client.ui.history.RoutePanel
+import app.hovanki.client.ui.leaderboard.LeaderboardTab
 import app.hovanki.client.ui.play.PlayTab
 import app.hovanki.client.ui.profile.ProfileTab
 import app.hovanki.client.ui.theme.Motion
@@ -128,6 +131,8 @@ fun MainScreen(
 
                 MainTab.FRIENDS -> FriendsTab()
 
+                MainTab.RATING -> LeaderboardTab()
+
                 MainTab.GROUPS -> GroupsTab(groups, groupsViewModel::onEvent)
 
                 MainTab.PROFILE -> ProfileTab(onVerifyEvent = verifyViewModel::onEvent, history = historyViewModel)
@@ -137,7 +142,7 @@ fun MainScreen(
             when (item) {
                 MainTab.PLAY -> inbox.invites.size
                 MainTab.FRIENDS -> inbox.friendRequests.size
-                MainTab.GROUPS, MainTab.PROFILE -> 0
+                MainTab.RATING, MainTab.GROUPS, MainTab.PROFILE -> 0
             }
         })
     }
@@ -210,6 +215,7 @@ private fun TabIcon(icon: DrawableResource, badge: Int, tint: Color) {
 private fun MainTab.title(): StringResource = when (this) {
     MainTab.PLAY -> Res.string.tab_play
     MainTab.FRIENDS -> Res.string.tab_friends
+    MainTab.RATING -> Res.string.tab_rating
     MainTab.GROUPS -> Res.string.tab_groups
     MainTab.PROFILE -> Res.string.tab_profile
 }
@@ -217,6 +223,7 @@ private fun MainTab.title(): StringResource = when (this) {
 private fun MainTab.icon(): DrawableResource = when (this) {
     MainTab.PLAY -> Res.drawable.ic_play
     MainTab.FRIENDS -> Res.drawable.ic_friends
+    MainTab.RATING -> Res.drawable.ic_trophy
     MainTab.GROUPS -> Res.drawable.ic_groups
     MainTab.PROFILE -> Res.drawable.ic_profile
 }
@@ -224,6 +231,7 @@ private fun MainTab.icon(): DrawableResource = when (this) {
 private fun MainTab.tag(): String = when (this) {
     MainTab.PLAY -> TestTags.TAB_PLAY
     MainTab.FRIENDS -> TestTags.TAB_FRIENDS
+    MainTab.RATING -> TestTags.TAB_RATING
     MainTab.GROUPS -> TestTags.TAB_GROUPS
     MainTab.PROFILE -> TestTags.TAB_PROFILE
 }

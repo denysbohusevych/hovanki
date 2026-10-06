@@ -114,6 +114,7 @@ object TestTags {
     // Main screen (logged in): the navigation bar.
     const val TAB_PLAY = "tab_play"
     const val TAB_FRIENDS = "tab_friends"
+    const val TAB_RATING = "tab_rating"
     const val TAB_GROUPS = "tab_groups"
     const val TAB_PROFILE = "tab_profile"
 
@@ -165,6 +166,15 @@ object TestTags {
     /** On the results screen: keep the routes, this game's too. */
     const val RESULTS_SAVE_ROUTES = "results_save_routes"
     const val RESULTS_ROUTE_SAVED = "results_route_saved"
+
+    // «Rating» (docs/adr/0020-leaderboard.md).
+    const val LEADERBOARD_SCREEN = "leaderboard_screen"
+    const val LEADERBOARD_RULES = "leaderboard_rules"
+
+    /** The player's own line in ink. */
+    const val LEADERBOARD_ME = "leaderboard_me"
+
+    fun leaderboardScope(scope: String) = "leaderboard_scope_${scope.lowercase()}"
 
     const val FRIENDS_SCREEN = "friends_screen"
     const val FRIENDS_NICKNAME = "friends_nickname"

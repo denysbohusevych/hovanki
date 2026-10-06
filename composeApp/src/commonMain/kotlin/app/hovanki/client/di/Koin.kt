@@ -70,6 +70,7 @@ import app.hovanki.client.ui.game.GameViewModel
 import app.hovanki.client.ui.groups.GroupsViewModel
 import app.hovanki.client.ui.history.HistoryViewModel
 import app.hovanki.client.ui.invite.InviteBannerViewModel
+import app.hovanki.client.ui.leaderboard.LeaderboardViewModel
 import app.hovanki.client.ui.lobby.LobbyViewModel
 import app.hovanki.client.ui.main.MainViewModel
 import app.hovanki.client.ui.play.PlayViewModel
@@ -315,6 +316,7 @@ val commonModule: Module = module {
     viewModelOf(::MainViewModel)
     viewModelOf(::PlayViewModel)
     viewModelOf(::FriendsViewModel)
+    viewModelOf(::LeaderboardViewModel)
     viewModelOf(::GroupsViewModel)
     viewModelOf(::ProfileViewModel)
     viewModelOf(::HistoryViewModel)

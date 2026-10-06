@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-enum class MainTab { PLAY, FRIENDS, GROUPS, PROFILE }
+enum class MainTab { PLAY, FRIENDS, RATING, GROUPS, PROFILE }
 
 /** The main screen's state (docs/architecture.md, «Состояние экрана»). */
 data class MainUiState(

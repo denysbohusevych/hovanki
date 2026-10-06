@@ -911,4 +911,19 @@
   <string name="sos_hold">Утримуйте, щоб надіслати SOS</string>
   <string name="error_game_paused">Гра на паузі.</string>
   <string name="error_sos_active">Чийсь SOS ще не знято: гра продовжиться, коли його знімуть.</string>
+  <string name="tab_rating">Рейтинг</string>
+  <string name="leaderboard_title">Рейтинг</string>
+  <string name="leaderboard_last_game">Остання гра</string>
+  <string name="leaderboard_friends">Друзі</string>
+  <string name="leaderboard_world">Світ</string>
+  <string name="leaderboard_week">Тиждень %1$d</string>
+  <string name="leaderboard_ends_in">фінал через %1$dд %2$dг</string>
+  <string name="leaderboard_you">Ти</string>
+  <string name="leaderboard_up">▲%1$d за тиждень</string>
+  <string name="leaderboard_down">▼%1$d за тиждень</string>
+  <string name="leaderboard_to_next">%1$d до %2$s</string>
+  <string name="leaderboard_empty_last_game">Зіграй гру зі своїм акаунтом, і її бали з’являться тут.</string>
+  <string name="leaderboard_empty">Цього тижня ще ні в кого немає балів. Зіграй і будь першим.</string>
+  <string name="leaderboard_rules">Кожна гра +%1$d. Ховаєшся: +%2$d за кожну хвилину, поки тебе не знайшли, і +%3$d, якщо не знайшли зовсім. Шукаєш: +%4$d за знахідку і +%5$d, коли шукачі виграли. Тиждень іде з понеділка до понеділка за київським часом.</string>
+  <string name="leaderboard_rules_button">Як рахуються бали</string>
 </resources>
