@@ -149,18 +149,26 @@ private const val PRESS_SHRINK = 0.03f
 
 /** Colors of [PopButton] and friends (docs/design.md, «Компоненты»). */
 enum class PopStyle(val container: Color, val content: Color, val border: Color?, val shadow: Boolean) {
-    /** The screen's main action: lime, outlined, with a hard shadow. One per screen. */
-    Primary(Palette.Lime, Palette.Ink, Palette.Ink, shadow = true),
+    /** The screen's main action: green, outlined, with a hard shadow. One per screen. */
+    Primary(Palette.Green, Palette.Ink, Palette.Ink, shadow = true),
 
-    /** Ink with lime text. */
-    Dark(Palette.Ink, Palette.Lime, null, shadow = false),
+    /** Ink with green text. */
+    Dark(Palette.Ink, Palette.Green, null, shadow = false),
+
+    /** Green text in a green outline: a secondary action on an ink card. */
+    DarkOutline(Palette.Ink, Palette.Green, Palette.Green, shadow = false),
     Outline(Palette.Paper, Palette.Ink, Palette.Ink, shadow = false),
 
     /** A secondary action on a light background, without an outline. */
     Quiet(Palette.Sand, Palette.Ink, null, shadow = false),
-    Hider(Palette.Violet, Color.White, Palette.Ink, shadow = false),
-    Seeker(Palette.Orange, Palette.Ink, Palette.Ink, shadow = true),
-    Pink(Palette.Pink, Palette.Ink, Palette.Ink, shadow = false),
+    Hider(Palette.Hider, Color.White, Palette.Ink, shadow = false),
+
+    /** Ink with green text, like [Dark], but outlined: it stands on light screens and on the map. */
+    Seeker(Palette.Seeker, Palette.Green, Palette.Ink, shadow = false),
+    Pink(Palette.Pink, Color.White, Palette.Ink, shadow = false),
+
+    /** White text in a white outline on a pink screen (the hider's code). */
+    OnPink(Palette.Pink, Color.White, Color.White, shadow = false),
 
     /** Destructive or against the flow (dispute, block). */
     Danger(Palette.Paper, Palette.PinkInk, Palette.PinkInk, shadow = false),
@@ -299,7 +307,7 @@ fun CountBadge(count: Int, modifier: Modifier = Modifier, tag: String? = null) {
             .then(if (tag != null) Modifier.testTag(tag) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = text, color = Palette.Ink, fontSize = 11.sp, style = MaterialTheme.typography.labelSmall)
+        Text(text = text, color = Color.White, fontSize = 11.sp, style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -461,7 +469,7 @@ fun CountdownRing(
     progress: Float,
     text: String,
     modifier: Modifier = Modifier,
-    color: Color = Palette.Lime,
+    color: Color = Palette.Green,
     trackColor: Color = Palette.Ink2,
     textColor: Color = LocalContentColor.current,
     size: Dp = 48.dp,

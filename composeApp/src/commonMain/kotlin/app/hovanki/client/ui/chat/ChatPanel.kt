@@ -212,7 +212,7 @@ private fun ChannelPill(text: String, selected: Boolean, onClick: () -> Unit, mo
         modifier = modifier.height(40.dp).semantics { this.selected = selected },
         shape = RoundedCornerShape(20.dp),
         color = if (selected) Palette.Ink else Palette.Paper,
-        contentColor = if (selected) Palette.Lime else Palette.Ink,
+        contentColor = if (selected) Palette.Green else Palette.Ink,
         borderWidth = 2.dp,
         onClick = onClick,
         role = Role.Tab,
@@ -278,7 +278,7 @@ private fun ChatMessage(
         horizontalAlignment = if (line.isMine) Alignment.End else Alignment.Start,
     ) {
         PopSurface(
-            color = if (line.isMine) Palette.Lime else Palette.Paper,
+            color = if (line.isMine) Palette.Green else Palette.Paper,
             shape = RoundedCornerShape(
                 topStart = 18.dp,
                 topEnd = 18.dp,
@@ -295,7 +295,7 @@ private fun ChatMessage(
                 Text(
                     text = header,
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (line.isTeam) Palette.OrangeInk else Palette.Ink2,
+                    color = if (line.isTeam) Palette.Ink else Palette.Ink2,
                 )
                 Text(text = line.text, style = MaterialTheme.typography.bodyLarge)
             }

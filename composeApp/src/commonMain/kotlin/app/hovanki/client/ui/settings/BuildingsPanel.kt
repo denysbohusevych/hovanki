@@ -58,7 +58,7 @@ import kotlin.math.roundToInt
 
 /**
  * The zone's buildings for the host to open some for hiding (docs/adr/0014-settings-lobby-redesign-open-buildings.md,
- * section 4): pink ones are forbidden, lime ones open. A tap picks the building there (the whole outline of adjoining
+ * section 4): pink ones are forbidden, green ones open. A tap picks the building there (the whole outline of adjoining
  * houses, outlined in ink); «Allow hiding» opens it for everybody right away, «Close again» takes it back.
  */
 @Composable
@@ -96,7 +96,7 @@ fun BuildingsPanel(state: LobbyUiState, picker: BuildingPickerState, onEvent: (L
                 )
                 CountChip(
                     text = stringResource(Res.string.buildings_open_chip, buildings?.open?.size ?: 0),
-                    swatch = Palette.Lime,
+                    swatch = Palette.Green,
                     swatchBorder = Palette.Ink,
                 )
             }
@@ -161,8 +161,9 @@ private fun PickedBuilding(
                     if (isOpen) Res.string.buildings_status_open else Res.string.buildings_status_forbidden,
                 ),
                 style = MaterialTheme.typography.labelMedium,
+                color = if (isOpen) Palette.Ink else Color.White,
                 modifier = Modifier
-                    .background(if (isOpen) Palette.Lime else Palette.Pink, RoundedCornerShape(12.dp))
+                    .background(if (isOpen) Palette.Green else Palette.Pink, RoundedCornerShape(12.dp))
                     .border(2.dp, Palette.Ink, RoundedCornerShape(12.dp))
                     .padding(horizontal = 10.dp, vertical = 6.dp),
             )

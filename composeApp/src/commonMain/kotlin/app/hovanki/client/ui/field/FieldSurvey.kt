@@ -144,7 +144,7 @@ private fun Choice(text: String, selected: Boolean, onClick: () -> Unit) {
     PopChip(
         text = text,
         color = if (selected) Palette.Ink else Palette.Paper,
-        contentColor = if (selected) Palette.Lime else Palette.Ink,
+        contentColor = if (selected) Palette.Green else Palette.Ink,
         border = Palette.Ink,
         onClick = onClick,
     )

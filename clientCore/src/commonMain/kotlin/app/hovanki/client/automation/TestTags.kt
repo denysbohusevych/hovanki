@@ -31,6 +31,13 @@ object TestTags {
     /** Watch the open game of the code typed (docs/adr/0011-spectators-and-recordings.md): «Play» tab only. */
     const val HOME_WATCH = "home_watch"
 
+    /** «I have a code from a friend»: opens the code field on the «Play» tab (open by itself when a code is there). */
+    const val HOME_HAVE_CODE = "home_have_code"
+
+    /** The last game played on the «Play» tab and its «Results». */
+    const val HOME_LAST_GAME = "home_last_game"
+    const val HOME_LAST_GAME_RESULTS = "home_last_game_results"
+
     /** Watching a game: the screen, the delay chip, the list of players, «Stop watching», the end of it. */
     const val SPECTATOR_SCREEN = "spectator_screen"
     const val SPECTATOR_DELAY = "spectator_delay"
@@ -107,6 +114,7 @@ object TestTags {
     // Main screen (logged in): the navigation bar.
     const val TAB_PLAY = "tab_play"
     const val TAB_FRIENDS = "tab_friends"
+    const val TAB_RATING = "tab_rating"
     const val TAB_GROUPS = "tab_groups"
     const val TAB_PROFILE = "tab_profile"
 
@@ -158,6 +166,15 @@ object TestTags {
     /** On the results screen: keep the routes, this game's too. */
     const val RESULTS_SAVE_ROUTES = "results_save_routes"
     const val RESULTS_ROUTE_SAVED = "results_route_saved"
+
+    // «Rating» (docs/adr/0020-leaderboard.md).
+    const val LEADERBOARD_SCREEN = "leaderboard_screen"
+    const val LEADERBOARD_RULES = "leaderboard_rules"
+
+    /** The player's own line in ink. */
+    const val LEADERBOARD_ME = "leaderboard_me"
+
+    fun leaderboardScope(scope: String) = "leaderboard_scope_${scope.lowercase()}"
 
     const val FRIENDS_SCREEN = "friends_screen"
     const val FRIENDS_NICKNAME = "friends_nickname"

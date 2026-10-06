@@ -131,7 +131,7 @@ private fun LocationConsentScreen(onAllow: () -> Unit, onLater: () -> Unit) {
         ) {
             PopSurface(
                 shape = CircleShape,
-                color = Palette.Lime,
+                color = Palette.Green,
                 shadow = 4.dp,
                 contentAlignment = Alignment.Center,
                 modifier = Modifier.size(84.dp),
@@ -145,9 +145,9 @@ private fun LocationConsentScreen(onAllow: () -> Unit, onLater: () -> Unit) {
             }
             Text(text = stringResource(Res.string.consent_title), style = MaterialTheme.typography.displaySmall)
             Text(text = stringResource(Res.string.consent_text), style = MaterialTheme.typography.bodyLarge)
-            ConsentPoint(Res.drawable.ic_friends, Palette.Violet, Color.White, stringResource(Res.string.consent_who))
-            ConsentPoint(Res.drawable.ic_clock, Palette.Lime, Palette.Ink, stringResource(Res.string.consent_when))
-            ConsentPoint(Res.drawable.ic_pocket, Palette.Orange, Palette.Ink, stringResource(Res.string.consent_pocket))
+            ConsentPoint(Res.drawable.ic_friends, Palette.Hider, Color.White, stringResource(Res.string.consent_who))
+            ConsentPoint(Res.drawable.ic_clock, Palette.Green, Palette.Ink, stringResource(Res.string.consent_when))
+            ConsentPoint(Res.drawable.ic_pocket, Palette.Ink, Palette.Green, stringResource(Res.string.consent_pocket))
         }
         Column(
             modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),

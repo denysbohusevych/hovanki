@@ -16,14 +16,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -80,7 +83,7 @@ fun ScreenColumn(modifier: Modifier = Modifier, content: @Composable ColumnScope
 @Composable
 fun LoadingScreen(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize().testTag(TestTags.LOADING), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = Palette.Ink, trackColor = Palette.Lime, strokeWidth = 5.dp)
+        CircularProgressIndicator(color = Palette.Ink, trackColor = Palette.Green, strokeWidth = 5.dp)
     }
 }
 
@@ -95,7 +98,7 @@ fun ResumingScreen(isReconnecting: Boolean, onLeave: () -> Unit, modifier: Modif
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CircularProgressIndicator(color = Palette.Ink, trackColor = Palette.Lime, strokeWidth = 5.dp)
+        CircularProgressIndicator(color = Palette.Ink, trackColor = Palette.Green, strokeWidth = 5.dp)
         Text(
             text = stringResource(Res.string.resuming_game),
             style = MaterialTheme.typography.headlineSmall,
@@ -135,6 +138,7 @@ fun Banner(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         color = if (isError) Palette.Pink else Palette.Paper,
+        contentColor = if (isError) Color.White else Palette.Ink,
         borderWidth = 2.dp,
     ) {
         Row(
@@ -155,7 +159,11 @@ fun Banner(
                 )
             }
             if (actionLabel != null) {
-                TextButton(onClick = onAction, modifier = actionModifier) {
+                TextButton(
+                    onClick = onAction,
+                    modifier = actionModifier,
+                    colors = ButtonDefaults.textButtonColors(contentColor = LocalContentColor.current),
+                ) {
                     Text(actionLabel, style = MaterialTheme.typography.labelLarge)
                 }
             }
@@ -213,7 +221,7 @@ fun BusyRow(text: String, modifier: Modifier = Modifier) {
         CircularProgressIndicator(
             modifier = Modifier.size(20.dp),
             color = Palette.Ink,
-            trackColor = Palette.Lime,
+            trackColor = Palette.Green,
             strokeWidth = 3.dp,
         )
         Text(text = text)

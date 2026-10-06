@@ -8,12 +8,15 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -43,6 +46,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.hovanki.client.automation.TestTags
@@ -72,8 +76,10 @@ import app.hovanki.client.resources.lobby_offline
 import app.hovanki.client.resources.lobby_pick_seekers
 import app.hovanki.client.resources.lobby_play_anyway
 import app.hovanki.client.resources.lobby_players
+import app.hovanki.client.resources.lobby_players_title
 import app.hovanki.client.resources.lobby_random
 import app.hovanki.client.resources.lobby_seeker
+import app.hovanki.client.resources.lobby_seekers_count
 import app.hovanki.client.resources.lobby_start
 import app.hovanki.client.resources.lobby_start_hint
 import app.hovanki.client.resources.lobby_start_wait_streets
@@ -120,6 +126,7 @@ import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.UserId
 import kotlinx.coroutines.delay
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
@@ -129,7 +136,7 @@ import kotlin.random.Random
 import app.hovanki.shared.protocol.Role as GameRole
 
 /**
- * The lobby (docs/design.md, «Лобби»): the join code on a lime card, the game's settings (the host changes them), the
+ * The lobby (docs/design.md, «Лобби»): the join code on a green card, the game's settings (the host changes them), the
  * players with their role pills (the host switches them, everybody sees them), and «Start» at the bottom.
  */
 @Composable
@@ -300,11 +307,18 @@ private fun PlayersSection(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = stringResource(Res.string.lobby_players, state.players.size),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f),
-            )
+            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = stringResource(Res.string.lobby_players_title, state.players.size),
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Text(
+                    text = " " + stringResource(Res.string.lobby_seekers_count, state.players.count { it.isSeeker }),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Palette.Ink2,
+                    modifier = Modifier.padding(bottom = 2.dp),
+                )
+            }
             if (state.isHost) {
                 PopButton(
                     onClick = { onEvent(LobbyEvent.DrawSeekers) },
@@ -453,15 +467,21 @@ private fun PlayerRow(
             modifier = avatarModifier,
         )
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(text = player.name, style = MaterialTheme.typography.titleSmall)
-                if (tags.isNotEmpty()) {
-                    Text(
-                        text = tags.joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Palette.Ink2,
-                    )
-                }
+            // One line each: next to the fixed-width role pill a long name would squeeze the tags to a letter a line.
+            Text(
+                text = player.name,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (tags.isNotEmpty()) {
+                Text(
+                    text = tags.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Palette.Ink2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             if (player.isOffline) {
                 Text(
@@ -502,7 +522,7 @@ private fun PlayerRow(
     }
 }
 
-/** «Seeks» in orange or «hides» in violet; the host taps it to switch ([onClick]), the others only see it. */
+/** «Seeks» in ink or «hides» in pink; the host taps it to switch ([onClick]), the others only see it. */
 @Composable
 private fun RolePill(isSeeker: Boolean, onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
     val role = if (isSeeker) GameRole.SEEKER else GameRole.HIDER
@@ -517,19 +537,36 @@ private fun RolePill(isSeeker: Boolean, onClick: (() -> Unit)?, modifier: Modifi
         scale.snapTo(PILL_POP_FROM)
         scale.animateTo(1f, Motion.pop())
     }
+    // Both roles side by side, the player's one filled with its color; a tap anywhere switches (the host only).
     PopSurface(
-        modifier = modifier.scale(scale.value).height(36.dp).width(104.dp),
-        shape = RoundedCornerShape(18.dp),
-        color = container,
-        contentColor = content,
+        modifier = modifier.scale(scale.value).height(40.dp).width(164.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = Palette.Fog,
         borderWidth = 2.dp,
         onClick = onClick,
         role = Role.Switch,
+    ) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            RoleHalf(Res.string.lobby_hider, selected = !isSeeker, container = container, content = content)
+            RoleHalf(Res.string.lobby_seeker, selected = isSeeker, container = container, content = content)
+        }
+    }
+}
+
+@Composable
+private fun RowScope.RoleHalf(text: StringResource, selected: Boolean, container: Color, content: Color) {
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .background(if (selected) container else Color.Transparent),
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = stringResource(if (isSeeker) Res.string.lobby_seeker else Res.string.lobby_hider),
+            text = stringResource(text),
             style = MaterialTheme.typography.labelMedium,
+            color = if (selected) content else Palette.Ink3,
+            maxLines = 1,
         )
     }
 }
@@ -575,14 +612,14 @@ private fun rememberFlicker(trigger: Int, actual: Boolean, seed: Int): Boolean {
 }
 
 /**
- * A big game's lobby (docs/adr/0010-big-games.md): the title on violet, when it starts in the place's time, and how many
+ * A big game's lobby (docs/adr/0010-big-games.md): the title on pink, when it starts in the place's time, and how many
  * are here and signed up. No join code: only the signed-up come in, from their «Play» tab.
  */
 @Composable
 private fun BigGameCard(bigGame: BigGameInfo, playersHere: Int) {
     PopCard(
         modifier = Modifier.fillMaxWidth().testTag(TestTags.BIG_LOBBY),
-        color = Palette.Violet,
+        color = Palette.Pink,
         borderWidth = 2.5.dp,
         shadow = 5.dp,
         shape = RoundedCornerShape(24.dp),

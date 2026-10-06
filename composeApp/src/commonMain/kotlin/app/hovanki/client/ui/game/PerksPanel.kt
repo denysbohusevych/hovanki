@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import app.hovanki.client.automation.TestTags
@@ -86,13 +87,13 @@ private fun PerkCard(
                 PopChip(
                     text = stringResource(Res.string.perk_owned, perk.owned),
                     color = Palette.Pink,
-                    contentColor = Palette.Ink,
+                    contentColor = Color.White,
                     border = Palette.Ink,
                 )
             } else {
                 PopChip(
                     text = stringResource(Res.string.sparks_count, perk.price),
-                    color = Palette.Lime,
+                    color = Palette.Green,
                     contentColor = Palette.Ink,
                     border = Palette.Ink,
                 )

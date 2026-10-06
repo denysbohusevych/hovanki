@@ -478,6 +478,7 @@ sequenceDiagram
 | GET | `/api/v1/me/games/{gameId}/route` | — | `GameRoute`; 404, если маршрут не сохранён |
 | POST | `/api/v1/me/games/{gameId}/route/delete` | — | 204; игра остаётся в истории |
 | GET | `/api/v1/me/games/{gameId}/recording` | — | `GameRecording`: пути всех игроков этой игры ([ADR 0011](adr/0011-spectators-and-recordings.md)); 404, если вызывающий не играл в ней с аккаунтом или запись удалена |
+| GET | `/api/v1/me/leaderboard?scope=LAST_GAME\|FRIENDS\|WORLD` | — | `LeaderboardResponse` ([ADR 0020](adr/0020-leaderboard.md)): очки за неделю по Киеву (`LeaderboardRules`) — «Мир» (первые 50 и своя строка), «Друзья» или игроки своей последней партии; `me`, `nextAbove`, `rankChange`. По умолчанию `WORLD`, неизвестный `scope` — 400. Ничего не хранится: считается из `game_results` |
 
 **Друзья, группы, входящие.** Токен — аккаунт.
 

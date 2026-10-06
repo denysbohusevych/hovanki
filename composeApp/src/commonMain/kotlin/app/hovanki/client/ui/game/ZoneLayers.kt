@@ -55,7 +55,7 @@ internal fun ZoneFills(shape: State<ZoneShape>, bandOpacity: Float = 0f) {
 internal fun ZoneBorder(
     shape: State<ZoneShape>,
     casingWidth: Dp = RING_CASING_WIDTH,
-    coreColor: Color = Palette.Lime,
+    coreColor: Color = Palette.Green,
     coreWidth: Dp = RING_CORE_WIDTH,
     nextOpacity: Float = 0f,
 ) {

@@ -149,7 +149,7 @@ private fun SpectatorContent(state: SpectatorState, onEvent: (SpectatorEvent) ->
                     } else {
                         stringResource(Res.string.spectator_live)
                     },
-                    color = Palette.Lime,
+                    color = Palette.Green,
                     contentColor = Palette.Ink,
                     border = Palette.Ink,
                     modifier = Modifier.testTag(TestTags.SPECTATOR_DELAY),

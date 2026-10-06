@@ -258,6 +258,10 @@
   <string name="results_eliminated">Eliminated</string>
   <string name="results_seekers">Seekers</string>
   <string name="results_back">Back to start</string>
+  <string name="results_your_result">Your result</string>
+  <string name="results_hider_place">Place %1$d of %2$d hiders</string>
+  <string name="results_share">Share</string>
+  <string name="results_share_text">Hovanki: %1$s (%2$s)</string>
 
   <!-- «Dopamine» UI (docs/design.md) -->
   <string name="play_subtitle">Gather your crew and head outside.</string>
@@ -278,6 +282,11 @@
   <string name="flash_seekers_out">The seekers are out!</string>
   <string name="catch_auto_in">Counts by itself in %1$s</string>
   <string name="catch_or_say">Or read out the digits</string>
+  <string name="show_code_title">Show your code!</string>
+  <string name="catch_auto_label">If you do nothing, it counts in</string>
+  <string name="code_next_short">new code</string>
+  <string name="dispute_mistake">It’s a mistake: dispute</string>
+  <string name="dispute_vote_hint">The other players settle a dispute by a vote</string>
   <string name="catch_seeker_hint">Found someone? Tap «Found!» and scan the QR code on their screen. The camera won’t read it: tap their name, they show 4 digits.</string>
   <string name="lobby_title">Lobby</string>
   <string name="lobby_random">Random</string>
@@ -632,6 +641,9 @@
   <string name="lobby_recorded">The game is recorded: everybody’s way is kept for 90 days, and only this game’s players with an account can watch it.</string>
   <string name="home_watch">Watch</string>
   <string name="home_watch_hint">An open game can be watched without playing: type its code and tap “Watch”.</string>
+  <string name="home_have_code">I have a code from a friend</string>
+  <string name="last_game_title">Last game · %1$s</string>
+  <string name="last_game_results">Results</string>
   <string name="spectator_title">You’re watching</string>
   <string name="spectator_delay">%1$s behind</string>
   <string name="spectator_live">Live</string>
@@ -811,6 +823,13 @@
   <string name="lobby_tile_capacity">players fit</string>
   <string name="lobby_tile_unknown">…</string>
   <string name="lobby_recorded_short">The game is recorded · 90 days</string>
+  <string name="lobby_summary_time">%1$d min</string>
+  <string name="lobby_summary_glow">glow every %1$d min</string>
+  <string name="lobby_summary_no_glow">no glow</string>
+  <string name="lobby_summary_capacity">up to %1$d players</string>
+  <string name="lobby_change">Change</string>
+  <string name="lobby_players_title">Players · %1$d</string>
+  <string name="lobby_seekers_count">%1$d seeking</string>
   <string name="lobby_recorded_more">Who sees the recording</string>
   <string name="lobby_radar_more">What the radar does</string>
   <plurals name="settings_buildings_count">
@@ -886,4 +905,19 @@
   <string name="sos_hold">Hold to send the SOS</string>
   <string name="error_game_paused">The round is on pause.</string>
   <string name="error_sos_active">Somebody’s SOS is still on: the round goes on once it is over.</string>
+  <string name="tab_rating">Rating</string>
+  <string name="leaderboard_title">Rating</string>
+  <string name="leaderboard_last_game">Last game</string>
+  <string name="leaderboard_friends">Friends</string>
+  <string name="leaderboard_world">World</string>
+  <string name="leaderboard_week">Week %1$d</string>
+  <string name="leaderboard_ends_in">ends in %1$dd %2$dh</string>
+  <string name="leaderboard_you">You</string>
+  <string name="leaderboard_up">▲%1$d this week</string>
+  <string name="leaderboard_down">▼%1$d this week</string>
+  <string name="leaderboard_to_next">%1$d to %2$s</string>
+  <string name="leaderboard_empty_last_game">Play a game with your account and its points will be here.</string>
+  <string name="leaderboard_empty">Nobody has points this week yet. Play a game and be the first.</string>
+  <string name="leaderboard_rules">Every game +%1$d. Hiding: +%2$d a minute you weren’t found and +%3$d if nobody found you. Seeking: +%4$d a find and +%5$d when the seekers win. The week runs from Monday to Monday, Kyiv time.</string>
+  <string name="leaderboard_rules_button">How points are counted</string>
 </resources>

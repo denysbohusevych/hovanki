@@ -6,6 +6,14 @@ appId: ${APP_ID}
       id: seeker_switch_${SEEKER_ID}
     direction: DOWN
     timeout: 30000
+# On iOS a row hidden under the «Start» bar still counts as visible, and a tap there lands on the bar: scroll on to the
+# end of the list (the last row ends above the bar), then back up if the row went above the screen.
+- scroll
+- scrollUntilVisible:
+    element:
+      id: seeker_switch_${SEEKER_ID}
+    direction: UP
+    timeout: 30000
 - tapOn:
     id: seeker_switch_${SEEKER_ID}
 - scrollUntilVisible:

@@ -126,7 +126,7 @@ fun StartCountdown(hidingElapsedMillis: Long?, role: Role, reduceMotion: Boolean
                     Text(
                         text = value.toString(),
                         style = Hovanki.text.timer.copy(fontSize = 180.sp, lineHeight = 190.sp),
-                        color = Palette.Lime,
+                        color = Palette.Green,
                     )
                 }
             }
@@ -149,7 +149,7 @@ fun SeekerWaitLayer(millisLeft: Long?, modifier: Modifier = Modifier) {
             Icon(
                 painter = painterResource(Res.drawable.ic_eye_off),
                 contentDescription = null,
-                tint = Palette.Orange,
+                tint = Palette.Ink,
                 modifier = Modifier.size(44.dp),
             )
             Text(
@@ -161,7 +161,7 @@ fun SeekerWaitLayer(millisLeft: Long?, modifier: Modifier = Modifier) {
             Text(
                 text = millisLeft?.let(::formatCountdown) ?: "—",
                 style = Hovanki.text.timer.copy(fontSize = 76.sp, lineHeight = 84.sp),
-                color = Palette.Lime,
+                color = Palette.Green,
             )
             Text(
                 text = stringResource(Res.string.hint_seeker_hiding),
@@ -174,7 +174,7 @@ fun SeekerWaitLayer(millisLeft: Long?, modifier: Modifier = Modifier) {
 }
 
 /**
- * The seeker's claim confirmed: a lime flash with «Got them!» and confetti. Only catches confirmed while the screen
+ * The seeker's claim confirmed: a green flash with «Got them!» and confetti. Only catches confirmed while the screen
  * is open count, not the ones already there when it opens.
  */
 @Composable
@@ -194,7 +194,7 @@ fun CatchCelebration(confirmed: Set<CatchId>, reduceMotion: Boolean) {
     }
     AnimatedVisibility(visible = flashing, enter = fadeIn(tween(Motion.FAST_MILLIS)), exit = fadeOut(tween(500))) {
         Box(
-            modifier = Modifier.fillMaxSize().background(Palette.Lime.copy(alpha = 0.9f)),
+            modifier = Modifier.fillMaxSize().background(Palette.Green.copy(alpha = 0.9f)),
             contentAlignment = Alignment.Center,
         ) {
             val scale = remember { Animatable(if (reduceMotion) 1f else 0.5f) }
@@ -211,7 +211,7 @@ fun CatchCelebration(confirmed: Set<CatchId>, reduceMotion: Boolean) {
     if (celebrations > 0 && !reduceMotion) Confetti(key = celebrations)
 }
 
-/** The hider was caught while watching: a soft violet «You were found» for a moment, no confetti. */
+/** The hider was caught while watching: a soft pink «You were found» for a moment, no confetti. */
 @Composable
 fun CaughtLayer(status: PlayerStatus) {
     var previous by remember { mutableStateOf(status) }
@@ -226,7 +226,7 @@ fun CaughtLayer(status: PlayerStatus) {
     }
     AnimatedVisibility(visible = visible, enter = fadeIn(tween(400)), exit = fadeOut(tween(600))) {
         Box(
-            modifier = Modifier.fillMaxSize().background(Palette.Violet.copy(alpha = 0.94f)),
+            modifier = Modifier.fillMaxSize().background(Palette.Hider.copy(alpha = 0.94f)),
             contentAlignment = Alignment.Center,
         ) {
             Column(
@@ -304,7 +304,7 @@ private class ConfettiParticle(
     val spinDegrees: Float,
 ) {
     companion object {
-        private val COLORS = listOf(Palette.Lime, Palette.Violet, Palette.Orange, Palette.Pink, Palette.Ink)
+        private val COLORS = listOf(Palette.Green, Palette.Pink, Palette.Paper, Palette.Ink)
 
         fun random(random: Random): ConfettiParticle {
             // Mostly upwards, fanning out.

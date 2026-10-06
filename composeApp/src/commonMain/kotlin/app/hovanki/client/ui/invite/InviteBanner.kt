@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -95,6 +96,7 @@ private fun InviteBannerCard(invite: GameInvite, isBusy: Boolean, onGo: () -> Un
             .testTag(TestTags.INVITE_BANNER),
         shape = RoundedCornerShape(20.dp),
         color = Palette.Pink,
+        contentColor = Color.White,
         shadow = 4.dp,
     ) {
         Row(
@@ -102,7 +104,7 @@ private fun InviteBannerCard(invite: GameInvite, isBusy: Boolean, onGo: () -> Un
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Avatar(name = invite.from.nickname, color = Palette.Orange, size = 36.dp)
+            Avatar(name = invite.from.nickname, color = Palette.Green, size = 36.dp)
             val groupName = invite.groupName
             Text(
                 text = if (groupName != null) {

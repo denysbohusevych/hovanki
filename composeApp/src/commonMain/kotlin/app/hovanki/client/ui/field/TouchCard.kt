@@ -73,7 +73,7 @@ fun TouchCard(neighbours: List<TouchNeighbour>, modifier: Modifier = Modifier, a
                 PopChip(
                     text = neighbour.name,
                     color = if (selected) Palette.Ink else Palette.Paper,
-                    contentColor = if (selected) Palette.Lime else Palette.Ink,
+                    contentColor = if (selected) Palette.Green else Palette.Ink,
                     border = Palette.Ink,
                     onClick = { picked = neighbour.id },
                 )

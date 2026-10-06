@@ -87,7 +87,7 @@ private fun QuestCard(quest: QuestView, state: GameUiState, onEvent: (GameEvent)
             )
             PopChip(
                 text = stringResource(Res.string.sparks_count, quest.sparks),
-                color = Palette.Lime,
+                color = Palette.Green,
                 contentColor = Palette.Ink,
                 border = Palette.Ink,
             )
@@ -105,7 +105,7 @@ private fun QuestCard(quest: QuestView, state: GameUiState, onEvent: (GameEvent)
                 if (parts.isNotEmpty()) Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
             }
 
-            QuestStatus.DONE -> StatusChip(stringResource(Res.string.quests_done), Palette.Lime)
+            QuestStatus.DONE -> StatusChip(stringResource(Res.string.quests_done), Palette.Green)
 
             QuestStatus.FAILED -> StatusChip(stringResource(Res.string.quests_failed), Palette.Stale)
 

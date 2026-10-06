@@ -11,27 +11,27 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
- * Material's roles for the widgets that stay Material (fields, dialogs, switches). `primary` is ink, not lime: Material
- * draws `primary` as text and thin lines on light surfaces (text buttons, focused fields, spinners), where lime can't
- * be read. Lime comes in through the containers and the app's own components (ui/common/Pop.kt).
+ * Material's roles for the widgets that stay Material (fields, dialogs, switches). `primary` is ink, not green: Material
+ * draws `primary` as text and thin lines on light surfaces (text buttons, focused fields, spinners), where green can't
+ * be read. Green comes in through the containers and the app's own components (ui/common/Pop.kt).
  */
 private val colors = lightColorScheme(
     primary = Palette.Ink,
     onPrimary = Color.White,
-    primaryContainer = Palette.Lime,
+    primaryContainer = Palette.Green,
     onPrimaryContainer = Palette.Ink,
-    inversePrimary = Palette.Lime,
-    secondary = Palette.Violet,
+    inversePrimary = Palette.Green,
+    secondary = Palette.Pink,
     onSecondary = Color.White,
-    secondaryContainer = Palette.Lime,
+    secondaryContainer = Palette.Green,
     onSecondaryContainer = Palette.Ink,
     tertiary = Palette.OrangeInk,
     onTertiary = Color.White,
     tertiaryContainer = Palette.Orange,
     onTertiaryContainer = Palette.Ink,
-    background = Palette.Cream,
+    background = Palette.Fog,
     onBackground = Palette.Ink,
-    surface = Palette.Cream,
+    surface = Palette.Fog,
     onSurface = Palette.Ink,
     surfaceVariant = Palette.Sand,
     onSurfaceVariant = Palette.Ink2,
@@ -41,7 +41,7 @@ private val colors = lightColorScheme(
     error = Palette.PinkInk,
     onError = Color.White,
     errorContainer = Palette.Pink,
-    onErrorContainer = Palette.Ink,
+    onErrorContainer = Color.White,
     outline = Palette.Ink,
     outlineVariant = Palette.Line,
     scrim = Color.Black,

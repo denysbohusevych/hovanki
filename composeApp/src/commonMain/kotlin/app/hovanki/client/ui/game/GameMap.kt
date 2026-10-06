@@ -134,7 +134,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * game layers are drawn on a plain background.
  *
  * The zone moves with [cue] (docs/design.md, «Зона — главная анимация»): the part about to go blinks pink before a
- * shrink, the ring turns pink while the zone closes in and snaps back to lime when done. The map redraws the zone many
+ * shrink, the ring turns pink while the zone closes in and snaps back to green when done. The map redraws the zone many
  * times a second while it shrinks, by the server time [serverNow]: a circle shrinks smoothly, a zone by streets
  * ([ZoneTimeline.streets], docs/adr/0009-game-setup-glow-streets.md) loses its outer blocks from the outside in, both
  * exactly as the rules judge. The camera stays on the zone and closes in with it ([zoneCameraConstraints]).
@@ -145,7 +145,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * marks the last one.
  *
  * The buildings the host opened for hiding ([BuildingsResponse.open], docs/adr/0014-settings-lobby-redesign-open-
- * buildings.md) are lime with an ink dash; [highlightedBuilding] is outlined in ink. For the lobby and the settings:
+ * buildings.md) are green with an ink dash; [highlightedBuilding] is outlined in ink. For the lobby and the settings:
  * without [interactive] the map takes no gestures (a card to tap); [fitTo] moves the camera onto a zone whenever it
  * changes (the settings' draft); [cameraArea] lets the camera go further than the zone, and [onCameraIdle] gives where
  * it stopped (moving the zone's center under a pin); [animateZone] redraws the zone every frame for a sped-up preview.
@@ -256,14 +256,14 @@ fun GameMap(
             val passages = rememberGeoJsonSource(GeoJsonData.Features(passageAreas))
             FillLayer(id = "buildings-passages", source = passages, color = const(Color.White), opacity = const(0.9f))
         }
-        // The buildings the host opened for hiding (docs/adr/0014-settings-lobby-redesign-open-buildings.md): lime
+        // The buildings the host opened for hiding (docs/adr/0014-settings-lobby-redesign-open-buildings.md): green
         // with an ink dash, and «open» on them up close.
         if (openBuildings != null) {
             val openSource = rememberGeoJsonSource(GeoJsonData.Features(openBuildings))
             FillLayer(
                 id = "buildings-open-fill",
                 source = openSource,
-                color = const(Palette.Lime),
+                color = const(Palette.Green),
                 opacity = const(0.85f),
             )
             LineLayer(
@@ -281,7 +281,7 @@ fun GameMap(
                 textFont = const(MapStyle.FONTS),
                 textSize = const(11.sp),
                 textColor = const(Palette.Ink),
-                textHaloColor = const(Palette.Lime),
+                textHaloColor = const(Palette.Green),
                 textHaloWidth = const(2.dp),
             )
         }
@@ -313,7 +313,7 @@ fun GameMap(
         FillLayer(
             id = "players-accuracy",
             source = playerAccuracy,
-            color = const(Palette.Violet),
+            color = const(Palette.Hider),
             opacity = const(0.14f),
         )
         val revealed = rememberGeoJsonSource(GeoJsonData.Features(points(smoothMarkers.filter { it.isRevealed })))
@@ -323,7 +323,7 @@ fun GameMap(
                 source = revealed,
                 color = const(Color.Transparent),
                 radius = const(ping.radius),
-                strokeColor = const(Palette.Violet),
+                strokeColor = const(Palette.Hider),
                 strokeWidth = const(2.5.dp),
                 strokeOpacity = const(ping.opacity),
             )
@@ -331,7 +331,7 @@ fun GameMap(
         CircleLayer(
             id = "players-revealed",
             source = revealed,
-            color = const(Palette.Violet),
+            color = const(Palette.Hider),
             radius = const(MARKER_RADIUS),
             strokeColor = const(Color.White),
             strokeWidth = const(2.5.dp),
@@ -352,7 +352,8 @@ fun GameMap(
             source = teammates,
             color = const(myColor),
             radius = const(MARKER_RADIUS),
-            strokeColor = const(Palette.Ink),
+            // Seekers are ink: their outline is green, to stand out of the dark streets.
+            strokeColor = const(if (myRole == Role.SEEKER) Palette.Green else Palette.Ink),
             strokeWidth = const(2.5.dp),
         )
         // Who calls for help (docs/adr/0019-pause-and-sos.md): big, red, on top of everybody.
@@ -384,14 +385,14 @@ fun GameMap(
             textAllowOverlap = const(true),
         )
 
-        // The board: quest points in lime, checkpoints in orange, perks lying around in pink; taken ones grey.
+        // The board: quest points in green, checkpoints in ink, perks lying around in pink; taken ones grey.
         val questPoints = rememberGeoJsonSource(
             GeoJsonData.Features(itemPoints(items.filter { !it.isTaken && it.kind == ItemKind.QUEST_POINT })),
         )
         CircleLayer(
             id = "items-quests",
             source = questPoints,
-            color = const(Palette.Lime),
+            color = const(Palette.Green),
             radius = const(ITEM_RADIUS),
             strokeColor = const(Palette.Ink),
             strokeWidth = const(2.dp),
@@ -408,9 +409,9 @@ fun GameMap(
         CircleLayer(
             id = "items-checkpoints",
             source = checkpoints,
-            color = const(Palette.Orange),
+            color = const(Palette.Ink),
             radius = const(ITEM_RADIUS),
-            strokeColor = const(Palette.Ink),
+            strokeColor = const(Color.White),
             strokeWidth = const(2.dp),
         )
         val pickups = rememberGeoJsonSource(
@@ -625,7 +626,7 @@ private fun zoneLook(cue: ZoneCue, reduceMotion: Boolean): ZoneLook {
     }
     // The ring «snaps» when a shrink is done: the outline swells and springs back.
     val casing by animateDpAsState(if (cue == ZoneCue.SHRUNK) 20.dp else RING_CASING_WIDTH, Motion.pop())
-    val core by animateColorAsState(if (cue == ZoneCue.SHRINKING) Palette.Pink else Palette.Lime, Motion.base())
+    val core by animateColorAsState(if (cue == ZoneCue.SHRINKING) Palette.Pink else Palette.Green, Motion.base())
     return ZoneLook(bandOpacity = band, nextOpacity = next, casingWidth = casing, coreColor = core)
 }
 

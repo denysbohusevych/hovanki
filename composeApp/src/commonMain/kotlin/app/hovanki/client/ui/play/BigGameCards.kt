@@ -57,7 +57,7 @@ fun BigGameCardView(
     PopSurface(
         modifier = Modifier.fillMaxWidth().testTag(TestTags.bigGame(id)),
         shape = RoundedCornerShape(20.dp),
-        color = if (game.canJoin) Palette.Lime else Palette.Paper,
+        color = if (game.canJoin) Palette.Green else Palette.Paper,
         shadow = 4.dp,
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -73,12 +73,13 @@ fun BigGameCardView(
                 when (game.status) {
                     BigGameStatus.LOBBY -> PopChip(
                         stringResource(Res.string.big_game_status_lobby),
-                        color = Palette.Violet,
+                        color = Palette.Pink,
                     )
 
                     BigGameStatus.RUNNING -> PopChip(
                         stringResource(Res.string.big_game_status_running),
-                        color = Palette.Orange,
+                        color = Palette.Green,
+                        contentColor = Palette.Ink,
                     )
 
                     else -> Unit

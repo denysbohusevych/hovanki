@@ -90,7 +90,7 @@ import kotlin.math.sin
 
 /**
  * The draft on the real map (docs/adr/0014-settings-lobby-redesign-open-buildings.md, section 2.2): the zone the host is
- * choosing, where it will be, and the zone's buildings (pink, open ones lime). The camera follows the draft. A zone by
+ * choosing, where it will be, and the zone's buildings (pink, open ones green). The camera follows the draft. A zone by
  * streets is drawn once the server built it, a draft's too, before it is saved (section 2.3; its circles meanwhile); the
  * buildings of a new zone come with saving. «Shrink» plays the zone's stages, «Play the game» the whole game with
  * made-up hiders ([elapsed], sped up). «Center» moves the zone: the host pans the map under a pin.
@@ -241,12 +241,12 @@ private fun PreviewHud(preview: SettingsPreview, draft: GameSettings, now: Long,
 
                 ZoneCue.SOON, ZoneCue.COUNTDOWN -> Triple(stringResource(Res.string.preview_soon), size, Palette.Pink)
 
-                ZoneCue.FINAL -> Triple(stringResource(Res.string.preview_final), size, Palette.Lime)
+                ZoneCue.FINAL -> Triple(stringResource(Res.string.preview_final), size, Palette.Green)
 
                 ZoneCue.CALM, ZoneCue.SHRUNK -> Triple(
                     stringResource(Res.string.settings_play_shrink),
                     size,
-                    Palette.Lime,
+                    Palette.Green,
                 )
             }
         }
@@ -260,14 +260,14 @@ private fun PreviewHud(preview: SettingsPreview, draft: GameSettings, now: Long,
                 now < hiding -> Triple(
                     stringResource(Res.string.preview_hiding),
                     formatCountdown(hiding - now),
-                    Palette.VioletLight,
+                    Palette.PinkLight,
                 )
 
                 glow != null -> Triple(stringResource(Res.string.preview_glow), left, Palette.Orange)
 
                 cue == ZoneCue.SHRINKING -> Triple(stringResource(Res.string.preview_shrinking), left, Palette.Pink)
 
-                else -> Triple(stringResource(Res.string.preview_seeking), left, Palette.Lime)
+                else -> Triple(stringResource(Res.string.preview_seeking), left, Palette.Green)
             }
         }
     }
@@ -314,7 +314,7 @@ private fun MapChip(
     )
 }
 
-/** Where the zone's center goes: a lime pin whose tip is the map's middle. */
+/** Where the zone's center goes: a green pin whose tip is the map's middle. */
 @Composable
 private fun Pin(modifier: Modifier = Modifier) {
     Canvas(modifier = modifier.size(PIN_WIDTH, PIN_HEIGHT)) {
@@ -327,9 +327,9 @@ private fun Pin(modifier: Modifier = Modifier) {
             lineTo(w * 0.9f, w * 0.7f)
             close()
         }
-        drawPath(body, Palette.Lime)
+        drawPath(body, Palette.Green)
         drawPath(body, Palette.Ink, style = Stroke(2.5.dp.toPx()))
-        drawCircle(Palette.Lime, w / 2 - 1.5.dp.toPx(), head)
+        drawCircle(Palette.Green, w / 2 - 1.5.dp.toPx(), head)
         drawCircle(Palette.Ink, w / 2 - 1.5.dp.toPx(), head, style = Stroke(2.5.dp.toPx()))
         drawCircle(Palette.Ink, w / 6, head)
     }

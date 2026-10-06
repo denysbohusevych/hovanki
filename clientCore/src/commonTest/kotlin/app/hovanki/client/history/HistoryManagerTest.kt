@@ -21,6 +21,8 @@ import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GameRecording
 import app.hovanki.shared.protocol.GameRoute
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.LeaderboardResponse
+import app.hovanki.shared.protocol.LeaderboardScope
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStats
 import app.hovanki.shared.protocol.PlayerStatus
@@ -166,6 +168,24 @@ class HistoryManagerTest {
         assertTrue(account.state.value.sessionExpired)
     }
 
+    @Test
+    fun theLeaderboardOfAScopeWithTheAccount() = runTest {
+        val history = history()
+
+        val result = history.leaderboard(LeaderboardScope.LAST_GAME)
+
+        assertEquals(LeaderboardScope.LAST_GAME, assertIs<ApiResult.Success<LeaderboardResponse>>(result).value.scope)
+        assertEquals(listOf("leaderboard LAST_GAME"), api.calls)
+    }
+
+    @Test
+    fun noLeaderboardWithoutAnAccount() = runTest {
+        val history = history(user = null)
+
+        assertIs<ApiResult.Rejected>(history.leaderboard())
+        assertEquals(emptyList(), api.calls)
+    }
+
     private fun game(id: String, hasRoute: Boolean = false) = GameHistoryEntry(
         gameId = GameId(id),
         startedAtMillis = 1,
@@ -222,6 +242,9 @@ class HistoryManagerTest {
         }
 
         override suspend fun deleteRoute(token: String, gameId: GameId) = call("deleteRoute ${gameId.value}") {}
+
+        override suspend fun leaderboard(token: String, scope: LeaderboardScope) =
+            call("leaderboard $scope") { LeaderboardResponse(scope = scope) }
 
         override suspend fun recording(token: String, gameId: GameId) = call("recording ${gameId.value}") {
             if (gameId != recording.gameId) throw ApiException(404, ApiError(ErrorCode.NOT_FOUND, "No recording"))

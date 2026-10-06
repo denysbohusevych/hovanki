@@ -80,6 +80,8 @@ import app.hovanki.shared.protocol.Inbox
 import app.hovanki.shared.protocol.InviteId
 import app.hovanki.shared.protocol.ItemId
 import app.hovanki.shared.protocol.LabCapabilities
+import app.hovanki.shared.protocol.LeaderboardResponse
+import app.hovanki.shared.protocol.LeaderboardScope
 import app.hovanki.shared.protocol.PerkKind
 import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.Platform
@@ -597,6 +599,20 @@ class BotPlayer(
 
     suspend fun deleteRoute(gameId: GameId): CommandResult =
         apiCommand("deletes the route of game ${gameId.value}") { it.history.deleteRoute(gameId) }
+
+    // ---- The leaderboard (docs/adr/0020-leaderboard.md) ----
+
+    /** The leaderboard the last [openLeaderboard] showed; null until one loaded. */
+    @Volatile var leaderboard: LeaderboardResponse? = null
+        private set
+
+    /** Opens the «Рейтинг» tab on [scope]. */
+    suspend fun openLeaderboard(scope: LeaderboardScope): CommandResult =
+        apiCommand("opens the leaderboard (${scope.name})") {
+            it.history.leaderboard(scope).also { result ->
+                if (result is ApiResult.Success) leaderboard = result.value
+            }
+        }
 
     // ---- Big games (docs/adr/0010-big-games.md) ----
 

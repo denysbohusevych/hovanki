@@ -258,6 +258,10 @@
   <string name="results_eliminated">Выбыли</string>
   <string name="results_seekers">Искали</string>
   <string name="results_back">На старт</string>
+  <string name="results_your_result">Твой результат</string>
+  <string name="results_hider_place">Место %1$d из %2$d среди прятавшихся</string>
+  <string name="results_share">Поделиться</string>
+  <string name="results_share_text">Хованки: %1$s (%2$s)</string>
 
   <!-- «Dopamine» UI (docs/design.md) -->
   <string name="play_subtitle">Соберите компанию — и на улицу.</string>
@@ -278,6 +282,11 @@
   <string name="flash_seekers_out">Ищущие вышли!</string>
   <string name="catch_auto_in">Засчитается само через %1$s</string>
   <string name="catch_or_say">Или назовите цифры</string>
+  <string name="show_code_title">Покажи код!</string>
+  <string name="catch_auto_label">Если ничего не делать — засчитается через</string>
+  <string name="code_next_short">новый код</string>
+  <string name="dispute_mistake">Это ошибка — оспорить</string>
+  <string name="dispute_vote_hint">Спор решат остальные игроки голосованием</string>
   <string name="catch_seeker_hint">Нашли кого-то? Нажмите «Нашёл!» и отсканируйте QR с его экрана. Камера не читает — нажмите на имя, он покажет 4 цифры.</string>
   <string name="lobby_title">Лобби</string>
   <string name="lobby_random">Случайно</string>
@@ -634,6 +643,9 @@
   <string name="lobby_recorded">Игра записывается: пути всех игроков хранятся 90 дней, смотреть их могут только игроки этой игры с аккаунтом.</string>
   <string name="home_watch">Смотреть</string>
   <string name="home_watch_hint">Открытую игру можно смотреть, не играя: введите её код и нажмите «Смотреть».</string>
+  <string name="home_have_code">Есть код от друга</string>
+  <string name="last_game_title">Прошлая игра · %1$s</string>
+  <string name="last_game_results">Результаты</string>
   <string name="spectator_title">Вы смотрите игру</string>
   <string name="spectator_delay">Задержка %1$s</string>
   <string name="spectator_live">Вживую</string>
@@ -813,6 +825,13 @@
   <string name="lobby_tile_capacity">игроков</string>
   <string name="lobby_tile_unknown">…</string>
   <string name="lobby_recorded_short">Игра записывается · 90 дней</string>
+  <string name="lobby_summary_time">%1$d минут</string>
+  <string name="lobby_summary_glow">свечение раз в %1$d мин</string>
+  <string name="lobby_summary_no_glow">без свечения</string>
+  <string name="lobby_summary_capacity">до %1$d игроков</string>
+  <string name="lobby_change">Изменить</string>
+  <string name="lobby_players_title">Игроки · %1$d</string>
+  <string name="lobby_seekers_count">ищут %1$d</string>
   <string name="lobby_recorded_more">Кто видит запись</string>
   <string name="lobby_radar_more">Что делает радар</string>
   <plurals name="settings_buildings_count">
@@ -892,4 +911,19 @@
   <string name="sos_hold">Удерживайте, чтобы отправить SOS</string>
   <string name="error_game_paused">Игра на паузе.</string>
   <string name="error_sos_active">Чей-то SOS ещё не снят: игра продолжится, когда его снимут.</string>
+  <string name="tab_rating">Рейтинг</string>
+  <string name="leaderboard_title">Рейтинг</string>
+  <string name="leaderboard_last_game">Последняя игра</string>
+  <string name="leaderboard_friends">Друзья</string>
+  <string name="leaderboard_world">Мир</string>
+  <string name="leaderboard_week">Неделя %1$d</string>
+  <string name="leaderboard_ends_in">финал через %1$dд %2$dч</string>
+  <string name="leaderboard_you">Ты</string>
+  <string name="leaderboard_up">▲%1$d за неделю</string>
+  <string name="leaderboard_down">▼%1$d за неделю</string>
+  <string name="leaderboard_to_next">%1$d до %2$s</string>
+  <string name="leaderboard_empty_last_game">Сыграй игру со своим аккаунтом, и её очки появятся здесь.</string>
+  <string name="leaderboard_empty">На этой неделе ни у кого ещё нет очков. Сыграй и будь первым.</string>
+  <string name="leaderboard_rules">Каждая игра +%1$d. Прячешься: +%2$d за каждую минуту, пока тебя не нашли, и +%3$d, если не нашли совсем. Ищешь: +%4$d за находку и +%5$d, когда искавшие выиграли. Неделя идёт с понедельника до понедельника по киевскому времени.</string>
+  <string name="leaderboard_rules_button">Как считаются очки</string>
 </resources>

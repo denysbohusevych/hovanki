@@ -142,12 +142,12 @@ import kotlin.math.roundToInt
  */
 
 /** What the hider is warned about; the edge of the screen pulses in its color. */
-enum class GameAlert(val color: Color, val periodMillis: Int) {
-    OUT_OF_ZONE(Palette.Orange, periodMillis = 1_000),
-    IN_BUILDING(Palette.Pink, periodMillis = 2_000),
+enum class GameAlert(val color: Color, val onColor: Color, val periodMillis: Int) {
+    OUT_OF_ZONE(Palette.Orange, Palette.Ink, periodMillis = 1_000),
+    IN_BUILDING(Palette.Pink, Color.White, periodMillis = 2_000),
 
     /** The radar is required and Bluetooth is off (docs/adr/0012-nearby-radar.md): seen at the deadline. */
-    BLUETOOTH_OFF(Palette.Pink, periodMillis = 1_500),
+    BLUETOOTH_OFF(Palette.Pink, Color.White, periodMillis = 1_500),
 }
 
 private val HUD_MUTED = Color(0xFFB4B4BE)
@@ -158,11 +158,12 @@ private val HUD_TRACK = Color(0xFF2E2E38)
 fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(32.dp))
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
             .background(Palette.Ink)
-            .padding(start = if (state.isZoneRunning) 8.dp else 20.dp, end = 18.dp, top = 8.dp, bottom = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (state.isZoneRunning) {
             val moment = state.zoneMoment
@@ -171,20 +172,14 @@ fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
             CountdownRing(
                 progress = moment.fractionLeft ?: 1f,
                 text = moment.millisLeft?.let(::formatCountdown) ?: "∞",
-                color = if (urgent) Palette.Pink else Palette.Lime,
+                color = if (urgent) Palette.Pink else Palette.Green,
                 trackColor = HUD_TRACK,
                 textColor = Color.White,
                 size = 48.dp,
             )
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = state.phaseMillisLeft?.let(::formatCountdown) ?: "—",
-                style = Hovanki.text.timer,
-                color = Palette.Lime,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(min = 92.dp).testTag(TestTags.GAME_TIMER),
-            )
+        // The label above its number, as in the designer's mockup.
+        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             CapsText(
                 text = stringResource(
                     if (state.phase == GamePhase.HIDING) Res.string.phase_hiding else Res.string.phase_seeking,
@@ -192,23 +187,30 @@ fun HudCapsule(state: GameUiState, modifier: Modifier = Modifier) {
                 color = HUD_MUTED,
                 modifier = Modifier.testTag(TestTags.phase(state.phase)),
             )
+            Text(
+                text = state.phaseMillisLeft?.let(::formatCountdown) ?: "—",
+                style = Hovanki.text.timer,
+                color = Palette.Green,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(min = 92.dp).testTag(TestTags.GAME_TIMER),
+            )
         }
-        Box(modifier = Modifier.width(1.dp).height(34.dp).background(HUD_TRACK))
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(modifier = Modifier.width(1.dp).height(40.dp).background(HUD_TRACK))
+        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            CapsText(
+                text = stringResource(
+                    if (state.myRole == Role.HIDER) Res.string.hud_hiders else Res.string.hud_to_find,
+                ),
+                color = HUD_MUTED,
+            )
             Text(
                 text = if (state.myRole == Role.HIDER) {
                     "${state.hidersLeft}/${state.hidersTotal}"
                 } else {
                     "${state.hidersLeft}"
                 },
-                style = Hovanki.text.timer.copy(fontSize = 19.sp, lineHeight = 22.sp),
+                style = Hovanki.text.timer,
                 color = Color.White,
-            )
-            CapsText(
-                text = stringResource(
-                    if (state.myRole == Role.HIDER) Res.string.hud_hiders else Res.string.hud_to_find,
-                ),
-                color = HUD_MUTED,
             )
         }
     }
@@ -254,7 +256,7 @@ fun HudChips(
                         stringResource(Res.string.hud_to_edge, meters.roundToInt())
                     },
                     color = if (outside) Palette.Orange else Palette.Ink,
-                    contentColor = if (outside) Palette.Ink else Palette.Lime,
+                    contentColor = if (outside) Palette.Ink else Palette.Green,
                     border = if (outside) Palette.Ink else null,
                 )
             }
@@ -279,7 +281,7 @@ fun HudChips(
                 state.sparks?.let { sparks ->
                     PopChip(
                         text = stringResource(Res.string.sparks_count, sparks),
-                        color = Palette.Lime,
+                        color = Palette.Green,
                         contentColor = Palette.Ink,
                         border = Palette.Ink,
                         modifier = Modifier.testTag(TestTags.SPARKS_CHIP),
@@ -300,7 +302,7 @@ fun HudChips(
                     PopChip(
                         text = stringResource(Res.string.hud_quests).let { if (pending > 0) "$it · $pending" else it },
                         color = if (pending > 0) Palette.Pink else Palette.Paper,
-                        contentColor = Palette.Ink,
+                        contentColor = if (pending > 0) Color.White else Palette.Ink,
                         border = Palette.Ink,
                         onClick = onOpenQuests,
                         modifier = Modifier.testTag(TestTags.QUESTS_OPEN),
@@ -319,7 +321,7 @@ fun HudChips(
                 if (state.canScanCheckpoint) {
                     PopChip(
                         text = stringResource(Res.string.hud_checkpoint),
-                        color = Palette.Orange,
+                        color = Palette.Green,
                         contentColor = Palette.Ink,
                         border = Palette.Ink,
                         icon = Res.drawable.ic_qr,
@@ -342,7 +344,7 @@ private fun RadarChip(band: RadarBand, isHider: Boolean, reduceMotion: Boolean) 
         RadarBand.NONE -> Palette.Ink to HUD_MUTED
         RadarBand.WARM -> Palette.Sand to Palette.Ink
         RadarBand.HOT -> Palette.Orange to Palette.Ink
-        RadarBand.BURNING -> Palette.Pink to Palette.Ink
+        RadarBand.BURNING -> Palette.Pink to Color.White
     }
     val text = if (isHider) stringResource(Res.string.hud_sense_seeker) else bandTitle(band)
     val period = HeartbeatRules.periodMillis(band)
@@ -388,7 +390,7 @@ private fun HintChip(hint: HintUi) {
     }
     PopChip(
         text = "$text · ${formatCountdown(hint.millisLeft)}",
-        color = Palette.Violet,
+        color = Palette.Hider,
         contentColor = Color.White,
         border = Palette.Ink,
         modifier = Modifier.testTag(TestTags.HINT_CHIP),
@@ -416,8 +418,8 @@ private fun GlowChip(glow: GlowUi) {
         } else {
             stringResource(Res.string.hud_glow_in, left)
         },
-        color = if (glow.isGlowing) Palette.Orange else Palette.Ink,
-        contentColor = if (glow.isGlowing) Palette.Ink else Color.White,
+        color = if (glow.isGlowing) Palette.Orange else Palette.Green,
+        contentColor = Palette.Ink,
         border = Palette.Ink,
         modifier = Modifier
             .graphicsLayer {
@@ -438,8 +440,8 @@ private fun ZoneChip(state: GameUiState) {
         ZoneCue.CALM -> return
         ZoneCue.SOON, ZoneCue.COUNTDOWN -> stringResource(Res.string.hud_zone_soon, left) to Palette.Pink
         ZoneCue.SHRINKING -> stringResource(Res.string.hud_zone_shrinking, left) to Palette.Pink
-        ZoneCue.SHRUNK -> stringResource(Res.string.hud_zone_done) to Palette.Lime
-        ZoneCue.FINAL -> stringResource(Res.string.hud_zone_final) to Palette.Lime
+        ZoneCue.SHRUNK -> stringResource(Res.string.hud_zone_done) to Palette.Green
+        ZoneCue.FINAL -> stringResource(Res.string.hud_zone_final) to Palette.Green
     }
     // In the last seconds the chip ticks with the countdown.
     val tick = remember { Animatable(1f) }
@@ -453,7 +455,7 @@ private fun ZoneChip(state: GameUiState) {
     PopChip(
         text = text,
         color = color,
-        contentColor = Palette.Ink,
+        contentColor = if (color == Palette.Pink) Color.White else Palette.Ink,
         border = Palette.Ink,
         modifier = Modifier.graphicsLayer {
             scaleX = tick.value
@@ -483,13 +485,13 @@ fun AlertPill(alert: GameAlert, text: String, tag: String, modifier: Modifier = 
                     if (alert == GameAlert.IN_BUILDING) Res.drawable.ic_building else Res.drawable.ic_warning,
                 ),
                 contentDescription = null,
-                tint = Palette.Ink,
+                tint = alert.onColor,
                 modifier = Modifier.size(24.dp),
             )
             Text(
                 text = text,
                 style = MaterialTheme.typography.titleSmall,
-                color = Palette.Ink,
+                color = alert.onColor,
                 modifier = Modifier.weight(1f).testTag(tag),
             )
         }
@@ -606,7 +608,7 @@ fun RoundControl(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    style: PopStyle = PopStyle.Dark,
+    style: PopStyle = PopStyle.Outline,
     size: Dp = 56.dp,
     badge: Int = 0,
     badgeTag: String? = null,
@@ -660,7 +662,7 @@ fun CodeTiles(code: String, tag: String, modifier: Modifier = Modifier, tileWidt
                     .width(tileWidth)
                     .height(tileWidth * 1.15f)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Palette.Lime)
+                    .background(Palette.Green)
                     .border(PopBorder, Palette.Ink, RoundedCornerShape(16.dp)),
                 contentAlignment = Alignment.Center,
             ) {
@@ -689,7 +691,7 @@ private const val DIGIT_STAGGER_MILLIS = 40
 private const val SHAKE_STEP_MILLIS = 50
 
 /**
- * Typing a catch code: [digits] tiles over an invisible field (tagged [tag]); the next tile to fill has a lime
+ * Typing a catch code: [digits] tiles over an invisible field (tagged [tag]); the next tile to fill has a green
  * frame. Each new [shakes] (a wrong code) shakes the tiles.
  */
 @Composable
@@ -733,7 +735,7 @@ fun CodeInput(
                                     color = if (isNext) Palette.Ink else Palette.Ink3,
                                     shape = RoundedCornerShape(16.dp),
                                 )
-                                .then(if (isNext) Modifier.background(Palette.Lime.copy(alpha = 0.35f)) else Modifier),
+                                .then(if (isNext) Modifier.background(Palette.Green.copy(alpha = 0.35f)) else Modifier),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -771,7 +773,7 @@ fun PhaseFlash(phase: GamePhase, role: Role, reduceMotion: Boolean) {
         exit = fadeOut(),
     ) {
         Box(
-            modifier = Modifier.fillMaxSize().background(Palette.Lime.copy(alpha = 0.92f)),
+            modifier = Modifier.fillMaxSize().background(Palette.Green.copy(alpha = 0.92f)),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -797,7 +799,7 @@ fun PhaseFlash(phase: GamePhase, role: Role, reduceMotion: Boolean) {
                 Text(
                     text = stringResource(Res.string.flash_seekers_out),
                     style = MaterialTheme.typography.headlineSmall,
-                    color = Palette.Ink,
+                    color = Color.White,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
                 )
             }

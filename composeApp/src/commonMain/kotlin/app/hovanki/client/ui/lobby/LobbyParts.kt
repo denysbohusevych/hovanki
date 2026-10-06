@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.radio.rememberBluetoothPermissionRequester
 import app.hovanki.client.resources.Res
+import app.hovanki.client.resources.ic_chevron_right
 import app.hovanki.client.resources.ic_copy
 import app.hovanki.client.resources.ic_expand
 import app.hovanki.client.resources.ic_eye
@@ -56,6 +57,7 @@ import app.hovanki.client.resources.lobby_bluetooth_on
 import app.hovanki.client.resources.lobby_board_count
 import app.hovanki.client.resources.lobby_buildings_loading
 import app.hovanki.client.resources.lobby_buildings_ready
+import app.hovanki.client.resources.lobby_change
 import app.hovanki.client.resources.lobby_chip_activity
 import app.hovanki.client.resources.lobby_chip_checkpoints
 import app.hovanki.client.resources.lobby_chip_open
@@ -95,6 +97,10 @@ import app.hovanki.client.resources.lobby_settings
 import app.hovanki.client.resources.lobby_share
 import app.hovanki.client.resources.lobby_share_text
 import app.hovanki.client.resources.lobby_streets_loading
+import app.hovanki.client.resources.lobby_summary_capacity
+import app.hovanki.client.resources.lobby_summary_glow
+import app.hovanki.client.resources.lobby_summary_no_glow
+import app.hovanki.client.resources.lobby_summary_time
 import app.hovanki.client.resources.lobby_tile_capacity
 import app.hovanki.client.resources.lobby_tile_capacity_value
 import app.hovanki.client.resources.lobby_tile_glow
@@ -143,7 +149,7 @@ import org.koin.compose.koinInject
  * details a tap away.
  */
 
-/** The join code on lime in one row: the code, «Share» (the system menu) and «Copy». */
+/** The join code on green in one row: the code, «Share» (the system menu) and «Copy». */
 @Composable
 internal fun JoinCodeRow(joinCode: String, onCopied: () -> Unit) {
     val clipboard = LocalClipboard.current
@@ -152,7 +158,7 @@ internal fun JoinCodeRow(joinCode: String, onCopied: () -> Unit) {
     val shareText = stringResource(Res.string.lobby_share_text, joinCode)
     PopCard(
         modifier = Modifier.fillMaxWidth(),
-        color = Palette.Lime,
+        color = Palette.Green,
         borderWidth = 2.5.dp,
         shadow = 5.dp,
         shape = RoundedCornerShape(24.dp),
@@ -194,7 +200,7 @@ internal fun JoinCodeRow(joinCode: String, onCopied: () -> Unit) {
 
 /**
  * «Where we play»: the zone on the map for everybody, its shape and whether it shrinks, the buildings (pink, open ones
- * lime) and the state of the map's data. A tap opens it full screen.
+ * green) and the state of the map's data. A tap opens it full screen.
  */
 @Composable
 internal fun WherePlayCard(state: LobbyUiState, onExpand: () -> Unit) {
@@ -230,7 +236,7 @@ internal fun WherePlayCard(state: LobbyUiState, onExpand: () -> Unit) {
             if (open > 0) {
                 MapLabel(
                     stringResource(Res.string.lobby_map_open, open),
-                    color = Palette.Lime,
+                    color = Palette.Green,
                     contentColor = Palette.Ink,
                 )
             }
@@ -338,30 +344,7 @@ private fun MapLabel(
 @Composable
 internal fun SettingsTiles(state: LobbyUiState, onOpenSettings: (SettingsTab) -> Unit, onOpenBoard: () -> Unit) {
     val open = onOpenSettings.takeIf { state.isHost && state.bigGame == null }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Tile(
-            value = stringResource(Res.string.lobby_tile_time_value, state.hidingMinutes, state.seekingMinutes),
-            label = stringResource(Res.string.lobby_tile_time),
-            onClick = open?.let { { it(SettingsTab.TIME) } },
-            modifier = Modifier.weight(1f),
-        )
-        Tile(
-            value = state.glowEveryMinutes?.let { stringResource(Res.string.lobby_tile_glow_value, it) }
-                ?: stringResource(Res.string.lobby_tile_glow_off),
-            label = stringResource(Res.string.lobby_tile_glow),
-            onClick = open?.let { { it(SettingsTab.TIME) } },
-            modifier = Modifier.weight(1f),
-        )
-        Tile(
-            value = state.capacity?.let { stringResource(Res.string.lobby_tile_capacity_value, it) }
-                ?: stringResource(Res.string.lobby_tile_unknown),
-            label = stringResource(Res.string.lobby_tile_capacity),
-            onClick = open?.let { { it(SettingsTab.ZONE) } },
-            modifier = Modifier.weight(1f).then(
-                if (state.capacity != null) Modifier.testTag(TestTags.LOBBY_CAPACITY) else Modifier,
-            ),
-        )
-    }
+    SettingsSummary(state, onChange = open?.let { { it(SettingsTab.ZONE) } })
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -376,7 +359,7 @@ internal fun SettingsTiles(state: LobbyUiState, onOpenSettings: (SettingsTab) ->
                     stringResource(Res.string.lobby_chip_open_live)
                 },
                 color = Palette.Ink,
-                contentColor = Palette.Lime,
+                contentColor = Palette.Green,
                 icon = Res.drawable.ic_eye,
                 modifier = Modifier.testTag(TestTags.LOBBY_OPEN),
             )
@@ -385,39 +368,76 @@ internal fun SettingsTiles(state: LobbyUiState, onOpenSettings: (SettingsTab) ->
         if (state.features.hasBoard) {
             PopChip(
                 text = stringResource(Res.string.lobby_board_count, state.items.size),
-                color = Palette.Orange,
+                color = Palette.Green,
                 contentColor = Palette.Ink,
                 border = Palette.Ink,
                 onClick = onOpenBoard.takeIf { state.isHost },
                 modifier = Modifier.testTag(TestTags.LOBBY_BOARD),
             )
         }
-        if (open != null) {
-            PopChip(
-                text = stringResource(Res.string.lobby_settings),
-                color = Palette.Lime,
-                contentColor = Palette.Ink,
-                border = Palette.Ink,
-                icon = Res.drawable.ic_sliders,
-                onClick = { open(SettingsTab.ZONE) },
-                modifier = Modifier.testTag(TestTags.LOBBY_SETTINGS),
-            )
-        }
     }
 }
 
-/** A number big, what it is small; the host taps it to change it. */
+/**
+ * The game's setup in one white row (docs/design.md, «Лобби»): an ink sliders badge, the zone, then the time, the glow
+ * and how many fit; the host's «Change ›» opens the settings.
+ */
 @Composable
-private fun Tile(value: String, label: String, onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
+private fun SettingsSummary(state: LobbyUiState, onChange: (() -> Unit)?) {
     PopSurface(
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        borderWidth = 2.dp,
-        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().then(
+            if (onChange != null) Modifier.testTag(TestTags.LOBBY_SETTINGS) else Modifier,
+        ),
+        shape = RoundedCornerShape(20.dp),
+        onClick = onChange,
     ) {
-        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-            Text(text = value, style = Hovanki.text.code.copy(fontSize = 15.sp, lineHeight = 20.sp), maxLines = 1)
-            Text(text = label, style = MaterialTheme.typography.bodySmall, color = Palette.Ink2, maxLines = 1)
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier.size(40.dp).background(Palette.Ink, RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painterResource(Res.drawable.ic_sliders),
+                    contentDescription = null,
+                    tint = Palette.Green,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = zoneLabel(state), style = MaterialTheme.typography.titleMedium)
+                val details = listOf(
+                    stringResource(Res.string.lobby_summary_time, state.hidingMinutes + state.seekingMinutes),
+                    state.glowEveryMinutes?.let { stringResource(Res.string.lobby_summary_glow, it) }
+                        ?: stringResource(Res.string.lobby_summary_no_glow),
+                )
+                Text(
+                    text = details.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Palette.Ink2,
+                )
+                state.capacity?.let { capacity ->
+                    Text(
+                        text = stringResource(Res.string.lobby_summary_capacity, capacity),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Palette.Ink2,
+                        modifier = Modifier.testTag(TestTags.LOBBY_CAPACITY),
+                    )
+                }
+            }
+            if (onChange != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(Res.string.lobby_change), style = MaterialTheme.typography.labelLarge)
+                    Icon(
+                        painterResource(Res.drawable.ic_chevron_right),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -442,7 +462,7 @@ private fun FeatureChips(state: LobbyUiState) {
         Res.string.lobby_chip_pickups.takeIf { features.pickups },
         Res.string.lobby_chip_activity.takeIf { features.activity },
     )
-    chips.forEach { chip -> PopChip(text = stringResource(chip), color = Palette.Violet, contentColor = Color.White) }
+    chips.forEach { chip -> PopChip(text = stringResource(chip), color = Palette.Pink, contentColor = Color.White) }
 }
 
 /**
@@ -452,18 +472,24 @@ private fun FeatureChips(state: LobbyUiState) {
 @Composable
 internal fun RecordingLine() {
     var expanded by rememberSaveable { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.testTag(TestTags.LOBBY_RECORDED)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .background(Palette.Pink, CircleShape)
-                    .border(2.dp, Palette.Ink, CircleShape),
-            )
-            SecondaryText(stringResource(Res.string.lobby_recorded_short), modifier = Modifier.weight(1f))
-            InfoButton(stringResource(Res.string.lobby_recorded_more), onClick = { expanded = !expanded })
-        }
-        if (expanded) SecondaryText(stringResource(Res.string.lobby_recorded))
+    val more = stringResource(Res.string.lobby_recorded_more)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Palette.Sand)
+            .clickable(onClickLabel = more) { expanded = !expanded }
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .testTag(TestTags.LOBBY_RECORDED),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(painterResource(Res.drawable.ic_info), contentDescription = null, modifier = Modifier.size(22.dp))
+        Text(
+            text = stringResource(if (expanded) Res.string.lobby_recorded else Res.string.lobby_recorded_short),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -480,7 +506,7 @@ internal fun RadarRow(state: LobbyUiState, onEvent: (LobbyEvent) -> Unit) {
         bluetooth == BluetoothState.ON && !state.radarEnabled ->
             stringResource(Res.string.lobby_bluetooth_by_player) to Palette.Sand
 
-        bluetooth == BluetoothState.ON -> stringResource(Res.string.lobby_bluetooth_on) to Palette.Lime
+        bluetooth == BluetoothState.ON -> stringResource(Res.string.lobby_bluetooth_on) to Palette.Green
 
         bluetooth == BluetoothState.DENIED -> stringResource(Res.string.lobby_bluetooth_denied) to Palette.Pink
 
