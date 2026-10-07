@@ -24,17 +24,37 @@ class LeaderboardService(private val repository: LeaderboardRepository, private 
         val now = clock.instant()
         return when (scope) {
             LeaderboardScope.WORLD -> weekly(user.userId, scope, now, only = null)
+            LeaderboardScope.CITY -> city(user.userId, now)
             LeaderboardScope.FRIENDS -> weekly(user.userId, scope, now, only = repository.friends(user.userId))
             LeaderboardScope.LAST_GAME -> lastGame(user.userId, now)
         }
     }
 
-    /** This week's points of everybody ([only] null) or of the caller and [only]; with last week's place to compare. */
-    private fun weekly(me: UserId, scope: LeaderboardScope, now: Instant, only: List<UserId>?): LeaderboardResponse {
+    /**
+     * Everybody of the caller's city by this week's points, like the world (docs/adr/0022-city-leaderboard.md); last
+     * week counted by today's cities too. Empty while the caller has no city.
+     */
+    private fun city(me: UserId, now: Instant): LeaderboardResponse {
+        val city = repository.cityOf(me)
+            ?: return weekOf(now).let { LeaderboardResponse(LeaderboardScope.CITY, it.startMillis, it.endMillis) }
+        return weekly(me, LeaderboardScope.CITY, now, only = null, city = city).copy(city = city)
+    }
+
+    /**
+     * This week's points of everybody ([only] null) or of the caller and [only], of [city]'s players when given; with
+     * last week's place to compare.
+     */
+    private fun weekly(
+        me: UserId,
+        scope: LeaderboardScope,
+        now: Instant,
+        only: List<UserId>?,
+        city: String? = null,
+    ): LeaderboardResponse {
         val week = weekOf(now)
         val lastWeek = Week(week.start.atZone(ZONE).minusWeeks(1).toInstant(), week.start)
         val members = only?.let { it + me }
-        val results = repository.results(lastWeek.start, week.end, now, members)
+        val results = repository.results(lastWeek.start, week.end, now, members, city)
         val (thisWeekResults, lastWeekResults) = results.partition { it.finishedAt >= week.start }
         val ranked = LeaderboardRules.rank(scores(thisWeekResults), me)
         val mine = ranked.firstOrNull { it.isMe }

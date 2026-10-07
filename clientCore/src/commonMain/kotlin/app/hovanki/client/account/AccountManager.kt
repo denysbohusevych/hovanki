@@ -167,6 +167,13 @@ class AccountManager(
     suspend fun setSaveRoutes(enabled: Boolean): ApiResult<Unit> =
         withToken { token -> updateUser(token, api.setSaveRoutes(token, enabled)) }
 
+    /**
+     * The player's city of the city leaderboard (`Cities.IDS`), as [CityLocator] found it; null forgets it
+     * (docs/adr/0022-city-leaderboard.md).
+     */
+    suspend fun setCity(city: String?): ApiResult<Unit> =
+        withToken { token -> updateUser(token, api.setCity(token, city)) }
+
     /** The player has seen the "logged out, log in again" notice. */
     fun dismissSessionExpired() {
         mutableState.update { it.copy(sessionExpired = false) }
