@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +55,9 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -64,8 +68,10 @@ import app.hovanki.client.catchcode.CatchCodeScanner
 import app.hovanki.client.catchcode.QrCodeImage
 import app.hovanki.client.lab.FieldSession
 import app.hovanki.client.lab.FieldStatus
+import app.hovanki.client.map.MapSettings
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.action_cancel
+import app.hovanki.client.resources.action_close
 import app.hovanki.client.resources.action_confirm
 import app.hovanki.client.resources.action_dispute
 import app.hovanki.client.resources.action_leave
@@ -112,6 +118,10 @@ import app.hovanki.client.resources.invite_in_round
 import app.hovanki.client.resources.leave_text
 import app.hovanki.client.resources.leave_text_account
 import app.hovanki.client.resources.leave_title
+import app.hovanki.client.resources.map_look_menu
+import app.hovanki.client.resources.map_look_title
+import app.hovanki.client.resources.map_view_2d
+import app.hovanki.client.resources.map_view_3d
 import app.hovanki.client.resources.my_code_close
 import app.hovanki.client.resources.my_code_hint
 import app.hovanki.client.resources.my_code_title
@@ -165,6 +175,7 @@ import app.hovanki.client.ui.field.FieldMarks
 import app.hovanki.client.ui.field.PocketHint
 import app.hovanki.client.ui.invite.InviteBannerEvent
 import app.hovanki.client.ui.invite.InviteBannerViewModel
+import app.hovanki.client.ui.profile.MapLookOptions
 import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Motion
 import app.hovanki.client.ui.theme.Palette
@@ -268,6 +279,11 @@ private fun GameContent(
     var recenterTop by remember { mutableIntStateOf(Int.MAX_VALUE) }
     var mapHeight by remember { mutableIntStateOf(0) }
     var cameraBearing by remember { mutableStateOf(0.0) }
+    // With the 3D houses on (docs/adr/0025-map-styles-and-height.md) a button tilts the map and lays it flat again.
+    val mapLook by koinInject<MapSettings>().look.collectAsStateWithLifecycle()
+    var view3d by rememberSaveable { mutableStateOf(false) }
+    var viewToggleTop by remember { mutableIntStateOf(Int.MAX_VALUE) }
+    val showViewToggle = mapLook.buildings3d && state.pause == null && state.sos.isEmpty()
     // Back inside after being out: a toast and a short vibration.
     val isOut = state.outOfZoneMillisLeft != null
     var wasOut by remember { mutableStateOf(isOut) }
@@ -311,6 +327,8 @@ private fun GameContent(
                     reduceMotion = reduceMotion,
                     attributionPadding = bottomInset,
                     onCameraBearing = { cameraBearing = it },
+                    view3d = view3d,
+                    onTilted = { view3d = it },
                     items = state.items,
                     pickedPoint = decoy?.pick,
                     onMapClick = if (decoy != null) {
@@ -330,7 +348,8 @@ private fun GameContent(
                         angleDegrees = (bearing - cameraBearing).toFloat(),
                         top = with(density) { hudBottom.toDp() },
                         bottom = with(density) {
-                            val top = if (main != null) minOf(controlsTop, recenterTop) else controlsTop
+                            val controls = if (main != null) minOf(controlsTop, recenterTop) else controlsTop
+                            val top = if (showViewToggle) minOf(controls, viewToggleTop) else controls
                             (mapHeight - top).coerceAtLeast(0).toDp()
                         },
                         reduceMotion = reduceMotion,
@@ -421,6 +440,18 @@ private fun GameContent(
                             .padding(bottomInset)
                             .padding(end = 16.dp, bottom = 136.dp)
                             .onGloballyPositioned { recenterTop = it.boundsInParent().top.toInt() },
+                    )
+                }
+                // Over «where am I» when it is at the side, else at the side alone.
+                if (showViewToggle) {
+                    ViewToggle(
+                        tilted = view3d,
+                        onClick = { view3d = !view3d },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(bottomInset)
+                            .padding(end = 16.dp, bottom = if (main != null && decoy == null) 196.dp else 136.dp)
+                            .onGloballyPositioned { viewToggleTop = it.boundsInParent().top.toInt() },
                     )
                 }
             }
@@ -522,6 +553,20 @@ private fun GameContent(
         )
     }
 
+    // The map's look, for guests too (docs/adr/0025-map-styles-and-height.md): the map behind changes at once.
+    if (state.dialog == GameDialog.MAP) {
+        AlertDialog(
+            onDismissRequest = { onEvent(GameEvent.CloseDialog) },
+            title = { Text(stringResource(Res.string.map_look_title)) },
+            text = { MapLookOptions(modifier = Modifier.testTag(TestTags.MAP_LOOK)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onEvent(GameEvent.CloseDialog)
+                }) { Text(stringResource(Res.string.action_close)) }
+            },
+        )
+    }
+
     if (state.dialog == GameDialog.MENU) {
         AlertDialog(
             onDismissRequest = { onEvent(GameEvent.CloseDialog) },
@@ -558,6 +603,10 @@ private fun GameContent(
                             modifier = Modifier.testTag(TestTags.SOS_OPEN),
                         ) { Text(stringResource(Res.string.sos_menu), color = Palette.Sos) }
                     }
+                    TextButton(
+                        onClick = { onEvent(GameEvent.OpenDialog(GameDialog.MAP)) },
+                        modifier = Modifier.testTag(TestTags.MAP_LOOK_OPEN),
+                    ) { Text(stringResource(Res.string.map_look_menu)) }
                     if (fieldState.status == FieldStatus.ON) {
                         TextButton(
                             onClick = {
@@ -692,6 +741,32 @@ private fun mainControl(state: GameUiState, onFound: () -> Unit, onMyCode: () ->
     )
 
     else -> null
+}
+
+/** «3D» over a flat map, «2D» over a tilted one: the 3D houses show only while the map is tilted. */
+@Composable
+private fun ViewToggle(tilted: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val description = stringResource(if (tilted) Res.string.map_view_2d else Res.string.map_view_3d)
+    val style = if (tilted) PopStyle.Seeker else PopStyle.Outline
+    PopSurface(
+        modifier = modifier
+            .size(48.dp)
+            .semantics { contentDescription = description }
+            .testTag(TestTags.MAP_VIEW_3D),
+        shape = CircleShape,
+        color = style.container,
+        contentColor = style.content,
+        border = style.border,
+        borderWidth = 2.dp,
+        onClick = onClick,
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = if (tilted) "2D" else "3D",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.ExtraBold,
+        )
+    }
 }
 
 /**

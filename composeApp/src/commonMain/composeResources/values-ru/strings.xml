@@ -1019,4 +1019,17 @@
   <string name="achievement_big_company_detail">Игроков в одной партии: %1$s</string>
   <string name="achievement_weekly">Каждую неделю</string>
   <string name="achievement_weekly_detail">Недель подряд с игрой: %1$s</string>
+  <string name="map_look_title">Карта</string>
+  <string name="map_theme_light">Светлая</string>
+  <string name="map_theme_dark">Тёмная</string>
+  <string name="map_theme_minimal">Минимал</string>
+  <string name="map_theme_auto">Авто</string>
+  <string name="map_theme_auto_hint">Тёмная после заката, днём светлая.</string>
+  <string name="map_buildings_3d">3D-дома</string>
+  <string name="map_buildings_3d_hint">Наклоните карту двумя пальцами или нажмите «3D» в игре.</string>
+  <string name="map_relief">Рельеф</string>
+  <string name="map_relief_hint">Холмы и овраги в тенях.</string>
+  <string name="map_look_menu">Вид карты</string>
+  <string name="map_view_3d">Наклонить карту</string>
+  <string name="map_view_2d">Карта сверху</string>
 </resources>

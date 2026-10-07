@@ -64,8 +64,9 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * «Profile»: nickname and email (not confirmed yet: confirm it here), the city of the city leaderboard, the player's
- * statistics, achievements and game history, «save my routes», change the password, log out, delete the account.
+ * «Profile»: nickname and email (not confirmed yet: confirm it here), the city of the city leaderboard, how the maps
+ * look, the player's statistics, achievements and game history, «save my routes», change the password, log out, delete
+ * the account.
  */
 @Composable
 fun ProfileTab(
@@ -130,6 +131,7 @@ fun ProfileTab(
 
         ExtrasCard(user)
         CityRow(user.city)
+        MapLookCard()
 
         StatsCard(historyState.history.stats)
         AchievementsCard(achievementsState)

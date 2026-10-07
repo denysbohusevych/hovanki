@@ -84,8 +84,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 import org.jetbrains.compose.resources.stringResource
 import org.maplibre.compose.camera.CameraPosition
 import org.maplibre.compose.camera.CameraUpdate
@@ -109,7 +107,6 @@ import org.maplibre.compose.overlay.MapOverlay
 import org.maplibre.compose.overlay.include
 import org.maplibre.compose.sources.GeoJsonData
 import org.maplibre.compose.sources.rememberGeoJsonSource
-import org.maplibre.compose.style.BaseStyle
 import org.maplibre.compose.style.TransitionOptions
 import org.maplibre.spatialk.geojson.Feature
 import org.maplibre.spatialk.geojson.FeatureCollection
@@ -149,6 +146,10 @@ import kotlin.time.Duration.Companion.milliseconds
  * without [interactive] the map takes no gestures (a card to tap); [fitTo] moves the camera onto a zone whenever it
  * changes (the settings' draft); [cameraArea] lets the camera go further than the zone, and [onCameraIdle] gives where
  * it stopped (moving the zone's center under a pin); [animateZone] redraws the zone every frame for a sped-up preview.
+ *
+ * The base map is the one the player chose (docs/adr/0025-map-styles-and-height.md, [rememberMapBackdrop]): light,
+ * dark or minimal, with the relief, and the houses rise in 3D while the map is tilted. [view3d] tilts it (true) or
+ * lays it flat (false) when it changes; [onTilted] says whenever the map tilts or lies flat, by the button or by hand.
  */
 @Composable
 fun GameMap(
@@ -173,6 +174,8 @@ fun GameMap(
     cameraArea: ZoneCircle? = null,
     onCameraIdle: ((GeoPoint) -> Unit)? = null,
     animateZone: Boolean = false,
+    view3d: Boolean = false,
+    onTilted: (Boolean) -> Unit = {},
 ) {
     val reasonLabels = mapOf(
         VisibilityReason.TEAMMATE to stringResource(Res.string.reason_teammate),
@@ -190,7 +193,6 @@ fun GameMap(
         val title = item.name.ifBlank { itemKindTitle(item.kind) }
         item.id to if (item.isTaken) "$title · $takenLabel" else title
     }
-    var styleFailed by remember { mutableStateOf(false) }
     val look = zoneLook(cue, reduceMotion)
     val ping = if (markers.any { it.isRevealed } && !reduceMotion) revealPing() else null
     val smoothMarkers = markers.map { marker -> key(marker.id) { marker.copy(point = smoothPoint(marker.point)) } }
@@ -207,6 +209,10 @@ fun GameMap(
     val zoneShape = rememberZoneShape(zone, serverNow, animateZone)
     // Where the camera starts: computed once, not read from the shape, so a moving zone redraws its layers only.
     val startZone = remember(zone) { zone.shapeAt(serverNow()).extent }
+    val backdrop = rememberMapBackdrop(at = startZone.center)
+    val paint = backdrop.paint
+    var styleFailed by remember(backdrop.theme) { mutableStateOf(false) }
+    var tilted by remember { mutableStateOf(false) }
     val forbidden = remember(buildings) {
         buildings?.let { FeatureCollection(it.buildings.map { building -> Feature(building.toPolygon(), null) }) }
     }
@@ -231,11 +237,13 @@ fun GameMap(
     }
 
     val mapState = rememberMapState(
-        baseStyle = if (styleFailed) MapStyle.fallback else BaseStyle.Uri(MapStyle.URL),
+        baseStyle = if (styleFailed) backdrop.fallback else backdrop.baseStyle,
         initialCameraPosition = CameraPosition(target = startZone.center.toPosition(), zoom = zoomToFit(startZone)),
     ) {
+        HeightLayers(backdrop, tilted = tilted)
+
         // Outside the zone darker; the part about to go blinks before a shrink and stays pink while it goes.
-        ZoneFills(zoneShape, bandOpacity = look.bandOpacity)
+        ZoneFills(zoneShape, bandOpacity = look.bandOpacity, paint = paint)
 
         // Where hiding is not allowed: the server's own outlines, not the base map's buildings.
         if (forbidden != null && passageAreas != null) {
@@ -252,9 +260,9 @@ fun GameMap(
                 color = const(Palette.Pink),
                 width = const(1.5.dp),
             )
-            // Passages are outdoors: drawn over the buildings in the light color of the base map.
+            // Passages are outdoors: drawn over the buildings in the ground color of the base map.
             val passages = rememberGeoJsonSource(GeoJsonData.Features(passageAreas))
-            FillLayer(id = "buildings-passages", source = passages, color = const(Color.White), opacity = const(0.9f))
+            FillLayer(id = "buildings-passages", source = passages, color = const(paint.ground), opacity = const(0.9f))
         }
         // The buildings the host opened for hiding (docs/adr/0014-settings-lobby-redesign-open-buildings.md): green
         // with an ink dash, and «open» on them up close.
@@ -289,7 +297,7 @@ fun GameMap(
         LineLayer(
             id = "buildings-highlight",
             source = rememberGeoJsonSource(GeoJsonData.Features(highlight)),
-            color = const(Palette.Ink),
+            color = const(paint.line),
             width = const(3.dp),
             join = const(LineJoin.Round),
         )
@@ -299,6 +307,7 @@ fun GameMap(
             casingWidth = look.casingWidth,
             coreColor = look.coreColor,
             nextOpacity = look.nextOpacity,
+            paint = paint,
         )
 
         val playerAccuracy = rememberGeoJsonSource(
@@ -379,8 +388,8 @@ fun GameMap(
             textSize = const(12.sp),
             textAnchor = const(SymbolAnchor.Left),
             textOffset = textOffset(12.dp, 0.dp),
-            textColor = const(Palette.Ink),
-            textHaloColor = const(Color.White),
+            textColor = const(paint.labelText),
+            textHaloColor = const(paint.labelHalo),
             textHaloWidth = const(2.dp),
             textAllowOverlap = const(true),
         )
@@ -444,8 +453,8 @@ fun GameMap(
             textSize = const(11.sp),
             textAnchor = const(SymbolAnchor.Top),
             textOffset = textOffset(0.dp, 10.dp),
-            textColor = const(Palette.Ink),
-            textHaloColor = const(Color.White),
+            textColor = const(paint.labelText),
+            textHaloColor = const(paint.labelHalo),
             textHaloWidth = const(2.dp),
         )
 
@@ -485,6 +494,22 @@ fun GameMap(
     val bearingListener by rememberUpdatedState(onCameraBearing)
     LaunchedEffect(mapState) {
         snapshotFlow { mapState.cameraPosition.bearing }.distinctUntilChanged().collect { bearingListener(it) }
+    }
+    val tiltListener by rememberUpdatedState(onTilted)
+    LaunchedEffect(mapState) {
+        snapshotFlow { mapState.cameraPosition.tilt >= TILTED_DEGREES }.distinctUntilChanged().collect {
+            tilted = it
+            tiltListener(it)
+        }
+    }
+    // The «3D» button: tilted to look along the streets, or flat again; a map tilted by hand stays as it is.
+    LaunchedEffect(view3d) {
+        val tilt = mapState.cameraPosition.tilt
+        if (view3d && tilt < TILTED_DEGREES) {
+            mapState.animateCamera(CameraUpdate(tilt = VIEW_3D_TILT))
+        } else if (!view3d && tilt > 0.0) {
+            mapState.animateCamera(CameraUpdate(tilt = 0.0))
+        }
     }
     LaunchedEffect(recenterRequests) {
         val point = myLocation?.point
@@ -562,7 +587,7 @@ fun GameMap(
             // building outlines (OpenStreetMap too). MapLibre's expanding one would repeat it.
             overlay = { include(MapOverlay.None) },
         )
-        MapCredit(Modifier.align(Alignment.BottomStart).padding(attributionPadding))
+        MapCredit(Modifier.align(Alignment.BottomStart).padding(attributionPadding), text = backdrop.attribution)
     }
 }
 
@@ -583,12 +608,15 @@ private fun rememberZoneShape(zone: ZoneTimeline, serverNow: () -> Long, animate
     }
 }
 
-/** The credit the tile provider and the OpenStreetMap license require, on every map; leads to the license. */
+/**
+ * The credit the tile provider and the OpenStreetMap license require, on every map, with the relief's source while it
+ * is drawn ([MapBackdrop.attribution]); leads to the license.
+ */
 @Composable
-internal fun MapCredit(modifier: Modifier = Modifier) {
+internal fun MapCredit(modifier: Modifier = Modifier, text: String = MapStyle.ATTRIBUTION) {
     val uriHandler = LocalUriHandler.current
     Text(
-        text = MapStyle.ATTRIBUTION,
+        text = text,
         style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
         color = Palette.Ink2,
         modifier = modifier
@@ -711,40 +739,6 @@ private const val FIT_DEFAULT_SIDE_DP = 360f
 
 /** From this zoom on an open building says so: houses are big enough there. */
 private const val OPEN_LABEL_MIN_ZOOM = 15.5f
-
-/** Tiles and their credits: one place to switch providers (docs/adr/0003-map-and-buildings.md). */
-internal object MapStyle {
-    /** OpenFreeMap: free, no key, OpenStreetMap data in the OpenMapTiles schema. Light and neutral: the game's
-     * colors stand out on it. */
-    const val URL = "https://tiles.openfreemap.org/styles/positron"
-
-    /** The credit the provider and the OpenStreetMap license require, shown on the map at all times. */
-    const val ATTRIBUTION = "OpenFreeMap © OpenMapTiles Data from OpenStreetMap"
-
-    /** Where the credit leads: the OpenStreetMap license and contributors. */
-    const val COPYRIGHT_URL = "https://www.openstreetmap.org/copyright"
-
-    /** Fonts the provider's glyph server has. */
-    val FONTS = listOf("Noto Sans Regular")
-
-    /** A plain background for when the style can't be loaded; the game layers still draw on it. */
-    val fallback: BaseStyle = BaseStyle.Json(
-        buildJsonObject {
-            put("version", 8)
-            put("glyphs", "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf")
-            putJsonObject("sources") {}
-            putJsonArray("layers") {
-                add(
-                    buildJsonObject {
-                        put("id", "background")
-                        put("type", "background")
-                        putJsonObject("paint") { put("background-color", "#f1f1ee") }
-                    },
-                )
-            }
-        },
-    )
-}
 
 private val MapMarker.isTeammate: Boolean get() = !isSos && reason == VisibilityReason.TEAMMATE
 

@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -16,11 +17,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import app.hovanki.client.automation.TestTags
+import app.hovanki.client.ui.game.HeightLayers
 import app.hovanki.client.ui.game.MapCredit
-import app.hovanki.client.ui.game.MapStyle
+import app.hovanki.client.ui.game.TILTED_DEGREES
 import app.hovanki.client.ui.game.ZoneBorder
 import app.hovanki.client.ui.game.ZoneFills
 import app.hovanki.client.ui.game.features
+import app.hovanki.client.ui.game.rememberMapBackdrop
 import app.hovanki.client.ui.game.toPosition
 import app.hovanki.client.ui.game.zoneCameraConstraints
 import app.hovanki.client.ui.game.zoneShapeAt
@@ -44,7 +47,6 @@ import org.maplibre.compose.overlay.MapOverlay
 import org.maplibre.compose.overlay.include
 import org.maplibre.compose.sources.GeoJsonData
 import org.maplibre.compose.sources.rememberGeoJsonSource
-import org.maplibre.compose.style.BaseStyle
 import org.maplibre.spatialk.geojson.LineString
 import org.maplibre.spatialk.geojson.Point
 import org.maplibre.spatialk.geojson.Polygon
@@ -57,7 +59,6 @@ import org.maplibre.spatialk.geojson.Polygon
  */
 @Composable
 fun RouteMap(route: GameRoute, modifier: Modifier = Modifier) {
-    var styleFailed by remember { mutableStateOf(false) }
     val color = route.role.color
     val path = route.points.map { it.point.toPosition() }
     val streets = remember(route) {
@@ -67,13 +68,17 @@ fun RouteMap(route: GameRoute, modifier: Modifier = Modifier) {
     }
     val shape = rememberUpdatedState(remember(route, streets) { zoneShapeAt(route.zone, streets, 0L) })
     val zone = shape.value.extent
+    val backdrop = rememberMapBackdrop(at = zone.center)
+    var styleFailed by remember(backdrop.theme) { mutableStateOf(false) }
+    var tilted by remember { mutableStateOf(false) }
 
     val mapState = rememberMapState(
-        baseStyle = if (styleFailed) MapStyle.fallback else BaseStyle.Uri(MapStyle.URL),
+        baseStyle = if (styleFailed) backdrop.fallback else backdrop.baseStyle,
         initialCameraPosition = CameraPosition(target = zone.center.toPosition(), zoom = zoomToFit(zone)),
     ) {
-        ZoneFills(shape)
-        ZoneBorder(shape)
+        HeightLayers(backdrop, tilted = tilted)
+        ZoneFills(shape, paint = backdrop.paint)
+        ZoneBorder(shape, paint = backdrop.paint)
 
         if (path.size >= 2) {
             val line = rememberGeoJsonSource(GeoJsonData.Features(features(LineString(path))))
@@ -120,6 +125,9 @@ fun RouteMap(route: GameRoute, modifier: Modifier = Modifier) {
     LaunchedEffect(mapState) {
         mapState.events.collect { event -> if (event is MapEvent.StyleLoadFailed) styleFailed = true }
     }
+    LaunchedEffect(mapState) {
+        snapshotFlow { mapState.cameraPosition.tilt >= TILTED_DEGREES }.collect { tilted = it }
+    }
 
     var shortSideDp by remember { mutableStateOf(0f) }
     val density = LocalDensity.current
@@ -134,6 +142,6 @@ fun RouteMap(route: GameRoute, modifier: Modifier = Modifier) {
             cameraConstraints = zoneCameraConstraints(zone, shortSideDp, routePoints),
             overlay = { include(MapOverlay.None) },
         )
-        MapCredit(Modifier.align(Alignment.BottomStart))
+        MapCredit(Modifier.align(Alignment.BottomStart), text = backdrop.attribution)
     }
 }

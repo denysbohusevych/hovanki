@@ -1019,4 +1019,17 @@
   <string name="achievement_big_company_detail">Гравців в одній партії: %1$s</string>
   <string name="achievement_weekly">Щотижня</string>
   <string name="achievement_weekly_detail">Тижнів поспіль із грою: %1$s</string>
+  <string name="map_look_title">Мапа</string>
+  <string name="map_theme_light">Світла</string>
+  <string name="map_theme_dark">Темна</string>
+  <string name="map_theme_minimal">Мінімал</string>
+  <string name="map_theme_auto">Авто</string>
+  <string name="map_theme_auto_hint">Темна після заходу сонця, вдень світла.</string>
+  <string name="map_buildings_3d">3D-будинки</string>
+  <string name="map_buildings_3d_hint">Нахиліть мапу двома пальцями або натисніть «3D» у грі.</string>
+  <string name="map_relief">Рельєф</string>
+  <string name="map_relief_hint">Пагорби та яри в тінях.</string>
+  <string name="map_look_menu">Вигляд мапи</string>
+  <string name="map_view_3d">Нахилити мапу</string>
+  <string name="map_view_2d">Мапа згори</string>
 </resources>

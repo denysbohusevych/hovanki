@@ -18,11 +18,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.hovanki.client.session.Replay
 import app.hovanki.client.session.ReplayLine
+import app.hovanki.client.ui.game.HeightLayers
 import app.hovanki.client.ui.game.MapCredit
 import app.hovanki.client.ui.game.MapStyle
 import app.hovanki.client.ui.game.ZoneBorder
 import app.hovanki.client.ui.game.ZoneFills
 import app.hovanki.client.ui.game.ZoneTimeline
+import app.hovanki.client.ui.game.rememberMapBackdrop
 import app.hovanki.client.ui.game.toPosition
 import app.hovanki.client.ui.game.zoneCameraConstraints
 import app.hovanki.client.ui.game.zoneShapeAt
@@ -55,7 +57,6 @@ import org.maplibre.compose.overlay.MapOverlay
 import org.maplibre.compose.overlay.include
 import org.maplibre.compose.sources.GeoJsonData
 import org.maplibre.compose.sources.rememberGeoJsonSource
-import org.maplibre.compose.style.BaseStyle
 import org.maplibre.spatialk.geojson.Feature
 import org.maplibre.spatialk.geojson.FeatureCollection
 import org.maplibre.spatialk.geojson.LineString
@@ -69,24 +70,38 @@ import org.maplibre.spatialk.geojson.Polygon
  */
 @Composable
 internal fun ReplayMap(replay: Replay, zone: ZoneTimeline, atMillis: Long, modifier: Modifier = Modifier) {
-    var styleFailed by remember { mutableStateOf(false) }
     val shape = rememberUpdatedState(remember(zone, atMillis) { zone.shapeAt(atMillis) })
     val start = remember(zone) { zoneShapeAt(zone.schedule, zone.streets, 0L).extent }
+    // The replay is a picture from above: the player's theme and relief, never tilted, so no 3D houses.
+    val backdrop = rememberMapBackdrop(at = start.center)
+    var styleFailed by remember(backdrop.theme) { mutableStateOf(false) }
     val frame = replay.lines.map { line -> line to line.pathUntil(atMillis) }
     val mapState = rememberMapState(
-        baseStyle = if (styleFailed) MapStyle.fallback else BaseStyle.Uri(MapStyle.URL),
+        baseStyle = if (styleFailed) backdrop.fallback else backdrop.baseStyle,
         initialCameraPosition = CameraPosition(
             target = start.center.toPosition(),
             zoom = zoomToFit(start.copy(radiusMeters = start.radiusMeters * FIT_MARGIN)),
         ),
     ) {
-        ZoneFills(shape)
-        ZoneBorder(shape, casingWidth = 6.dp, coreWidth = 3.dp)
+        HeightLayers(backdrop, tilted = false)
+        ZoneFills(shape, paint = backdrop.paint)
+        ZoneBorder(shape, casingWidth = 6.dp, coreWidth = 3.dp, paint = backdrop.paint)
 
         for (role in Role.entries) {
             val paths = frame.filter { (line, path) -> line.player.role == role && path.size >= 2 }
                 .map { (_, path) -> Feature(LineString(path.map { it.toPosition() }), null) }
             val source = rememberGeoJsonSource(GeoJsonData.Features(FeatureCollection(paths)))
+            // The seekers' ink ways would sink into the dark map: a light casing keeps them in sight.
+            if (backdrop.isDark && role == Role.SEEKER) {
+                LineLayer(
+                    id = "paths-${role.name.lowercase()}-casing",
+                    source = source,
+                    color = const(backdrop.paint.line),
+                    width = const(6.dp),
+                    join = const(LineJoin.Round),
+                    cap = const(LineCap.Round),
+                )
+            }
             LineLayer(
                 id = "paths-${role.name.lowercase()}",
                 source = source,
@@ -130,8 +145,8 @@ internal fun ReplayMap(replay: Replay, zone: ZoneTimeline, atMillis: Long, modif
             textSize = const(11.sp),
             textAnchor = const(SymbolAnchor.Left),
             textOffset = textOffset(10.dp, 0.dp),
-            textColor = const(Palette.Ink),
-            textHaloColor = const(Color.White),
+            textColor = const(backdrop.paint.labelText),
+            textHaloColor = const(backdrop.paint.labelHalo),
             textHaloWidth = const(2.dp),
             textAllowOverlap = const(true),
         )
@@ -158,7 +173,7 @@ internal fun ReplayMap(replay: Replay, zone: ZoneTimeline, atMillis: Long, modif
             },
             overlay = { include(MapOverlay.None) },
         )
-        MapCredit(Modifier.align(Alignment.BottomStart))
+        MapCredit(Modifier.align(Alignment.BottomStart), text = backdrop.attribution)
     }
 }
 
