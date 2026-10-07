@@ -38,6 +38,7 @@ import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PlaceItemRequest
+import app.hovanki.shared.protocol.PlayAgainRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.QuestId
@@ -110,11 +111,20 @@ class GameService(
      * A new game with the caller as its host. [user]: the caller's account (null: a guest), whose nickname is the
      * player's name; [CreateGameRequest.playerName] only names guests.
      */
-    fun create(request: CreateGameRequest, user: AuthenticatedUser? = null): SessionResponse {
-        val name = playerName(request.playerName, user)
-        validate(request.settings)
-        features.requireAllowed(request.settings.features)
-        if (user != null) leaveOtherGames(user, except = null, leaveRound = request.leaveOtherGame)
+    fun create(request: CreateGameRequest, user: AuthenticatedUser? = null): SessionResponse =
+        newGame(playerName(request.playerName, user), user?.userId, request.settings, request.leaveOtherGame)
+
+    /** A new game of [settings] hosted by [name] ([userId]: their account); [requestId]: the press that made it. */
+    private fun newGame(
+        name: String,
+        userId: UserId?,
+        settings: GameSettings,
+        leaveOtherGame: Boolean,
+        requestId: String? = null,
+    ): SessionResponse {
+        validate(settings)
+        features.requireAllowed(settings.features)
+        if (userId != null) leaveOtherGames(userId, except = null, leaveRound = leaveOtherGame)
         val now = clock.millis()
         val hostId = ids.playerId()
         var game: Game
@@ -123,14 +133,14 @@ class GameService(
                 ids.gameId(),
                 ids.joinCode(),
                 hostId,
-                request.settings,
+                settings,
                 now,
                 capacity.norms(),
                 maxPlayers = limits.maxPlayers,
             )
         } while (!registry.add(game))
         return synchronized(game) {
-            game.addPlayer(hostId, name, now, user?.userId)
+            game.addPlayer(hostId, name, now, userId, requestId)
             loadMap(game)
             // Nobody else is there to poke yet.
             game.takePokes()
@@ -163,19 +173,56 @@ class GameService(
             // A big game is joined from its card, by those who signed up (docs/adr/0010-big-games.md).
             ?.takeIf { synchronized(it) { !it.isServerHosted } }
             ?: throw GameException(ErrorCode.NOT_FOUND, "No game with this code")
-        if (user != null) leaveOtherGames(user, except = game.id, leaveRound = request.leaveOtherGame)
+        return enter(game, name, user?.userId, requestId, request.leaveOtherGame)
+    }
+
+    /**
+     * [name] ([userId]: their account) comes into [game]: a new player in the lobby, or the account's player back, or
+     * the one [requestId] created before its answer got lost (see [join]).
+     */
+    private fun enter(
+        game: Game,
+        name: String,
+        userId: UserId?,
+        requestId: String?,
+        leaveOtherGame: Boolean,
+    ): SessionResponse {
+        if (userId != null) leaveOtherGames(userId, except = game.id, leaveRound = leaveOtherGame)
         val session = locked(game) { now ->
             // The account's player, or the one this very join request created before its answer got lost.
-            val returning = user?.let { game.playerOf(it.userId) } ?: requestId?.let(game::playerOfJoinRequest)
+            val returning = userId?.let { game.playerOf(it) } ?: requestId?.let(game::playerOfJoinRequest)
             val playerId = if (returning != null) {
                 registry.revokeTokens(game.id, returning)
                 returning
             } else {
-                ids.playerId().also { game.addPlayer(it, name, now, user?.userId, requestId) }
+                ids.playerId().also { game.addPlayer(it, name, now, userId, requestId) }
             }
             newSession(game, playerId, now)
         }
-        if (user != null) invites.removeInvitee(game.id, user.userId)
+        if (userId != null) invites.removeInvitee(game.id, userId)
+        return session
+    }
+
+    /**
+     * «Play again» on the results of finished game [gameId]: its host opens a new lobby with the game's setup (not open
+     * to spectators) and hosts it; everybody else comes into that lobby, under the name and the account they played
+     * with ([GameSnapshot.playAgain] tells them it is there). A press sent again ([PlayAgainRequest.requestId]) gets back
+     * the same player. The host opens another one only once the last is gone (everybody left it, or the janitor).
+     */
+    fun playAgain(caller: PlayerRef, gameId: GameId, request: PlayAgainRequest): SessionResponse {
+        val requestId = request.requestId?.let(::validRequestId)
+        val finished = gameOf(caller, gameId)
+        val ask = locked(finished) { finished.playAgainAsk(caller.playerId) }
+        // The nickname as it is now, from the database, outside every game's lock.
+        val name = ask.userId?.let { users.findById(it)?.nickname } ?: ask.name
+        val next = ask.next?.let { registry.get(it.gameId) }
+        if (next != null) return enter(next, name, ask.userId, requestId, request.leaveOtherGame)
+        if (!ask.isHost) throw GameException(ErrorCode.WRONG_STATE, "The host has not opened the next game yet")
+        // Each game's lock on its own: the new game is made outside the finished one's.
+        val session = newGame(name, ask.userId, ask.settings, request.leaveOtherGame, requestId)
+        locked(finished) {
+            finished.openPlayAgain(caller.playerId, NextGame(session.session.gameId, session.snapshot.joinCode))
+        }
         return session
     }
 
@@ -211,7 +258,7 @@ class GameService(
         val name = playerName("", user)
         val game = registry.get(gameId)?.takeIf { synchronized(it) { it.isServerHosted } }
             ?: throw GameException(ErrorCode.NOT_FOUND, "The lobby is not open")
-        leaveOtherGames(user, except = game.id, leaveRound = request.leaveOtherGame)
+        leaveOtherGames(user.userId, except = game.id, leaveRound = request.leaveOtherGame)
         // Its snapshot shows the player's friends: read now, outside the game's lock.
         val friendIds = friends.friends(user.userId).mapTo(HashSet()) { it.id }
         return locked(game) { now ->
@@ -600,11 +647,11 @@ class GameService(
      * takes over, an empty lobby goes). A round in progress is left only with [leaveRound], else the caller is refused
      * with [ErrorReason.IN_ANOTHER_GAME]. Finished games stay as they are. One game's lock at a time.
      */
-    private fun leaveOtherGames(user: AuthenticatedUser, except: GameId?, leaveRound: Boolean) {
+    private fun leaveOtherGames(userId: UserId, except: GameId?, leaveRound: Boolean) {
         for (other in registry.all()) {
             if (other.id == except) continue
             val left = locked(other) { now ->
-                val playerId = other.playerOf(user.userId) ?: return@locked null
+                val playerId = other.playerOf(userId) ?: return@locked null
                 when {
                     other.phase == GamePhase.LOBBY -> playerId to other.leave(playerId, now)
 

@@ -5,6 +5,7 @@ import app.hovanki.client.network.ApiException
 import app.hovanki.shared.protocol.AccountSession
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ChangeEmailRequest
+import app.hovanki.shared.protocol.CityRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.LoginRequest
@@ -82,6 +83,12 @@ class FakeAccountApi(var user: UserProfile = testUser, var token: String = TEST_
     override suspend fun setSaveRoutes(token: String, enabled: Boolean): UserProfile =
         call("setSaveRoutes", token, PrivacyRequest(enabled)) {
             user = user.copy(saveRoutes = enabled)
+            user
+        }
+
+    override suspend fun setCity(token: String, city: String?): UserProfile =
+        call("setCity", token, CityRequest(city)) {
+            user = user.copy(city = city)
             user
         }
 

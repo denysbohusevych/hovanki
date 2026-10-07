@@ -14,6 +14,7 @@ import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PlaceItemRequest
+import app.hovanki.shared.protocol.PlayAgainRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.QuestId
@@ -75,6 +76,12 @@ interface GameApi {
 
     /** Leaves the game for good: the server takes the player out, the session's token stops working. */
     suspend fun leave(session: PlayerSession)
+
+    /**
+     * «Play again» on the results of [session]'s finished game: the host opens the next lobby of the same setup, the
+     * others come into it ([app.hovanki.shared.protocol.GameSnapshot.playAgain]). The session in the next game.
+     */
+    suspend fun playAgain(session: PlayerSession, request: PlayAgainRequest): SessionResponse
 
     /** Sends new location samples and returns the current state; see [GameConnection]. */
     suspend fun sync(session: PlayerSession, request: SyncRequest): GameSnapshot

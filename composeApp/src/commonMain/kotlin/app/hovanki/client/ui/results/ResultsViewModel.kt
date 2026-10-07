@@ -21,7 +21,8 @@ import kotlinx.coroutines.launch
 
 /**
  * The results screen: who played with an account, friend requests to them, keeping the player's route, the tracks
- * for the replay, and the achievements the game reached. The standings and awards come from the final snapshot.
+ * for the replay, the achievements the game reached and «Play again». The standings and awards come from the final
+ * snapshot.
  *
  * One state for the whole screen, [uiState], and one way in, [onEvent] (docs/architecture.md, «Состояние экрана»).
  */
@@ -35,6 +36,7 @@ class ResultsViewModel(
     private val builder = ResultsStateBuilder()
     private val newAchievements = MutableStateFlow<List<AchievementProgress>>(emptyList())
     private var achievementsAsked = false
+    private val progress = MutableStateFlow(PlayAgainProgress())
 
     val uiState: StateFlow<ResultsUiState> =
         combine(
@@ -42,9 +44,9 @@ class ResultsViewModel(
             social.friends,
             account.state,
             commands.message,
-            commands.isBusy,
-        ) { session, friends, accountState, message, busy ->
-            builder.build(session, friends, accountState, message, busy)
+            combine(commands.isBusy, progress, ::Pair),
+        ) { session, friends, accountState, message, (busy, moving) ->
+            builder.build(session, friends, accountState, message, busy, moving)
         }.combine(newAchievements) { state, achievements ->
             state.copy(newAchievements = achievements)
         }.stateIn(
@@ -56,6 +58,7 @@ class ResultsViewModel(
                 account.state.value,
                 commands.message.value,
                 commands.isBusy.value,
+                progress.value,
             ),
         )
 
@@ -69,10 +72,28 @@ class ResultsViewModel(
 
             ResultsEvent.Shown -> askAchievements()
 
+            is ResultsEvent.PlayAgain -> playAgain(event.leaveOtherGame)
+
+            ResultsEvent.DismissPlayAgainError -> {
+                progress.value = PlayAgainProgress()
+                sessionManager.clearError()
+            }
+
             ResultsEvent.Leave -> {
                 commands.dismiss()
                 sessionManager.leave()
             }
+        }
+    }
+
+    /** Into the next lobby; the app shows it as soon as the session moves there. */
+    private fun playAgain(leaveOtherGame: Boolean) {
+        if (progress.value.isRunning) return
+        sessionManager.clearError()
+        progress.value = PlayAgainProgress(isRunning = true)
+        viewModelScope.launch {
+            val moved = sessionManager.playAgain(leaveOtherGame)
+            progress.value = PlayAgainProgress(failed = !moved)
         }
     }
 

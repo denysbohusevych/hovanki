@@ -2,6 +2,8 @@ package app.hovanki.e2e.bot
 
 import app.hovanki.client.account.AccountManager
 import app.hovanki.client.account.AccountState
+import app.hovanki.client.account.CityLocator
+import app.hovanki.client.account.CityLookup
 import app.hovanki.client.bigGames.BigGameManager
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.history.HistoryState
@@ -292,6 +294,10 @@ class BotPlayer(
     /** Also how an invite is accepted: its join code, while logged in. */
     suspend fun join(joinCode: String, leaveOtherGame: Boolean = false): CommandResult =
         command("joins with code $joinCode") { it.join(joinCode, name, leaveOtherGame) }.also(::onEntered)
+
+    /** «Play again» on the results: the host opens the next lobby of the same setup, the others come into it. */
+    suspend fun playsAgain(leaveOtherGame: Boolean = false): CommandResult =
+        command("plays again") { it.playAgain(leaveOtherGame) }.also(::onEntered)
 
     suspend fun startGame(seekers: Collection<BotPlayer>): CommandResult =
         command("starts the game, seekers: ${seekers.joinToString { it.name }}") { session ->
@@ -606,6 +612,19 @@ class BotPlayer(
     /** The leaderboard the last [openLeaderboard] showed; null until one loaded. */
     @Volatile var leaderboard: LeaderboardResponse? = null
         private set
+
+    /** The city of the city leaderboard from this phone's GPS, as «Rating» finds it when it opens. */
+    suspend fun locateCity(): CommandResult = apiCommand("finds its city by GPS") {
+        when (val lookup = CityLocator(it.account, gps).locate()) {
+            is CityLookup.Found -> ApiResult.Success(Unit)
+            is CityLookup.Failed -> lookup.result
+            else -> error("no city: $lookup")
+        }
+    }
+
+    /** Sends [city] as if the phone found it there (null: outside every city), for a city the bot can't walk to. */
+    suspend fun setCity(city: String?): CommandResult =
+        apiCommand("is in the city ${city ?: "none"}") { it.account.setCity(city) }
 
     /** Opens the «Рейтинг» tab on [scope]. */
     suspend fun openLeaderboard(scope: LeaderboardScope): CommandResult =
@@ -923,7 +942,10 @@ class BotPlayer(
             return
         }
         val snapshot = try {
-            if (exchange.path == ApiRoutes.GAMES || exchange.path == ApiRoutes.JOIN) {
+            // «Play again» answers with the session in the next game, like creating or joining one.
+            val isSession = exchange.path == ApiRoutes.GAMES || exchange.path == ApiRoutes.JOIN ||
+                exchange.path.endsWith(PLAY_AGAIN_SUFFIX)
+            if (isSession) {
                 protocolJson.decodeFromString<SessionResponse>(body).snapshot
             } else {
                 protocolJson.decodeFromString<GameSnapshot>(body)
@@ -1138,6 +1160,9 @@ class BotPlayer(
 
 /** The spectator's view of a game: `ApiRoutes.SPECTATE` ends with it. */
 private const val SPECTATE_SUFFIX = "/spectate"
+
+/** «Play again» on the results: `ApiRoutes.PLAY_AGAIN` ends with it. */
+private const val PLAY_AGAIN_SUFFIX = "/again"
 
 sealed interface CommandResult {
     data object Ok : CommandResult

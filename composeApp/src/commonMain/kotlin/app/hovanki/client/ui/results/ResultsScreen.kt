@@ -75,6 +75,8 @@ import app.hovanki.client.resources.results_finds
 import app.hovanki.client.resources.results_hider_place
 import app.hovanki.client.resources.results_hiders_win
 import app.hovanki.client.resources.results_into_search
+import app.hovanki.client.resources.results_play_again
+import app.hovanki.client.resources.results_play_again_waiting
 import app.hovanki.client.resources.results_seekers
 import app.hovanki.client.resources.results_seekers_win
 import app.hovanki.client.resources.results_share
@@ -114,6 +116,9 @@ import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.PopSurface
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
+import app.hovanki.client.ui.common.StartActivity
+import app.hovanki.client.ui.common.StartStatus
+import app.hovanki.client.ui.common.StartStatusBanners
 import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.client.ui.common.formatElapsed
 import app.hovanki.client.ui.common.rememberReduceMotion
@@ -299,6 +304,7 @@ private fun ResultsContent(
             headline,
             roundLength.orEmpty(),
         )
+        PlayAgainBar(state, onEvent)
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -319,6 +325,37 @@ private fun ResultsContent(
                 icon = Res.drawable.ic_share,
             )
         }
+    }
+}
+
+/**
+ * «Play again» over «Back» and «Share»: the host opens the next lobby with this game's setup, the others come into it
+ * once the host has; until then their button waits. A refusal shows above it (still in a round elsewhere: leave it).
+ */
+@Composable
+private fun PlayAgainBar(state: ResultsUiState, onEvent: (ResultsEvent) -> Unit) {
+    if (state.playAgain == PlayAgainOffer.NONE) return
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        StartStatusBanners(
+            status = StartStatus(activity = StartActivity.CONNECTING.takeIf { state.isMovingOn }),
+            sessionError = state.playAgainError,
+            onDismiss = { onEvent(ResultsEvent.DismissPlayAgainError) },
+            onLeaveOtherGame = { onEvent(ResultsEvent.PlayAgain(leaveOtherGame = true)) },
+        )
+        val waiting = state.playAgain == PlayAgainOffer.WAITING
+        PopButton(
+            text = stringResource(
+                if (waiting) Res.string.results_play_again_waiting else Res.string.results_play_again,
+            ),
+            onClick = { onEvent(ResultsEvent.PlayAgain()) },
+            enabled = !waiting && !state.isMovingOn,
+            height = 58.dp,
+            icon = Res.drawable.ic_play,
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.RESULTS_PLAY_AGAIN),
+        )
     }
 }
 

@@ -12,20 +12,24 @@ import app.hovanki.server.social.TestUser
 import app.hovanki.server.social.TestUsers
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.CityRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.LeaderboardResponse
 import app.hovanki.shared.protocol.LeaderboardScope
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.LeaderboardRules
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
+import org.springframework.http.MediaType
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
+import org.springframework.test.web.servlet.post
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -163,6 +167,67 @@ class LeaderboardServiceTest(
     }
 
     @Test
+    fun theCityRanksThePlayersWhoPickedTheCallersCity() {
+        val monday = Instant.parse("2045-01-01T22:00:00Z")
+        val anna = testUsers.create("anna")
+        val bob = testUsers.create("bob")
+        val carl = testUsers.create("carl")
+        val nowhere = testUsers.create("nowhere")
+        city(anna, "kyiv")
+        city(bob, "kyiv")
+        city(carl, "lviv")
+        game(monday.minusSeconds(60), seeker(anna, catches = 2, won = false), hider(bob, PlayerStatus.CAUGHT, 0))
+        game(
+            monday.plusSeconds(60),
+            seeker(carl, catches = 2, won = true),
+            hider(bob, PlayerStatus.ACTIVE, 300),
+            hider(anna, PlayerStatus.CAUGHT, 60),
+            hider(nowhere, PlayerStatus.CAUGHT, 600),
+        )
+        val now = monday.plusSeconds(3600)
+
+        val kyiv = service(now).leaderboard(anna.auth, LeaderboardScope.CITY)
+        assertEquals("kyiv", kyiv.city)
+        // Bob 20 + 50 + 100 = 170, Anna 20 + 10 = 30; Carl plays in Lviv, the player without a city nowhere.
+        assertEquals(listOf(bob.id, anna.id), kyiv.entries.map { it.userId })
+        assertEquals(listOf(170, 30), kyiv.entries.map { it.points })
+        assertEquals(bob.id, kyiv.nextAbove?.userId)
+        assertEquals(-1, kyiv.rankChange, "first last week (Anna 220, Bob 20), second now")
+
+        val lviv = service(now).leaderboard(carl.auth, LeaderboardScope.CITY)
+        assertEquals(listOf(carl.id), lviv.entries.map { it.userId })
+
+        val none = service(now).leaderboard(nowhere.auth, LeaderboardScope.CITY)
+        assertNull(none.city)
+        assertEquals(emptyList(), none.entries)
+        assertNull(none.me)
+        assertEquals(LeaderboardService.weekOf(now).startMillis, none.weekStartMillis)
+
+        city(bob, null)
+        val afterBobLeft = service(now).leaderboard(anna.auth, LeaderboardScope.CITY)
+        assertEquals(listOf(anna.id), afterBobLeft.entries.map { it.userId }, "today's city counts")
+    }
+
+    @Test
+    fun thePlayerPicksAKnownCityOrNone() {
+        val anna = testUsers.create("anna")
+        val kyiv = post(ApiRoutes.ME_CITY, anna.token, CityRequest("kyiv"))
+        assertEquals(200, kyiv.first, kyiv.second)
+        assertEquals("kyiv", protocolJson.decodeFromString<UserProfile>(kyiv.second).city)
+        val me = mvc.get(ApiRoutes.ME) { header("Authorization", "Bearer ${anna.token}") }.andReturn().response
+        assertEquals("kyiv", protocolJson.decodeFromString<UserProfile>(me.contentAsString).city)
+
+        val unknown = post(ApiRoutes.ME_CITY, anna.token, CityRequest("atlantis"))
+        assertEquals(400, unknown.first)
+        assertEquals(ErrorCode.BAD_REQUEST, protocolJson.decodeFromString<ApiError>(unknown.second).code)
+
+        val cleared = post(ApiRoutes.ME_CITY, anna.token, CityRequest(null))
+        assertEquals(200, cleared.first, cleared.second)
+        assertNull(protocolJson.decodeFromString<UserProfile>(cleared.second).city)
+        assertEquals(401, post(ApiRoutes.ME_CITY, token = null, CityRequest("kyiv")).first)
+    }
+
+    @Test
     fun theLastGameRanksItsAccountPlayersByThatGameOnly() {
         val anna = testUsers.create("anna")
         val bob = testUsers.create("bob")
@@ -212,7 +277,7 @@ class LeaderboardServiceTest(
         val lastEntries = protocolJson.decodeFromString<LeaderboardResponse>(last.second).entries
         assertEquals(listOf(anna.id), lastEntries.map { it.userId })
 
-        val unknown = get("${ApiRoutes.ME_LEADERBOARD}?scope=CITY", anna.token)
+        val unknown = get("${ApiRoutes.ME_LEADERBOARD}?scope=TOWN", anna.token)
         assertEquals(400, unknown.first)
         assertEquals(ErrorCode.BAD_REQUEST, protocolJson.decodeFromString<ApiError>(unknown.second).code)
         assertEquals(401, get(ApiRoutes.ME_LEADERBOARD, token = null).first)
@@ -223,6 +288,19 @@ class LeaderboardServiceTest(
     private fun get(path: String, token: String?): Pair<Int, String> {
         val result = mvc.get(path) { token?.let { header("Authorization", "Bearer $it") } }.andReturn().response
         return result.status to result.contentAsString
+    }
+
+    private fun post(path: String, token: String?, body: CityRequest): Pair<Int, String> {
+        val result = mvc.post(path) {
+            token?.let { header("Authorization", "Bearer $it") }
+            contentType = MediaType.APPLICATION_JSON
+            content = protocolJson.encodeToString(body)
+        }.andReturn().response
+        return result.status to result.contentAsString
+    }
+
+    private fun city(user: TestUser, city: String?) {
+        jdbc.sql("UPDATE users SET city = :c WHERE id = :u").param("c", city).param("u", user.id.value).update()
     }
 
     private fun befriend(a: TestUser, b: TestUser) {

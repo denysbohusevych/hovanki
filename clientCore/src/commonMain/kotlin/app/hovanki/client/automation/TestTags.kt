@@ -180,6 +180,10 @@ object TestTags {
 
     fun leaderboardScope(scope: String) = "leaderboard_scope_${scope.lowercase()}"
 
+    /** On the city's tab without a city: allow location or try again. */
+    const val LEADERBOARD_LOCATE_CITY = "leaderboard_locate_city"
+    const val PROFILE_CITY = "profile_city"
+
     const val FRIENDS_SCREEN = "friends_screen"
     const val FRIENDS_NICKNAME = "friends_nickname"
     const val FRIENDS_ADD = "friends_add"
@@ -387,6 +391,9 @@ object TestTags {
 
     const val RESULTS_SCREEN = "results_screen"
     const val RESULTS_BACK = "results_back"
+
+    /** «Play again» on the results: into the next lobby of the same setup. */
+    const val RESULTS_PLAY_AGAIN = "results_play_again"
     const val RESULTS_AWARDS = "results_awards"
     const val RESULTS_NEW_ACHIEVEMENTS = "results_new_achievements"
     const val RESULTS_ACHIEVEMENTS_GUEST = "results_achievements_guest"

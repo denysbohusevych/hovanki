@@ -46,7 +46,16 @@ data class UserProfile(
      * know it. Debug builds show the lab whatever it says.
      */
     val labAccess: Boolean = false,
+    /**
+     * The player's city for the city leaderboard (`Cities.IDS`), where the phone found itself (`Cities.at`); null: none
+     * (the default, and from servers that don't know it). Changed with [CityRequest] (docs/adr/0022-city-leaderboard.md).
+     */
+    val city: String? = null,
 )
+
+/** [ApiRoutes.ME_CITY]: the player's city, one of `Cities.IDS`, or null to forget it. */
+@Serializable
+data class CityRequest(val city: String? = null)
 
 /** Another user as everyone may see them: no email. */
 @Serializable
