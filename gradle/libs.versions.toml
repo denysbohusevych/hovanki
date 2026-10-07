@@ -44,7 +44,7 @@ zxing = "3.5.4"
 # staging server. One version: the Spring Boot starter and the Android SDK share the core.
 sentry = "8.59.0"
 
-spotless = "8.10.2"
+spotless = "8.10.3"
 ktlint = "1.8.0"
 
 [libraries]
