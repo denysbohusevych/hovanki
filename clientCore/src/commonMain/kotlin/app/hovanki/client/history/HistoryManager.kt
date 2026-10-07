@@ -4,6 +4,7 @@ import app.hovanki.client.account.AccountManager
 import app.hovanki.client.network.ApiResult
 import app.hovanki.client.network.HistoryApi
 import app.hovanki.client.network.apiResult
+import app.hovanki.shared.protocol.AchievementsResponse
 import app.hovanki.shared.protocol.GameHistoryEntry
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GameRecording
@@ -79,6 +80,19 @@ class HistoryManager(
      */
     suspend fun leaderboard(scope: LeaderboardScope = LeaderboardScope.WORLD): ApiResult<LeaderboardResponse> =
         command { token -> api.leaderboard(token, scope) }
+
+    /**
+     * The player's achievements (docs/adr/0021-achievements.md), with the levels reached since they last looked marked
+     * new. Not kept in [state]: the screen holds what it showed.
+     */
+    suspend fun achievements(): ApiResult<AchievementsResponse> = command { token -> api.achievements(token) }
+
+    /**
+     * The player saw their achievements up to [upToMillis] (server time: the newest `unlockedAtMillis` shown), so they
+     * are no longer new; answers them again.
+     */
+    suspend fun achievementsSeen(upToMillis: Long): ApiResult<AchievementsResponse> =
+        command { token -> api.achievementsSeen(token, upToMillis) }
 
     /** Deletes the saved route of [gameId]; the game stays in the history. */
     suspend fun deleteRoute(gameId: GameId): ApiResult<Unit> = command { token ->

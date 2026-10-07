@@ -1,5 +1,7 @@
 package app.hovanki.client.network
 
+import app.hovanki.shared.protocol.AchievementsResponse
+import app.hovanki.shared.protocol.AchievementsSeenRequest
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.GameHistoryResponse
 import app.hovanki.shared.protocol.GameId
@@ -37,6 +39,12 @@ interface HistoryApi {
 
     /** The leaderboard's [scope] as the player sees it (docs/adr/0020-leaderboard.md). */
     suspend fun leaderboard(token: String, scope: LeaderboardScope): LeaderboardResponse
+
+    /** The player's achievements (docs/adr/0021-achievements.md). */
+    suspend fun achievements(token: String): AchievementsResponse
+
+    /** The player saw every achievement reached up to [upToMillis] (server time); answers them again. */
+    suspend fun achievementsSeen(token: String, upToMillis: Long): AchievementsResponse
 }
 
 /** [HistoryApi] over HTTP/JSON. */
@@ -60,4 +68,9 @@ class HttpHistoryApi(client: HttpClient, serverUrl: ServerUrl) : HistoryApi {
 
     override suspend fun leaderboard(token: String, scope: LeaderboardScope): LeaderboardResponse =
         http.get(ApiRoutes.meLeaderboard(scope), token)
+
+    override suspend fun achievements(token: String): AchievementsResponse = http.get(ApiRoutes.ME_ACHIEVEMENTS, token)
+
+    override suspend fun achievementsSeen(token: String, upToMillis: Long): AchievementsResponse =
+        http.post(ApiRoutes.ME_ACHIEVEMENTS_SEEN, token, AchievementsSeenRequest(upToMillis))
 }

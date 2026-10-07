@@ -62,6 +62,7 @@ import app.hovanki.client.session.ServerClock
 import app.hovanki.client.social.SocialManager
 import app.hovanki.client.spectator.SpectatorManager
 import app.hovanki.client.storage.ClientStorage
+import app.hovanki.client.ui.achievements.AchievementsViewModel
 import app.hovanki.client.ui.chat.ChatViewModel
 import app.hovanki.client.ui.debug.DiagnosticsViewModel
 import app.hovanki.client.ui.debug.LabViewModel
@@ -319,6 +320,7 @@ val commonModule: Module = module {
     viewModelOf(::PlayViewModel)
     viewModelOf(::FriendsViewModel)
     viewModelOf(::LeaderboardViewModel)
+    viewModelOf(::AchievementsViewModel)
     viewModelOf(::GroupsViewModel)
     viewModelOf(::ProfileViewModel)
     viewModelOf(::HistoryViewModel)

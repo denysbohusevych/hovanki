@@ -144,6 +144,10 @@ object TestTags {
 
     /** The statistics card of the profile. */
     const val PROFILE_STATS = "profile_stats"
+    const val PROFILE_ACHIEVEMENTS = "profile_achievements"
+
+    /** One achievement's row in the profile, by its id (`AchievementRules`). */
+    fun achievement(id: String) = "achievement_$id"
     const val STATS_GAMES = "stats_games"
     const val STATS_DISTANCE = "stats_distance"
 
@@ -395,6 +399,8 @@ object TestTags {
     /** «Play again» on the results: into the next lobby of the same setup. */
     const val RESULTS_PLAY_AGAIN = "results_play_again"
     const val RESULTS_AWARDS = "results_awards"
+    const val RESULTS_NEW_ACHIEVEMENTS = "results_new_achievements"
+    const val RESULTS_ACHIEVEMENTS_GUEST = "results_achievements_guest"
 
     /** The replay on the results screen: the map with everybody's way, and its time slider. */
     const val REPLAY = "replay"

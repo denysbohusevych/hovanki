@@ -168,6 +168,12 @@ object ApiRoutes {
      */
     const val ME_LEADERBOARD = "$ME/leaderboard"
 
+    /** GET: [AchievementsResponse], the caller's achievements (docs/adr/0021-achievements.md). */
+    const val ME_ACHIEVEMENTS = "$ME/achievements"
+
+    /** POST [AchievementsSeenRequest]: the caller saw their achievements; answers the [AchievementsResponse]. */
+    const val ME_ACHIEVEMENTS_SEEN = "$ME_ACHIEVEMENTS/seen"
+
     // Big games (docs/adr/0010-big-games.md), with the account token.
 
     /** GET: the big games ahead and going on ([BigGamesResponse]). */

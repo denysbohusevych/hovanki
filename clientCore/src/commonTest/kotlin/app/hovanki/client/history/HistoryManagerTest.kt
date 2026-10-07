@@ -12,6 +12,7 @@ import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.storage.ClientStorage
 import app.hovanki.client.storage.FakeSecureStore
 import app.hovanki.client.storage.SavedAccount
+import app.hovanki.shared.protocol.AchievementsResponse
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
@@ -245,6 +246,11 @@ class HistoryManagerTest {
 
         override suspend fun leaderboard(token: String, scope: LeaderboardScope) =
             call("leaderboard $scope") { LeaderboardResponse(scope = scope) }
+
+        override suspend fun achievements(token: String) = call("achievements") { AchievementsResponse() }
+
+        override suspend fun achievementsSeen(token: String, upToMillis: Long) =
+            call("achievementsSeen $upToMillis") { AchievementsResponse(seenAtMillis = upToMillis) }
 
         override suspend fun recording(token: String, gameId: GameId) = call("recording ${gameId.value}") {
             if (gameId != recording.gameId) throw ApiException(404, ApiError(ErrorCode.NOT_FOUND, "No recording"))
