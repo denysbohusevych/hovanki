@@ -1,5 +1,6 @@
 package app.hovanki.client.di
 
+import app.hovanki.client.BuildConstants
 import app.hovanki.client.BuildInfo
 import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.field.IosAppPermissions
@@ -15,7 +16,9 @@ import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.alert_seeker_near_text
 import app.hovanki.client.resources.alert_seeker_near_title
 import app.hovanki.client.share.IosShareSheet
+import app.hovanki.client.share.IosStoryShare
 import app.hovanki.client.share.ShareSheet
+import app.hovanki.client.share.StoryShare
 import app.hovanki.client.storage.KeychainSecureStore
 import app.hovanki.client.storage.SecureStore
 import app.hovanki.client.tracking.BackgroundTracker
@@ -67,6 +70,7 @@ actual val platformModule: Module = module {
     single<AppPermissions> { IosAppPermissions() }
     single<BackgroundTracker> { IosBackgroundTracker() }
     single<ShareSheet> { IosShareSheet() }
+    single<StoryShare> { IosStoryShare(BuildConstants.FACEBOOK_APP_ID) }
     // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md): the game's channels on the iPhone's host (ADR 0017
     // §2.2), traced into the radio lab's log; the game's precision radar by UWB stays a no-op (the lab has its own).
     single<AirHost> { IosAirHost() }

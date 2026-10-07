@@ -81,6 +81,7 @@ import app.hovanki.client.resources.results_seekers
 import app.hovanki.client.resources.results_seekers_win
 import app.hovanki.client.resources.results_share
 import app.hovanki.client.resources.results_share_text
+import app.hovanki.client.resources.results_story
 import app.hovanki.client.resources.results_survived
 import app.hovanki.client.resources.results_title
 import app.hovanki.client.resources.results_to_the_end
@@ -89,6 +90,17 @@ import app.hovanki.client.resources.results_you_eliminated
 import app.hovanki.client.resources.results_you_survived
 import app.hovanki.client.resources.results_your_result
 import app.hovanki.client.resources.sparks_count
+import app.hovanki.client.resources.story_brand
+import app.hovanki.client.resources.story_cta
+import app.hovanki.client.resources.story_found_here
+import app.hovanki.client.resources.story_found_me
+import app.hovanki.client.resources.story_label_hider
+import app.hovanki.client.resources.story_label_seeker
+import app.hovanki.client.resources.story_me
+import app.hovanki.client.resources.story_others
+import app.hovanki.client.resources.story_place
+import app.hovanki.client.resources.story_players
+import app.hovanki.client.resources.story_start
 import app.hovanki.client.session.Award
 import app.hovanki.client.session.AwardKind
 import app.hovanki.client.session.Replay
@@ -97,6 +109,7 @@ import app.hovanki.client.session.catchesBy
 import app.hovanki.client.session.hiderTally
 import app.hovanki.client.session.searchMillisAt
 import app.hovanki.client.share.ShareSheet
+import app.hovanki.client.share.StoryShare
 import app.hovanki.client.ui.achievements.GuestAchievementsHint
 import app.hovanki.client.ui.achievements.NewAchievementsCard
 import app.hovanki.client.ui.chat.ChatEvent
@@ -142,6 +155,7 @@ import app.hovanki.shared.protocol.UserId
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -203,6 +217,20 @@ private fun ResultsContent(
         if (tally.survived == 0) Res.string.results_seekers_win else Res.string.results_hiders_win,
     )
     val roundLength = snapshot.searchMillisAt(snapshot.finishedAtMillis ?: 0L)?.let(::formatElapsed)
+    // The story picture (docs/adr/0024-instagram-stories.md): the player's result and their way as a scheme.
+    val story = remember(tracks, snapshot.finishedAtMillis) { snapshot.story(snapshot.awards(tracks), tracks) }
+    var storyOpen by remember { mutableStateOf(false) }
+    if (story != null && storyOpen) {
+        val storyShare = koinInject<StoryShare>()
+        val caption = stringResource(Res.string.results_share_text, headline, roundLength.orEmpty())
+        StoryPanel(
+            story = story,
+            texts = storyTexts(story, roundLength),
+            onShare = { png -> storyShare.share(png, caption) },
+            onClose = { storyOpen = false },
+        )
+        return
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenColumn(modifier = Modifier.weight(1f).testTag(TestTags.RESULTS_SCREEN)) {
@@ -318,11 +346,12 @@ private fun ResultsContent(
                 modifier = Modifier.weight(1f).testTag(TestTags.RESULTS_BACK),
             )
             PopButton(
-                text = stringResource(Res.string.results_share),
-                onClick = { shareSheet.share(shareText) },
+                text = stringResource(if (story != null) Res.string.results_story else Res.string.results_share),
+                onClick = { if (story != null) storyOpen = true else shareSheet.share(shareText) },
                 style = PopStyle.Outline,
                 height = 58.dp,
                 icon = Res.drawable.ic_share,
+                modifier = Modifier.testTag(TestTags.RESULTS_SHARE),
             )
         }
     }
@@ -495,31 +524,10 @@ private fun Awards(awards: List<Award>, snapshot: GameSnapshot, reduceMotion: Bo
  */
 @Composable
 private fun YourResult(snapshot: GameSnapshot) {
-    val me = snapshot.players.firstOrNull { it.id == snapshot.me.playerId } ?: return
-    val hiders = snapshot.players.filter { it.role == Role.HIDER }
-    val searchEnd = snapshot.searchMillisAt(snapshot.finishedAtMillis ?: 0L)
-    fun lasted(player: PlayerView): Long? =
-        if (player.status == PlayerStatus.ACTIVE) searchEnd else player.outAtMillis?.let(snapshot::searchMillisAt)
-    val (line, value) = if (me.role == Role.HIDER) {
-        val mine = lasted(me)
-        val place = 1 + hiders.count { other -> other.id != me.id && (lasted(other) ?: 0L) > (mine ?: 0L) }
-        val personal = when (me.status) {
-            PlayerStatus.ACTIVE -> Res.string.results_you_survived
-            PlayerStatus.CAUGHT -> Res.string.results_you_caught
-            PlayerStatus.ELIMINATED -> Res.string.results_you_eliminated
-        }
-        val placeText = if (hiders.size >
-            1
-        ) {
-            stringResource(Res.string.results_hider_place, place, hiders.size)
-        } else {
-            null
-        }
-        listOfNotNull(stringResource(personal), placeText).joinToString(" · ") to mine?.let(::formatElapsed)
-    } else {
-        val finds = snapshot.catchesBy(me.id)
-        stringResource(Res.string.results_finds, finds) to finds.toString()
-    }
+    val result = snapshot.myResult() ?: return
+    val me = result.player
+    val line = resultLine(result)
+    val value = resultValue(result)
     PopSurface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -550,6 +558,56 @@ private fun YourResult(snapshot: GameSnapshot) {
             if (value != null) Text(text = value, style = Hovanki.text.timer, color = Palette.Green)
         }
     }
+}
+
+/** How it went for the player: «You survived! · Place 1 of 4 hiders», «Finds: 2». */
+@Composable
+private fun resultLine(result: MyResult): String {
+    val me = result.player
+    if (me.role == Role.SEEKER) return stringResource(Res.string.results_finds, result.finds)
+    val personal = when (me.status) {
+        PlayerStatus.ACTIVE -> Res.string.results_you_survived
+        PlayerStatus.CAUGHT -> Res.string.results_you_caught
+        PlayerStatus.ELIMINATED -> Res.string.results_you_eliminated
+    }
+    val place = if (result.hiders > 1) {
+        stringResource(Res.string.results_hider_place, result.place, result.hiders)
+    } else {
+        null
+    }
+    return listOfNotNull(stringResource(personal), place).joinToString(" · ")
+}
+
+/** The number that matters: the time a hider lasted into the search, a seeker's finds. */
+private fun resultValue(result: MyResult): String? =
+    if (result.player.role == Role.HIDER) result.lastedMillis?.let(::formatElapsed) else result.finds.toString()
+
+/** The story picture's texts (docs/adr/0024-instagram-stories.md) in the player's language. */
+@Composable
+private fun storyTexts(story: Story, roundLength: String?): StoryTexts {
+    val result = story.result
+    val hider = result.player.role == Role.HIDER
+    val players = pluralStringResource(Res.plurals.story_players, story.players, story.players)
+    val others = story.players - 1 - (if (story.foundBy != null) 1 else 0)
+    return StoryTexts(
+        brand = stringResource(Res.string.story_brand),
+        corner = listOfNotNull(players, roundLength).joinToString(" · "),
+        label = stringResource(if (hider) Res.string.story_label_hider else Res.string.story_label_seeker),
+        value = resultValue(result),
+        place = if (hider && result.hiders > 1) {
+            stringResource(Res.string.story_place, result.place, result.hiders)
+        } else {
+            null
+        },
+        award = story.award?.let { "${stringResource(it.kind.title).uppercase()} · ${awardDetail(it)}" },
+        cta = stringResource(Res.string.story_cta),
+        start = stringResource(Res.string.story_start),
+        me = stringResource(Res.string.story_me),
+        foundMe = story.foundBy?.let { stringResource(Res.string.story_found_me, it) },
+        foundHere = story.foundBy?.let { stringResource(Res.string.story_found_here, it) },
+        others = others.takeIf { it > 0 }?.let { stringResource(Res.string.story_others, it) },
+        distance = story.distanceMeters?.let { distanceText(it) },
+    )
 }
 
 private val RESULT_MUTED = Color(0xFFB4B4BE)

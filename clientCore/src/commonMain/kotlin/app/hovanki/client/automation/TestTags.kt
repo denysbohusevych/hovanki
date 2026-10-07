@@ -392,6 +392,9 @@ object TestTags {
 
     const val RESULTS_SCREEN = "results_screen"
     const val RESULTS_BACK = "results_back"
+    const val RESULTS_SHARE = "results_share"
+    const val STORY_PREVIEW = "story_preview"
+    const val STORY_SHARE = "story_share"
 
     /** «Play again» on the results: into the next lobby of the same setup. */
     const val RESULTS_PLAY_AGAIN = "results_play_again"
