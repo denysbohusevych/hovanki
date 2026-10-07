@@ -38,7 +38,7 @@ import kotlin.test.assertTrue
 
 /**
  * [AchievementService] on the test database (docs/adr/0021-achievements.md); the results are written straight into
- * `game_results`.
+ * `game_results`, in weeks of 2061 that no other test uses (the leaderboard's world counts everybody's games).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -59,7 +59,7 @@ class AchievementServiceTest(
     fun countsOnlyTheCallersGamesAndTellsWhatIsNew() {
         val anna = testUsers.create("anna")
         val bob = testUsers.create("bob")
-        val monday = Instant.parse("2041-01-06T22:00:00Z")
+        val monday = Instant.parse("2061-01-02T22:00:00Z")
         game(anna, monday.plus(Duration.ofDays(1)), Role.SEEKER, PlayerStatus.ACTIVE, won = true, catches = 3)
         game(anna, monday.plus(Duration.ofDays(2)), Role.HIDER, PlayerStatus.ACTIVE, won = true, survived = 1300)
         game(bob, monday.plus(Duration.ofDays(2)), Role.SEEKER, PlayerStatus.ACTIVE, won = false, catches = 9)
@@ -93,7 +93,7 @@ class AchievementServiceTest(
     fun weeksInARowByKyivsMondays() {
         val anna = testUsers.create("anna")
         // Sunday 23:30 and Monday 00:30 in Kyiv (UTC+2): two weeks in a row, then the next two.
-        val sunday = Instant.parse("2041-01-13T21:30:00Z")
+        val sunday = Instant.parse("2061-01-09T21:30:00Z")
         listOf(0L, 1L, 8 * 24L, 15 * 24L).forEach { hours ->
             game(anna, sunday.plus(Duration.ofHours(hours)), Role.SEEKER, PlayerStatus.ACTIVE, won = false)
         }
