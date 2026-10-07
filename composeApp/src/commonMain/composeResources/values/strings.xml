@@ -261,6 +261,8 @@
   <string name="results_your_result">Your result</string>
   <string name="results_hider_place">Place %1$d of %2$d hiders</string>
   <string name="results_share">Share</string>
+  <string name="results_play_again">Play again!</string>
+  <string name="results_play_again_waiting">Play again: waiting for the host</string>
   <string name="results_share_text">Hovanki: %1$s (%2$s)</string>
 
   <!-- «Dopamine» UI (docs/design.md) -->

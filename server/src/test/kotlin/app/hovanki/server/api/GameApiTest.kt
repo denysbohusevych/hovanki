@@ -22,6 +22,7 @@ import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.LoginRequest
 import app.hovanki.shared.protocol.PauseRequest
+import app.hovanki.shared.protocol.PlayAgainRequest
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.RegisterRequest
@@ -264,6 +265,47 @@ class GameApiTest(@Autowired private val mvc: MockMvc, @Autowired private val re
     }
 
     @Test
+    fun playAgainWithTheSamePlayers() {
+        val alice = register()
+        val created = createGame()
+        val host = created.session
+        val anna = join(created.snapshot.joinCode, alice.token).session
+        val boris = join(created.snapshot.joinCode, accountToken = null, name = "Boris").session
+        val press = PlayAgainRequest(requestId = "5b1e7c2a9d3f4e6a8b0c1d2e3f405162")
+        val early = postRaw(ApiRoutes.playAgain(host.gameId), press.toJson(), host, expectedStatus = 409)
+        assertError(early, ErrorCode.WRONG_STATE, reason = null)
+        playUntilTheHostIsCaught(host, seeker = anna, otherSeekers = listOf(boris))
+        assertNull(sync(boris).playAgain, "nothing to come into yet")
+
+        // Only the host opens the next game.
+        val tooSoon = postRaw(ApiRoutes.playAgain(host.gameId), PlayAgainRequest().toJson(), boris, 409)
+        assertError(tooSoon, ErrorCode.WRONG_STATE, reason = null)
+        val next = post<SessionResponse>(ApiRoutes.playAgain(host.gameId), press.toJson(), host)
+        assertNotEquals(host.gameId, next.session.gameId)
+        assertEquals(GamePhase.LOBBY, next.snapshot.phase)
+        assertEquals(next.session.playerId, next.snapshot.hostId)
+        assertEquals(listOf("Host"), next.snapshot.players.map { it.name })
+        assertEquals(settings, next.snapshot.settings.copy(openBuildings = null))
+        // The answer got lost: the same press gets the same player back.
+        val again = post<SessionResponse>(ApiRoutes.playAgain(host.gameId), press.toJson(), host)
+        assertEquals(next.session.playerId, again.session.playerId)
+
+        // The others see it on their results and come in with one tap, under their names and accounts.
+        assertEquals(next.snapshot.joinCode, sync(boris).playAgain?.joinCode)
+        val borisNext = post<SessionResponse>(ApiRoutes.playAgain(host.gameId), PlayAgainRequest().toJson(), boris)
+        val annaNext = post<SessionResponse>(ApiRoutes.playAgain(host.gameId), PlayAgainRequest().toJson(), anna)
+        assertEquals(next.session.gameId, borisNext.session.gameId)
+        assertEquals(
+            listOf("Host" to null, "Boris" to null, alice.user.nickname to alice.user.id),
+            annaNext.snapshot.players.map { it.name to it.userId },
+        )
+        // An account comes back as its player.
+        val annaBack = post<SessionResponse>(ApiRoutes.playAgain(host.gameId), PlayAgainRequest().toJson(), anna)
+        assertEquals(annaNext.session.playerId, annaBack.session.playerId)
+        assertEquals(GamePhase.FINISHED, sync(host).phase)
+    }
+
+    @Test
     fun aJoinSentAgainGivesBackThePlayer() {
         val created = createGame()
         val request = JoinGameRequest(created.snapshot.joinCode, "Anna", requestId = "0f8fad5bd9cb469fa16570867728950e")
@@ -401,8 +443,13 @@ class GameApiTest(@Autowired private val mvc: MockMvc, @Autowired private val re
         reports.latest(Int.MAX_VALUE).filter { it.gameId == session.gameId.value }
 
     /** Starts the lobby with [seeker] as the only seeker, who then catches the host, the only hider. */
-    private fun playUntilTheHostIsCaught(host: PlayerSession, seeker: PlayerSession): GameSnapshot {
-        post<GameSnapshot>(ApiRoutes.start(host.gameId), StartGameRequest(listOf(seeker.playerId)).toJson(), host)
+    private fun playUntilTheHostIsCaught(
+        host: PlayerSession,
+        seeker: PlayerSession,
+        otherSeekers: List<PlayerSession> = emptyList(),
+    ): GameSnapshot {
+        val seekers = (listOf(seeker) + otherSeekers).map { it.playerId }
+        post<GameSnapshot>(ApiRoutes.start(host.gameId), StartGameRequest(seekers).toJson(), host)
         val secret = assertNotNull(sync(host).me.catchCodeSecret)
         sync(seeker)
         post<GameSnapshot>(ApiRoutes.catches(host.gameId), ClaimCatchRequest(host.playerId).toJson(), seeker)

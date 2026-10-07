@@ -15,6 +15,7 @@ import app.hovanki.shared.protocol.JoinBigGameRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PlaceItemRequest
+import app.hovanki.shared.protocol.PlayAgainRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.QuestId
@@ -78,6 +79,9 @@ class HttpGameApi(client: HttpClient, serverUrl: ServerUrl) : GameApi {
         http.post(ApiRoutes.crowdingAccept(session.gameId), session.token)
 
     override suspend fun leave(session: PlayerSession): Unit = http.post(ApiRoutes.leave(session.gameId), session.token)
+
+    override suspend fun playAgain(session: PlayerSession, request: PlayAgainRequest): SessionResponse =
+        http.post(ApiRoutes.playAgain(session.gameId), session.token, request)
 
     override suspend fun sync(session: PlayerSession, request: SyncRequest): GameSnapshot =
         http.post(ApiRoutes.sync(session.gameId), session.token, request)

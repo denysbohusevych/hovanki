@@ -16,10 +16,15 @@ import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.BuildingsState
 import app.hovanki.shared.protocol.CapacityState
 import app.hovanki.shared.protocol.ErrorReason
+import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GeoPoint
+import app.hovanki.shared.protocol.MyState
 import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.PlayerStatus
+import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SosRequest
@@ -37,6 +42,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /** The lobby from the app's side: roles and setup go to the server, leaving tells it, the map follows the zone. */
@@ -226,6 +232,38 @@ class LobbySessionTest {
         runCurrent()
 
         assertEquals(emptyList(), api.leaves)
+    }
+
+    @Test
+    fun playAgainMovesIntoTheNextLobby() = runTest {
+        val finished = testSnapshot(phase = GamePhase.FINISHED)
+        val nextSession = PlayerSession(GameId("game2"), PlayerId("player7"), token = "next-token")
+        val next = testSnapshot().copy(
+            gameId = nextSession.gameId,
+            me = MyState(nextSession.playerId, Role.HIDER, PlayerStatus.ACTIVE),
+        )
+        var answers = 0
+        val api = FakeGameApi(
+            onJoin = { SessionResponse(testSession, finished) },
+            onTracks = { error("offline") },
+            onPlayAgain = { _, _ ->
+                if (answers++ == 0) error("the answer got lost")
+                SessionResponse(nextSession, next)
+            },
+        ) { finished }
+        val manager = manager(api)
+        manager.join("ABC234", "Anna")
+
+        assertEquals(false, manager.playAgain())
+        assertEquals(true, manager.playAgain())
+
+        assertEquals(nextSession, manager.state.value.session)
+        assertEquals(GamePhase.LOBBY, manager.state.value.snapshot?.phase)
+        val (first, again) = api.playAgains
+        assertEquals(testSession, first.first)
+        assertNotNull(first.second.requestId)
+        assertEquals(first.second.requestId, again.second.requestId, "the same press, sent again")
+        assertEquals(emptyList(), api.leaves, "the finished game is not left")
     }
 
     @Test

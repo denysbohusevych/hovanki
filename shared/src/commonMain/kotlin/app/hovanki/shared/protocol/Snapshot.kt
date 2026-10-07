@@ -77,7 +77,16 @@ data class GameSnapshot(
     val pause: GamePause? = null,
     /** Who called for help (docs/adr/0019-pause-and-sos.md), with where they are now, for every player of the game. */
     val sos: List<SosCall> = emptyList(),
+    /**
+     * The host of this finished game opened the next one with the same setup (`ApiRoutes.PLAY_AGAIN`): the results
+     * offer «Play again» to everybody. Null: not yet, never in a big game, and from older servers.
+     */
+    val playAgain: PlayAgain? = null,
 )
+
+/** The lobby the host opened to play again; the players of the finished game go there by `ApiRoutes.PLAY_AGAIN`. */
+@Serializable
+data class PlayAgain(val joinCode: String)
 
 /** Since when the round is on pause; [sos]: an SOS stopped it (else the host). */
 @Serializable

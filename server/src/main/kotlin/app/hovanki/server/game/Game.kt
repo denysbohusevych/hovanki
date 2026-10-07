@@ -49,6 +49,7 @@ import app.hovanki.shared.protocol.PerkKind
 import app.hovanki.shared.protocol.PerkView
 import app.hovanki.shared.protocol.PlaceItemRequest
 import app.hovanki.shared.protocol.Platform
+import app.hovanki.shared.protocol.PlayAgain
 import app.hovanki.shared.protocol.PlayerCounts
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
@@ -482,6 +483,31 @@ class Game(
 
     /** The account of [playerId]; null for a guest. */
     fun userIdOf(playerId: PlayerId): UserId? = player(playerId).userId
+
+    /** The lobby the host opened to play again with this game's setup ([openPlayAgain]); null: none yet. */
+    var playAgain: NextGame? = null
+        private set
+
+    /**
+     * What «Play again» of [playerId] takes from this finished game: their name and account, whether they host it, the
+     * setup for the next game and the next game already opened. Never a big game: the server hosts those.
+     */
+    fun playAgainAsk(playerId: PlayerId): PlayAgainAsk {
+        requirePhase(GamePhase.FINISHED)
+        if (isServerHosted) throw GameException(ErrorCode.WRONG_STATE, "A big game is not played again")
+        val player = player(playerId)
+        // Opening a game to spectators is the host's choice every time, as on the start screen.
+        val next = settings.copy(openGame = false)
+        return PlayAgainAsk(player.name, player.userId, isHost = playerId == hostId, settings = next, next = playAgain)
+    }
+
+    /** The host opened [next] to play again: everybody's results offer to come in. */
+    fun openPlayAgain(by: PlayerId, next: NextGame) {
+        requirePhase(GamePhase.FINISHED)
+        requireHost(by, "play again")
+        playAgain = next
+        pokes.addEveryone()
+    }
 
     /**
      * The host picks the seekers in the lobby; everybody sees the roles ([PlayerView.role]), and the start takes them
@@ -1468,6 +1494,7 @@ class Game(
             spectators = spectatorCount(nowMillis),
             pause = pausedAtMillis?.let { GamePause(it, sos = pausedBySos) },
             sos = sosViews(),
+            playAgain = playAgain?.let { PlayAgain(it.joinCode) },
         )
     }
 
