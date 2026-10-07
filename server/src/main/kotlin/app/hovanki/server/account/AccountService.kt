@@ -12,6 +12,7 @@ import app.hovanki.server.ratelimit.RateLimiter
 import app.hovanki.shared.protocol.AccountSession
 import app.hovanki.shared.protocol.ChangeEmailRequest
 import app.hovanki.shared.protocol.ChangePasswordRequest
+import app.hovanki.shared.protocol.CityRequest
 import app.hovanki.shared.protocol.DeleteAccountRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
@@ -23,6 +24,7 @@ import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.VerifyEmailRequest
 import app.hovanki.shared.rules.AccountRules
+import app.hovanki.shared.rules.Cities
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
@@ -120,6 +122,17 @@ class AccountService(
     }
 
     fun me(user: AuthenticatedUser): UserProfile = profileOf(userOf(user))
+
+    /**
+     * Sets the caller's city of the city leaderboard (docs/adr/0022-city-leaderboard.md), or clears it with null;
+     * only an id of [Cities.IDS].
+     */
+    fun setCity(user: AuthenticatedUser, request: CityRequest): UserProfile {
+        val city = request.city
+        if (city != null && !Cities.isKnown(city)) throw GameException(ErrorCode.BAD_REQUEST, "Unknown city")
+        if (!users.setCity(user.userId, city)) throw sessionExpired()
+        return me(user)
+    }
 
     /**
      * Sends a reset code if [PasswordResetRequest.email] has an account. Answers the same either way (only a malformed

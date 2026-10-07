@@ -2,6 +2,7 @@ package app.hovanki.client.di
 
 import app.hovanki.client.BuildInfo
 import app.hovanki.client.account.AccountManager
+import app.hovanki.client.account.CityLocator
 import app.hovanki.client.automation.LaunchOptions
 import app.hovanki.client.automation.LaunchOptionsHolder
 import app.hovanki.client.bigGames.BigGameManager
@@ -288,6 +289,7 @@ val commonModule: Module = module {
     single { AccountManager(get(), get(), get()) }
     single { SocialManager(get(), get()) }
     single { HistoryManager(get(), get()) }
+    single { CityLocator(get(), get()) }
     single {
         GameSessionManager(
             get(),

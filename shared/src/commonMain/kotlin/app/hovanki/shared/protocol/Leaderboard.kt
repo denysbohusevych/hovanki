@@ -16,6 +16,12 @@ enum class LeaderboardScope {
 
     /** Everyone with an account, by this week's points: the top `LeaderboardRules.WORLD_TOP`. */
     WORLD,
+
+    /**
+     * Everyone who picked the caller's city ([UserProfile.city]), by this week's points: the top
+     * `LeaderboardRules.WORLD_TOP`. Empty, with [LeaderboardResponse.city] null, while the caller has no city.
+     */
+    CITY,
 }
 
 /** One line of the leaderboard. */
@@ -47,8 +53,10 @@ data class LeaderboardResponse(
     /** The line right above [me] (the points to catch up with); null when [me] is first or missing. */
     val nextAbove: LeaderboardEntry? = null,
     /**
-     * [LeaderboardScope.WORLD] and [LeaderboardScope.FRIENDS]: the caller's place last week minus this week's, positive
+     * [LeaderboardScope.WORLD], [LeaderboardScope.CITY] and [LeaderboardScope.FRIENDS]: the caller's place last week minus this week's, positive
      * when they moved up; null when they were not ranked in one of the two weeks, and for the last game.
      */
     val rankChange: Int? = null,
+    /** [LeaderboardScope.CITY]: the city counted (`Cities.IDS`); null when the caller has not picked one. */
+    val city: String? = null,
 )

@@ -47,11 +47,20 @@ data class UserProfile(
      */
     val labAccess: Boolean = false,
     /**
+     * The player's city for the city leaderboard (`Cities.IDS`), where the phone found itself (`Cities.at`); null: none
+     * (the default, and from servers that don't know it). Changed with [CityRequest] (docs/adr/0022-city-leaderboard.md).
+     */
+    val city: String? = null,
+    /**
      * The account's paid extras active now, by [Entitlement.id] (docs/adr/0023-entitlements.md): granted by the
      * server only, never by the account itself; empty from servers that don't know them.
      */
     val entitlements: List<String> = emptyList(),
 )
+
+/** [ApiRoutes.ME_CITY]: the player's city, one of `Cities.IDS`, or null to forget it. */
+@Serializable
+data class CityRequest(val city: String? = null)
 
 /** Another user as everyone may see them: no email. */
 @Serializable

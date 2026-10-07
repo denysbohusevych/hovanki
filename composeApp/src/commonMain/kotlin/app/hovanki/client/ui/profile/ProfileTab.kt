@@ -24,6 +24,9 @@ import app.hovanki.client.resources.action_log_out
 import app.hovanki.client.resources.new_password_label
 import app.hovanki.client.resources.password_label
 import app.hovanki.client.resources.profile_change_password
+import app.hovanki.client.resources.profile_city
+import app.hovanki.client.resources.profile_city_hint
+import app.hovanki.client.resources.profile_city_none
 import app.hovanki.client.resources.profile_confirm_email
 import app.hovanki.client.resources.profile_current_password
 import app.hovanki.client.resources.profile_delete
@@ -44,6 +47,7 @@ import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.common.cityName
 import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.client.ui.field.FieldConsentWithdraw
 import app.hovanki.client.ui.history.HistoryButton
@@ -57,8 +61,8 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * «Profile»: nickname and email (not confirmed yet: confirm it here), the player's statistics and game history, «save
- * my routes», change the password, log out, delete the account.
+ * «Profile»: nickname and email (not confirmed yet: confirm it here), the city of the city leaderboard, the player's
+ * statistics and game history, «save my routes», change the password, log out, delete the account.
  */
 @Composable
 fun ProfileTab(
@@ -117,6 +121,8 @@ fun ProfileTab(
         }
 
         ExtrasCard(user)
+        CityRow(user.city)
+
         StatsCard(historyState.history.stats)
         HistoryButton(onClick = { history.onEvent(HistoryEvent.Open) }, enabled = !historyState.isBusy)
         RoutesCard(historyState, history::onEvent, saveRoutes = user.saveRoutes)
@@ -164,6 +170,20 @@ fun ProfileTab(
 
         Spacer(Modifier.height(24.dp))
         BuildLabel(state.buildLabel)
+    }
+}
+
+/** The city of the city leaderboard (docs/adr/0022-city-leaderboard.md): where the phone was last, by the rating. */
+@Composable
+private fun CityRow(city: String?) {
+    PopCard(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SecondaryText(stringResource(Res.string.profile_city))
+        Text(
+            text = stringResource(city?.let(::cityName) ?: Res.string.profile_city_none),
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.testTag(TestTags.PROFILE_CITY),
+        )
+        SecondaryText(stringResource(Res.string.profile_city_hint))
     }
 }
 

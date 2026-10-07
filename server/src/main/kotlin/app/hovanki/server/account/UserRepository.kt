@@ -33,6 +33,8 @@ data class UserRecord(
     val saveRoutesSince: Instant? = null,
     /** Staff roles work in the admin (docs/adr/0008-admin.md). */
     val role: UserRole = UserRole.PLAYER,
+    /** The city of the city leaderboard, where the phone found itself (`Cities.IDS`); null: none (docs/adr/0022). */
+    val city: String? = null,
 ) {
     val emailVerified: Boolean get() = emailVerifiedAt != null
 
@@ -49,6 +51,7 @@ data class UserRecord(
         createdAt.toEpochMilli(),
         saveRoutes = saveRoutesSince != null,
         labAccess = labOn && role.isStaff,
+        city = city,
         entitlements = entitlements.map { it.id },
     )
 
@@ -161,6 +164,12 @@ class UserRepository(private val jdbc: JdbcClient) {
         return statement.param("id", id.value).update() > 0
     }
 
+    /** Sets [id]'s city of the city leaderboard, or clears it (null). False: no such user. */
+    fun setCity(id: UserId, city: String?): Boolean = jdbc.sql("UPDATE users SET city = :city WHERE id = :id")
+        .param("id", id.value)
+        .param("city", city)
+        .update() > 0
+
     /** Those of [ids] who agreed to keep the routes of their games. */
     fun savingRoutes(ids: Collection<UserId>): Set<UserId> {
         if (ids.isEmpty()) return emptySet()
@@ -246,6 +255,7 @@ class UserRepository(private val jdbc: JdbcClient) {
                 createdAt = rs.getInstant("created_at"),
                 saveRoutesSince = rs.getInstantOrNull("save_routes_since"),
                 role = UserRole.valueOf(rs.getString("role")),
+                city = rs.getString("city"),
             )
         }
     }
