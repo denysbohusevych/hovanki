@@ -1,6 +1,7 @@
 package app.hovanki.client.ui.results
 
 import app.hovanki.client.account.AccountState
+import app.hovanki.client.session.SessionError
 import app.hovanki.client.session.SessionState
 import app.hovanki.client.ui.common.FormMessage
 import app.hovanki.client.ui.common.PlayerAccount
@@ -30,7 +31,25 @@ data class ResultsUiState(
     /** A friend request (or «Save my routes») failed. */
     val message: FormMessage? = null,
     val isBusy: Boolean = false,
+    /** «Play again»: whether the button is there and whether it can be pressed yet. */
+    val playAgain: PlayAgainOffer = PlayAgainOffer.NONE,
+    /** «Play again» is under way. */
+    val isMovingOn: Boolean = false,
+    /** Why the last «Play again» did not go through; null otherwise. */
+    val playAgainError: SessionError? = null,
 )
+
+/** The results' «Play again» (`GameSessionManager.playAgain`). */
+enum class PlayAgainOffer {
+    /** No button: a big game, hosted by the server. */
+    NONE,
+
+    /** The host opens the next lobby; the others come into the one the host opened. */
+    READY,
+
+    /** The host has not opened the next lobby yet: the button waits for them. */
+    WAITING,
+}
 
 sealed interface ResultsEvent {
     data class AddFriend(val userId: UserId) : ResultsEvent
@@ -39,6 +58,14 @@ sealed interface ResultsEvent {
     data object TurnOnSaveRoutes : ResultsEvent
 
     data object DismissMessage : ResultsEvent
+
+    /**
+     * «Play again»: into the next lobby of the same setup, the host opening it. [leaveOtherGame]: the account still
+     * plays a round elsewhere and the player chose to leave it.
+     */
+    data class PlayAgain(val leaveOtherGame: Boolean = false) : ResultsEvent
+
+    data object DismissPlayAgainError : ResultsEvent
 
     /** Back to the start: the game is over for this phone (polling for the chat stops too). */
     data object Leave : ResultsEvent
@@ -54,6 +81,7 @@ internal class ResultsStateBuilder {
         account: AccountState,
         message: FormMessage?,
         isBusy: Boolean,
+        playAgain: PlayAgainProgress = PlayAgainProgress(),
     ): ResultsUiState {
         val zone = streetZoneOf(session)
         if (zone?.stages != streetZone?.stages) streetZone = zone
@@ -64,7 +92,23 @@ internal class ResultsStateBuilder {
             saveRoutes = saveRoutes(session, account),
             message = message,
             isBusy = isBusy,
+            playAgain = playAgainOffer(session),
+            isMovingOn = playAgain.isRunning,
+            playAgainError = session.lastError.takeIf { playAgain.failed },
         )
+    }
+}
+
+/** Where the results' «Play again» is: running, or failed (the session's error says why). */
+data class PlayAgainProgress(val isRunning: Boolean = false, val failed: Boolean = false)
+
+/** The host may open the next lobby at once; the others once the host has. Never for a big game. */
+internal fun playAgainOffer(state: SessionState): PlayAgainOffer {
+    val snapshot = state.snapshot ?: return PlayAgainOffer.NONE
+    return when {
+        snapshot.bigGame != null -> PlayAgainOffer.NONE
+        snapshot.hostId == snapshot.me.playerId || snapshot.playAgain != null -> PlayAgainOffer.READY
+        else -> PlayAgainOffer.WAITING
     }
 }
 

@@ -390,6 +390,9 @@ object TestTags {
     const val RESULTS_SHARE = "results_share"
     const val STORY_PREVIEW = "story_preview"
     const val STORY_SHARE = "story_share"
+
+    /** «Play again» on the results: into the next lobby of the same setup. */
+    const val RESULTS_PLAY_AGAIN = "results_play_again"
     const val RESULTS_AWARDS = "results_awards"
 
     /** The replay on the results screen: the map with everybody's way, and its time slider. */

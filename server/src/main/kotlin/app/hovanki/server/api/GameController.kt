@@ -18,6 +18,7 @@ import app.hovanki.shared.protocol.ItemId
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PlaceItemRequest
+import app.hovanki.shared.protocol.PlayAgainRequest
 import app.hovanki.shared.protocol.QuestId
 import app.hovanki.shared.protocol.QuestReviewRequest
 import app.hovanki.shared.protocol.RolesRequest
@@ -92,6 +93,14 @@ class GameController(private val games: GameService, private val invites: Invite
     @PostMapping(ApiRoutes.LEAVE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun leave(player: PlayerRef, @PathVariable gameId: String) = games.leave(player, GameId(gameId))
+
+    /** «Play again» on the results: the host opens the next lobby of the same setup, the others come into it. */
+    @PostMapping(ApiRoutes.PLAY_AGAIN)
+    fun playAgain(
+        player: PlayerRef,
+        @PathVariable gameId: String,
+        @RequestBody request: PlayAgainRequest,
+    ): SessionResponse = games.playAgain(player, GameId(gameId), request)
 
     /** Called by every client every few seconds: sends new fixes, returns the fresh state. */
     @PostMapping(ApiRoutes.SYNC)

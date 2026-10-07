@@ -27,6 +27,19 @@ data class JoinGameRequest(
     val leaveOtherGame: Boolean = false,
 )
 
+/**
+ * «Play again» on the results (`ApiRoutes.PLAY_AGAIN`, with the finished game's token): the host opens a new lobby
+ * with the same setup, the other players of the game come into it with one tap, under the name and the account they
+ * played with. Answered with the session in the new game.
+ */
+@Serializable
+data class PlayAgainRequest(
+    /** As [JoinGameRequest.requestId]: sent again when the answer got lost, it gets back the same player. */
+    val requestId: String? = null,
+    /** As [CreateGameRequest.leaveOtherGame]. */
+    val leaveOtherGame: Boolean = false,
+)
+
 /** Credentials of one player in one game; the token goes to `Authorization: Bearer <token>`. */
 @Serializable
 data class PlayerSession(val gameId: GameId, val playerId: PlayerId, val token: String)

@@ -261,6 +261,8 @@
   <string name="results_your_result">Твій результат</string>
   <string name="results_hider_place">Місце %1$d з %2$d серед тих, хто ховався</string>
   <string name="results_share">Поділитися</string>
+  <string name="results_play_again">Ще раз!</string>
+  <string name="results_play_again_waiting">Ще раз: чекаємо на хоста</string>
   <string name="results_share_text">Хованки: %1$s (%2$s)</string>
   <string name="results_story">У сторіс</string>
   <string name="story_brand">hovanki</string>

@@ -3,11 +3,14 @@ package app.hovanki.client.ui.results
 import app.hovanki.client.account.AccountState
 import app.hovanki.client.session.SessionState
 import app.hovanki.shared.geo.moveBy
+import app.hovanki.shared.protocol.BigGameId
+import app.hovanki.shared.protocol.BigGameInfo
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.MyState
+import app.hovanki.shared.protocol.PlayAgain
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
@@ -48,6 +51,17 @@ class ResultsStateTest {
         user = UserProfile(id, "Anna", "anna@example.com", true, 0L, saveRoutes = saveRoutes),
         isRestored = true,
     )
+
+    @Test
+    fun theHostPlaysAgainAtOnceTheOthersOnceTheHostHas() {
+        assertEquals(PlayAgainOffer.READY, playAgainOffer(SessionState(snapshot = snapshot)))
+        val guest = snapshot.copy(hostId = PlayerId("p-host"))
+        assertEquals(PlayAgainOffer.WAITING, playAgainOffer(SessionState(snapshot = guest)))
+        val opened = guest.copy(playAgain = PlayAgain("XYZ234"))
+        assertEquals(PlayAgainOffer.READY, playAgainOffer(SessionState(snapshot = opened)))
+        val big = snapshot.copy(bigGame = BigGameInfo(BigGameId("saturday"), "Saturday", 0L, "Europe/Kyiv"))
+        assertEquals(PlayAgainOffer.NONE, playAgainOffer(SessionState(snapshot = big)))
+    }
 
     @Test
     fun streetZoneNeedsEveryStageOfTheGame() {
