@@ -218,6 +218,32 @@ class GameLobbyTest {
     }
 
     @Test
+    fun theHostOpensTheNextGameOnceTheRoundIsOver() {
+        val open = Game(GameId("o"), "ABC237", host, settings.copy(openGame = true), now).apply {
+            addPlayer(host, "Host", now)
+            addPlayer(anna, "Anna", now)
+        }
+        assertFailsWith<GameException> { open.playAgainAsk(host) }
+        open.start(host, setOf(anna), { SECRET }, now)
+        open.leave(anna, now)
+        assertEquals(GamePhase.FINISHED, open.phase)
+
+        val ask = open.playAgainAsk(host)
+        assertTrue(ask.isHost)
+        assertEquals("Host", ask.name)
+        assertEquals(settings.copy(openBuildings = emptyList()), ask.settings, "the same setup, not open to spectators")
+        assertNull(ask.next)
+        val next = NextGame(GameId("n"), "XYZ234")
+        assertFailsWith<GameException> { open.openPlayAgain(anna, next) }
+        open.takePokes()
+        open.openPlayAgain(host, next)
+
+        assertEquals(next, open.playAgainAsk(host).next)
+        assertEquals("XYZ234", open.snapshotFor(host, now).playAgain?.joinCode)
+        assertTrue(open.takePokes() != null, "everybody's results hear of it soon")
+    }
+
+    @Test
     fun aZoneByStreetsMustBeThereBeforeTheStart() {
         val streets = Game(GameId("s"), "ABC236", host, settings.copy(zoneShape = ZoneShape.STREETS), now).apply {
             addPlayer(host, "Host", now)

@@ -294,6 +294,10 @@ class BotPlayer(
     suspend fun join(joinCode: String, leaveOtherGame: Boolean = false): CommandResult =
         command("joins with code $joinCode") { it.join(joinCode, name, leaveOtherGame) }.also(::onEntered)
 
+    /** «Play again» on the results: the host opens the next lobby of the same setup, the others come into it. */
+    suspend fun playsAgain(leaveOtherGame: Boolean = false): CommandResult =
+        command("plays again") { it.playAgain(leaveOtherGame) }.also(::onEntered)
+
     suspend fun startGame(seekers: Collection<BotPlayer>): CommandResult =
         command("starts the game, seekers: ${seekers.joinToString { it.name }}") { session ->
             session.start(seekers.map { it.id })
@@ -919,7 +923,10 @@ class BotPlayer(
             return
         }
         val snapshot = try {
-            if (exchange.path == ApiRoutes.GAMES || exchange.path == ApiRoutes.JOIN) {
+            // «Play again» answers with the session in the next game, like creating or joining one.
+            val isSession = exchange.path == ApiRoutes.GAMES || exchange.path == ApiRoutes.JOIN ||
+                exchange.path.endsWith(PLAY_AGAIN_SUFFIX)
+            if (isSession) {
                 protocolJson.decodeFromString<SessionResponse>(body).snapshot
             } else {
                 protocolJson.decodeFromString<GameSnapshot>(body)
@@ -1134,6 +1141,9 @@ class BotPlayer(
 
 /** The spectator's view of a game: `ApiRoutes.SPECTATE` ends with it. */
 private const val SPECTATE_SUFFIX = "/spectate"
+
+/** «Play again» on the results: `ApiRoutes.PLAY_AGAIN` ends with it. */
+private const val PLAY_AGAIN_SUFFIX = "/again"
 
 sealed interface CommandResult {
     data object Ok : CommandResult

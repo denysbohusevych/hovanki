@@ -51,6 +51,12 @@ object ApiRoutes {
     const val LEAVE = "$GAMES/{gameId}/leave"
 
     /**
+     * POST [PlayAgainRequest] with a finished game's token: [SessionResponse] in the next game of the same setup. The
+     * host opens it (once; again only when it is gone), the others come into it ([GameSnapshot.playAgain]).
+     */
+    const val PLAY_AGAIN = "$GAMES/{gameId}/again"
+
+    /**
      * POST, no body: the host plays anyway in a zone that is too small for the players or has few places to hide; the
      * lobby warns no more in this game ([ZoneCapacity.accepted]).
      */
@@ -379,6 +385,8 @@ object ApiRoutes {
     fun settingsPreview(gameId: GameId): String = SETTINGS_PREVIEW.fill("gameId" to gameId.value)
 
     fun leave(gameId: GameId): String = LEAVE.fill("gameId" to gameId.value)
+
+    fun playAgain(gameId: GameId): String = PLAY_AGAIN.fill("gameId" to gameId.value)
 
     fun crowdingAccept(gameId: GameId): String = CROWDING_ACCEPT.fill("gameId" to gameId.value)
 

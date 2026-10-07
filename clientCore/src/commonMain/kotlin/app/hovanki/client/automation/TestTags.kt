@@ -388,6 +388,9 @@ object TestTags {
 
     const val RESULTS_SCREEN = "results_screen"
     const val RESULTS_BACK = "results_back"
+
+    /** «Play again» on the results: into the next lobby of the same setup. */
+    const val RESULTS_PLAY_AGAIN = "results_play_again"
     const val RESULTS_AWARDS = "results_awards"
 
     /** The replay on the results screen: the map with everybody's way, and its time slider. */

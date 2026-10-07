@@ -44,6 +44,7 @@ import app.hovanki.shared.protocol.CustomQuestRequest
 import app.hovanki.shared.protocol.DeviceReport
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
+import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSettings
 import app.hovanki.shared.protocol.GameSnapshot
@@ -58,6 +59,7 @@ import app.hovanki.shared.protocol.NearbySighting
 import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PerkKind
 import app.hovanki.shared.protocol.PlaceItemRequest
+import app.hovanki.shared.protocol.PlayAgainRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.PlayerStatus
@@ -220,6 +222,9 @@ class GameSessionManager(
     /** The same for a big game's lobby ([joinBigGame]). */
     private var unansweredBigGameJoin: Pair<BigGameId, JoinBigGameRequest>? = null
 
+    /** The «Play again» that got no answer, with the game it was pressed in: pressed again, it keeps its request id. */
+    private var unansweredPlayAgain: Pair<GameId, PlayAgainRequest>? = null
+
     /** The chat message that got no answer; sent again, it keeps its [SendChatRequest.clientMessageId]. */
     private var unansweredChat: SendChatRequest? = null
 
@@ -246,6 +251,23 @@ class GameSessionManager(
         val joined = command(token) { begin(api.joinGame(request, token)) }
         unansweredJoin = request.takeIf { !joined && mutableState.value.lastError is SessionError.Network }
         return joined
+    }
+
+    /**
+     * «Play again» on the results: the host opens the next lobby with this game's setup, the others come into the one
+     * the host opened ([GameSnapshot.playAgain]); the phone moves into that lobby. [leaveOtherGame] as in [create].
+     * Pressed again after a lost answer, the same request id goes out, as with [join].
+     */
+    suspend fun playAgain(leaveOtherGame: Boolean = false): Boolean {
+        val session = mutableState.value.session ?: return false
+        val typed = PlayAgainRequest(leaveOtherGame = leaveOtherGame)
+        val request = unansweredPlayAgain
+            ?.takeIf { it.first == session.gameId && it.second.copy(requestId = null) == typed }
+            ?.second ?: typed.copy(requestId = newRequestId())
+        val moved = command { begin(api.playAgain(session, request)) }
+        unansweredPlayAgain =
+            (session.gameId to request).takeIf { !moved && mutableState.value.lastError is SessionError.Network }
+        return moved
     }
 
     /**
