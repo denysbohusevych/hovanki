@@ -25,6 +25,7 @@ enum class UserRole {
 object AdminLimits {
     const val MODERATOR_MAX_BAN_DAYS = 30
     const val MAX_SANCTION_DAYS = 3650
+    const val MAX_ENTITLEMENT_DAYS = 3650
     const val REASON_MAX_LENGTH = 500
 }
 
@@ -185,7 +186,33 @@ data class AdminUserCard(
     val sanctions: List<AdminSanction>,
     /** Staff only: whether an authenticator is set up. */
     val totpEnrolled: Boolean = false,
+    /** The paid extras active now (docs/adr/0023-entitlements.md), in the catalog's order. */
+    val entitlements: List<AdminEntitlement> = emptyList(),
 )
+
+/** Who granted a paid extra: an admin now; the stores once there are payments. */
+@Serializable
+enum class EntitlementSource {
+    ADMIN,
+}
+
+/** An active paid extra of an account. [untilMillis] null: forever; [byName] the admin who granted it. */
+@Serializable
+data class AdminEntitlement(
+    val entitlement: Entitlement,
+    val source: EntitlementSource,
+    val grantedAtMillis: Long,
+    val untilMillis: Long?,
+    val byName: String?,
+)
+
+/** Grants [entitlement] for [days] (null: forever), or sets the end of one already there. Admins; audit log. */
+@Serializable
+data class AdminGrantEntitlementRequest(val entitlement: Entitlement, val days: Int?, val reason: String)
+
+/** Takes [entitlement] away. Admins; audit log. */
+@Serializable
+data class AdminRevokeEntitlementRequest(val entitlement: Entitlement, val reason: String)
 
 @Serializable
 data class AdminRevealedEmail(val email: String)
@@ -351,6 +378,12 @@ enum class AdminAction {
 
     /** An organizer's mark written into a field game's log (docs/adr/0018-field-test-build.md §6). */
     FIELD_MARK,
+
+    /** A paid extra granted to an account, or its end changed (docs/adr/0023-entitlements.md). */
+    GRANT_ENTITLEMENT,
+
+    /** A paid extra taken away. */
+    REVOKE_ENTITLEMENT,
 }
 
 /**
