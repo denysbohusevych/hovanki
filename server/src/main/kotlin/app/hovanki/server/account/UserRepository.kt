@@ -32,7 +32,7 @@ data class UserRecord(
     val saveRoutesSince: Instant? = null,
     /** Staff roles work in the admin (docs/adr/0008-admin.md). */
     val role: UserRole = UserRole.PLAYER,
-    /** The city of the city leaderboard, the player's own choice (`Cities.IDS`); null: none (docs/adr/0022). */
+    /** The city of the city leaderboard, where the phone found itself (`Cities.IDS`); null: none (docs/adr/0022). */
     val city: String? = null,
 ) {
     val emailVerified: Boolean get() = emailVerifiedAt != null

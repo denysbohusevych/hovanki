@@ -168,7 +168,7 @@ class AccountManager(
         withToken { token -> updateUser(token, api.setSaveRoutes(token, enabled)) }
 
     /**
-     * The player's city of the city leaderboard (`Cities.IDS`), their own choice; null forgets it
+     * The player's city of the city leaderboard (`Cities.IDS`), as [CityLocator] found it; null forgets it
      * (docs/adr/0022-city-leaderboard.md).
      */
     suspend fun setCity(city: String?): ApiResult<Unit> =

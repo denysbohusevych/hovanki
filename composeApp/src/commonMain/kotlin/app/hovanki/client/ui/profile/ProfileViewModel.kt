@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * «Profile»: who is logged in, the city of the city leaderboard, change the password, log out, delete the account.
+ * «Profile»: who is logged in, change the password, log out, delete the account.
  *
  * One state for the whole screen, [uiState], and one way in, [onEvent] (docs/architecture.md, «Состояние экрана»).
  * The forms' fields change the state at once, on the caller's thread: a text field's edit is there before the next
@@ -71,13 +71,6 @@ class ProfileViewModel(private val account: AccountManager, buildInfo: BuildInfo
             ProfileEvent.DeleteAccount -> deleteAccount()
 
             ProfileEvent.DismissMessage -> commands.dismiss()
-
-            is ProfileEvent.PickingCity -> mutableUiState.update { it.copy(pickingCity = event.open) }
-
-            is ProfileEvent.PickCity -> {
-                mutableUiState.update { it.copy(pickingCity = false) }
-                commands.execute(command = { account.setCity(event.city) })
-            }
         }
     }
 
@@ -144,8 +137,6 @@ data class ProfileUiState(
     val showFieldErrors: Boolean = false,
     val message: FormMessage? = null,
     val isBusy: Boolean = false,
-    /** The city picker of the city leaderboard is open (docs/adr/0022-city-leaderboard.md). */
-    val pickingCity: Boolean = false,
     /** Version, build number and commit, shown small at the bottom so testers can name the build. */
     val buildLabel: String = "",
 ) {
@@ -171,12 +162,6 @@ sealed interface ProfileEvent {
     data object DeleteAccount : ProfileEvent
 
     data object DismissMessage : ProfileEvent
-
-    /** The city picker opens ([open]) or closes. */
-    data class PickingCity(val open: Boolean) : ProfileEvent
-
-    /** The player picked [city] (null: none) for the city leaderboard. */
-    data class PickCity(val city: String?) : ProfileEvent
 }
 
 enum class ProfileForm { CHANGE_PASSWORD, DELETE_ACCOUNT }

@@ -25,7 +25,6 @@ import app.hovanki.client.resources.new_password_label
 import app.hovanki.client.resources.password_label
 import app.hovanki.client.resources.profile_change_password
 import app.hovanki.client.resources.profile_city
-import app.hovanki.client.resources.profile_city_change
 import app.hovanki.client.resources.profile_city_hint
 import app.hovanki.client.resources.profile_city_none
 import app.hovanki.client.resources.profile_confirm_email
@@ -40,7 +39,6 @@ import app.hovanki.client.resources.profile_save_password
 import app.hovanki.client.resources.register_password_hint
 import app.hovanki.client.ui.common.Avatar
 import app.hovanki.client.ui.common.BuildLabel
-import app.hovanki.client.ui.common.CityPickerDialog
 import app.hovanki.client.ui.common.CommandStatus
 import app.hovanki.client.ui.common.PasswordField
 import app.hovanki.client.ui.common.PopButton
@@ -122,14 +120,7 @@ fun ProfileTab(
             }
         }
 
-        CityRow(user.city, enabled = !isBusy, onChange = { onEvent(ProfileEvent.PickingCity(open = true)) })
-        if (state.pickingCity) {
-            CityPickerDialog(
-                selected = user.city,
-                onPick = { onEvent(ProfileEvent.PickCity(it)) },
-                onDismiss = { onEvent(ProfileEvent.PickingCity(open = false)) },
-            )
-        }
+        CityRow(user.city)
 
         StatsCard(historyState.history.stats)
         HistoryButton(onClick = { history.onEvent(HistoryEvent.Open) }, enabled = !historyState.isBusy)
@@ -181,28 +172,16 @@ fun ProfileTab(
     }
 }
 
-/** The city of the city leaderboard (docs/adr/0022-city-leaderboard.md): the player's own choice, or none. */
+/** The city of the city leaderboard (docs/adr/0022-city-leaderboard.md): where the phone was last, by the rating. */
 @Composable
-private fun CityRow(city: String?, enabled: Boolean, onChange: () -> Unit) {
+private fun CityRow(city: String?) {
     PopCard(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(modifier = Modifier.weight(1f)) {
-                SecondaryText(stringResource(Res.string.profile_city))
-                Text(
-                    text = stringResource(city?.let(::cityName) ?: Res.string.profile_city_none),
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.testTag(TestTags.PROFILE_CITY),
-                )
-            }
-            PopButton(
-                text = stringResource(Res.string.profile_city_change),
-                onClick = onChange,
-                enabled = enabled,
-                style = PopStyle.Outline,
-                height = 40.dp,
-                modifier = Modifier.testTag(TestTags.PROFILE_CITY_CHANGE),
-            )
-        }
+        SecondaryText(stringResource(Res.string.profile_city))
+        Text(
+            text = stringResource(city?.let(::cityName) ?: Res.string.profile_city_none),
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.testTag(TestTags.PROFILE_CITY),
+        )
         SecondaryText(stringResource(Res.string.profile_city_hint))
     }
 }

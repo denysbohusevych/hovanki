@@ -3,6 +3,8 @@ package app.hovanki.client.ui.leaderboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.hovanki.client.account.AccountManager
+import app.hovanki.client.account.CityLocator
+import app.hovanki.client.account.CityLookup
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.network.ApiResult
 import app.hovanki.client.session.ServerClock
@@ -21,14 +23,15 @@ import kotlinx.coroutines.launch
 /**
  * «Rating» (docs/adr/0020-leaderboard.md): the week's points of the last game's players, of the player's city
  * (docs/adr/0022-city-leaderboard.md), of the player and their friends, of everybody. Each scope is asked once the tab
- * shows it and kept while the tab lives; «Refresh» asks again. The city's board is asked again when the player picks
- * another city, here or in the profile.
+ * shows it and kept while the tab lives; «Refresh» asks again. The city is where the phone is: [CityLocator] looks
+ * every time the tab opens, and the city's board is asked again when the city changed.
  *
  * One state for the whole screen, [uiState], and one way in, [onEvent] (docs/architecture.md, «Состояние экрана»).
  */
 class LeaderboardViewModel(
     private val history: HistoryManager,
     private val account: AccountManager,
+    private val cities: CityLocator,
     private val clock: ServerClock,
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow(LeaderboardUiState(city = account.state.value.user?.city))
@@ -46,7 +49,10 @@ class LeaderboardViewModel(
 
     fun onEvent(event: LeaderboardEvent) {
         when (event) {
-            LeaderboardEvent.Refresh -> load(uiState.value.scope)
+            LeaderboardEvent.Refresh -> {
+                load(uiState.value.scope)
+                locate()
+            }
 
             is LeaderboardEvent.SelectScope -> {
                 mutableUiState.update { it.copy(scope = event.scope, message = null) }
@@ -57,19 +63,24 @@ class LeaderboardViewModel(
 
             LeaderboardEvent.DismissMessage -> mutableUiState.update { it.copy(message = null) }
 
-            is LeaderboardEvent.PickingCity -> mutableUiState.update { it.copy(pickingCity = event.open) }
-
-            is LeaderboardEvent.PickCity -> pickCity(event.city)
+            LeaderboardEvent.LocateCity -> locate()
         }
     }
 
-    /** The account's new city reloads the city's board (the observer in `init`). */
-    private fun pickCity(city: String?) {
-        mutableUiState.update { it.copy(pickingCity = false, savingCity = true, message = null) }
+    /** Where the phone is now; a new city reloads the city's board (the observer in `init`). */
+    private fun locate() {
+        if (uiState.value.locatingCity) return
+        mutableUiState.update { it.copy(locatingCity = true) }
         viewModelScope.launch {
-            val result = account.setCity(city)
+            val lookup = cities.locate()
             mutableUiState.update { state ->
-                state.copy(savingCity = false, message = result.notice()?.let { FormMessage(it) })
+                state.copy(
+                    locatingCity = false,
+                    cityLookup = lookup,
+                    message = (lookup as? CityLookup.Failed)?.result?.notice()?.let {
+                        FormMessage(it)
+                    } ?: state.message,
+                )
             }
         }
     }
@@ -100,10 +111,12 @@ data class LeaderboardUiState(
     val nowMillis: Long = 0,
     /** How the points are counted, under the title. */
     val showRules: Boolean = false,
-    /** The player's city of the city leaderboard (the account's); null: none picked. */
+    /** The player's city of the city leaderboard (the account's, where the phone was last); null: none. */
     val city: String? = null,
-    val pickingCity: Boolean = false,
-    val savingCity: Boolean = false,
+    /** The phone is looking where it is. */
+    val locatingCity: Boolean = false,
+    /** What the last look found; null: none yet. */
+    val cityLookup: CityLookup? = null,
     val message: FormMessage? = null,
 ) {
     val board: LeaderboardResponse? get() = boards[scope]
@@ -120,9 +133,6 @@ sealed interface LeaderboardEvent {
 
     data object DismissMessage : LeaderboardEvent
 
-    /** The city picker opens ([open]) or closes. */
-    data class PickingCity(val open: Boolean) : LeaderboardEvent
-
-    /** The player picked [city] (null: none) for the city leaderboard. */
-    data class PickCity(val city: String?) : LeaderboardEvent
+    /** Look again where the phone is (after allowing location, or when no fix came). */
+    data object LocateCity : LeaderboardEvent
 }

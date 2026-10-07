@@ -71,7 +71,7 @@ class AccountController(private val accounts: AccountService) {
     fun changePassword(user: AuthenticatedUser, @RequestBody request: ChangePasswordRequest) =
         accounts.changePassword(user, request)
 
-    /** The city of the city leaderboard, the player's own choice; 400 for an id not in `Cities.IDS`. */
+    /** The city of the city leaderboard, as the phone found it (only the id, never a position); 400 for an id not in `Cities.IDS`. */
     @PostMapping(ApiRoutes.ME_CITY)
     fun setCity(user: AuthenticatedUser, @RequestBody request: CityRequest): UserProfile =
         accounts.setCity(user, request)

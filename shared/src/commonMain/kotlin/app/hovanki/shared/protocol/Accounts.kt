@@ -47,8 +47,8 @@ data class UserProfile(
      */
     val labAccess: Boolean = false,
     /**
-     * The player's city for the city leaderboard (`Cities.IDS`), their own choice; null: not chosen (the default, and
-     * from servers that don't know it). Changed with [CityRequest] (docs/adr/0022-city-leaderboard.md).
+     * The player's city for the city leaderboard (`Cities.IDS`), where the phone found itself (`Cities.at`); null: none
+     * (the default, and from servers that don't know it). Changed with [CityRequest] (docs/adr/0022-city-leaderboard.md).
      */
     val city: String? = null,
 )
