@@ -268,6 +268,25 @@
   <string name="results_play_again">Play again!</string>
   <string name="results_play_again_waiting">Play again: waiting for the host</string>
   <string name="results_share_text">Hovanki: %1$s (%2$s)</string>
+  <string name="results_story">To stories</string>
+  <string name="story_brand">hovanki</string>
+  <string name="story_label_hider">My time hiding</string>
+  <string name="story_label_seeker">My finds</string>
+  <string name="story_place">%1$d of %2$d</string>
+  <string name="story_cta">Play hide-and-seek with us</string>
+  <string name="story_start">start</string>
+  <string name="story_me">me</string>
+  <string name="story_found_me">found me: %1$s</string>
+  <string name="story_found_here">found here by %1$s</string>
+  <string name="story_others">%1$d more</string>
+  <string name="story_title">Story</string>
+  <string name="story_mine">Just me</string>
+  <string name="story_everyone">Everyone</string>
+  <string name="story_preview">The story picture</string>
+  <plurals name="story_players">
+    <item quantity="one">%1$d player</item>
+    <item quantity="other">%1$d players</item>
+  </plurals>
 
   <!-- «Dopamine» UI (docs/design.md) -->
   <string name="play_subtitle">Gather your crew and head outside.</string>

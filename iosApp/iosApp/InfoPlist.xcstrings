@@ -96,6 +96,30 @@
           }
         }
       }
+    },
+    "NSPhotoLibraryAddUsageDescription" : {
+      "comment" : "Privacy - Photo Library Additions Usage Description",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Saves the picture of your game’s result to your photos when you choose «Save Image»."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохраняет картинку с итогами игры в ваши фото, когда вы выбираете «Сохранить изображение»."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зберігає картинку з підсумками гри у ваші фото, коли ви обираєте «Зберегти зображення»."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

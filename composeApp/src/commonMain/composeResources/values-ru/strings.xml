@@ -268,6 +268,27 @@
   <string name="results_play_again">Ещё раз!</string>
   <string name="results_play_again_waiting">Ещё раз: ждём хоста</string>
   <string name="results_share_text">Хованки: %1$s (%2$s)</string>
+  <string name="results_story">В сторис</string>
+  <string name="story_brand">hovanki</string>
+  <string name="story_label_hider">Моё время в укрытии</string>
+  <string name="story_label_seeker">Мои находки</string>
+  <string name="story_place">%1$d из %2$d</string>
+  <string name="story_cta">Сыграй в прятки с нами</string>
+  <string name="story_start">старт</string>
+  <string name="story_me">я</string>
+  <string name="story_found_me">меня нашли: %1$s</string>
+  <string name="story_found_here">тут меня нашли: %1$s</string>
+  <string name="story_others">ещё %1$d</string>
+  <string name="story_title">Сторис</string>
+  <string name="story_mine">Только я</string>
+  <string name="story_everyone">Все</string>
+  <string name="story_preview">Картинка для сторис</string>
+  <plurals name="story_players">
+    <item quantity="one">%1$d игрок</item>
+    <item quantity="few">%1$d игрока</item>
+    <item quantity="many">%1$d игроков</item>
+    <item quantity="other">%1$d игрока</item>
+  </plurals>
 
   <!-- «Dopamine» UI (docs/design.md) -->
   <string name="play_subtitle">Соберите компанию — и на улицу.</string>
