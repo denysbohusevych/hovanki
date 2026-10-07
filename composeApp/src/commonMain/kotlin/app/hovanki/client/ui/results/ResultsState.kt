@@ -5,6 +5,7 @@ import app.hovanki.client.session.SessionState
 import app.hovanki.client.ui.common.FormMessage
 import app.hovanki.client.ui.common.PlayerAccount
 import app.hovanki.client.ui.common.playerAccount
+import app.hovanki.shared.protocol.AchievementProgress
 import app.hovanki.shared.protocol.FriendsResponse
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.TracksResponse
@@ -27,6 +28,13 @@ data class ResultsUiState(
      * as someone else since).
      */
     val saveRoutes: Boolean? = null,
+    /**
+     * The achievements reached since the player last looked (docs/adr/0021-achievements.md): this game's, asked a few
+     * times while the server saves it.
+     */
+    val newAchievements: List<AchievementProgress> = emptyList(),
+    /** Played without an account: no achievements, a hint instead. */
+    val isGuest: Boolean = false,
     /** A friend request (or «Save my routes») failed. */
     val message: FormMessage? = null,
     val isBusy: Boolean = false,
@@ -39,6 +47,9 @@ sealed interface ResultsEvent {
     data object TurnOnSaveRoutes : ResultsEvent
 
     data object DismissMessage : ResultsEvent
+
+    /** The results are on the screen: ask for the achievements this game reached. */
+    data object Shown : ResultsEvent
 
     /** Back to the start: the game is over for this phone (polling for the chat stops too). */
     data object Leave : ResultsEvent
@@ -62,6 +73,7 @@ internal class ResultsStateBuilder {
             tracks = session.tracks,
             streetZone = streetZone,
             saveRoutes = saveRoutes(session, account),
+            isGuest = account.user == null,
             message = message,
             isBusy = isBusy,
         )

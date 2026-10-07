@@ -1,5 +1,8 @@
 package app.hovanki.client.network
 
+import app.hovanki.shared.protocol.AchievementProgress
+import app.hovanki.shared.protocol.AchievementsResponse
+import app.hovanki.shared.protocol.AchievementsSeenRequest
 import app.hovanki.shared.protocol.ApiError
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.GameHistoryResponse
@@ -41,6 +44,9 @@ class HttpHistoryApiTest {
         me = LeaderboardEntry(1, UserId("u1"), "anna", 120, isMe = true),
         rankChange = 2,
     )
+    private val achievements = AchievementsResponse(
+        achievements = listOf(AchievementProgress("games", listOf(1, 10), value = 3, level = 1, isNew = true)),
+    )
     private val queries = mutableListOf<String>()
 
     private val server = MockServer { request ->
@@ -52,6 +58,7 @@ class HttpHistoryApiTest {
             path == "/api/v1/me/games/g1/route" -> jsonOf(route)
             path.endsWith("/route/delete") -> noContent()
             path == "/api/v1/me/leaderboard" -> jsonOf(leaderboard)
+            path.startsWith("/api/v1/me/achievements") -> jsonOf(achievements)
             else -> apiError(HttpStatusCode.NotFound, ApiError(ErrorCode.NOT_FOUND, "No route"))
         }
     }
@@ -87,6 +94,20 @@ class HttpHistoryApiTest {
         assertEquals(HttpMethod.Get to "/api/v1/me/leaderboard", sent.method to sent.path)
         assertEquals(listOf("scope=FRIENDS"), queries)
         assertEquals("Bearer t", sent.authorization)
+    }
+
+    @Test
+    fun theAchievementsAndSeeingThem() = runTest {
+        assertEquals(achievements, api.achievements("t"))
+        assertEquals(achievements, api.achievementsSeen("t", upToMillis = 42))
+
+        assertEquals(
+            listOf(HttpMethod.Get to "/api/v1/me/achievements", HttpMethod.Post to "/api/v1/me/achievements/seen"),
+            server.recorded.map { it.method to it.path },
+        )
+        val seen = protocolJson.decodeFromString<AchievementsSeenRequest>(server.recorded.last().body)
+        assertEquals(AchievementsSeenRequest(upToMillis = 42), seen)
+        assertEquals(setOf("Bearer t"), server.recorded.map { it.authorization }.toSet())
     }
 
     @Test

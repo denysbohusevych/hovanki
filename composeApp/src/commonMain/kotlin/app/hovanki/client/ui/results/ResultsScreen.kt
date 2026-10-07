@@ -95,6 +95,8 @@ import app.hovanki.client.session.catchesBy
 import app.hovanki.client.session.hiderTally
 import app.hovanki.client.session.searchMillisAt
 import app.hovanki.client.share.ShareSheet
+import app.hovanki.client.ui.achievements.GuestAchievementsHint
+import app.hovanki.client.ui.achievements.NewAchievementsCard
 import app.hovanki.client.ui.chat.ChatEvent
 import app.hovanki.client.ui.chat.ChatIconButton
 import app.hovanki.client.ui.chat.ChatPanel
@@ -235,6 +237,11 @@ private fun ResultsContent(
             // The results keep polling for the chat: new snapshots, the same final state.
             val awards = remember(tracks, snapshot.finishedAtMillis) { snapshot.awards(tracks) }
             if (awards.isNotEmpty()) Awards(awards, snapshot, reduceMotion)
+            LaunchedEffect(Unit) { onEvent(ResultsEvent.Shown) }
+            when {
+                state.newAchievements.isNotEmpty() -> NewAchievementsCard(state.newAchievements)
+                state.isGuest -> GuestAchievementsHint()
+            }
 
             PopCard(
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp),

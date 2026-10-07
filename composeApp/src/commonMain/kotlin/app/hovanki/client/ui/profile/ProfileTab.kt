@@ -34,6 +34,9 @@ import app.hovanki.client.resources.profile_email_unconfirmed
 import app.hovanki.client.resources.profile_nickname
 import app.hovanki.client.resources.profile_save_password
 import app.hovanki.client.resources.register_password_hint
+import app.hovanki.client.ui.achievements.AchievementsCard
+import app.hovanki.client.ui.achievements.AchievementsEvent
+import app.hovanki.client.ui.achievements.AchievementsViewModel
 import app.hovanki.client.ui.common.Avatar
 import app.hovanki.client.ui.common.BuildLabel
 import app.hovanki.client.ui.common.CommandStatus
@@ -57,24 +60,29 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * «Profile»: nickname and email (not confirmed yet: confirm it here), the player's statistics and game history, «save
- * my routes», change the password, log out, delete the account.
+ * «Profile»: nickname and email (not confirmed yet: confirm it here), the player's statistics, achievements and game
+ * history, «save my routes», change the password, log out, delete the account.
  */
 @Composable
 fun ProfileTab(
     onVerifyEvent: (VerifyEmailEvent) -> Unit,
     history: HistoryViewModel,
     viewModel: ProfileViewModel = koinViewModel(),
+    achievements: AchievementsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectScreenState()
     val onEvent = viewModel::onEvent
     val isBusy = state.isBusy
     val historyState by history.uiState.collectScreenState()
+    val achievementsState by achievements.uiState.collectScreenState()
     val user = state.user ?: return
     val form = state.form
     SystemBackHandler(enabled = form != null, onBack = { onEvent(ProfileEvent.CloseForm) })
     // Fresh numbers every time the profile opens: a game may have ended meanwhile.
-    LaunchedEffect(user.id) { history.onEvent(HistoryEvent.Refresh) }
+    LaunchedEffect(user.id) {
+        history.onEvent(HistoryEvent.Refresh)
+        achievements.onEvent(AchievementsEvent.Refresh)
+    }
 
     ScreenColumn(modifier = Modifier.testTag(TestTags.PROFILE_SCREEN)) {
         PopCard(modifier = Modifier.fillMaxWidth(), shadow = 5.dp, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -117,6 +125,7 @@ fun ProfileTab(
         }
 
         StatsCard(historyState.history.stats)
+        AchievementsCard(achievementsState)
         HistoryButton(onClick = { history.onEvent(HistoryEvent.Open) }, enabled = !historyState.isBusy)
         RoutesCard(historyState, history::onEvent, saveRoutes = user.saveRoutes)
         CommandStatus(

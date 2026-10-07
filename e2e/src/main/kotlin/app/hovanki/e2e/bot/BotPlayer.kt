@@ -57,6 +57,7 @@ import app.hovanki.radar.ProximityRadio
 import app.hovanki.radar.RadarTrace
 import app.hovanki.radar.RadioApi
 import app.hovanki.shared.lab.PermFields
+import app.hovanki.shared.protocol.AchievementsResponse
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.Audience
 import app.hovanki.shared.protocol.BigGameCard
@@ -613,6 +614,24 @@ class BotPlayer(
                 if (result is ApiResult.Success) leaderboard = result.value
             }
         }
+
+    // ---- Achievements (docs/adr/0021-achievements.md) ----
+
+    /** The achievements the last [openAchievements] or [seesAchievements] showed; null until loaded. */
+    @Volatile var achievements: AchievementsResponse? = null
+        private set
+
+    /** Opens the profile's «Achievements». */
+    suspend fun openAchievements(): CommandResult = apiCommand("opens the achievements") {
+        it.history.achievements().also { result -> if (result is ApiResult.Success) achievements = result.value }
+    }
+
+    /** Has seen the achievements reached up to [upToMillis], as the profile and the results tell the server. */
+    suspend fun seesAchievements(upToMillis: Long): CommandResult = apiCommand("sees the achievements") {
+        it.history.achievementsSeen(upToMillis).also { result ->
+            if (result is ApiResult.Success) achievements = result.value
+        }
+    }
 
     // ---- Big games (docs/adr/0010-big-games.md) ----
 
