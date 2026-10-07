@@ -24,6 +24,10 @@ import app.hovanki.client.resources.action_log_out
 import app.hovanki.client.resources.new_password_label
 import app.hovanki.client.resources.password_label
 import app.hovanki.client.resources.profile_change_password
+import app.hovanki.client.resources.profile_city
+import app.hovanki.client.resources.profile_city_change
+import app.hovanki.client.resources.profile_city_hint
+import app.hovanki.client.resources.profile_city_none
 import app.hovanki.client.resources.profile_confirm_email
 import app.hovanki.client.resources.profile_current_password
 import app.hovanki.client.resources.profile_delete
@@ -36,6 +40,7 @@ import app.hovanki.client.resources.profile_save_password
 import app.hovanki.client.resources.register_password_hint
 import app.hovanki.client.ui.common.Avatar
 import app.hovanki.client.ui.common.BuildLabel
+import app.hovanki.client.ui.common.CityPickerDialog
 import app.hovanki.client.ui.common.CommandStatus
 import app.hovanki.client.ui.common.PasswordField
 import app.hovanki.client.ui.common.PopButton
@@ -44,6 +49,7 @@ import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
 import app.hovanki.client.ui.common.SystemBackHandler
+import app.hovanki.client.ui.common.cityName
 import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.client.ui.field.FieldConsentWithdraw
 import app.hovanki.client.ui.history.HistoryButton
@@ -57,8 +63,8 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * «Profile»: nickname and email (not confirmed yet: confirm it here), the player's statistics and game history, «save
- * my routes», change the password, log out, delete the account.
+ * «Profile»: nickname and email (not confirmed yet: confirm it here), the city of the city leaderboard, the player's
+ * statistics and game history, «save my routes», change the password, log out, delete the account.
  */
 @Composable
 fun ProfileTab(
@@ -116,6 +122,15 @@ fun ProfileTab(
             }
         }
 
+        CityRow(user.city, enabled = !isBusy, onChange = { onEvent(ProfileEvent.PickingCity(open = true)) })
+        if (state.pickingCity) {
+            CityPickerDialog(
+                selected = user.city,
+                onPick = { onEvent(ProfileEvent.PickCity(it)) },
+                onDismiss = { onEvent(ProfileEvent.PickingCity(open = false)) },
+            )
+        }
+
         StatsCard(historyState.history.stats)
         HistoryButton(onClick = { history.onEvent(HistoryEvent.Open) }, enabled = !historyState.isBusy)
         RoutesCard(historyState, history::onEvent, saveRoutes = user.saveRoutes)
@@ -163,6 +178,32 @@ fun ProfileTab(
 
         Spacer(Modifier.height(24.dp))
         BuildLabel(state.buildLabel)
+    }
+}
+
+/** The city of the city leaderboard (docs/adr/0022-city-leaderboard.md): the player's own choice, or none. */
+@Composable
+private fun CityRow(city: String?, enabled: Boolean, onChange: () -> Unit) {
+    PopCard(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = Modifier.weight(1f)) {
+                SecondaryText(stringResource(Res.string.profile_city))
+                Text(
+                    text = stringResource(city?.let(::cityName) ?: Res.string.profile_city_none),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.testTag(TestTags.PROFILE_CITY),
+                )
+            }
+            PopButton(
+                text = stringResource(Res.string.profile_city_change),
+                onClick = onChange,
+                enabled = enabled,
+                style = PopStyle.Outline,
+                height = 40.dp,
+                modifier = Modifier.testTag(TestTags.PROFILE_CITY_CHANGE),
+            )
+        }
+        SecondaryText(stringResource(Res.string.profile_city_hint))
     }
 }
 

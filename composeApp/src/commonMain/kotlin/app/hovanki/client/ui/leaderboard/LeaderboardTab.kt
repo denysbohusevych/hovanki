@@ -35,12 +35,15 @@ import androidx.compose.ui.unit.sp
 import app.hovanki.client.automation.TestTags
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.ic_info
+import app.hovanki.client.resources.leaderboard_city
 import app.hovanki.client.resources.leaderboard_down
 import app.hovanki.client.resources.leaderboard_empty
 import app.hovanki.client.resources.leaderboard_empty_last_game
 import app.hovanki.client.resources.leaderboard_ends_in
 import app.hovanki.client.resources.leaderboard_friends
 import app.hovanki.client.resources.leaderboard_last_game
+import app.hovanki.client.resources.leaderboard_no_city
+import app.hovanki.client.resources.leaderboard_pick_city
 import app.hovanki.client.resources.leaderboard_rules
 import app.hovanki.client.resources.leaderboard_rules_button
 import app.hovanki.client.resources.leaderboard_title
@@ -53,11 +56,15 @@ import app.hovanki.client.resources.working
 import app.hovanki.client.ui.common.Avatar
 import app.hovanki.client.ui.common.BusyRow
 import app.hovanki.client.ui.common.CapsText
+import app.hovanki.client.ui.common.CityPickerDialog
 import app.hovanki.client.ui.common.CommandStatus
+import app.hovanki.client.ui.common.PopButton
 import app.hovanki.client.ui.common.PopCard
 import app.hovanki.client.ui.common.PopIconButton
+import app.hovanki.client.ui.common.PopStyle
 import app.hovanki.client.ui.common.ScreenColumn
 import app.hovanki.client.ui.common.SecondaryText
+import app.hovanki.client.ui.common.cityName
 import app.hovanki.client.ui.common.collectScreenState
 import app.hovanki.client.ui.theme.Hovanki
 import app.hovanki.client.ui.theme.Palette
@@ -113,7 +120,7 @@ private fun LeaderboardContent(state: LeaderboardUiState, onEvent: (LeaderboardE
                 )
             }
         }
-        ScopeBar(state.scope, onPick = { onEvent(LeaderboardEvent.SelectScope(it)) })
+        ScopeBar(state.scope, state.city, onPick = { onEvent(LeaderboardEvent.SelectScope(it)) })
         CommandStatus(
             isBusy = false,
             message = state.message,
@@ -122,7 +129,12 @@ private fun LeaderboardContent(state: LeaderboardUiState, onEvent: (LeaderboardE
         )
         val board = state.board
         when {
-            board == null -> if (state.isLoading) BusyRow(stringResource(Res.string.working))
+            board == null -> if (state.isLoading || state.savingCity) BusyRow(stringResource(Res.string.working))
+
+            board.scope == LeaderboardScope.CITY && board.city == null -> NoCityCard(
+                enabled = !state.savingCity,
+                onPick = { onEvent(LeaderboardEvent.PickingCity(open = true)) },
+            )
 
             board.entries.isEmpty() -> PopCard(modifier = Modifier.fillMaxWidth()) {
                 SecondaryText(
@@ -139,11 +151,33 @@ private fun LeaderboardContent(state: LeaderboardUiState, onEvent: (LeaderboardE
             else -> Board(board, state.nowMillis)
         }
     }
+    if (state.pickingCity) {
+        CityPickerDialog(
+            selected = state.city,
+            onPick = { onEvent(LeaderboardEvent.PickCity(it)) },
+            onDismiss = { onEvent(LeaderboardEvent.PickingCity(open = false)) },
+        )
+    }
 }
 
-/** The scopes: white, the picked one ink. */
+/** The city's tab before the player picked a city: why, and the button to pick one. */
 @Composable
-private fun ScopeBar(selected: LeaderboardScope, onPick: (LeaderboardScope) -> Unit) {
+private fun NoCityCard(enabled: Boolean, onPick: () -> Unit) {
+    PopCard(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SecondaryText(stringResource(Res.string.leaderboard_no_city))
+        PopButton(
+            text = stringResource(Res.string.leaderboard_pick_city),
+            onClick = onPick,
+            enabled = enabled,
+            style = PopStyle.Dark,
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.LEADERBOARD_PICK_CITY),
+        )
+    }
+}
+
+/** The scopes: white, the picked one ink. The city's is named after the player's city once they picked one. */
+@Composable
+private fun ScopeBar(selected: LeaderboardScope, city: String?, onPick: (LeaderboardScope) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -154,7 +188,7 @@ private fun ScopeBar(selected: LeaderboardScope, onPick: (LeaderboardScope) -> U
             .selectableGroup(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        LeaderboardScope.entries.forEach { scope ->
+        SCOPES.forEach { scope ->
             val isSelected = scope == selected
             Box(
                 modifier = Modifier
@@ -166,11 +200,16 @@ private fun ScopeBar(selected: LeaderboardScope, onPick: (LeaderboardScope) -> U
                     .testTag(TestTags.leaderboardScope(scope.name)),
                 contentAlignment = Alignment.Center,
             ) {
+                val cityName = city?.let(::cityName)
                 Text(
-                    text = stringResource(scope.title()),
-                    style = MaterialTheme.typography.labelLarge,
+                    text = stringResource(
+                        if (scope == LeaderboardScope.CITY && cityName != null) cityName else scope.title(),
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
                     color = if (isSelected) Color.White else Palette.Ink,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 4.dp),
                 )
             }
         }
@@ -396,6 +435,7 @@ private fun RankNumber(rank: Int, color: Color, width: Dp = 32.dp) {
 
 private fun LeaderboardScope.title(): StringResource = when (this) {
     LeaderboardScope.LAST_GAME -> Res.string.leaderboard_last_game
+    LeaderboardScope.CITY -> Res.string.leaderboard_city
     LeaderboardScope.FRIENDS -> Res.string.leaderboard_friends
     LeaderboardScope.WORLD -> Res.string.leaderboard_world
 }
@@ -424,6 +464,14 @@ private fun daysBeforeYear(year: Int): Long {
     val days = y * 365 + y / 4 - y / 100 + y / 400
     return days - DAYS_TO_1970
 }
+
+/** The scopes in the bar's order, as in the mockup: the last game, the city, then friends and the world. */
+private val SCOPES = listOf(
+    LeaderboardScope.LAST_GAME,
+    LeaderboardScope.CITY,
+    LeaderboardScope.FRIENDS,
+    LeaderboardScope.WORLD,
+)
 
 private const val PODIUM = 3
 private const val TAG_TILT = 4f

@@ -1,6 +1,7 @@
 package app.hovanki.client.network
 
 import app.hovanki.shared.protocol.ApiError
+import app.hovanki.shared.protocol.CityRequest
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.GameHistoryResponse
 import app.hovanki.shared.protocol.GameId
@@ -105,5 +106,17 @@ class HttpHistoryApiTest {
         val sent = privacy.recorded.single()
         assertEquals(HttpMethod.Post to "/api/v1/me/privacy", sent.method to sent.path)
         assertEquals(PrivacyRequest(saveRoutes = true), protocolJson.decodeFromString<PrivacyRequest>(sent.body))
+    }
+
+    @Test
+    fun theCityIsTheAccountsChoice() = runTest {
+        val profile = UserProfile(UserId("u1"), "anna", "anna@example.org", true, 5, city = "lviv")
+        val server = MockServer { jsonOf(profile) }
+
+        assertEquals(profile, HttpAccountApi(server.client, server.serverUrl).setCity("t", "lviv"))
+
+        val sent = server.recorded.single()
+        assertEquals(HttpMethod.Post to "/api/v1/me/city", sent.method to sent.path)
+        assertEquals(CityRequest("lviv"), protocolJson.decodeFromString<CityRequest>(sent.body))
     }
 }

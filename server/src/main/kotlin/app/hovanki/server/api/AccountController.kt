@@ -5,6 +5,7 @@ import app.hovanki.shared.protocol.AccountSession
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.ChangeEmailRequest
 import app.hovanki.shared.protocol.ChangePasswordRequest
+import app.hovanki.shared.protocol.CityRequest
 import app.hovanki.shared.protocol.DeleteAccountRequest
 import app.hovanki.shared.protocol.LoginRequest
 import app.hovanki.shared.protocol.PasswordResetConfirmRequest
@@ -69,6 +70,11 @@ class AccountController(private val accounts: AccountService) {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun changePassword(user: AuthenticatedUser, @RequestBody request: ChangePasswordRequest) =
         accounts.changePassword(user, request)
+
+    /** The city of the city leaderboard, the player's own choice; 400 for an id not in `Cities.IDS`. */
+    @PostMapping(ApiRoutes.ME_CITY)
+    fun setCity(user: AuthenticatedUser, @RequestBody request: CityRequest): UserProfile =
+        accounts.setCity(user, request)
 
     @PostMapping(ApiRoutes.ME_DELETE)
     @ResponseStatus(HttpStatus.NO_CONTENT)

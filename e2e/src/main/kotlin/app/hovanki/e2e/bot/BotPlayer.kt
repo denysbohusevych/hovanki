@@ -606,6 +606,10 @@ class BotPlayer(
     @Volatile var leaderboard: LeaderboardResponse? = null
         private set
 
+    /** Picks [city] for the city leaderboard in the profile (null: none). */
+    suspend fun setCity(city: String?): CommandResult =
+        apiCommand("picks the city ${city ?: "none"}") { it.account.setCity(city) }
+
     /** Opens the «Рейтинг» tab on [scope]. */
     suspend fun openLeaderboard(scope: LeaderboardScope): CommandResult =
         apiCommand("opens the leaderboard (${scope.name})") {

@@ -478,7 +478,8 @@ sequenceDiagram
 | GET | `/api/v1/me/games/{gameId}/route` | — | `GameRoute`; 404, если маршрут не сохранён |
 | POST | `/api/v1/me/games/{gameId}/route/delete` | — | 204; игра остаётся в истории |
 | GET | `/api/v1/me/games/{gameId}/recording` | — | `GameRecording`: пути всех игроков этой игры ([ADR 0011](adr/0011-spectators-and-recordings.md)); 404, если вызывающий не играл в ней с аккаунтом или запись удалена |
-| GET | `/api/v1/me/leaderboard?scope=LAST_GAME\|FRIENDS\|WORLD` | — | `LeaderboardResponse` ([ADR 0020](adr/0020-leaderboard.md)): очки за неделю по Киеву (`LeaderboardRules`) — «Мир» (первые 50 и своя строка), «Друзья» или игроки своей последней партии; `me`, `nextAbove`, `rankChange`. По умолчанию `WORLD`, неизвестный `scope` — 400. Ничего не хранится: считается из `game_results` |
+| GET | `/api/v1/me/leaderboard?scope=LAST_GAME\|CITY\|FRIENDS\|WORLD` | — | `LeaderboardResponse` ([ADR 0020](adr/0020-leaderboard.md)): очки за неделю по Киеву (`LeaderboardRules`) — «Мир» (первые 50 и своя строка), город игрока ([ADR 0022](adr/0022-city-leaderboard.md): так же, среди тех, кто выбрал тот же город; без города — пусто и `city = null`), «Друзья» или игроки своей последней партии; `me`, `nextAbove`, `rankChange`. По умолчанию `WORLD`, неизвестный `scope` — 400. Ничего не хранится: считается из `game_results` |
+| POST | `/api/v1/me/city` | `CityRequest` | `UserProfile` с `city`: город для рейтинга города, выбор самого игрока из `Cities.IDS`, `null` — забыть ([ADR 0022](adr/0022-city-leaderboard.md)). Неизвестный id — 400 |
 
 **Друзья, группы, входящие.** Токен — аккаунт.
 

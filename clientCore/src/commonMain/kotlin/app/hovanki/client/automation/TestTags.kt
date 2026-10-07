@@ -176,6 +176,14 @@ object TestTags {
 
     fun leaderboardScope(scope: String) = "leaderboard_scope_${scope.lowercase()}"
 
+    const val LEADERBOARD_PICK_CITY = "leaderboard_pick_city"
+    const val PROFILE_CITY = "profile_city"
+    const val PROFILE_CITY_CHANGE = "profile_city_change"
+    const val CITY_PICKER = "city_picker"
+
+    /** A city in the city picker; null: «none». */
+    fun cityOption(city: String?) = "city_option_${city ?: "none"}"
+
     const val FRIENDS_SCREEN = "friends_screen"
     const val FRIENDS_NICKNAME = "friends_nickname"
     const val FRIENDS_ADD = "friends_add"
