@@ -383,6 +383,7 @@ object TestTags {
 
     const val RESULTS_SCREEN = "results_screen"
     const val RESULTS_BACK = "results_back"
+    const val RESULTS_SHARE = "results_share"
     const val RESULTS_AWARDS = "results_awards"
 
     /** The replay on the results screen: the map with everybody's way, and its time slider. */

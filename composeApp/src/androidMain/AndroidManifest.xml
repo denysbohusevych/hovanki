@@ -28,10 +28,23 @@
   <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
   <uses-feature android:name="android.hardware.uwb" android:required="false" />
 
+  <!-- The results' story picture goes straight into Instagram Stories when Instagram is there (AndroidStoryShare). -->
+  <queries>
+    <package android:name="com.instagram.android" />
+  </queries>
+
   <application>
     <service
       android:name="app.hovanki.client.tracking.LocationTrackingService"
       android:exported="false"
       android:foregroundServiceType="location|connectedDevice" />
+    <!-- The results' story picture (docs/adr/0024-instagram-stories.md): shared from cache/story/ only. -->
+    <provider
+      android:name="app.hovanki.client.share.StoryFileProvider"
+      android:authorities="${applicationId}.story"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/story_paths" />
+    </provider>
   </application>
 </manifest>

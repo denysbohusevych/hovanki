@@ -262,6 +262,9 @@
   <string name="results_hider_place">Місце %1$d з %2$d серед тих, хто ховався</string>
   <string name="results_share">Поділитися</string>
   <string name="results_share_text">Хованки: %1$s (%2$s)</string>
+  <string name="results_story">У сторіс</string>
+  <string name="story_brand">ХОВАНКИ</string>
+  <string name="story_footer">Хованки · хованки на вулицях міста</string>
 
   <!-- «Dopamine» UI (docs/design.md) -->
   <string name="play_subtitle">Зберіть компанію — і на вулицю.</string>

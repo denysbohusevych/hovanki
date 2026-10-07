@@ -19,6 +19,9 @@ val generateBuildConstants by tasks.registering(GenerateBuildConstants::class) {
     // The channel of the build: `preview` is the field test build (docs/adr/0018-field-test-build.md §1), anything
     // else the release one. Debug builds are told apart at run time (`BuildInfo.channel`).
     channel.set(providers.gradleProperty("hovanki.channel").orElse("release"))
+    // Meta's app id for sharing straight into Instagram Stories (docs/adr/0024-instagram-stories.md); empty: the
+    // story picture goes to the system «Share» instead.
+    facebookAppId.set(providers.gradleProperty("hovanki.facebookAppId").orElse(""))
     // Shown on the start screen next to the version. Asked from git when the task runs, not while configuring.
     commit.set(
         providers.gradleProperty("hovanki.commit").orElse(
@@ -125,6 +128,9 @@ abstract class GenerateBuildConstants : DefaultTask() {
     @get:Input
     abstract val channel: Property<String>
 
+    @get:Input
+    abstract val facebookAppId: Property<String>
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
@@ -151,6 +157,10 @@ abstract class GenerateBuildConstants : DefaultTask() {
         if (channelName != "release" && channelName != "preview") {
             throw GradleException("hovanki.channel must be release or preview, got '$channelName'")
         }
+        val appId = facebookAppId.get().trim()
+        if (appId.any { !it.isDigit() }) {
+            throw GradleException("hovanki.facebookAppId must be empty or Meta's numeric app id, got '$appId'")
+        }
         val file = outputDirectory.file("app/hovanki/client/BuildConstants.kt").get().asFile
         file.parentFile.mkdirs()
         file.writeText(
@@ -170,6 +180,9 @@ abstract class GenerateBuildConstants : DefaultTask() {
             |
             |    /** Gradle property `hovanki.channel`: `release` (the default) or `preview`, the field test build. */
             |    const val CHANNEL: String = "$channelName"
+            |
+            |    /** Gradle property `hovanki.facebookAppId`: Meta's app id for Instagram Stories; may be empty. */
+            |    const val FACEBOOK_APP_ID: String = "$appId"
             |}
             |
             """.trimMargin(),

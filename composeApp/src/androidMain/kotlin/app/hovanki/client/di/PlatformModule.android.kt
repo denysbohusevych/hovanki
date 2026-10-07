@@ -1,5 +1,6 @@
 package app.hovanki.client.di
 
+import app.hovanki.client.BuildConstants
 import app.hovanki.client.BuildInfo
 import app.hovanki.client.androidBuildInfo
 import app.hovanki.client.field.AndroidAppPermissions
@@ -9,7 +10,9 @@ import app.hovanki.client.lab.LabFiles
 import app.hovanki.client.location.AndroidLocationProvider
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.share.AndroidShareSheet
+import app.hovanki.client.share.AndroidStoryShare
 import app.hovanki.client.share.ShareSheet
+import app.hovanki.client.share.StoryShare
 import app.hovanki.client.storage.AndroidSecureStore
 import app.hovanki.client.storage.SecureStore
 import app.hovanki.client.tracking.AndroidBackgroundTracker
@@ -57,6 +60,7 @@ actual val platformModule: Module = module {
     single<AppPermissions> { AndroidAppPermissions(androidContext()) }
     single<BackgroundTracker> { AndroidBackgroundTracker(androidContext()) }
     single<ShareSheet> { AndroidShareSheet(androidContext()) }
+    single<StoryShare> { AndroidStoryShare(androidContext(), BuildConstants.FACEBOOK_APP_ID) }
     // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md): the game's channels on the phone's one host of the
     // air (docs/adr/0017-radar-techniques-and-big-run.md, section 2.2); the precision radar by UWB is not implemented
     // on Android yet.
