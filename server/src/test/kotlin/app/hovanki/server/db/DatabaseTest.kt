@@ -151,8 +151,9 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         val old = insertLabRun(createdAt = daysAgo(91.1), finishedAt = daysAgo(91.0), kind = "GAME")
         insertLabDevice(old, daysAgo(91.1), userId = player)
         val recent = insertLabRun(createdAt = daysAgo(89.1), finishedAt = daysAgo(89.0), kind = "GAME")
-        val abandoned = insertLabRun(createdAt = daysAgo(92.0), finishedAt = null, kind = "GAME")
-        val lately = insertLabRun(createdAt = daysAgo(90.5), finishedAt = null, kind = "GAME")
+        // Without a game id: the janitor of a server another test started would finish them as games gone meanwhile.
+        val abandoned = insertLabRun(createdAt = daysAgo(92.0), finishedAt = null, kind = "GAME", withGame = false)
+        val lately = insertLabRun(createdAt = daysAgo(90.5), finishedAt = null, kind = "GAME", withGame = false)
         // A lab run as old keeps its run and devices, only its chunks go.
         val lab = insertLabRun(createdAt = daysAgo(92.0), finishedAt = daysAgo(91.0))
 
@@ -390,7 +391,12 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
     }
 
     /** A run of the radio lab (or a game's field log: [kind] `GAME`) with one device and one chunk of its log. */
-    private fun insertLabRun(createdAt: Instant, finishedAt: Instant?, kind: String = "LAB"): String {
+    private fun insertLabRun(
+        createdAt: Instant,
+        finishedAt: Instant?,
+        kind: String = "LAB",
+        withGame: Boolean = kind == "GAME",
+    ): String {
         val run = unique("lab")
         jdbc.sql(
             """
@@ -404,7 +410,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             .param("createdAt", createdAt.toTimestamptz())
             .param("finishedAt", finishedAt?.toTimestamptz())
             .param("kind", kind)
-            .param("gameId", if (kind == "GAME") unique("game") else null)
+            .param("gameId", if (withGame) unique("game") else null)
             .update()
         insertLabDevice(run, createdAt, userId = null)
         return run
