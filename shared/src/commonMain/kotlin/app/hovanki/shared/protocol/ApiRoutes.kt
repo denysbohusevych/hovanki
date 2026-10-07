@@ -136,6 +136,9 @@ object ApiRoutes {
     const val ME_EMAIL_RESEND = "$ME_EMAIL/resend"
     const val ME_PASSWORD = "$ME/password"
     const val ME_DELETE = "$ME/delete"
+
+    /** POST [CityRequest]: sets or clears the city of the city leaderboard; answers the [UserProfile]. */
+    const val ME_CITY = "$ME/city"
     const val INBOX = "$ME/inbox"
     const val INVITE_DISMISS = "$ME/invites/{inviteId}/dismiss"
 
@@ -160,7 +163,7 @@ object ApiRoutes {
     const val ME_GAME_RECORDING = "$ME_GAMES/{gameId}/recording"
 
     /**
-     * GET, optional `?scope=LAST_GAME|FRIENDS|WORLD` (default WORLD): [LeaderboardResponse], the weekly points
+     * GET, optional `?scope=LAST_GAME|CITY|FRIENDS|WORLD` (default WORLD): [LeaderboardResponse], the weekly points
      * (docs/adr/0020-leaderboard.md).
      */
     const val ME_LEADERBOARD = "$ME/leaderboard"

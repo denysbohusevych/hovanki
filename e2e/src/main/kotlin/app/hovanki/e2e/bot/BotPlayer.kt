@@ -2,6 +2,8 @@ package app.hovanki.e2e.bot
 
 import app.hovanki.client.account.AccountManager
 import app.hovanki.client.account.AccountState
+import app.hovanki.client.account.CityLocator
+import app.hovanki.client.account.CityLookup
 import app.hovanki.client.bigGames.BigGameManager
 import app.hovanki.client.history.HistoryManager
 import app.hovanki.client.history.HistoryState
@@ -609,6 +611,19 @@ class BotPlayer(
     /** The leaderboard the last [openLeaderboard] showed; null until one loaded. */
     @Volatile var leaderboard: LeaderboardResponse? = null
         private set
+
+    /** The city of the city leaderboard from this phone's GPS, as «Rating» finds it when it opens. */
+    suspend fun locateCity(): CommandResult = apiCommand("finds its city by GPS") {
+        when (val lookup = CityLocator(it.account, gps).locate()) {
+            is CityLookup.Found -> ApiResult.Success(Unit)
+            is CityLookup.Failed -> lookup.result
+            else -> error("no city: $lookup")
+        }
+    }
+
+    /** Sends [city] as if the phone found it there (null: outside every city), for a city the bot can't walk to. */
+    suspend fun setCity(city: String?): CommandResult =
+        apiCommand("is in the city ${city ?: "none"}") { it.account.setCity(city) }
 
     /** Opens the «Рейтинг» tab on [scope]. */
     suspend fun openLeaderboard(scope: LeaderboardScope): CommandResult =

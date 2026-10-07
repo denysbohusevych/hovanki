@@ -14,7 +14,8 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * The leaderboard, «Рейтинг» (docs/adr/0020-leaderboard.md), after a whole game: every player with an account gets
- * the points of [LeaderboardRules] for it, in the world's week, among their friends and in the last game. The world is
+ * the points of [LeaderboardRules] for it, in the world's week, among their friends, in the city their phone is in
+ * (docs/adr/0022-city-leaderboard.md) and in the last game. The world is
  * shared with the other scenarios on the same server, so only the players' own lines are checked there.
  */
 class LeaderboardTest {
@@ -84,6 +85,23 @@ class LeaderboardTest {
         check(friends.me?.userId == annaId && friends.nextAbove?.userId == samId, "Anna sees Sam right above")
         requireOk(boris.openLeaderboard(LeaderboardScope.FRIENDS), "Boris opens his friends' leaderboard")
         check(boris.leaderboard?.entries?.map { it.userId } == listOf(borisId), "only Boris himself")
+
+        // The city (docs/adr/0022-city-leaderboard.md): where the phone is; only this scenario has cities.
+        requireOk(boris.openLeaderboard(LeaderboardScope.CITY), "Boris opens the city before his phone found one")
+        check(boris.leaderboard?.city == null && boris.leaderboard?.entries.orEmpty().isEmpty(), "no city, nobody")
+        requireOk(sam.locateCity(), "Sam's phone finds its city")
+        requireOk(anna.locateCity(), "Anna's phone finds its city")
+        requireOk(boris.setCity("lviv"), "Boris is in Lviv")
+        requireOk(anna.openLeaderboard(LeaderboardScope.CITY), "Anna opens her city")
+        val kyiv = checkNotNull(anna.leaderboard)
+        check(kyiv.city == "kyiv", "the park is in Kyiv: ${kyiv.city}")
+        check(kyiv.entries.map { it.userId } == listOf(samId, annaId), "Sam above Anna, Boris is in Lviv")
+        check(kyiv.points() == expected.filterKeys { it != borisId }, "the rule's points")
+        requireOk(boris.openLeaderboard(LeaderboardScope.CITY), "Boris opens his city")
+        check(boris.leaderboard?.entries?.map { it.userId } == listOf(borisId), "only Boris in Lviv")
+        requireOk(anna.setCity(null), "Anna is outside every city")
+        requireOk(sam.openLeaderboard(LeaderboardScope.CITY), "Sam opens his city")
+        check(sam.leaderboard?.entries?.map { it.userId } == listOf(samId), "Anna left Kyiv's leaderboard")
 
         // The last game: its account players, the guest left out.
         requireOk(boris.openLeaderboard(LeaderboardScope.LAST_GAME), "Boris opens the last game")
