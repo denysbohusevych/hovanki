@@ -261,6 +261,8 @@
   <string name="results_your_result">Твой результат</string>
   <string name="results_hider_place">Место %1$d из %2$d среди прятавшихся</string>
   <string name="results_share">Поделиться</string>
+  <string name="results_play_again">Ещё раз!</string>
+  <string name="results_play_again_waiting">Ещё раз: ждём хоста</string>
   <string name="results_share_text">Хованки: %1$s (%2$s)</string>
 
   <!-- «Dopamine» UI (docs/design.md) -->

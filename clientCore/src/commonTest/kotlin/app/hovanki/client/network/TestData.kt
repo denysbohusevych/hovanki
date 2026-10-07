@@ -22,6 +22,7 @@ import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.MyState
 import app.hovanki.shared.protocol.PauseRequest
 import app.hovanki.shared.protocol.PlaceItemRequest
+import app.hovanki.shared.protocol.PlayAgainRequest
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.PlayerStatus
@@ -100,6 +101,7 @@ class FakeGameApi(
     private val onPreview: suspend (SettingsPreviewRequest) -> SettingsPreviewResponse = { unused() },
     private val onStreetZone: suspend () -> StreetZoneResponse = { unused() },
     private val onLeave: suspend () -> Unit = {},
+    private val onPlayAgain: suspend (PlayerSession, PlayAgainRequest) -> SessionResponse = { _, _ -> unused() },
     /** Every call of the board and the perks (items, checkpoints, perks, quests) answers with this. */
     private val onBoard: suspend () -> GameSnapshot = { unused() },
     private val onAcceptCrowding: suspend () -> GameSnapshot = { unused() },
@@ -218,6 +220,14 @@ class FakeGameApi(
     override suspend fun leave(session: PlayerSession) {
         leaves += session
         onLeave()
+    }
+
+    /** Every «Play again» as the session it came from and the request. */
+    val playAgains = mutableListOf<Pair<PlayerSession, PlayAgainRequest>>()
+
+    override suspend fun playAgain(session: PlayerSession, request: PlayAgainRequest): SessionResponse {
+        playAgains += session to request
+        return onPlayAgain(session, request)
     }
 
     override suspend fun streetZone(session: PlayerSession): StreetZoneResponse {
