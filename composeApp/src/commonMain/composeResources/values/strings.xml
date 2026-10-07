@@ -909,6 +909,7 @@
   <string name="sos_hold">Hold to send the SOS</string>
   <string name="error_game_paused">The round is on pause.</string>
   <string name="error_sos_active">Somebody’s SOS is still on: the round goes on once it is over.</string>
+  <string name="error_entitlement_required">This is part of Premium.</string>
   <string name="tab_rating">Rating</string>
   <string name="leaderboard_title">Rating</string>
   <string name="leaderboard_last_game">Last game</string>
