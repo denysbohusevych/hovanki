@@ -263,8 +263,26 @@
   <string name="results_share">Поділитися</string>
   <string name="results_share_text">Хованки: %1$s (%2$s)</string>
   <string name="results_story">У сторіс</string>
-  <string name="story_brand">ХОВАНКИ</string>
-  <string name="story_footer">Хованки · хованки на вулицях міста</string>
+  <string name="story_brand">hovanki</string>
+  <string name="story_label_hider">Мій час у схованці</string>
+  <string name="story_label_seeker">Мої знахідки</string>
+  <string name="story_place">%1$d з %2$d</string>
+  <string name="story_cta">Зіграй у хованки з нами</string>
+  <string name="story_start">старт</string>
+  <string name="story_me">я</string>
+  <string name="story_found_me">мене знайшли: %1$s</string>
+  <string name="story_found_here">тут мене знайшли: %1$s</string>
+  <string name="story_others">ще %1$d</string>
+  <string name="story_title">Сторіс</string>
+  <string name="story_mine">Тільки я</string>
+  <string name="story_everyone">Усі</string>
+  <string name="story_preview">Картинка для сторіс</string>
+  <plurals name="story_players">
+    <item quantity="one">%1$d гравець</item>
+    <item quantity="few">%1$d гравці</item>
+    <item quantity="many">%1$d гравців</item>
+    <item quantity="other">%1$d гравця</item>
+  </plurals>
 
   <!-- «Dopamine» UI (docs/design.md) -->
   <string name="play_subtitle">Зберіть компанію — і на вулицю.</string>

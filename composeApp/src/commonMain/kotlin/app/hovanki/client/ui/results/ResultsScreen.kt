@@ -89,7 +89,16 @@ import app.hovanki.client.resources.results_you_survived
 import app.hovanki.client.resources.results_your_result
 import app.hovanki.client.resources.sparks_count
 import app.hovanki.client.resources.story_brand
-import app.hovanki.client.resources.story_footer
+import app.hovanki.client.resources.story_cta
+import app.hovanki.client.resources.story_found_here
+import app.hovanki.client.resources.story_found_me
+import app.hovanki.client.resources.story_label_hider
+import app.hovanki.client.resources.story_label_seeker
+import app.hovanki.client.resources.story_me
+import app.hovanki.client.resources.story_others
+import app.hovanki.client.resources.story_place
+import app.hovanki.client.resources.story_players
+import app.hovanki.client.resources.story_start
 import app.hovanki.client.session.Award
 import app.hovanki.client.session.AwardKind
 import app.hovanki.client.session.Replay
@@ -99,7 +108,6 @@ import app.hovanki.client.session.hiderTally
 import app.hovanki.client.session.searchMillisAt
 import app.hovanki.client.share.ShareSheet
 import app.hovanki.client.share.StoryShare
-import app.hovanki.client.share.encodePng
 import app.hovanki.client.ui.chat.ChatEvent
 import app.hovanki.client.ui.chat.ChatIconButton
 import app.hovanki.client.ui.chat.ChatPanel
@@ -140,6 +148,7 @@ import app.hovanki.shared.protocol.UserId
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -201,6 +210,20 @@ private fun ResultsContent(
         if (tally.survived == 0) Res.string.results_seekers_win else Res.string.results_hiders_win,
     )
     val roundLength = snapshot.searchMillisAt(snapshot.finishedAtMillis ?: 0L)?.let(::formatElapsed)
+    // The story picture (docs/adr/0024-instagram-stories.md): the player's result and their way as a scheme.
+    val story = remember(tracks, snapshot.finishedAtMillis) { snapshot.story(snapshot.awards(tracks), tracks) }
+    var storyOpen by remember { mutableStateOf(false) }
+    if (story != null && storyOpen) {
+        val storyShare = koinInject<StoryShare>()
+        val caption = stringResource(Res.string.results_share_text, headline, roundLength.orEmpty())
+        StoryPanel(
+            story = story,
+            texts = storyTexts(story, roundLength),
+            onShare = { png -> storyShare.share(png, caption) },
+            onClose = { storyOpen = false },
+        )
+        return
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenColumn(modifier = Modifier.weight(1f).testTag(TestTags.RESULTS_SCREEN)) {
@@ -292,19 +315,11 @@ private fun ResultsContent(
             )
         }
         val shareSheet = koinInject<ShareSheet>()
-        val storyShare = koinInject<StoryShare>()
         val shareText = stringResource(
             Res.string.results_share_text,
             headline,
             roundLength.orEmpty(),
         )
-        // The story picture (docs/adr/0024-instagram-stories.md): the player's own result, no map.
-        val story = remember(tracks, snapshot.finishedAtMillis) { snapshot.story(snapshot.awards(tracks)) }
-        val storyTexts = story?.let {
-            val caption = listOfNotNull(stringResource(Res.string.results_title), roundLength).joinToString(" · ")
-            storyTexts(it, caption, headline)
-        }
-        val renderer = rememberStoryRenderer()
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -319,14 +334,7 @@ private fun ResultsContent(
             )
             PopButton(
                 text = stringResource(if (story != null) Res.string.results_story else Res.string.results_share),
-                onClick = {
-                    if (story != null && storyTexts != null) {
-                        val picture = renderer.render(storyTexts, StoryLook.of(story.result.player.role))
-                        storyShare.share(picture.encodePng(), shareText)
-                    } else {
-                        shareSheet.share(shareText)
-                    }
-                },
+                onClick = { if (story != null) storyOpen = true else shareSheet.share(shareText) },
                 style = PopStyle.Outline,
                 height = 58.dp,
                 icon = Res.drawable.ic_share,
@@ -532,23 +540,29 @@ private fun resultValue(result: MyResult): String? =
 
 /** The story picture's texts (docs/adr/0024-instagram-stories.md) in the player's language. */
 @Composable
-private fun storyTexts(story: Story, caption: String, headline: String): StoryTexts {
-    val tally = listOf(
-        Res.string.results_caught to story.tally.caught,
-        Res.string.results_survived to story.tally.survived,
-        Res.string.results_eliminated to story.tally.eliminated,
-    ).filter { (_, count) -> count > 0 }.map { (label, count) -> stringResource(label) to count }
+private fun storyTexts(story: Story, roundLength: String?): StoryTexts {
+    val result = story.result
+    val hider = result.player.role == Role.HIDER
+    val players = pluralStringResource(Res.plurals.story_players, story.players, story.players)
+    val others = story.players - 1 - (if (story.foundBy != null) 1 else 0)
     return StoryTexts(
         brand = stringResource(Res.string.story_brand),
-        caption = caption,
-        headline = headline,
-        name = story.result.player.name,
-        line = resultLine(story.result),
-        label = stringResource(Res.string.results_your_result),
-        value = resultValue(story.result),
-        tally = tally,
-        awards = story.awards.map { stringResource(it.kind.title) to awardDetail(it) },
-        footer = stringResource(Res.string.story_footer),
+        corner = listOfNotNull(players, roundLength).joinToString(" · "),
+        label = stringResource(if (hider) Res.string.story_label_hider else Res.string.story_label_seeker),
+        value = resultValue(result),
+        place = if (hider && result.hiders > 1) {
+            stringResource(Res.string.story_place, result.place, result.hiders)
+        } else {
+            null
+        },
+        award = story.award?.let { "${stringResource(it.kind.title).uppercase()} · ${awardDetail(it)}" },
+        cta = stringResource(Res.string.story_cta),
+        start = stringResource(Res.string.story_start),
+        me = stringResource(Res.string.story_me),
+        foundMe = story.foundBy?.let { stringResource(Res.string.story_found_me, it) },
+        foundHere = story.foundBy?.let { stringResource(Res.string.story_found_here, it) },
+        others = others.takeIf { it > 0 }?.let { stringResource(Res.string.story_others, it) },
+        distance = story.distanceMeters?.let { distanceText(it) },
     )
 }
 
