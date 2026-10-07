@@ -76,6 +76,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         insert("INSERT INTO blocks VALUES (:b, :a, :t)", alice, bob)
         insert("INSERT INTO user_groups VALUES (:a, 'Alice''s', :a, :t), (:b, 'Bob''s', :b, :t)", alice, bob)
         insert("INSERT INTO group_members VALUES (:a, :b, :t), (:b, :a, :t), (:b, :b, :t)", alice, bob)
+        insert("INSERT INTO entitlements VALUES (:a, 'map_styles', 'ADMIN', :t, NULL, 'admin')", alice)
         val game = insertPlayedGame()
         insertResult(alice, game)
         insertResult(bob, game)
@@ -150,8 +151,9 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
         val old = insertLabRun(createdAt = daysAgo(91.1), finishedAt = daysAgo(91.0), kind = "GAME")
         insertLabDevice(old, daysAgo(91.1), userId = player)
         val recent = insertLabRun(createdAt = daysAgo(89.1), finishedAt = daysAgo(89.0), kind = "GAME")
-        val abandoned = insertLabRun(createdAt = daysAgo(92.0), finishedAt = null, kind = "GAME")
-        val lately = insertLabRun(createdAt = daysAgo(90.5), finishedAt = null, kind = "GAME")
+        // Without a game id: the janitor of a server another test started would finish them as games gone meanwhile.
+        val abandoned = insertLabRun(createdAt = daysAgo(92.0), finishedAt = null, kind = "GAME", withGame = false)
+        val lately = insertLabRun(createdAt = daysAgo(90.5), finishedAt = null, kind = "GAME", withGame = false)
         // A lab run as old keeps its run and devices, only its chunks go.
         val lab = insertLabRun(createdAt = daysAgo(92.0), finishedAt = daysAgo(91.0))
 
@@ -269,8 +271,16 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
                 .update()
         }
 
+        // A paid extra goes once it has ended; one forever stays (docs/adr/0023-entitlements.md).
+        val extra = "INSERT INTO entitlements VALUES (:a, :b, 'ADMIN', :t, :t, 'admin')"
+        insertAt(extra, oldVerified, "map_styles", at = now.minusSeconds(1))
+        insertAt(extra, oldVerified, "cosmetics", at = now.plusSeconds(60))
+        insert("INSERT INTO entitlements VALUES (:a, 'premium_host', 'ADMIN', :t, NULL, 'admin')", oldVerified)
+
         val deleted = retention.run()
 
+        val extras = jdbc.sql("SELECT entitlement FROM entitlements WHERE user_id = :a ORDER BY 1").ids(oldVerified)
+        assertEquals(listOf("cosmetics", "premium_host"), extras)
         // Other tests share the database: at least ours went, and the fresh rows stay.
         assertTrue(
             deleted.sessions >= 1 && deleted.emailCodes >= 1 && deleted.friendRequests >= 1 && deleted.routes >= 1 &&
@@ -381,7 +391,12 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
     }
 
     /** A run of the radio lab (or a game's field log: [kind] `GAME`) with one device and one chunk of its log. */
-    private fun insertLabRun(createdAt: Instant, finishedAt: Instant?, kind: String = "LAB"): String {
+    private fun insertLabRun(
+        createdAt: Instant,
+        finishedAt: Instant?,
+        kind: String = "LAB",
+        withGame: Boolean = kind == "GAME",
+    ): String {
         val run = unique("lab")
         jdbc.sql(
             """
@@ -395,7 +410,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             .param("createdAt", createdAt.toTimestamptz())
             .param("finishedAt", finishedAt?.toTimestamptz())
             .param("kind", kind)
-            .param("gameId", if (kind == "GAME") unique("game") else null)
+            .param("gameId", if (withGame) unique("game") else null)
             .update()
         insertLabDevice(run, createdAt, userId = null)
         return run
@@ -545,6 +560,7 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             "lab_devices",
             "lab_chunks",
             "lab_reports",
+            "entitlements",
         )
 
         /** Every column that points at a user, with ON DELETE CASCADE. */
@@ -566,6 +582,8 @@ class DatabaseTest(@Autowired private val jdbc: JdbcClient) {
             "game_recording_tracks" to "user_id",
             // A game's field log (docs/adr/0018-field-test-build.md §3.1): the player's phone and its chunks.
             "lab_devices" to "user_id",
+            // Paid extras (docs/adr/0023-entitlements.md).
+            "entitlements" to "user_id",
         )
     }
 }

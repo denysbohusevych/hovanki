@@ -4,6 +4,7 @@ import app.hovanki.server.db.getInstant
 import app.hovanki.server.db.getInstantOrNull
 import app.hovanki.server.db.toTimestamptz
 import app.hovanki.server.game.GameException
+import app.hovanki.shared.protocol.Entitlement
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.UserId
@@ -39,9 +40,10 @@ data class UserRecord(
 
     /**
      * The account as its owner sees it. [labOn]: the server has the radio lab on; then staff get the lab's screen in the
-     * field build (docs/adr/0018-field-test-build.md §4.D).
+     * field build (docs/adr/0018-field-test-build.md §4.D). [entitlements]: the paid extras active now
+     * (docs/adr/0023-entitlements.md).
      */
-    fun toProfile(labOn: Boolean = false) = UserProfile(
+    fun toProfile(labOn: Boolean = false, entitlements: List<Entitlement> = emptyList()) = UserProfile(
         id,
         nickname,
         email,
@@ -50,6 +52,7 @@ data class UserRecord(
         saveRoutes = saveRoutesSince != null,
         labAccess = labOn && role.isStaff,
         city = city,
+        entitlements = entitlements.map { it.id },
     )
 
     /** The account as everyone else sees it. */

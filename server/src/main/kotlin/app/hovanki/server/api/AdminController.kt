@@ -18,6 +18,7 @@ import app.hovanki.shared.protocol.AdminFeatureRequest
 import app.hovanki.shared.protocol.AdminFeatures
 import app.hovanki.shared.protocol.AdminFindByEmailRequest
 import app.hovanki.shared.protocol.AdminGames
+import app.hovanki.shared.protocol.AdminGrantEntitlementRequest
 import app.hovanki.shared.protocol.AdminLiveGame
 import app.hovanki.shared.protocol.AdminLoginRequest
 import app.hovanki.shared.protocol.AdminLoginResponse
@@ -26,6 +27,7 @@ import app.hovanki.shared.protocol.AdminReasonRequest
 import app.hovanki.shared.protocol.AdminReport
 import app.hovanki.shared.protocol.AdminReports
 import app.hovanki.shared.protocol.AdminRevealedEmail
+import app.hovanki.shared.protocol.AdminRevokeEntitlementRequest
 import app.hovanki.shared.protocol.AdminSetRoleRequest
 import app.hovanki.shared.protocol.AdminStaff
 import app.hovanki.shared.protocol.AdminStats
@@ -167,6 +169,20 @@ class AdminController(
     @PostMapping(ApiRoutes.ADMIN_USER_RESET_TOTP)
     fun resetTotp(staff: Staff, @PathVariable userId: String, @RequestBody request: AdminReasonRequest): AdminUserCard =
         admin.resetTotp(staff, UserId(userId), request.reason)
+
+    @PostMapping(ApiRoutes.ADMIN_USER_ENTITLEMENT_GRANT)
+    fun grantEntitlement(
+        staff: Staff,
+        @PathVariable userId: String,
+        @RequestBody request: AdminGrantEntitlementRequest,
+    ): AdminUserCard = admin.grantEntitlement(staff, UserId(userId), request)
+
+    @PostMapping(ApiRoutes.ADMIN_USER_ENTITLEMENT_REVOKE)
+    fun revokeEntitlement(
+        staff: Staff,
+        @PathVariable userId: String,
+        @RequestBody request: AdminRevokeEntitlementRequest,
+    ): AdminUserCard = admin.revokeEntitlement(staff, UserId(userId), request)
 
     @GetMapping(ApiRoutes.ADMIN_GAMES)
     fun games(@Suppress("UNUSED_PARAMETER") staff: Staff): AdminGames = admin.games()

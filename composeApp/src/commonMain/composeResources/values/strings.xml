@@ -106,6 +106,10 @@
   <string name="profile_nickname">Nickname</string>
   <string name="profile_email">Email</string>
   <string name="profile_email_unconfirmed">not confirmed</string>
+  <string name="profile_extras">Premium</string>
+  <string name="entitlement_premium_host">Host extras</string>
+  <string name="entitlement_map_styles">Map styles</string>
+  <string name="entitlement_cosmetics">Looks</string>
   <string name="profile_confirm_email">Confirm</string>
   <string name="profile_change_password">Change the password</string>
   <string name="profile_current_password">Current password</string>
@@ -907,6 +911,7 @@
   <string name="sos_hold">Hold to send the SOS</string>
   <string name="error_game_paused">The round is on pause.</string>
   <string name="error_sos_active">Somebody’s SOS is still on: the round goes on once it is over.</string>
+  <string name="error_entitlement_required">This is part of Premium.</string>
   <string name="tab_rating">Rating</string>
   <string name="leaderboard_title">Rating</string>
   <string name="leaderboard_last_game">Last game</string>

@@ -14,6 +14,7 @@ import app.hovanki.client.resources.error_checkpoint_taken
 import app.hovanki.client.resources.error_code_expired
 import app.hovanki.client.resources.error_email_not_verified
 import app.hovanki.client.resources.error_email_taken
+import app.hovanki.client.resources.error_entitlement_required
 import app.hovanki.client.resources.error_feature_disabled
 import app.hovanki.client.resources.error_feature_missing
 import app.hovanki.client.resources.error_game_not_open
@@ -163,6 +164,8 @@ fun reasonNotice(
         ErrorReason.GAME_PAUSED -> Res.string.error_game_paused
 
         ErrorReason.SOS_ACTIVE -> Res.string.error_sos_active
+
+        ErrorReason.ENTITLEMENT_REQUIRED -> Res.string.error_entitlement_required
 
         ErrorReason.ACCOUNT_BANNED -> return untilMillis?.let {
             Notice.Text(Res.string.error_account_banned, listOf(formatDateTime(it)))

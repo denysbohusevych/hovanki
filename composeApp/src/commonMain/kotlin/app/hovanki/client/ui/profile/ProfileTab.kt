@@ -120,6 +120,7 @@ fun ProfileTab(
             }
         }
 
+        ExtrasCard(user)
         CityRow(user.city)
 
         StatsCard(historyState.history.stats)

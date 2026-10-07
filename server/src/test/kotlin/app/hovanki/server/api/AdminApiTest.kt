@@ -20,6 +20,7 @@ import app.hovanki.shared.protocol.AdminFeatureRequest
 import app.hovanki.shared.protocol.AdminFeatures
 import app.hovanki.shared.protocol.AdminFindByEmailRequest
 import app.hovanki.shared.protocol.AdminGames
+import app.hovanki.shared.protocol.AdminGrantEntitlementRequest
 import app.hovanki.shared.protocol.AdminLiveGame
 import app.hovanki.shared.protocol.AdminLoginRequest
 import app.hovanki.shared.protocol.AdminLoginResponse
@@ -29,6 +30,7 @@ import app.hovanki.shared.protocol.AdminReasonRequest
 import app.hovanki.shared.protocol.AdminReport
 import app.hovanki.shared.protocol.AdminReports
 import app.hovanki.shared.protocol.AdminRevealedEmail
+import app.hovanki.shared.protocol.AdminRevokeEntitlementRequest
 import app.hovanki.shared.protocol.AdminSetRoleRequest
 import app.hovanki.shared.protocol.AdminStaff
 import app.hovanki.shared.protocol.AdminStats
@@ -44,6 +46,8 @@ import app.hovanki.shared.protocol.BigGameSetup
 import app.hovanki.shared.protocol.BigGameStatus
 import app.hovanki.shared.protocol.BigGamesResponse
 import app.hovanki.shared.protocol.CreateGameRequest
+import app.hovanki.shared.protocol.Entitlement
+import app.hovanki.shared.protocol.EntitlementSource
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameId
@@ -65,9 +69,11 @@ import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SettingsRequest
 import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.UserRole
 import app.hovanki.shared.protocol.VerifyEmailRequest
 import app.hovanki.shared.protocol.ZonePolygon
+import app.hovanki.shared.protocol.has
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.shrinkingZone
 import app.hovanki.shared.totp.Totp
@@ -542,6 +548,67 @@ class AdminApiTest(
             get(ApiRoutes.ADMIN_FEATURES, moderator).ok<AdminFeatures>()
                 .features.single { it.feature == ServerFeature.RADAR }.enabled,
         )
+    }
+
+    @Test
+    fun adminsGrantPaidExtras() {
+        val moderator = staff(UserRole.MODERATOR)
+        val admin = staff(UserRole.ADMIN)
+        val player = account()
+        assertEquals(emptyList(), getAccount(ApiRoutes.ME, player.token).ok<UserProfile>().entitlements)
+        val grant = ApiRoutes.adminUser(player.user.id, "entitlements/grant")
+        val revoke = ApiRoutes.adminUser(player.user.id, "entitlements/revoke")
+
+        // Admins only, with a reason, never on themselves.
+        post(grant, AdminGrantEntitlementRequest(Entitlement.MAP_STYLES, 30, "tester"), moderator)
+            .error(403, ErrorCode.FORBIDDEN)
+        post(
+            grant,
+            AdminGrantEntitlementRequest(Entitlement.MAP_STYLES, 30, " "),
+            admin,
+        ).error(400, ErrorCode.BAD_REQUEST)
+        post(grant, AdminGrantEntitlementRequest(Entitlement.MAP_STYLES, 0, "tester"), admin)
+            .error(400, ErrorCode.BAD_REQUEST)
+        post(
+            ApiRoutes.adminUser(admin.account.user.id, "entitlements/grant"),
+            AdminGrantEntitlementRequest(Entitlement.MAP_STYLES, null, "me"),
+            admin,
+        ).error(403, ErrorCode.FORBIDDEN)
+
+        val card = post(grant, AdminGrantEntitlementRequest(Entitlement.MAP_STYLES, 30, "tester"), admin)
+            .ok<AdminUserCard>()
+        val granted = card.entitlements.single()
+        assertEquals(Entitlement.MAP_STYLES, granted.entitlement)
+        assertEquals(EntitlementSource.ADMIN, granted.source)
+        assertEquals(admin.account.user.nickname, granted.byName)
+        assertEquals(clock.millis() + Duration.ofDays(30).toMillis(), granted.untilMillis)
+        post(grant, AdminGrantEntitlementRequest(Entitlement.COSMETICS, null, "promo"), admin).expect(200)
+
+        // The app learns it from the profile, by id.
+        val profile = getAccount(ApiRoutes.ME, player.token).ok<UserProfile>()
+        assertEquals(listOf("map_styles", "cosmetics"), profile.entitlements)
+        assertTrue(profile.has(Entitlement.MAP_STYLES))
+        assertFalse(profile.has(Entitlement.PREMIUM_HOST))
+        val entry = get(ApiRoutes.ADMIN_AUDIT, admin).ok<AdminAudit>().entries
+            .first { it.action == AdminAction.GRANT_ENTITLEMENT && it.targetUserId == player.user.id }
+        assertEquals("cosmetics forever", entry.target)
+        assertEquals("promo", entry.reason)
+
+        // A limited one ends by itself.
+        clock.advance(Duration.ofDays(31))
+        assertEquals(listOf("cosmetics"), getAccount(ApiRoutes.ME, player.token).ok<UserProfile>().entitlements)
+
+        // The staff sessions above are long over.
+        val laterModerator = staff(UserRole.MODERATOR)
+        val laterAdmin = staff(UserRole.ADMIN)
+        post(revoke, AdminRevokeEntitlementRequest(Entitlement.COSMETICS, "refund"), laterModerator)
+            .error(403, ErrorCode.FORBIDDEN)
+        val after = post(revoke, AdminRevokeEntitlementRequest(Entitlement.COSMETICS, "refund"), laterAdmin)
+            .ok<AdminUserCard>()
+        assertEquals(emptyList(), after.entitlements)
+        assertEquals(emptyList(), getAccount(ApiRoutes.ME, player.token).ok<UserProfile>().entitlements)
+        post(revoke, AdminRevokeEntitlementRequest(Entitlement.COSMETICS, "again"), laterAdmin)
+            .error(409, ErrorCode.WRONG_STATE)
     }
 
     @Test
