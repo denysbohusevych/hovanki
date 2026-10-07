@@ -1,5 +1,6 @@
 package app.hovanki.client.storage
 
+import app.hovanki.client.map.MapLook
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.protocolJson
@@ -29,8 +30,8 @@ data class SavedAccount(
 
 /**
  * What the app remembers between launches: the running game and the logged-in account (their tokens are secrets,
- * hence [SecureStore]), the name a guest entered last time, the game setup the host chose last time and, in the field
- * build, when the tester agreed to the field log.
+ * hence [SecureStore]), the name a guest entered last time, the game setup the host chose last time, how the maps look
+ * and, in the field build, when the tester agreed to the field log.
  *
  * Storage is a convenience, never a reason to crash: a value that can't be read or written (Keystore or Keychain
  * error, data from an older app version) is treated as absent. Location data is never stored.
@@ -81,6 +82,13 @@ class ClientStorage(private val store: SecureStore) {
 
     fun saveRadarEnabled(enabled: Boolean) {
         write(RADAR_ENABLED, enabled.toString())
+    }
+
+    /** How the maps look on this phone (docs/adr/0025-map-styles-and-height.md); null: never chosen. */
+    fun loadMapLook(): MapLook? = load(MAP_LOOK, MapLook.serializer())
+
+    fun saveMapLook(look: MapLook) {
+        save(MAP_LOOK, MapLook.serializer(), look)
     }
 
     /**
@@ -136,6 +144,7 @@ class ClientStorage(private val store: SecureStore) {
         const val PLAYER_NAME = "playerName"
         const val GAME_SETUP = "gameSetup"
         const val RADAR_ENABLED = "radarEnabled"
+        const val MAP_LOOK = "mapLook"
         const val FIELD_CONSENT_AT = "fieldConsentAt"
         const val LEGACY_SERVER_URL = "serverUrl"
     }

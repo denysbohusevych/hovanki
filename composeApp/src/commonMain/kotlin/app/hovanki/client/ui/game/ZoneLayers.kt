@@ -32,13 +32,13 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * The zone's fills on every map: outside it darker, and the part about to go in pink when [bandOpacity] is above 0.
- * [shape] is read here, so a moving zone redraws these layers only.
+ * [shape] is read here, so a moving zone redraws these layers only. [paint]: the base map's colors.
  */
 @Composable
-internal fun ZoneFills(shape: State<ZoneShape>, bandOpacity: Float = 0f) {
+internal fun ZoneFills(shape: State<ZoneShape>, bandOpacity: Float = 0f, paint: MapPaint = MapPaint.Light) {
     val zone = shape.value
     val shade = rememberGeoJsonSource(GeoJsonData.Features(FeatureCollection(zone.shade().map { Feature(it, null) })))
-    FillLayer(id = "zone-shade", source = shade, color = const(Palette.Ink), opacity = const(SHADE_OPACITY))
+    FillLayer(id = "zone-shade", source = shade, color = const(paint.shade), opacity = const(paint.shadeOpacity))
     if (bandOpacity > 0f && zone.band.isNotEmpty()) {
         val band = rememberGeoJsonSource(
             GeoJsonData.Features(FeatureCollection(zone.band.map { Feature(it.toPolygon(), null) })),
@@ -49,7 +49,7 @@ internal fun ZoneFills(shape: State<ZoneShape>, bandOpacity: Float = 0f) {
 
 /**
  * The zone's border on every map, an ink casing with a colored core, and the next zone's border dashed when
- * [nextOpacity] is above 0.
+ * [nextOpacity] is above 0, in the [paint]'s line color.
  */
 @Composable
 internal fun ZoneBorder(
@@ -58,6 +58,7 @@ internal fun ZoneBorder(
     coreColor: Color = Palette.Green,
     coreWidth: Dp = RING_CORE_WIDTH,
     nextOpacity: Float = 0f,
+    paint: MapPaint = MapPaint.Light,
 ) {
     val zone = shape.value
     val next = zone.next
@@ -67,7 +68,7 @@ internal fun ZoneBorder(
         LineLayer(
             id = "zone-next",
             source = nextSource,
-            color = const(Palette.Ink),
+            color = const(paint.line),
             width = const(NEXT_WIDTH),
             opacity = const(nextOpacity),
             dasharray = const(listOf<Number>(4, 2.5)),

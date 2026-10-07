@@ -10,8 +10,8 @@ import app.hovanki.shared.protocol.QuestId
 /** A panel over the round: the quests or the perks (docs/adr/0013-quests-sparks-and-sensors.md). */
 enum class GamePanel { QUESTS, PERKS }
 
-/** A dialog over the round: «More» (leave, pause, SOS) or the SOS's own. */
-enum class GameDialog { MENU, SOS }
+/** A dialog over the round: «More» (leave, pause, SOS), the SOS's own, or the map's look. */
+enum class GameDialog { MENU, SOS, MAP }
 
 /** A camera over the round: the claimed hider's code, «Found!» with no claim yet, or a checkpoint's code. */
 enum class GameScanner { CLAIM, FREE, CHECKPOINT }

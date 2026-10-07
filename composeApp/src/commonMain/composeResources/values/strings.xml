@@ -1011,4 +1011,17 @@
   <string name="achievement_big_company_detail">Players in one game: %1$s</string>
   <string name="achievement_weekly">Every week</string>
   <string name="achievement_weekly_detail">Weeks in a row with a game: %1$s</string>
+  <string name="map_look_title">Map</string>
+  <string name="map_theme_light">Light</string>
+  <string name="map_theme_dark">Dark</string>
+  <string name="map_theme_minimal">Minimal</string>
+  <string name="map_theme_auto">Auto</string>
+  <string name="map_theme_auto_hint">Dark after sunset, light by day.</string>
+  <string name="map_buildings_3d">3D houses</string>
+  <string name="map_buildings_3d_hint">Tilt the map with two fingers, or tap “3D” in the game.</string>
+  <string name="map_relief">Relief</string>
+  <string name="map_relief_hint">Hills and ravines in shades.</string>
+  <string name="map_look_menu">Map look</string>
+  <string name="map_view_3d">Tilt the map</string>
+  <string name="map_view_2d">Map from above</string>
 </resources>

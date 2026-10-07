@@ -356,6 +356,18 @@ object TestTags {
     const val MAP_ATTRIBUTION = "map_attribution"
     const val GAME_IN_BUILDING = "game_in_building"
 
+    /**
+     * How the maps look (docs/adr/0025-map-styles-and-height.md): the card in the profile, its switches, the round's
+     * «3D» button and the menu's entry.
+     */
+    const val MAP_LOOK = "map_look"
+    const val MAP_BUILDINGS_3D = "map_buildings_3d"
+    const val MAP_RELIEF = "map_relief"
+    const val MAP_VIEW_3D = "map_view_3d"
+    const val MAP_LOOK_OPEN = "map_look_open"
+
+    fun mapTheme(name: String) = "map_theme_${name.lowercase()}"
+
     /** The pause and the SOS (docs/adr/0019-pause-and-sos.md): the card, «Go on», the menu's entries, the SOS dialog. */
     const val GAME_PAUSE = "game_pause"
     const val PAUSE_RESUME = "pause_resume"

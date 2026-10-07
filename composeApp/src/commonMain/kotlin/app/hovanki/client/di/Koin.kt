@@ -30,6 +30,7 @@ import app.hovanki.client.lab.LabRunner
 import app.hovanki.client.lab.LabUploader
 import app.hovanki.client.lab.PocketTexts
 import app.hovanki.client.location.LocationProvider
+import app.hovanki.client.map.MapSettings
 import app.hovanki.client.network.AccountApi
 import app.hovanki.client.network.AdaptiveGameConnection
 import app.hovanki.client.network.BigGameApi
@@ -125,6 +126,7 @@ internal val LAB_PRECISION = named("lab.precision")
 
 val commonModule: Module = module {
     single { ClientStorage(get()) }
+    single { MapSettings(get()) }
     // One server: the build's (debug builds on an emulator: the development machine; the launch options' server, see
     // onAppStart).
     single { ServerUrl(defaultServerUrl(get())) }
