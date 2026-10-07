@@ -56,6 +56,7 @@ class DataRetention(
         val labChunks: Int = 0,
         val labRunNames: Int = 0,
         val fieldRuns: Int = 0,
+        val entitlements: Int = 0,
     )
 
     @Scheduled(cron = "\${hovanki.retention.cron:0 17 3 * * *}")
@@ -89,6 +90,8 @@ class DataRetention(
                 "DELETE FROM sanctions WHERE coalesce(lifted_at, until) < :t",
                 before(admin.auditRetention),
             ),
+            // A paid extra once it has ended (docs/adr/0023-entitlements.md); the audit log keeps who granted it.
+            entitlements = delete("DELETE FROM entitlements WHERE until < :t", now.toTimestamptz()),
             auditEntries = delete("DELETE FROM admin_audit WHERE at < :t", before(admin.auditRetention)),
             // With their sign-ups (ON DELETE CASCADE).
             bigGames = delete("DELETE FROM big_games WHERE ended_at < :t", before(bigGames.retention)),
@@ -111,7 +114,7 @@ class DataRetention(
         log.info(
             "Data retention: deleted {} idle sessions, {} reports, {} friend requests, {} expired email codes, " +
                 "{} saved routes, {} admin sessions, {} ended sanctions, {} audit entries, {} big games, " +
-                "{} game recordings, {} lab log chunks, {} lab runs' makers, {} field logs of games",
+                "{} game recordings, {} lab log chunks, {} lab runs' makers, {} field logs of games, {} ended paid extras",
             deleted.sessions,
             deleted.reports,
             deleted.friendRequests,
@@ -125,6 +128,7 @@ class DataRetention(
             deleted.labChunks,
             deleted.labRunNames,
             deleted.fieldRuns,
+            deleted.entitlements,
         )
         return deleted
     }

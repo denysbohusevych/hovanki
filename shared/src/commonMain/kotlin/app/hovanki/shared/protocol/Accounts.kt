@@ -46,6 +46,11 @@ data class UserProfile(
      * know it. Debug builds show the lab whatever it says.
      */
     val labAccess: Boolean = false,
+    /**
+     * The account's paid extras active now, by [Entitlement.id] (docs/adr/0023-entitlements.md): granted by the
+     * server only, never by the account itself; empty from servers that don't know them.
+     */
+    val entitlements: List<String> = emptyList(),
 )
 
 /** Another user as everyone may see them: no email. */

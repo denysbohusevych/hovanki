@@ -2,6 +2,7 @@ package app.hovanki.server.admin
 
 import app.hovanki.server.account.AccountService
 import app.hovanki.server.account.AccountSessionRepository
+import app.hovanki.server.account.EntitlementRepository
 import app.hovanki.server.account.UserRecord
 import app.hovanki.server.account.UserRepository
 import app.hovanki.server.features.FeatureFlags
@@ -17,11 +18,13 @@ import app.hovanki.shared.protocol.AdminFeatureRequest
 import app.hovanki.shared.protocol.AdminFeatures
 import app.hovanki.shared.protocol.AdminFindByEmailRequest
 import app.hovanki.shared.protocol.AdminGames
+import app.hovanki.shared.protocol.AdminGrantEntitlementRequest
 import app.hovanki.shared.protocol.AdminLimits
 import app.hovanki.shared.protocol.AdminLiveGame
 import app.hovanki.shared.protocol.AdminReport
 import app.hovanki.shared.protocol.AdminReports
 import app.hovanki.shared.protocol.AdminRevealedEmail
+import app.hovanki.shared.protocol.AdminRevokeEntitlementRequest
 import app.hovanki.shared.protocol.AdminSetRoleRequest
 import app.hovanki.shared.protocol.AdminStaff
 import app.hovanki.shared.protocol.AdminStaffMember
@@ -29,6 +32,7 @@ import app.hovanki.shared.protocol.AdminStats
 import app.hovanki.shared.protocol.AdminUserCard
 import app.hovanki.shared.protocol.AdminUserRow
 import app.hovanki.shared.protocol.AdminUsers
+import app.hovanki.shared.protocol.EntitlementSource
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameId
@@ -54,7 +58,8 @@ import java.util.concurrent.ConcurrentHashMap
  * What staff do in the admin (docs/adr/0008-admin.md): reports, accounts, bans and chat bans, games, numbers, staff,
  * the audit log. Every change is written to the audit log in the same transaction. Rules:
  * - admins only: email lookups, showing an email, bans over [AdminLimits.MODERATOR_MAX_BAN_DAYS] days or forever
- *   (and lifting those), logging an account out everywhere, deleting it, ending games, roles, the audit log;
+ *   (and lifting those), logging an account out everywhere, deleting it, ending games, roles, paid extras, the audit
+ *   log;
  * - sanctions, nickname resets and deletions only ever hit players: staff lose their role first; nobody acts on
  *   themselves;
  * - every change needs a reason.
@@ -66,6 +71,7 @@ class AdminService(
     private val sessions: AccountSessionRepository,
     private val reports: ReportRepository,
     private val sanctions: SanctionRepository,
+    private val entitlements: EntitlementRepository,
     private val staffRepository: StaffRepository,
     private val queries: AdminQueries,
     private val audit: AuditLog,
@@ -165,6 +171,7 @@ class AdminService(
             reportsBy = reports.countBy(user.id),
             sanctions = sanctions.of(user.id).map { it.toAdmin() },
             totpEnrolled = user.role.isStaff && staffRepository.totpSecret(user.id) != null,
+            entitlements = entitlements.active(user.id, clock.instant()).map { it.toAdmin() },
         )
     }
 
@@ -230,6 +237,49 @@ class AdminService(
             audit.record(staff, AdminAction.DELETE_ACCOUNT, clock.instant(), user.id, reason = why)
             accounts.deleteAccount(user.id)
         }
+    }
+
+    // Paid extras (docs/adr/0023-entitlements.md)
+
+    /**
+     * Grants a paid extra for [AdminGrantEntitlementRequest.days] (null: forever), or sets a new end to one the account
+     * has: a tester, a promo, a refund by hand. Admins; staff accounts too, never their own.
+     */
+    fun grantEntitlement(staff: Staff, userId: UserId, request: AdminGrantEntitlementRequest): AdminUserCard {
+        requireAdmin(staff)
+        val why = validReason(request.reason)
+        val days = request.days
+        if (days != null && days !in 1..AdminLimits.MAX_ENTITLEMENT_DAYS) {
+            throw GameException(
+                ErrorCode.BAD_REQUEST,
+                "Days: 1..${AdminLimits.MAX_ENTITLEMENT_DAYS}, or none for forever",
+            )
+        }
+        val user = user(userId)
+        if (user.id == staff.userId) throw GameException(ErrorCode.FORBIDDEN, "Not on yourself")
+        val now = clock.instant()
+        val until = days?.let { now.plus(Duration.ofDays(it.toLong())) }
+        transactions.executeWithoutResult {
+            entitlements.grant(user.id, request.entitlement, EntitlementSource.ADMIN, staff.nickname, now, until)
+            val target = "${request.entitlement.id} ${daysText(days)}"
+            audit.record(staff, AdminAction.GRANT_ENTITLEMENT, now, user.id, target, why)
+        }
+        return card(user.id)
+    }
+
+    /** Takes a paid extra away. Admins; never their own. */
+    fun revokeEntitlement(staff: Staff, userId: UserId, request: AdminRevokeEntitlementRequest): AdminUserCard {
+        requireAdmin(staff)
+        val why = validReason(request.reason)
+        val user = user(userId)
+        if (user.id == staff.userId) throw GameException(ErrorCode.FORBIDDEN, "Not on yourself")
+        transactions.executeWithoutResult {
+            if (!entitlements.revoke(user.id, request.entitlement)) {
+                throw GameException(ErrorCode.WRONG_STATE, "The account doesn't have it")
+            }
+            audit.record(staff, AdminAction.REVOKE_ENTITLEMENT, clock.instant(), user.id, request.entitlement.id, why)
+        }
+        return card(user.id)
     }
 
     // Games

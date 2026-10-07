@@ -216,6 +216,8 @@ object ApiRoutes {
     const val ADMIN_USER_DELETE = "$ADMIN_USER/delete"
     const val ADMIN_USER_ROLE = "$ADMIN_USER/role"
     const val ADMIN_USER_RESET_TOTP = "$ADMIN_USER/reset-totp"
+    const val ADMIN_USER_ENTITLEMENT_GRANT = "$ADMIN_USER/entitlements/grant"
+    const val ADMIN_USER_ENTITLEMENT_REVOKE = "$ADMIN_USER/entitlements/revoke"
     const val ADMIN_GAMES = "$ADMIN/games"
     const val ADMIN_GAME_END = "$ADMIN_GAMES/{gameId}/end"
 

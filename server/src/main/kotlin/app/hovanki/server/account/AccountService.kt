@@ -1,7 +1,6 @@
 package app.hovanki.server.account
 
 import app.hovanki.server.api.AuthenticatedUser
-import app.hovanki.server.features.FeatureFlags
 import app.hovanki.server.game.GameException
 import app.hovanki.server.game.IdGenerator
 import app.hovanki.server.mail.EmailPurpose
@@ -20,7 +19,6 @@ import app.hovanki.shared.protocol.LoginRequest
 import app.hovanki.shared.protocol.PasswordResetConfirmRequest
 import app.hovanki.shared.protocol.PasswordResetRequest
 import app.hovanki.shared.protocol.RegisterRequest
-import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.protocol.UserProfile
 import app.hovanki.shared.protocol.VerifyEmailRequest
@@ -55,14 +53,12 @@ class AccountService(
     private val mailer: Mailer,
     private val beforeDeletion: ObjectProvider<BeforeAccountDeletion>,
     private val sanctions: SanctionService,
-    private val features: FeatureFlags,
+    private val profiles: Profiles,
     transactionManager: PlatformTransactionManager,
 ) {
     private val transactions = TransactionTemplate(transactionManager)
 
-    /** [record] as its owner sees it, with the lab's screen for staff while the lab is on (ADR 0018 §4.D). */
-    private fun profileOf(record: UserRecord): UserProfile =
-        record.toProfile(labOn = features.isEnabled(ServerFeature.RADIO_LAB))
+    private fun profileOf(record: UserRecord): UserProfile = profiles.of(record)
 
     /**
      * A new account, usable right away, and this device logged in. Its email is unconfirmed: a code goes there, and

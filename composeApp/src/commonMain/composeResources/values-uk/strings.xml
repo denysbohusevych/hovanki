@@ -106,6 +106,10 @@
   <string name="profile_nickname">Нік</string>
   <string name="profile_email">Email</string>
   <string name="profile_email_unconfirmed">не підтверджений</string>
+  <string name="profile_extras">Преміум</string>
+  <string name="entitlement_premium_host">Можливості хоста</string>
+  <string name="entitlement_map_styles">Стилі карт</string>
+  <string name="entitlement_cosmetics">Оформлення</string>
   <string name="profile_confirm_email">Підтвердити</string>
   <string name="profile_change_password">Змінити пароль</string>
   <string name="profile_current_password">Поточний пароль</string>

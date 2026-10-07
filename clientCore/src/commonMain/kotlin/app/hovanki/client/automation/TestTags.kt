@@ -121,6 +121,7 @@ object TestTags {
     const val PROFILE_SCREEN = "profile_screen"
     const val PROFILE_NICKNAME = "profile_nickname"
     const val PROFILE_EMAIL = "profile_email"
+    const val PROFILE_EXTRAS = "profile_extras"
 
     /** «not confirmed» next to the email; [PROFILE_CONFIRM_EMAIL] opens the panel. */
     const val PROFILE_EMAIL_UNCONFIRMED = "profile_email_unconfirmed"

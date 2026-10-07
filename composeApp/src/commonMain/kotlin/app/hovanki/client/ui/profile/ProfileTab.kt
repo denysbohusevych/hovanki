@@ -116,6 +116,7 @@ fun ProfileTab(
             }
         }
 
+        ExtrasCard(user)
         StatsCard(historyState.history.stats)
         HistoryButton(onClick = { history.onEvent(HistoryEvent.Open) }, enabled = !historyState.isBusy)
         RoutesCard(historyState, history::onEvent, saveRoutes = user.saveRoutes)

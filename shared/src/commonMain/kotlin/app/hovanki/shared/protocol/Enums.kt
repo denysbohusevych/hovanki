@@ -229,4 +229,10 @@ enum class ErrorReason {
 
     /** Somebody's SOS is on (docs/adr/0019-pause-and-sos.md): the round goes on only once every SOS is over. */
     SOS_ACTIVE,
+
+    /**
+     * The action needs a paid extra the account doesn't have (on [ErrorCode.FORBIDDEN]; docs/adr/0023-entitlements.md):
+     * the app shows the lock instead of an error.
+     */
+    ENTITLEMENT_REQUIRED,
 }
