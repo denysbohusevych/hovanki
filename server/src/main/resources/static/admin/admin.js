@@ -9,6 +9,8 @@ import { createFieldTab } from "./field.js";
 
 const API = "/api/v1/admin";
 const ROLE = { PLAYER: "игрок", MODERATOR: "модератор", ADMIN: "админ" };
+/** Paid extras (docs/adr/0023-entitlements.md); nothing is locked behind them yet. */
+const ENTITLEMENT = { PREMIUM_HOST: "премиум-хост", MAP_STYLES: "стили карт", COSMETICS: "косметика" };
 const PHASE = { LOBBY: "лобби", HIDING: "прячутся", SEEKING: "поиск", FINISHED: "закончена" };
 const ACTION = {
   LOGIN: "вход", ENROLL_TOTP: "подключил аутентификатор", RESOLVE_REPORT: "разобрал жалобу", BAN: "бан",
@@ -22,6 +24,7 @@ const ACTION = {
   LAB_RUN_CREATE: "создал прогон радиолабы", LAB_RUN_CONTROL: "управлял прогоном радиолабы",
   LAB_RUN_DOWNLOAD: "скачал журналы прогона", LAB_RUN_DELETE: "удалил прогон радиолабы",
   FIELD_EXPORT: "выгрузил отчёт полевой игры", FIELD_MARK: "поставил отметку в полевой игре",
+  GRANT_ENTITLEMENT: "выдал платное", REVOKE_ENTITLEMENT: "забрал платное",
 };
 const MODERATOR_MAX_DAYS = 30;
 
@@ -592,6 +595,7 @@ async function userView(userId) {
           go("#/users");
         },
       }, "Удалить аккаунт") : null),
+    entitlementsSection(card, self, reload),
     el("h2", {}, "Баны и запреты чата"),
     card.sanctions.length ? el("table", {},
       el("tr", {}, el("th", {}, "Что"), el("th", {}, "Когда, кто"), el("th", {}, "Срок"), el("th", {}, "Причина")),
@@ -606,6 +610,51 @@ async function userView(userId) {
     if (path === "role") return { role: card.role === "PLAYER" ? "MODERATOR" : "PLAYER", reason: values.reason };
     return { reason: values.reason };
   }
+}
+
+/** The account's paid extras; admins grant them for days or forever and take them away. */
+function entitlementsSection(card, self, reload) {
+  const extras = card.entitlements ?? [];
+  const path = (action) => `/users/${encodeURIComponent(card.id)}/entitlements/${action}`;
+  const grant = el("button", {
+    class: "secondary",
+    async onclick() {
+      const values = await ask(`Выдать платное: ${card.nickname}`, {
+        text: "Без оплаты: тестировщику, для промо, вручную вместо возврата. Уже выданное получит новый срок.",
+        fields: [
+          { name: "entitlement", label: "Что", options: Object.entries(ENTITLEMENT) },
+          { name: "days", label: "Дней", type: "number", value: 30, min: 1, max: 3650 },
+          { name: "forever", label: "Навсегда", type: "checkbox" },
+        ],
+        confirm: "Выдать",
+      });
+      if (!values) return;
+      await run(() => post(path("grant"), { entitlement: values.entitlement, days: days(values), reason: values.reason }),
+        "Выдано.");
+      reload();
+    },
+  }, "Выдать платное");
+  const revoke = (extra) => el("button", {
+    class: "secondary",
+    async onclick() {
+      const values = await ask(`Забрать «${ENTITLEMENT[extra.entitlement]}»: ${card.nickname}`, { confirm: "Забрать" });
+      if (!values) return;
+      await run(() => post(path("revoke"), { entitlement: extra.entitlement, reason: values.reason }), "Забрано.");
+      reload();
+    },
+  }, "Забрать");
+  return [
+    el("h2", {}, "Платное"),
+    extras.length ? el("table", {},
+      el("tr", {}, el("th", {}, "Что"), el("th", {}, "Откуда, когда, кто"), el("th", {}, "Срок"), el("th", {}, "")),
+      extras.map((extra) => el("tr", {},
+        el("td", {}, ENTITLEMENT[extra.entitlement] ?? extra.entitlement),
+        el("td", {}, extra.source === "ADMIN" ? "из админки" : extra.source, ", ", fmt.time(extra.grantedAtMillis),
+          extra.byName ? `, ${extra.byName}` : ""),
+        el("td", {}, fmt.until(extra.untilMillis)),
+        el("td", {}, isAdmin() && !self ? revoke(extra) : null)))) : el("p", { class: "muted" }, "Нет."),
+    isAdmin() && !self ? el("div", { class: "row" }, grant) : null,
+  ];
 }
 
 function field(title, ...value) {

@@ -463,7 +463,7 @@ sequenceDiagram
 | POST | `/api/v1/accounts/logout` | аккаунт | — | 204 |
 | POST | `/api/v1/accounts/password-reset` | — | `PasswordResetRequest` | 204 всегда |
 | POST | `/api/v1/accounts/password-reset/confirm` | — | `PasswordResetConfirmRequest` | `AccountSession`; остальные сессии отозваны, email подтверждён |
-| GET | `/api/v1/me` | аккаунт | — | `UserProfile`; `labAccess` — сотрудник, пока на сервере включён `RADIO_LAB` (экран лабы в полевой сборке) |
+| GET | `/api/v1/me` | аккаунт | — | `UserProfile`; `labAccess` — сотрудник, пока на сервере включён `RADIO_LAB` (экран лабы в полевой сборке); `entitlements` — `id` платных прав, активных сейчас ([ADR 0023](adr/0023-entitlements.md)) |
 | POST | `/api/v1/me/email/verify` | аккаунт | `VerifyEmailRequest` | `UserProfile` |
 | POST | `/api/v1/me/email/resend` | аккаунт | — | 204 |
 | POST | `/api/v1/me/email` | аккаунт, только пока email не подтверждён | `ChangeEmailRequest` (новый email и текущий пароль) | `UserProfile`; код уходит на новый адрес |
@@ -526,6 +526,7 @@ sequenceDiagram
 | POST | `/api/v1/admin/users/{userId}/email`, `/logout` | Адм. | `AdminReasonRequest` | `AdminRevealedEmail` / `AdminUserCard` |
 | POST | `/api/v1/admin/users/{userId}/delete` | Адм., по письменному запросу владельца | `AdminReasonRequest` | 204 |
 | POST | `/api/v1/admin/users/{userId}/role`, `/reset-totp` | Адм.: игрок ⇄ модератор; сброс TOTP модератора | `AdminSetRoleRequest` / `AdminReasonRequest` | `AdminUserCard` |
+| POST | `/api/v1/admin/users/{userId}/entitlements/grant`, `/entitlements/revoke` | Адм.: выдать платное право на дни или навсегда, забрать ([ADR 0023](adr/0023-entitlements.md)); не себе | `AdminGrantEntitlementRequest` / `AdminRevokeEntitlementRequest` | `AdminUserCard` |
 | GET | `/api/v1/admin/games` | Мод. | — | `AdminGames`: без центра зоны, позиций и чата; с состоянием карты (здания, зона по улицам) |
 | POST | `/api/v1/admin/games/{gameId}/end` | Адм. | `AdminReasonRequest` | 204 |
 | POST | `/api/v1/admin/games/{gameId}/watch` | Адм., только открытая игра: причина в журнал (`WATCH_GAME`), просмотр на 30 минут | `AdminReasonRequest` | `AdminLiveGame` |
