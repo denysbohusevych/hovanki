@@ -4,6 +4,7 @@ import app.hovanki.shared.protocol.AccountSession
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.ChangeEmailRequest
 import app.hovanki.shared.protocol.ChangePasswordRequest
+import app.hovanki.shared.protocol.CityRequest
 import app.hovanki.shared.protocol.DeleteAccountRequest
 import app.hovanki.shared.protocol.LoginRequest
 import app.hovanki.shared.protocol.PasswordResetConfirmRequest
@@ -55,6 +56,9 @@ interface AccountApi {
      * far; on also keeps the games that just finished (the results screen).
      */
     suspend fun setSaveRoutes(token: String, enabled: Boolean): UserProfile
+
+    /** My city of the city leaderboard (`Cities.IDS`), or null to forget it (docs/adr/0022-city-leaderboard.md). */
+    suspend fun setCity(token: String, city: String?): UserProfile
 }
 
 /** [AccountApi] over HTTP/JSON. */
@@ -104,4 +108,7 @@ class HttpAccountApi(client: HttpClient, serverUrl: ServerUrl) : AccountApi {
 
     override suspend fun setSaveRoutes(token: String, enabled: Boolean): UserProfile =
         http.post(ApiRoutes.ME_PRIVACY, token, PrivacyRequest(enabled))
+
+    override suspend fun setCity(token: String, city: String?): UserProfile =
+        http.post(ApiRoutes.ME_CITY, token, CityRequest(city))
 }

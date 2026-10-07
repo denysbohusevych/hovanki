@@ -33,10 +33,20 @@ data class LeaderboardResult(
  */
 @Repository
 class LeaderboardRepository(private val jdbc: JdbcClient) {
-    /** Every result that ended in [from, to), of [only] when given (else everybody's). */
-    fun results(from: Instant, to: Instant, now: Instant, only: Collection<UserId>? = null): List<LeaderboardResult> {
+    /**
+     * Every result that ended in [from, to), of [only] when given (else everybody's), of the players whose city is
+     * [city] when given (their city today, not when they played).
+     */
+    fun results(
+        from: Instant,
+        to: Instant,
+        now: Instant,
+        only: Collection<UserId>? = null,
+        city: String? = null,
+    ): List<LeaderboardResult> {
         if (only != null && only.isEmpty()) return emptyList()
-        val filter = if (only == null) "" else "AND r.user_id IN (:ids)"
+        val filter =
+            (if (only == null) "" else "AND r.user_id IN (:ids) ") + (if (city == null) "" else "AND u.city = :city")
         val query = jdbc.sql(
             """
             SELECT r.user_id, u.nickname, r.finished_at, r.role, r.status, r.won, r.catches, r.survived_seconds
@@ -47,7 +57,8 @@ class LeaderboardRepository(private val jdbc: JdbcClient) {
             .param("from", from.toTimestamptz())
             .param("to", to.toTimestamptz())
             .param("now", now.toTimestamptz())
-        return (if (only == null) query else query.param("ids", only.map { it.value }.distinct()))
+        val withIds = if (only == null) query else query.param("ids", only.map { it.value }.distinct())
+        return (if (city == null) withIds else withIds.param("city", city))
             .query(resultMapper)
             .list()
     }
@@ -77,6 +88,13 @@ class LeaderboardRepository(private val jdbc: JdbcClient) {
     )
         .param("u", userId.value)
         .query { rs, _ -> GameId(rs.getString("game_id")) to rs.getInstant("finished_at") }
+        .optional()
+        .orElse(null)
+
+    /** [userId]'s city of the city leaderboard; null: none picked. */
+    fun cityOf(userId: UserId): String? = jdbc.sql("SELECT city FROM users WHERE id = :u")
+        .param("u", userId.value)
+        .query { rs, _ -> rs.getString("city") }
         .optional()
         .orElse(null)
 
