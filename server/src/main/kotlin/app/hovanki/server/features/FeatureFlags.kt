@@ -40,13 +40,13 @@ class FeatureFlags(
 
     /**
      * Whether this server may have [feature] on at all: the field log only where [FieldProperties.allowed] says so
-     * (the test server), never on production, whatever its switch in the database says.
+     * (the profile `field`), never without it, whatever its switch in the database says.
      */
     fun isAllowed(feature: ServerFeature): Boolean =
         (feature != ServerFeature.FIELD_LOG || field.allowed) && !isShadowOnly(feature)
 
     /**
-     * [feature] is only a shadow on this server ([FeaturesProperties.shadowOnly], the test server): never on for a
+     * [feature] is only a shadow on this server ([FeaturesProperties.shadowOnly], the profile `field`): never on for a
      * game, whatever its switch says, and the admin can't turn it on. The field log computes its answer anyway.
      */
     fun isShadowOnly(feature: ServerFeature): Boolean = feature in properties.shadowOnly
@@ -74,7 +74,7 @@ class FeatureFlags(
                 if (isShadowOnly(feature)) {
                     "Not on this server: ${feature.name} runs in the shadow only"
                 } else {
-                    "Not on this server: ${feature.name} is for the test server only"
+                    "Not on this server: ${feature.name} needs the server's profile `field`"
                 },
                 ErrorReason.FEATURE_DISABLED,
             )

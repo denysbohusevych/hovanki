@@ -444,7 +444,7 @@ Job проверяет профиль до сборки: тип App Store (бе�
    > Hovanki is a street hide-and-seek game for a group of people. A player shares their location with the other players of the same game only while a round is running.
    > Background location: a round goes on while the phone is locked in a pocket. The app asks for "While Using" only and keeps the location updates it started in the foreground (UIBackgroundModes: location).
    > Bluetooth: an optional "radar" hears the phones of nearby players of the same game.
-   > This is a field-test build. It talks to our test server and, after the tester's explicit consent on the first launch, writes a diagnostic log (location, Bluetooth, state of the phone) that is kept for 90 days on that server and visible to the developers only.
+   > This is a field-test build. It talks to our game server and, after the tester's explicit consent on the first launch, writes a diagnostic log (location, Bluetooth, state of the phone) that is kept for 90 days on that server and visible to the developers only.
    > Demo account: nickname `<ник>`, password `<пароль>`. Sign in on the first screen, then create a game from the main screen.
 6. **Что дальше:** сборка живёт в TestFlight 90 дней; новую версию (с новым `MARKETING_VERSION`) снова проверяет ревью; тестеры видят сборку в приложении TestFlight после принятия приглашения.
 
@@ -514,7 +514,7 @@ gh secret set PLAY_SERVICE_ACCOUNT_JSON < hovanki-play-upload.json
 
 > **Hovanki β — полевой тест**
 >
-> Это тестовая сборка игры в прятки на улицах. Она ходит на **тестовый сервер**: аккаунт из обычной версии здесь не работает, регистрируйся заново. При первом запуске приложение попросит согласие на запись журнала: пока ты играешь, оно пишет, где ты, что происходит с телефоном и игрой, кого слышит Bluetooth. Это хранится 90 дней на тестовом сервере, видят только разработчики, удаляется вместе с аккаунтом. Без согласия играть в этой сборке нельзя.
+> Это тестовая сборка игры в прятки на улицах. Она ходит на тот же сервер, что и обычная версия: твой аккаунт работает, можно и зарегистрироваться. При первом запуске приложение попросит согласие на запись журнала: пока ты играешь, оно пишет, где ты, что происходит с телефоном и игрой, кого слышит Bluetooth. Это хранится 90 дней на сервере игры, видят только разработчики, удаляется вместе с аккаунтом. Без согласия играть в этой сборке нельзя.
 >
 > **iPhone** (iOS 16 и новее)
 > 1. Установи из App Store приложение **TestFlight**.
@@ -540,7 +540,7 @@ gh secret set PLAY_SERVICE_ACCOUNT_JSON < hovanki-play-upload.json
 > - *Android: «Страница не найдена» или «Приложение недоступно».* Ты открыл ссылку другим Google-аккаунтом (смени аккаунт в Google Play) или адрес твоего аккаунта ещё не добавлен: напиши организатору и подожди несколько минут после добавления.
 > - *Android: в поиске Google Play приложения нет.* Сначала нужно принять приглашение по ссылке (шаг 1), только потом оно появляется.
 > - *«Нет связи с сервером».* Проверь интернет; если связь есть, сервер перезапускают: подожди пару минут и напиши организатору.
-> - *Не работает вход.* Тестовый сервер не знает твой настоящий аккаунт: зарегистрируйся заново.
+> - *Не работает вход.* Проверь ник и пароль или сбрось пароль на экране входа; не вышло — напиши организатору.
 
 ## Защита веток
 

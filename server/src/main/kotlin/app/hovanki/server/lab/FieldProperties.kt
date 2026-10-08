@@ -13,9 +13,10 @@ import java.time.Duration
 @ConfigurationProperties("hovanki.field")
 data class FieldProperties(
     /**
-     * This server may have the field log at all: the test server (application-staging.yaml), the e2e profile and the
-     * tests. Off, as on production (docs/adr/0018-field-test-build.md §9): FIELD_LOG stays off whatever its switch in
-     * the database says, and the admin can't turn it on ([app.hovanki.server.features.FeatureFlags]).
+     * This server may have the field log at all: the profile `field` (application-field.yaml: the main server on the
+     * field test's days, and staging), the e2e profile and the tests. Off without them (docs/adr/0018-field-test-build.md
+     * §9): FIELD_LOG stays off whatever its switch in the database says, and the admin can't turn it on
+     * ([app.hovanki.server.features.FeatureFlags]).
      */
     val allowed: Boolean = false,
     /** Devices per game's run, rejoins of the same phone included. */
