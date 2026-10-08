@@ -117,6 +117,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import java.util.Collections
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.time.Duration
@@ -929,7 +931,9 @@ class BotPlayer(
                 return
             }
             val snapshot = (frame as? ServerFrame.Snapshot)?.snapshot ?: return
-            SnapshotAudit.check(snapshot, body).forEach { violations += "$name: $it" }
+            // The snapshot's own JSON, as `POST /sync` would answer it: the audit reads its keys (`sos` among them).
+            val wire = Json.parseToJsonElement(body).jsonObject.getValue("snapshot").toString()
+            SnapshotAudit.check(snapshot, wire).forEach { violations += "$name: $it" }
             snapshot.players.forEach { player -> player.location?.let { reveals += player.id to it.exactReason } }
             return
         }
