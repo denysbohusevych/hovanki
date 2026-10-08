@@ -1,6 +1,7 @@
 package app.hovanki.e2e.bot
 
 import app.hovanki.shared.protocol.ChatChannel
+import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.PlayerStatus
@@ -18,7 +19,7 @@ import kotlinx.serialization.json.JsonObject
 /**
  * Privacy rules every snapshot must follow, whatever happens in the game (docs/architecture.md, "Видимость"):
  * the server never sends a position the viewer may not see, nor a chat message of another team. Checked on every
- * response every bot receives.
+ * response every bot receives, and on every chat message a socket pushes.
  */
 object SnapshotAudit {
     private val HIDER_REVEALS = setOf(
@@ -126,6 +127,19 @@ object SnapshotAudit {
             }
         }
         return problems
+    }
+
+    /**
+     * Chat [messages] the live channel pushed to a phone whose last snapshot is [last] (docs/adr/0015-websockets.md):
+     * never another team's. Judged once the round gave the viewer their role in this game; a team message pushed while
+     * the phone still shows the lobby means the round has begun meanwhile.
+     */
+    fun checkPushedChat(messages: List<ChatMessage>, last: GameSnapshot?): List<String> {
+        if (last == null || last.phase == GamePhase.LOBBY) return emptyList()
+        val me = last.me
+        return messages.filterNot { ChatRules.canSee(it.channel, me.role) }.map {
+            "${me.role} ${me.playerId.value} was pushed chat message ${it.seq} of channel ${it.channel} in ${last.phase}"
+        }
     }
 
     /**

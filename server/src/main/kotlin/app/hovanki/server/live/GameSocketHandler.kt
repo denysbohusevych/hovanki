@@ -13,6 +13,7 @@ import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.ServerFrame
 import app.hovanki.shared.protocol.SocketClose
+import app.hovanki.shared.protocol.SocketFrames
 import app.hovanki.shared.protocol.SocketLimits
 import app.hovanki.shared.protocol.protocolJson
 import kotlinx.serialization.SerializationException
@@ -33,7 +34,8 @@ import org.springframework.web.util.UriTemplate
 
 /**
  * The game's live channel ([ApiRoutes.SOCKET], docs/adr/0015-websockets.md, section 3): a player's `sync` as frames,
- * answered with the same snapshot as `POST /sync` by the same [GameService.sync], and the pokes of [GameSockets].
+ * answered with the same snapshot as `POST /sync` by the same [GameService.sync], and the pokes and chat messages of
+ * [GameSockets].
  *
  * The upgrade itself is never refused for a bad token: the socket opens and closes at once with a code the app acts on
  * ([SocketClose]), which a refused handshake could not carry. Every sync checks again that the token still works and
@@ -71,7 +73,8 @@ class GameSocketHandler(
             return
         }
         val concurrent = ConcurrentWebSocketSessionDecorator(session, SEND_TIME_LIMIT_MILLIS, SEND_BUFFER_LIMIT_BYTES)
-        val socket = LiveSocket(concurrent, ref, token, sockets.pokeScheduler)
+        val takesChat = session.attributes[TAKES_CHAT] == true
+        val socket = LiveSocket(concurrent, ref, token, sockets.pokeScheduler, takesChat)
         session.attributes[SOCKET] = socket
         sockets.opened(socket)
     }
@@ -143,6 +146,7 @@ class GameSocketHandler(
     companion object {
         internal const val TOKEN = "hovanki.token"
         internal const val GAME_ID = "hovanki.gameId"
+        internal const val TAKES_CHAT = "hovanki.takesChat"
         private const val SOCKET = "hovanki.socket"
 
         /** A phone that can't take a frame within this, or lets this much pile up, is dropped: it reconnects. */
@@ -153,8 +157,9 @@ class GameSocketHandler(
 }
 
 /**
- * Takes the game token (`Authorization: Bearer`, as the HTTP routes do) and the game of the path into the socket's
- * attributes; [GameSocketHandler] decides once the socket is open. Never refuses the upgrade itself.
+ * Takes the game token (`Authorization: Bearer`, as the HTTP routes do), the game of the path and whether the app
+ * takes the chat's frames ([SocketFrames.HEADER]) into the socket's attributes; [GameSocketHandler] decides once the
+ * socket is open. Never refuses the upgrade itself.
  */
 class GameSocketHandshake : HandshakeInterceptor {
     private val path = UriTemplate(ApiRoutes.SOCKET)
@@ -169,6 +174,8 @@ class GameSocketHandshake : HandshakeInterceptor {
         val token = header.removePrefix("${ApiRoutes.AUTH_SCHEME} ").trim()
         if (token.isNotEmpty() && token != header.trim()) attributes[GameSocketHandler.TOKEN] = token
         path.match(request.uri.path)["gameId"]?.let { attributes[GameSocketHandler.GAME_ID] = it }
+        val frames = request.headers[SocketFrames.HEADER].orEmpty().flatMap { it.split(',') }.map { it.trim() }
+        if (SocketFrames.CHAT in frames) attributes[GameSocketHandler.TAKES_CHAT] = true
         return true
     }
 

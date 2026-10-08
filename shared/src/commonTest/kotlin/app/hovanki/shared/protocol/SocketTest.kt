@@ -30,6 +30,12 @@ class SocketTest {
         )
         assertEquals(sync, protocolJson.decodeFromString(ClientFrame.serializer(), json))
         assertEquals("""{"type":"poke"}""", protocolJson.encodeToString(ServerFrame.serializer(), ServerFrame.Poke))
+        val chat: ServerFrame = ServerFrame.Chat(listOf(ChatMessage(5, me, "here", 1_700_000_000_000)))
+        assertEquals(
+            """{"type":"chat","messages":[""" +
+                """{"seq":5,"playerId":"p1","text":"here","sentAtMillis":1700000000000,"channel":"ALL"}]}""",
+            protocolJson.encodeToString(ServerFrame.serializer(), chat),
+        )
     }
 
     @Test
@@ -37,6 +43,12 @@ class SocketTest {
         val frames = listOf(
             ServerFrame.Snapshot(17, snapshot),
             ServerFrame.Poke,
+            ServerFrame.Chat(
+                listOf(
+                    ChatMessage(5, me, "here", 1_700_000_000_000),
+                    ChatMessage(7, me, "seekers only", 1_700_000_000_500, ChatChannel.SEEKERS),
+                ),
+            ),
             ServerFrame.Error(18, ApiError(ErrorCode.BAD_REQUEST, "Too many samples")),
             ServerFrame.Error(
                 19,

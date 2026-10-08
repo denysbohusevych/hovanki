@@ -1,5 +1,6 @@
 package app.hovanki.client.network
 
+import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.DeviceReport
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.NearbySighting
@@ -12,7 +13,8 @@ import kotlinx.coroutines.flow.Flow
  * The transport is hidden on purpose: polling over HTTP ([PollingGameConnection]), which survives flaky mobile networks
  * and iOS background limits, or the live channel over a WebSocket ([WebSocketGameConnection],
  * docs/adr/0015-websockets.md), whose pokes bring what happens at once. The app uses both ([AdaptiveGameConnection]):
- * the socket while the server has it on and it works, polling otherwise. Chat comes with the syncs either way.
+ * the socket while the server has it on and it works, polling otherwise. Chat comes with the syncs either way, and on
+ * the socket also as it is sent ([ConnectionEvent.Chat]).
  */
 interface GameConnection {
     /**
@@ -50,6 +52,12 @@ sealed interface ConnectionEvent {
         val transport: Transport = Transport.POLLING,
         val bytes: Int? = null,
     ) : ConnectionEvent
+
+    /**
+     * New chat [messages] the live channel pushed as they were sent (oldest first): no snapshot, so they don't move
+     * the chat cursor (`SyncRequest.chatAfter`); the next sync may bring them again.
+     */
+    data class Chat(val messages: List<ChatMessage>) : ConnectionEvent
 
     /** A transient failure; the connection retries by itself after [retryInMillis]. */
     data class Problem(val error: Throwable, val retryInMillis: Long) : ConnectionEvent
