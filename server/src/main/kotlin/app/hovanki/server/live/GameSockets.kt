@@ -4,10 +4,12 @@ import app.hovanki.server.game.GameRegistry
 import app.hovanki.server.game.PlayerRef
 import app.hovanki.server.game.PokeSink
 import app.hovanki.server.game.Pokes
+import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.ServerFrame
 import app.hovanki.shared.protocol.SocketClose
+import app.hovanki.shared.protocol.SocketFrames
 import app.hovanki.shared.protocol.SocketLimits
 import app.hovanki.shared.protocol.protocolJson
 import org.slf4j.LoggerFactory
@@ -26,57 +28,72 @@ import java.util.concurrent.TimeUnit
 /**
  * One open socket of a player (docs/adr/0015-websockets.md): [session] is thread-safe for sending (a
  * `ConcurrentWebSocketSessionDecorator`), [token] is the game token it was opened with, checked again on every sync.
+ * [takesChat]: the app named [SocketFrames.CHAT] at the upgrade, so new chat messages go to it as they are.
  */
 class LiveSocket(
     val session: WebSocketSession,
     val ref: PlayerRef,
     val token: String,
     private val pokeScheduler: ScheduledThreadPoolExecutor,
+    val takesChat: Boolean = false,
 ) {
     val openedAtNanos: Long = System.nanoTime()
 
     private val lock = Any()
-    private var lastPokeNanos: Long? = null
+    private var lastSentNanos: Long? = null
+    private var sendScheduled = false
     private var pokePending = false
+    private val chatPending = ArrayList<ChatMessage>()
     private val syncNanos = ArrayDeque<Long>()
 
+    /** Pokes the phone: sync now. */
+    fun poke() = push(emptyList(), poke = true)
+
     /**
-     * Pokes the phone: sync now. At most one poke per [SocketLimits.POKE_GAP_MILLIS]; the pokes of a burst after one
-     * are sent as one at the end of the gap. Sent on [pokeScheduler]'s threads, never the caller's: the request that
-     * changed the game never waits for a phone.
+     * Sends the phone new [chat] messages it may read, and with [poke] a poke. At most one send per
+     * [SocketLimits.POKE_GAP_MILLIS]: whatever comes within the gap after one goes as one chat frame and one poke at
+     * its end; more messages than a frame takes go as a poke instead, the sync brings them. Sent on [pokeScheduler]'s
+     * threads, never the caller's: the request that changed the game never waits for a phone.
      */
-    fun poke() {
+    fun push(chat: List<ChatMessage>, poke: Boolean) {
+        if (chat.isEmpty() && !poke) return
         val wait = synchronized(lock) {
-            if (pokePending) return
-            val now = System.nanoTime()
-            val last = lastPokeNanos
-            val waitNanos = if (last == null) 0L else last + POKE_GAP_NANOS - now
-            if (waitNanos > 0) {
+            if (chatPending.size + chat.size > SocketLimits.MAX_CHAT_PER_FRAME) {
+                chatPending.clear()
                 pokePending = true
             } else {
-                lastPokeNanos = now
+                chatPending += chat
             }
-            waitNanos
+            if (poke) pokePending = true
+            if (sendScheduled) return
+            sendScheduled = true
+            val last = lastSentNanos
+            if (last == null) 0L else last + POKE_GAP_NANOS - System.nanoTime()
         }
         try {
             if (wait <= 0) {
-                pokeScheduler.execute { send(POKE) }
-                return
+                pokeScheduler.execute(::sendPending)
+            } else {
+                pokeScheduler.schedule(::sendPending, wait, TimeUnit.NANOSECONDS)
             }
-            pokeScheduler.schedule(
-                {
-                    synchronized(lock) {
-                        pokePending = false
-                        lastPokeNanos = System.nanoTime()
-                    }
-                    send(POKE)
-                },
-                wait,
-                TimeUnit.NANOSECONDS,
-            )
         } catch (e: RejectedExecutionException) {
             // The server is stopping: the sockets are being closed anyway.
         }
+    }
+
+    private fun sendPending() {
+        val (chat, poke) = synchronized(lock) {
+            sendScheduled = false
+            lastSentNanos = System.nanoTime()
+            val chat = chatPending.sortedBy { it.seq }
+            chatPending.clear()
+            val poke = pokePending
+            pokePending = false
+            chat to poke
+        }
+        // The messages first: the poke's sync then has nothing more to bring about them.
+        if (chat.isNotEmpty()) send(ServerFrame.Chat(chat))
+        if (poke) send(POKE)
     }
 
     /** One more sync; false when the socket syncs more often than [SocketLimits.MAX_SYNCS_PER_WINDOW] allows. */
@@ -117,9 +134,9 @@ class LiveSocket(
 
 /**
  * The open sockets of the games' players, in memory (docs/adr/0015-websockets.md, section 3): where [GameService]'s
- * pokes go ([PokeSink]). Holds nothing about a game but who is connected; a socket whose game is gone or whose token
- * no longer works is closed by the next sync, or by the sweep once a minute. Closes every socket when the server stops,
- * so the phones reconnect to the next one at once.
+ * pokes and new chat messages go ([PokeSink]). Holds nothing about a game but who is connected; a socket whose game is
+ * gone or whose token no longer works is closed by the next sync, or by the sweep once a minute. Closes every socket
+ * when the server stops, so the phones reconnect to the next one at once.
  */
 @Component
 class GameSockets(private val registry: GameRegistry) :
@@ -156,7 +173,9 @@ class GameSockets(private val registry: GameRegistry) :
         val sockets = byGame[gameId] ?: return
         for (socket in sockets) {
             val playerId = socket.ref.playerId
-            if (playerId != except && pokes.concerns(playerId)) socket.poke()
+            if (playerId == except) continue
+            val chat = if (socket.takesChat) pokes.chatFor(playerId) else emptyList()
+            socket.push(chat, poke = pokes.concerns(playerId, socket.takesChat))
         }
     }
 

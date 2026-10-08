@@ -1,11 +1,13 @@
 package app.hovanki.shared.protocol
 
+import app.hovanki.shared.rules.ChatRules
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 // The game's live channel (docs/adr/0015-websockets.md): the `sync` of [ApiRoutes.SYNC] over one WebSocket
-// ([ApiRoutes.SOCKET]), plus a poke from the server when something happened. Text frames of [protocolJson], told
-// apart by `type`; a side skips a type it doesn't know, so new frames can be added. The commands stay HTTP.
+// ([ApiRoutes.SOCKET]), plus a poke from the server when something happened and the chat's new messages as they are
+// sent. Text frames of [protocolJson], told apart by `type`; a side skips a type it doesn't know, so new frames can be
+// added. The commands stay HTTP, sending a chat message too.
 
 /** A frame the app sends. */
 @Serializable
@@ -30,12 +32,32 @@ sealed interface ServerFrame {
     data object Poke : ServerFrame
 
     /**
+     * New chat messages the player may read, oldest first, pushed as they are sent: only to a socket opened with
+     * [SocketFrames.CHAT] (an older app gets a [Poke] instead). A push is no sync: the chat cursor of the next
+     * [SyncRequest.chatAfter] stays where the snapshots put it, so a push lost with its socket comes again.
+     */
+    @Serializable
+    @SerialName("chat")
+    data class Chat(val messages: List<ChatMessage>) : ServerFrame
+
+    /**
      * The [ClientFrame.Sync] with [seq] was refused, as `POST /sync` would refuse it with [error]; the socket stays open.
      * [retryAfterSeconds]: for [ErrorReason.TOO_MANY_REQUESTS].
      */
     @Serializable
     @SerialName("error")
     data class Error(val seq: Long, val error: ApiError, val retryAfterSeconds: Long? = null) : ServerFrame
+}
+
+/**
+ * What else the app's socket takes, named in the upgrade's header [HEADER] (comma-separated): an app from before a
+ * frame never gets it. Unknown names are ignored.
+ */
+object SocketFrames {
+    const val HEADER = "X-Hovanki-Frames"
+
+    /** [ServerFrame.Chat]: the chat's new messages pushed instead of a [ServerFrame.Poke]. */
+    const val CHAT = "chat"
 }
 
 /** Why the server closes a game's socket: the close codes of the application's range (4000–4999). */
@@ -79,4 +101,10 @@ object SocketLimits {
 
     /** The app answers a poke with a sync no sooner than this after its previous one. */
     const val SYNC_AFTER_POKE_GAP_MILLIS = 300L
+
+    /**
+     * Chat messages in one [ServerFrame.Chat] at most, as many as a snapshot brings; more within one
+     * [POKE_GAP_MILLIS] go as a poke instead: the sync brings them.
+     */
+    const val MAX_CHAT_PER_FRAME = ChatRules.MAX_PER_RESPONSE
 }

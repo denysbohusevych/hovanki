@@ -105,6 +105,30 @@ class WebSocketGameConnectionTest {
     }
 
     @Test
+    fun pushedChatComesAtOnceWithoutASync() = runTest {
+        val server = FakeSocketServer()
+        connection(server).connect(testSession, LocationOutbox()).test {
+            val socket = server.awaitSocket(0)
+            val sync = socket.awaitSync()
+            // While the sync is on its way.
+            socket.send(ServerFrame.Chat(listOf(testMessage(4))))
+            assertEquals(listOf(4L), assertIs<ConnectionEvent.Chat>(awaitItem()).messages.map { it.seq })
+            socket.answer(sync, testSnapshot(syncIntervalSeconds = 3, phase = GamePhase.SEEKING))
+            assertIs<ConnectionEvent.Snapshot>(awaitItem())
+
+            // And in the pause, which goes on: a pushed message is no poke.
+            val answeredAt = currentTime
+            testScheduler.advanceTimeBy(1_000)
+            socket.send(ServerFrame.Chat(listOf(testMessage(5), testMessage(6))))
+            assertEquals(listOf(5L, 6L), assertIs<ConnectionEvent.Chat>(awaitItem()).messages.map { it.seq })
+            assertEquals(1_000, currentTime - answeredAt, "at once")
+            assertEquals(2, socket.awaitSync().seq)
+            assertEquals(3_000, currentTime - answeredAt, "the sync after the game's pace")
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
     fun aPokeDuringASyncMeansAnotherSyncSoon() = runTest {
         val server = FakeSocketServer()
         connection(server).connect(testSession, LocationOutbox()).test {

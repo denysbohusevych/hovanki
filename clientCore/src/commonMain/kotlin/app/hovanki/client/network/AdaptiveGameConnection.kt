@@ -47,7 +47,7 @@ class AdaptiveGameConnection(
                         false
                     }
 
-                    is ConnectionEvent.Problem -> true
+                    is ConnectionEvent.Problem, is ConnectionEvent.Chat -> true
 
                     is ConnectionEvent.Snapshot ->
                         !(event.snapshot.hasLiveSocket() && pollUntil?.hasPassedNow() != false)
@@ -63,7 +63,7 @@ class AdaptiveGameConnection(
                         false
                     }
 
-                    is ConnectionEvent.Snapshot -> {
+                    is ConnectionEvent.Snapshot, is ConnectionEvent.Chat -> {
                         emit(event)
                         true
                     }

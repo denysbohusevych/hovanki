@@ -3,6 +3,7 @@ package app.hovanki.client.network
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.GameId
 import app.hovanki.shared.protocol.PlayerSession
+import app.hovanki.shared.protocol.SocketFrames
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.webSocketSession
@@ -47,7 +48,7 @@ fun interface GameSocketOpener {
 /**
  * The live channel over Ktor's WebSockets (the client needs the `WebSockets` plugin, see [createHttpClient]): OkHttp
  * on Android and for the e2e bots, NSURLSession on iOS. The game token goes as `Authorization: Bearer`, like on every
- * game route.
+ * game route, and [SocketFrames.HEADER] says the app takes the chat's frames.
  */
 class KtorGameSocketOpener(private val client: HttpClient, private val serverUrl: ServerUrl) : GameSocketOpener {
     override suspend fun open(session: PlayerSession): GameSocket {
@@ -58,6 +59,8 @@ class KtorGameSocketOpener(private val client: HttpClient, private val serverUrl
             runCatching {
                 client.webSocketSession(socketUrl(serverUrl.value, session.gameId)) {
                     header(HttpHeaders.Authorization, "${ApiRoutes.AUTH_SCHEME} ${session.token}")
+                    // The chat's messages as they are sent, not a poke and a sync for each.
+                    header(SocketFrames.HEADER, SocketFrames.CHAT)
                 }
             }
         }
