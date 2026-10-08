@@ -8,7 +8,8 @@
 # The same file runs the staging server of the field test (ADR 0018): its own VM, its own `.env`
 # (.env.staging.example) with SPRING_PROFILES_ACTIVE=staging, the database `hovanki_staging` with its own role
 # (DATABASE_NAME, DATABASE_USER), the staging name in DOMAIN and a bigger memory limit (SERVER_MEM_LIMIT). Without those
-# variables nothing changes for the production VM.
+# variables nothing changes for the production VM. On the field test's days the production VM itself sets
+# SPRING_PROFILES_ACTIVE=field (the field log, 60 players; docs/deploy.md, «Полевой тест на основном сервере»).
 # One replica only: games live in memory, so a restart ends the games in progress.
 
 x-logging: &logging
@@ -36,7 +37,8 @@ services:
       HOVANKI_MAIL_FROM: ${HOVANKI_MAIL_FROM:?set HOVANKI_MAIL_FROM in .env}
       # The admin (docs/adr/0008-admin.md): off while empty. Spring reads it as hovanki.admin.secret-key.
       HOVANKI_ADMIN_SECRETKEY: ${HOVANKI_ADMIN_SECRET_KEY:-}
-      # Staging only: `staging` turns on the settings of application-staging.yaml. Empty is the same as unset.
+      # `field` on the production VM on the field test's days (application-field.yaml); `staging` on the staging server
+      # (application-staging.yaml, and application-field.yaml with it). Empty is the same as unset.
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
       # Staging only: Sentry of the server (ADR 0018, §7); empty: no Sentry. Never set on production.
       SENTRY_DSN: ${SENTRY_DSN:-}

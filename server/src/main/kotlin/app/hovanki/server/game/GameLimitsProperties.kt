@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 
 /**
  * `hovanki.game.*`: what an ordinary game takes (a big game has its own limit: docs/adr/0010-big-games.md). The default
- * is [Game.MAX_PLAYERS]; the `staging` profile raises it for the field test (docs/adr/0018-field-test-build.md).
+ * is [Game.MAX_PLAYERS]; the `field` profile raises it for the field test (docs/adr/0018-field-test-build.md).
  */
 @ConfigurationProperties("hovanki.game")
 data class GameLimitsProperties(

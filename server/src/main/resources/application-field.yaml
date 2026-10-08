@@ -1,0 +1,30 @@
+# A server the field test plays on (docs/adr/0018-field-test-build.md): the field log, 60 players in a game and limits
+# for a crowd behind one address. Started with SPRING_PROFILES_ACTIVE=field (deploy/compose.yaml passes it on from
+# .env): the main server on the field test's days (docs/deploy.md, «Полевой тест на основном сервере»), and the staging
+# server always (the group `staging` in application.yaml). Only what differs from application.yaml; ports and logs stay
+# production's. Not the e2e profile: no observer endpoints, real emails, rate limits on.
+
+hovanki:
+  game:
+    # An ordinary game takes up to 60 players (production: 30, Game.MAX_PLAYERS).
+    max-players: 60
+  lab:
+    # The field build (release code) shows the lab's screen to staff: only staff accounts join a lab run here
+    # (docs/adr/0018-field-test-build.md §4.D). The field log of real games is FIELD_LOG, switched in the admin.
+    join-staff-only: true
+  field:
+    # This server may have the field log (FIELD_LOG, still off until an admin switches it on; without this profile:
+    # never). Only the field build of a tester who agreed writes it.
+    allowed: true
+  features:
+    # These two never change a game here: the proximity rule and the pocket stealth only run in the field log's shadow
+    # (what they would have answered), whatever the admin's switch or a host's choice says (ADR 0018 §3.3).
+    shadow-only: [PROXIMITY_CATCH, POCKET_STEALTH]
+  # The limits per client IP fit a test day's 60 players behind one address (the venue's Wi-Fi, a carrier's NAT): the
+  # clock of every field build's phone (5 requests at the join and every 5 minutes), accounts made and logged into on
+  # the spot. Per account and per player the limits stay production's.
+  rate-limits:
+    time-per-ip: { count: 3000, window: 1m }
+    login-per-ip: { count: 300, window: 15m }
+    register-per-ip: { count: 200, window: 1h }
+    password-reset-per-ip: { count: 100, window: 1h }
