@@ -50,9 +50,11 @@ class LoadWatch(private val targetMillis: Long, private val fromMillis: Long) {
         return when {
             failed * 100 > all * FAILED_PERCENT ->
                 "$at ${percent(failed, all)} of the syncs failed in the last $WINDOW_SECONDS s"
+
             slow * 100 > all * SLOW_PERCENT ->
                 "$at the sync's p95 is over $targetMillis ms: ${percent(slow, all)} were slower in the last " +
                     "$WINDOW_SECONDS s"
+
             else -> null
         }
     }

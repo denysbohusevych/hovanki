@@ -35,7 +35,7 @@ object Keys {
 /** The protocol's JSON, as the app sends it: the same DTOs and the same [protocolJson] as the app and the server. */
 inline fun <reified T> json(value: T): String = protocolJson.encodeToString(value)
 
-/** Every player is a phone of its own: its own connections, gzip as OkHttp and NSURLSession ask for it. */
+/** Every player is a phone: gzip as OkHttp and NSURLSession ask for it, the connections as Caddy keeps them. */
 fun hovankiHttp(): HttpProtocolBuilder = http.baseUrl(LabConfig.baseUrl)
     .wsBaseUrl(LabConfig.baseUrl.replaceFirst("http", "ws"))
     // Production's phones connect to Caddy, which keeps a pool of a few connections to the server: so do the players
@@ -66,6 +66,7 @@ fun Session.phase(): GamePhase = getString(Keys.PHASE)?.let(GamePhase::valueOf) 
  */
 fun connect(): ChainBuilder = when (LabConfig.transport) {
     Transport.POLL -> exec { session -> session }
+
     Transport.SOCKET -> exec { session -> session.set(Keys.SEQ, 0L) }.exec(
         ws("socket: open").connect { session -> ApiRoutes.socket(session.gameId()) }
             .header("Authorization") { session -> "${ApiRoutes.AUTH_SCHEME} ${session.getString(Keys.TOKEN)}" },
