@@ -40,7 +40,8 @@ import kotlin.random.Random
  * - `perf.players` (300): players; 1 600 is the most a big game takes (`BigGameLimits.MAX_PLAYERS`);
  * - `perf.rampSeconds` (60): they come in over this time, a new account each (registering is part of the load);
  * - `perf.lobbySeconds` (ramp + 45): the round starts this long after the setup, by the scheduler's next tick;
- * - `perf.minutes` (5): how long everybody plays after the start: a minute of hiding, then the search.
+ * - `perf.minutes` (5): how long everybody plays after the start: a minute of hiding, then the search;
+ * - `perf.transport` (poll): `socket` syncs over the live channel ([LabConfig.transport]).
  */
 class BigGame : Simulation() {
     private val players = LabConfig.int("players", 300)
@@ -55,6 +56,7 @@ class BigGame : Simulation() {
     private val half = sqrt(players * SQUARE_METERS_PER_PLAYER * 1.2) / 2
 
     private lateinit var admin: LabAdmin
+    private var liveChannel: LiveChannel? = null
 
     @Volatile
     private var bigGame: BigGameId? = null
@@ -101,15 +103,19 @@ class BigGame : Simulation() {
                 ),
         )
         .exitHereIfFailed()
+        .exec(connect())
+        .exitHereIfFailed()
         .exec(
             asLongAs { System.currentTimeMillis() < endsAtMillis }.on(
                 pace(Duration.ofSeconds(GameRules().syncIntervalSeconds.toLong())).exec(sync()),
             ),
         )
+        .exec(disconnect())
 
-    /** The admin and the big game, before the first player comes: not part of the measurement. */
+    /** The admin, a socket run's live channel and the big game, before the first player comes: not measured. */
     override fun before() {
         admin = LabAdmin.create(run)
+        liveChannel = LiveChannel.openFor { admin }
         val startsAtMillis = System.currentTimeMillis() + lobbySeconds * 1000L
         val game = admin.createBigGame(
             AdminBigGameRequest(
@@ -142,6 +148,7 @@ class BigGame : Simulation() {
     /** The round is called off: it would go on in the server's memory after the run. */
     override fun after() {
         bigGame?.let { id -> runCatching { admin.cancelBigGame(id, "perf: the run is over") } }
+        runCatching { liveChannel?.close() }
     }
 
     init {
