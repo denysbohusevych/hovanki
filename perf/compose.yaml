@@ -1,0 +1,104 @@
+# The server's performance lab (docs/perf.md), on this machine only: its own PostgreSQL with pg_stat_statements,
+# Prometheus and Grafana with the lab's dashboard. Every port listens on localhost only.
+#   perf/up.sh                 the database and the monitoring; the server runs on the host (perf/server.sh, the IDE)
+#   perf/up.sh --container     plus the server in a container with production's limits (the `container` profile below)
+#   perf/down.sh [--wipe]      stops everything; --wipe also deletes the database and the metrics
+# Development's PostgreSQL (deploy/compose.dev.yaml) keeps 5432; the lab's is on 5433, a database of its own.
+name: hovanki-perf
+
+services:
+  postgres:
+    # PostgreSQL 17 like production's RDS.
+    image: postgres:17-alpine
+    restart: unless-stopped
+    # Every statement's count and time (perf/pg-top.sh reads them), and the time spent waiting for the disk.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - track_io_timing=on
+    environment:
+      POSTGRES_DB: hovanki
+      POSTGRES_USER: hovanki
+      POSTGRES_PASSWORD: hovanki
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=hovanki", "--dbname=hovanki"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  prometheus:
+    image: prom/prometheus:v3.7.2
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=14d
+    ports:
+      - "127.0.0.1:9090:9090"
+    # The server on the host (perf/server.sh) is host.docker.internal; Docker Desktop has the name, Linux needs this.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    restart: unless-stopped
+    environment:
+      # One person on their own machine: no login, everybody is the admin.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/hovanki.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  # The server as on production: the same image (server/Dockerfile, on the JDK for jcmd and the profiler) with the
+  # production VM's limits. `./gradlew :server:bootJar` first; perf/up.sh --container does both.
+  server:
+    profiles: [container]
+    build:
+      context: ../server
+      args:
+        BASE_IMAGE: eclipse-temurin:21-jdk
+    image: hovanki-server:perf
+    restart: "no"
+    # Production: a t3.micro (2 vCPU) and mem_limit 640m in deploy/compose.yaml; the heap is 75 % of it (Dockerfile).
+    cpus: ${PERF_SERVER_CPUS:-2}
+    mem_limit: ${PERF_SERVER_MEM:-640m}
+    environment:
+      SPRING_PROFILES_ACTIVE: e2e,perf
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hovanki
+    ports:
+      - "127.0.0.1:8080:8080"
+    # perf/up.sh --container returns once the server answers.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/actuator/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  grafana-data:

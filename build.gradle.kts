@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.composeCompiler) apply false
     alias(libs.plugins.composeMultiplatform) apply false
     alias(libs.plugins.springBoot) apply false
+    alias(libs.plugins.gatling) apply false
     alias(libs.plugins.spotless)
 }
 

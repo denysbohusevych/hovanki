@@ -50,3 +50,5 @@ include(":composeApp")
 include(":androidApp")
 // End-to-end tests: headless bots on the real client code play whole games against the real server.
 include(":e2e")
+// The server's performance lab (docs/perf.md): Gatling load tests against a server started apart, the profiler.
+include(":perf")
