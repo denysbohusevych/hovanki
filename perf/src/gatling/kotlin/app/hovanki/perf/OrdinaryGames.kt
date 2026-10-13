@@ -203,8 +203,10 @@ class OrdinaryGames : Simulation() {
         val now = System.currentTimeMillis()
         val tookMillis = (System.nanoTime() - session.getLong(SYNC_STARTED)) / 1_000_000
         watch.record(tookMillis, session.isFailed, now)
-        val breakdown = if (steps > 1) watch.breakdown(now) else null
-        return (if (breakdown != null) session.set(STOP, "The ladder stops $breakdown") else session).markAsSucceeded()
+        val breakdown = (if (steps > 1) watch.breakdown(now) else null) ?: return session.markAsSucceeded()
+        val why = "The ladder stops $breakdown"
+        if (watch.stopped.compareAndSet(false, true)) println(why)
+        return session.set(STOP, why).markAsSucceeded()
     }
 
     /** A socket run's live channel; the run's end and the ladder's watch, from the moment the first player comes. */
@@ -232,8 +234,9 @@ class OrdinaryGames : Simulation() {
         val ladder = (0 until steps).flatMap { step ->
             if (step == 0) listOf(level) else listOf(nothingFor(Duration.ofSeconds(minutes * 60L)), level)
         }
-        setUp(player.injectOpen(ladder)).protocols(hovankiHttp())
-            .assertions(global().failedRequests().percent().lt(1.0))
+        val simulation = setUp(player.injectOpen(ladder)).protocols(hovankiHttp())
+        // A ladder ends where the server broke: its last level's failures are the finding, not the run's failure.
+        if (steps == 1) simulation.assertions(global().failedRequests().percent().lt(1.0))
     }
 
     private fun Session.name(): String = "G${getInt("game")}P${getInt("seat")}"

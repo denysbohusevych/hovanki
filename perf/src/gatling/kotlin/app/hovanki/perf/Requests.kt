@@ -38,6 +38,11 @@ inline fun <reified T> json(value: T): String = protocolJson.encodeToString(valu
 /** Every player is a phone of its own: its own connections, gzip as OkHttp and NSURLSession ask for it. */
 fun hovankiHttp(): HttpProtocolBuilder = http.baseUrl(LabConfig.baseUrl)
     .wsBaseUrl(LabConfig.baseUrl.replaceFirst("http", "ws"))
+    // Production's phones connect to Caddy, which keeps a pool of a few connections to the server: so do the players
+    // here. One connection per player would stop at Tomcat's 8 192 (`server.tomcat.max-connections`) and hold 16 KB of
+    // its buffers each, a ceiling and a heap production doesn't have. A live channel's socket stays one per player,
+    // through Caddy too.
+    .shareConnections()
     .acceptHeader("application/json")
     .contentTypeHeader("application/json")
     .acceptEncodingHeader("gzip")

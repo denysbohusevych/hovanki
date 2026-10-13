@@ -1,5 +1,6 @@
 package app.hovanki.perf
 
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReferenceArray
 import java.util.concurrent.atomic.LongAdder
@@ -12,6 +13,9 @@ import java.util.concurrent.atomic.LongAdder
 class LoadWatch(private val targetMillis: Long, private val fromMillis: Long) {
     /** Players in the game's sync loop now. */
     val players = AtomicInteger()
+
+    /** Whether a player already called the ladder off: the first one says why. */
+    val stopped = AtomicBoolean()
 
     private class Second(val epoch: Long) {
         val all = LongAdder()
