@@ -1,0 +1,45 @@
+# The server of the local performance lab (docs/perf.md): started as `e2e,perf`, never on a real server. From the e2e
+# profile: the observer endpoints (the load tests make an admin and read the emailed codes), no rate limits (thousands
+# of players from one address), the fake buildings, streets and ground (no traffic to OpenFreeMap, no other network in
+# the numbers), the test admin key. This profile, listed after it, puts back production's values wherever they change
+# what is measured, and opens the metrics to the lab's Prometheus.
+
+spring:
+  datasource:
+    # The lab's own PostgreSQL (perf/compose.yaml, with pg_stat_statements), next to the development one on 5432. The
+    # server in a container gets SPRING_DATASOURCE_URL from the compose file instead.
+    url: jdbc:postgresql://localhost:5433/hovanki
+
+server:
+  tomcat:
+    # Tomcat's thread pool in the metrics (tomcat.threads.busy, .current, .config.max).
+    mbeanregistry:
+      enabled: true
+
+hovanki:
+  accounts:
+    # Production's cost of a password: registering and logging in are part of the load.
+    bcrypt-strength: 10
+  games:
+    # Production's: finished games stay in memory as long as there.
+    finished-retention: 30m
+  big-games:
+    # Production's scheduler.
+    tick: 10s
+  field:
+    # Production never keeps the field log.
+    allowed: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Prometheus scrapes the game's port: the lab runs on this machine only.
+        include: health,info,restarthold,prometheus
+  metrics:
+    distribution:
+      # Histogram buckets besides the quantiles of application.yaml: Grafana computes any quantile over any window from
+      # them (histogram_quantile), and adds up the routes.
+      percentiles-histogram:
+        "[http.server.requests]": true
+        "[hovanki.game.sync]": true

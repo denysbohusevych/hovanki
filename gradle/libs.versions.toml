@@ -44,6 +44,11 @@ zxing = "3.5.4"
 # staging server. One version: the Spring Boot starter and the Android SDK share the core.
 sentry = "8.59.0"
 
+# The server's load tests (docs/perf.md): Gatling's Gradle plugin brings the Gatling of the same version.
+gatling = "3.16.0"
+# The server's profiler (docs/perf.md): the JVM agent from Maven Central, loaded into the running server with jcmd.
+async-profiler = "4.5"
+
 spotless = "8.10.3"
 ktlint = "1.8.0"
 
@@ -126,6 +131,9 @@ sentry-android = { module = "io.sentry:sentry-android", version.ref = "sentry" }
 sentry-spring-boot-starter = { module = "io.sentry:sentry-spring-boot-4-starter", version.ref = "sentry" }
 sentry-logback = { module = "io.sentry:sentry-logback", version.ref = "sentry" }
 
+# The server's profiler (docs/perf.md): native agents for linux-x64, linux-arm64 and macOS in one jar.
+async-profiler = { module = "tools.profiler:async-profiler", version.ref = "async-profiler" }
+
 # Testing
 turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
 
@@ -142,3 +150,4 @@ composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "k
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
 springBoot = { id = "org.springframework.boot", version.ref = "spring-boot" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+gatling = { id = "io.gatling.gradle", version.ref = "gatling" }
