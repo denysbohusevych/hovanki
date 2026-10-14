@@ -52,6 +52,13 @@ enum class ServerFeature {
     LIVE_SOCKET,
 
     /**
+     * The live channel v2 (docs/adr/0026-live-v2.md): the apps open a live session ([ApiRoutes.LIVE_OPEN]) and get
+     * only what changed, as protobuf over a binary WebSocket ([ApiRoutes.LIVE_WS]); off, the open answers 404 and the
+     * apps stay on [LIVE_SOCKET] or polling. Not a game's choice: every game on the server.
+     */
+    LIVE_V2,
+
+    /**
      * The radio lab's runs on the server (docs/adr/0017-radar-techniques-and-big-run.md §5): test phones of the debug
      * build join a run by its code and upload their lab logs ([ApiRoutes.LAB_RUNS]); off, those routes answer 404. Not
      * a game's choice: it changes nothing in a game.

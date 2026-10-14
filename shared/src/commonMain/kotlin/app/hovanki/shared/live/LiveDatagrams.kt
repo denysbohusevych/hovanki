@@ -1,5 +1,8 @@
 package app.hovanki.shared.live
 
+import okio.ByteString.Companion.decodeBase64
+import okio.ByteString.Companion.toByteString
+
 /**
  * AES-128-GCM with one key (docs/live-v2/spec.md §5.2): the platform's own, `javax.crypto` on the server and Android,
  * CryptoKit through a Swift bridge on iOS. [open] returns null for anything that does not authenticate.
@@ -33,6 +36,21 @@ object LiveDatagrams {
         putLong(header, 1, sessionId)
         putInt(header, 9, pn)
         return header
+    }
+
+    /**
+     * [sessionId] as the open hands it over and the WebSocket v2's address carries it
+     * ([app.hovanki.shared.protocol.LiveOpenResponse.sessionId]): its 8 bytes big-endian, base64url without padding.
+     */
+    fun sessionIdText(sessionId: Long): String =
+        ByteArray(SESSION_ID_BYTES).also { putLong(it, 0, sessionId) }.toByteString().base64Url().trimEnd('=')
+
+    /** The session id written as [sessionIdText] writes it; null for anything else. */
+    fun sessionIdOf(text: String): Long? {
+        val bytes = text.decodeBase64()?.toByteArray() ?: return null
+        if (bytes.size != SESSION_ID_BYTES) return null
+        // Only the one spelling: base64url, no padding, no other alphabet or spare bits.
+        return getLong(bytes, 0).takeIf { sessionIdText(it) == text }
     }
 
     /** 8 zero bytes and the packet number: each direction has its own key, so a number never repeats a nonce. */

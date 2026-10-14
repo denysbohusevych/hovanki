@@ -81,8 +81,8 @@ connect(session, outbox, chatAfter, extras, intervalMillis): Flow<ConnectionEven
 
 | `Down` | событие |
 |---|---|
-| с состоянием или без, `server_time_ms` не меньше прошлого выданного | `ConnectionEvent.Snapshot(snapshot, Transport.LIVE_UDP / LIVE_WS, bytes)`; `bytes` — сумма байт датаграмм этого `Down` (для `sync.bytes` полевого журнала) |
-| `chat_push = true` | `ConnectionEvent.Chat(messages)`, без снимка (как `ServerFrame.Chat` v1) |
+| с состоянием или без (кроме push чата без состояния), `server_time_ms` не меньше прошлого выданного | `ConnectionEvent.Snapshot(snapshot, Transport.LIVE_UDP / LIVE_WS, bytes)`; `bytes` — сумма байт датаграмм этого `Down` (для `sync.bytes` полевого журнала) |
+| `chat_push = true` | `ConnectionEvent.Chat(messages)`, без снимка (как `ServerFrame.Chat` v1); сервер шлёт его отдельным `Down`, без состояния |
 | `error` | `ConnectionEvent.Problem(ApiException(error), retryInMillis)` |
 | `close` `SESSION_REJECTED` / `GAME_NOT_FOUND` | `ConnectionEvent.Ended(...)`, поток кончается |
 | `close` `REOPEN` / `REPLACED` / незнакомая | новое открытие, событие не нужно |

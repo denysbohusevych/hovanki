@@ -114,6 +114,21 @@ class LiveDatagramsTest {
     }
 
     @Test
+    fun aSessionIdIsWrittenOneWayOnly() {
+        // The spec's example (§17, §18).
+        assertEquals("obLD1OX2Bxg", LiveDatagrams.sessionIdText(0xa1b2c3d4e5f60718uL.toLong()))
+        assertEquals(0xa1b2c3d4e5f60718uL.toLong(), LiveDatagrams.sessionIdOf("obLD1OX2Bxg"))
+        for (id in listOf(0L, -1L, Long.MIN_VALUE, Long.MAX_VALUE, Random(7).nextLong())) {
+            assertEquals(id, LiveDatagrams.sessionIdOf(LiveDatagrams.sessionIdText(id)))
+        }
+        // Padding, the other alphabet, spare bits, other lengths: not a session id.
+        val others =
+            listOf("obLD1OX2Bxg=", "//////////8", "obLD1OX2Bxh", "obLD1OX2Bx", "obLD1OX2Bxgg", "", "obLD 1OX2Bx")
+        for (other in others) assertNull(LiveDatagrams.sessionIdOf(other), other)
+        assertEquals("__________8", LiveDatagrams.sessionIdText(-1L))
+    }
+
+    @Test
     fun theHeadIsReadBeforeDecrypting() {
         val datagram = LiveDatagrams.header(-2L, 70_000) + ByteArray(LiveLimits.TAG_BYTES)
         val head = LiveDatagrams.head(datagram)

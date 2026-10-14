@@ -338,7 +338,7 @@ class Scenario(val name: String, val serverUrl: String) {
      * channel stays as the run has it ([E2eTransport]): it changes how every scenario on the server syncs.
      */
     suspend fun enableAllFeatures() {
-        observer.setFeatures(ServerFeature.entries.filter { it != ServerFeature.LIVE_SOCKET }.map { it.name })
+        observer.setFeatures(ServerFeature.entries.filter { it !in LIVE_CHANNELS }.map { it.name })
         note("every server feature is on")
     }
 
@@ -533,5 +533,8 @@ class Scenario(val name: String, val serverUrl: String) {
 
     private companion object {
         val POLL = 250.milliseconds
+
+        /** The ways the phones sync: the run decides them ([E2eTransport]), not a scenario's features. */
+        val LIVE_CHANNELS = setOf(ServerFeature.LIVE_SOCKET, ServerFeature.LIVE_V2)
     }
 }

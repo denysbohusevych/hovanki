@@ -34,8 +34,16 @@ class LiveDigest internal constructor(
     internal val catches: Keyed,
     internal val radar: Keyed,
 ) {
+    /** The same state: every section, item and order alike (as far as 64-bit hashes tell). */
+    fun sameAs(other: LiveDigest): Boolean = whole.contentEquals(other.whole) &&
+        players.sameAs(other.players) &&
+        catches.sameAs(other.catches) &&
+        radar.sameAs(other.radar)
+
     /** A keyed section: the ids in order and [parts] hashes per item, item after item. */
     internal class Keyed(val ids: Array<String>, val hashes: LongArray, val parts: Int) {
+        fun sameAs(other: Keyed): Boolean = ids.contentEquals(other.ids) && hashes.contentEquals(other.hashes)
+
         private var index: HashMap<String, Int>? = null
 
         /** The item's position, or -1. Looks at [hint] first: the same id usually keeps its place. */
