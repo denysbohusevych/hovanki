@@ -123,6 +123,26 @@ services:
       server:
         condition: service_healthy
 
+  # Gatling inside the lab's network (perf/gatling.sh), for runs of more connections than this machine's own network
+  # stack takes: macOS gives one address and port about 16 000 ephemeral ports, and Docker Desktop's port forwarding
+  # carries every connection through a process of its own. Here the players reach the server (http://server:8080) or
+  # Caddy (https://caddy:8443) straight, with all 64 000 ports of their own namespace. On its own CPUs, off the
+  # server's and the database's; the code is the host's (the repository and the Gradle cache at the same paths).
+  gatling:
+    profiles: [load]
+    image: eclipse-temurin:21-jdk
+    restart: "no"
+    cpuset: ${PERF_GATLING_CPUSET:-4-9}
+    mem_limit: ${PERF_GATLING_MEM:-4g}
+    sysctls:
+      net.ipv4.ip_local_port_range: "1024 65535"
+    ulimits:
+      nofile: 1048576
+    working_dir: ${PERF_REPO:-/repo}
+    volumes:
+      - ${PERF_REPO:-.}:${PERF_REPO:-/repo}
+      - ${PERF_GRADLE_HOME:-~/.gradle}:${PERF_GRADLE_HOME:-/gradle}:ro
+
 volumes:
   postgres-data:
   prometheus-data:
