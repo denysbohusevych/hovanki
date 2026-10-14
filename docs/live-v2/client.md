@@ -1,0 +1,317 @@
+# Протокол v2: что поменять в приложении
+
+Руководство для того, кто будет переводить приложение на v2. Правила протокола — в
+[spec.md](spec.md) (дальше «спека»). Здесь — где они живут в коде и в каком порядке их делать.
+Пути и имена классов сверены с `main` на 14.10.2026.
+
+## 1. Главное
+
+- **Экраны не меняются.** v2 — ещё одна реализация `GameConnection` (`clientCore/.../network/GameConnection.kt`).
+  Она отдаёт те же `ConnectionEvent`: `Snapshot` с полным `GameSnapshot`, `Chat`, `Problem`, `Ended`. Снимок
+  собирается из состояния v2 (спека, §9). `GameSessionManager`, `LobbyState` и все экраны его не отличают от снимка
+  v1.
+- **Команды не меняются.** `HttpGameApi`, ответы команд со снимком и `GameSessionManager.applySnapshot` с его
+  «новее тот, у кого больше `serverTimeMillis`» остаются как есть.
+- **v1 остаётся** в приложении как запасной путь. `WebSocketGameConnection` и `PollingGameConnection` не трогаем.
+- **Один код для всех платформ.** Протокол, состояние и сборка снимка — в `commonMain`. Отдельно для платформ:
+  - шифрование AES-GCM (Android и JVM — `javax.crypto`, iOS — мост Swift на CryptoKit);
+  - сигнал «сеть сменилась».
+
+  UDP — через Ktor (`aSocket().udp()`), он есть на JVM, Android и iOS.
+
+## 2. Где что будет
+
+| модуль | пакет | что |
+|---|---|---|
+| `:shared` | `src/commonMain/proto/live_v2.proto` | схема; Wire генерирует классы в `app.hovanki.shared.live.v2` |
+| `:shared` | `protocol/Live.kt` | `LiveOpenRequest`, `LiveOpenResponse`, `LiveUdpEndpoint` (JSON); `ApiRoutes.LIVE_OPEN`, `ApiRoutes.LIVE_WS`; `ServerFeature.LIVE_V2`, `LIVE_UDP` |
+| `:shared` | `live/` (**уже в коде**, шаг 2) | `LiveLimits` (спека, §14); `LiveClientStates` (до 8 состояний телефона, применение `Down`, §8.6) поверх `LiveStates.apply`; `LiveSnapshots` (состояние → `GameSnapshot`, §9) и обратный ему `LiveSections.fromSnapshot` (им пользуется сервер); `LiveUplink` (кусок `SyncRequest` → `Up`, §7.1, §10); `LiveDownlink` (чат и ошибки `Down`, §11, §13); `LiveDatagrams`, `LiveReassembler`, `LiveReplayWindow` (заголовок, куски, окно повторов, §5); интерфейс `LiveAead`. Серверное (`LiveDelta`, `LiveServerStates`) телефону не нужно. Полная таблица — спека, §19 |
+| `:clientCore` | `network/live/` | `LiveApi` (открытие по HTTPS); `LiveGameConnection : GameConnection`; `LiveTransport` и его `UdpLiveTransport`, `WsLiveTransport`; `NetworkChanges` |
+| `:clientCore` | `jvmMain`, `androidMain` | `JdkAesGcm : LiveAead` |
+| `:clientCore` | `iosMain` | `IosAesGcm : LiveAead` поверх моста `LiveCryptoBridge` |
+| `iosApp` | `LiveCrypto.swift` | реализация моста на CryptoKit |
+| `:composeApp` | `di/Koin.kt` | новая привязка `GameConnection` (§5) |
+| `e2e` | `bot/`, `scenario/` | датаграммы в `FakeNetwork`, `BotTransport.V2`, `-Pe2e.transport=v2` |
+
+Почему состояние и сборка снимка в `:shared`, а не в `:clientCore`: тест равенства на сервере (спека, §18)
+собирает снимок тем же кодом, что телефон. Сервер и приложение не могут разойтись молча.
+
+## 3. Как устроен `LiveGameConnection`
+
+```
+connect(session, outbox, chatAfter, extras, intervalMillis): Flow<ConnectionEvent> = flow {
+  loop:
+    open = liveApi.open(session)                    // спека §4; 404+FEATURE_DISABLED → throw FallbackToV1
+    transport = pickTransport(open)                 // UDP, если open.udp и сеть не помечена; иначе WebSocket v2
+    states = LiveClientStates()                     // новая сессия — новые состояния
+    run until close / expiry / transport failure:
+      каждые intervalMillis(последний снимок) (в лобби — IDLE_UP_MILLIS), и сразу при chat_more:
+        up = buildUp()                              // §3.1
+        transport.send(up)
+      на каждый Down: applyDown(d)                  // спека §8.6 → emit Snapshot / Chat / Problem / Ended
+      за REOPEN_BEFORE_MILLIS до expiresAt: открыть новую сессию рядом и перейти на неё (спека §4)
+}
+```
+
+### 3.1. Сборка Up
+
+- **`seq`** — счётчик сессии с 1.
+- **`ack_state`** — `states.ackState`: `state_id` состояния, которое сейчас на экране.
+- **`time_ms`** — `ServerClock.now()`. `LiveGameConnection` получает `ServerClock` в конструкторе: `GameConnection`
+  его сейчас не знает. Альтернатива — брать время из `samples`: у них уже серверное время.
+- **Точки.** Своя очередь «отправлено, не подтверждено» внутри `LiveGameConnection`: `List<Pair<seq, samples>>`.
+  Каждый `Up` = все неподтверждённые + `outbox.drain()`, старые первыми, не больше 100 (лишние старые выкинуть, как
+  `LocationOutbox` выкидывает при переполнении). `Down.ack_up = n` убирает всё, что ушло в `Up` с `seq ≤ n`.
+  - Когда соединение кончается (`close`, уход на v1, отмена), неподтверждённые точки — обратно в
+    `outbox.requeue(...)`, чтобы их довёз v1.
+  - Менять `LocationOutbox` не нужно.
+- **`extras()`** вызвать ровно один раз на `Up`: он забирает услышанное радаром.
+  - **`nearby`** → `sightings`, один раз. Токены не из 8 строчных hex не отправлять (`RadarToken.isWellFormed`).
+  - **`device`** → сравнить с последним, который сервер подтвердил. Отличается — положить в `Up` и класть в каждый
+    следующий, пока `ack_up` не дойдёт до `seq`, где он впервые ушёл. `null` (телефон ничего не знает) — не
+    отправлять.
+- **`chat_after`** — `chatAfter()`, `null` → поле не ставить.
+- **`path_response`** — последний `path_challenge`, на который ещё не ответили.
+- **`full`** — после `Down`, база которого потерялась (спека, §8.3).
+
+### 3.2. Применение Down
+
+Ровно по алгоритму спеки §8.6: его делает `LiveClientStates.apply(stateId, baseStateId, state)`. `false` — базы нет
+или `order` не сходится: следующий `Up` идёт с `full = true` (`states.needFull`). Что выходит наружу:
+
+| `Down` | событие |
+|---|---|
+| с состоянием или без, `server_time_ms` не меньше прошлого выданного | `ConnectionEvent.Snapshot(snapshot, Transport.LIVE_UDP / LIVE_WS, bytes)`; `bytes` — сумма байт датаграмм этого `Down` (для `sync.bytes` полевого журнала) |
+| `chat_push = true` | `ConnectionEvent.Chat(messages)`, без снимка (как `ServerFrame.Chat` v1) |
+| `error` | `ConnectionEvent.Problem(ApiException(error), retryInMillis)` |
+| `close` `SESSION_REJECTED` / `GAME_NOT_FOUND` | `ConnectionEvent.Ended(...)`, поток кончается |
+| `close` `REOPEN` / `REPLACED` / незнакомая | новое открытие, событие не нужно |
+| `close` `TOO_MANY` | `Problem`, открыть заново через `retry_after_s` |
+| `close` `FALLBACK_V1` | бросить `FallbackToV1` — ловит обёртка (§5) |
+
+`Transport` (`GameConnection.kt:78`) получает два новых значения: `LIVE_UDP` и `LIVE_WS`. Их читают:
+
+- `Diagnostics.onSynced` — подпись «by udp», «by ws2»;
+- `FieldSession` — `SyncFields`: нужны новые значения журнала `udp`, `ws2` в `:shared` `FieldSchema`.
+
+Протокола это не касается.
+
+### 3.3. Сборка GameSnapshot
+
+`LiveSnapshots.toGameSnapshot(states.shown, serverTimeMillis, chat)` в `:shared`, по таблицам спеки §9. Один
+объект `LiveSnapshots` на сессию: его `LiveJson` помнит последние байты JSON-секций и не разбирает их заново. Что
+легко пропустить:
+
+- **`lastSeenMillis`** игрока без `presence.last_seen_ms` — это `serverTimeMillis` этого же снимка (спека, §9.1).
+  `LobbyState.OFFLINE_AFTER_MILLIS` переехать в `LiveLimits.OFFLINE_AFTER_MILLIS` и читаться оттуда.
+- **Секреты и токены** обратно в строчный hex.
+- **JSON-секции** разбирать `protocolJson` (`ignoreUnknownKeys = true`): новые поля нового сервера пропускаются, как в
+  v1.
+- **Порядок** списков `players`, `catches`, `radar.contacts` — по `order` (спека, §8.5).
+- **`chat`** в снимке — сообщения из этого `Down` (как в v1 снимок несёт новые сообщения). Курсор двигает
+  `GameSessionManager`, как сейчас.
+
+Собирать снимок на каждый `Down` дёшево: десятки объектов. Кэшировать неизменные части (настройки, доска) между
+снимками — можно, но не обязательно.
+
+## 4. Транспорты
+
+```kotlin
+/** One way to carry Up and Down of a live session: UDP datagrams or WebSocket v2 frames. */
+interface LiveTransport {
+    val kind: Transport                       // LIVE_UDP or LIVE_WS
+    suspend fun send(up: Up)                  // throws LiveTransportException when the way is gone
+    val downs: Flow<ReceivedDown>             // ReceivedDown(down: Down, bytes: Int)
+    suspend fun close()
+}
+```
+
+### 4.1. UDP (`UdpLiveTransport`)
+
+- **Сокет:** `aSocket(selector).udp().connect(InetSocketAddress(host, port))`. Один сокет на сессию.
+- **Отправка:** `Up` → protobuf → больше 1170 байт — куски → каждая датаграмма: заголовок + `LiveAead.seal` (спека,
+  §5.1–5.4). Всё, кроме `seal`, — `LiveDatagrams` в `:shared`.
+- **Приём:**
+  1. проверить заголовок и `session_id`;
+  2. RESET (`0x22`) — сравнить с `resetToken` за постоянное время; совпало — закрыть транспорт с причиной «reopen»;
+  3. `LiveAead.open` — не открылось: выбросить;
+  4. окно повторов;
+  5. сборка кусков, разбор `Down`.
+- **Смена сети:** `NetworkChanges` (Android `ConnectivityManager.NetworkCallback.onAvailable/onLost`, iOS
+  `nw_path_monitor`) → закрыть сокет, открыть новый, продолжить с тем же `session_id` и следующим `pn`. Сервер
+  проверит новый адрес (спека, §5.6). Новую сессию не открывать.
+- **UDP не проходит** (спека, §5.7):
+  - при открытии 3 `Up` по 1,5 с без ответа;
+  - в игре 3 `Up` подряд без `Down`;
+
+  → `LiveTransportException(udpBlocked = true)`. `LiveGameConnection` переходит на WebSocket v2 в той же сессии и
+  помечает «UDP не идёт» до смены сети или на 10 минут.
+
+### 4.2. WebSocket v2 (`WsLiveTransport`)
+
+- Ktor `webSocketSession(wss://…/api/v2/live/ws?s=<sessionId>)`, заголовок `Authorization` и подпротокол
+  `hovanki.live.v2`.
+- Бинарные кадры: `Up` → `Frame.Binary`, `Down` ← `Frame.Binary`. Текстовые кадры не ждём.
+- Таймауты открытия и ответа — как у v1 (`SocketLimits.OPEN_TIMEOUT_MILLIS`, `REPLY_TIMEOUT_MILLIS`).
+- Коды закрытия → `Close.reason` по таблице спеки §6.
+- Для e2e тот же шов, что у v1: `GameSocketOpener` → сделать рядом `LiveSocketOpener`, чтобы `FakeNetwork.sockets`
+  мог подставить свой.
+
+### 4.3. Шифрование (`LiveAead`)
+
+```kotlin
+// :shared, app.hovanki.shared.live — one object per key and direction, the key stays inside it.
+interface LiveAead {
+    /** AES-128-GCM: the ciphertext followed by the 16-byte tag. */
+    fun seal(nonce: ByteArray, aad: ByteArray, plaintext: ByteArray): ByteArray
+    /** Null when the tag doesn't match. */
+    fun open(nonce: ByteArray, aad: ByteArray, ciphertextAndTag: ByteArray): ByteArray?
+}
+```
+
+`LiveDatagrams.seal(aead, sessionId, pn, plaintext)` и `LiveDatagrams.open(aead, datagram)` собирают и разбирают
+датаграмму вокруг него. Пример реализации на JDK — `JdkAead` в `shared/src/jvmTest/.../LiveAeadVectorsTest.kt`: он же
+проверяет байты спеки §18.
+
+- **JVM и Android:** `Cipher.getInstance("AES/GCM/NoPadding")`, `GCMParameterSpec(128, nonce)`, `updateAAD(aad)`. Есть
+  на всех Android с minSdk 26. Объект `Cipher` не потокобезопасный: брать на вызов или держать по одному на
+  транспорт.
+- **iOS** — §6.
+- **Нет реализации** (iOS-сборка без моста) — `udp` не предлагать, сразу WebSocket v2.
+
+## 5. Кто выбирает v2
+
+Сейчас `Koin.kt:147` — `AdaptiveGameConnection(WebSocketGameConnection, PollingGameConnection)`. Он начинает с опроса
+и переходит на сокет, когда в снимке есть `LIVE_SOCKET`. Новая обёртка — `LiveFirstGameConnection(live, v1)`, где
+`v1` — тот самый `AdaptiveGameConnection`:
+
+1. **Первый снимок.** Сессия начинается с v1, как сейчас: первый снимок приходит из ответа команды (создать, войти)
+   или первого опроса при возобновлении.
+2. **Переход на v2.** В снимке есть `ServerFeature.LIVE_V2` в `enabledFeatures`, и v2 не запрещён на время → закрыть
+   v1-поток, запустить `LiveGameConnection`. Неподтверждённые точки не теряются: v1 вернул их в `outbox`.
+3. **`FallbackToV1`** (404 с `FEATURE_DISABLED`, `CLOSE_FALLBACK_V1`) → обратно на v1, v2 не пробовать
+   `V1_AFTER_DISABLED_MILLIS` (10 минут).
+4. **WebSocket v2 тоже не открывается** (нет сети до 443/tcp, 3 разрыва за минуту, как правило v1) → v1 на
+   10 минут.
+5. **`Ended`** с любого пути — конец, как сейчас.
+
+Почему не встроить v2 в `AdaptiveGameConnection`: тот уже держит своё правило «сокет или опрос», и его тест
+(`AdaptiveGameConnectionTest`) остаётся как есть.
+
+## 6. iOS
+
+- **UDP.** Ktor UDP на iOS работает через POSIX-сокеты. Apple советует для UDP Network.framework (TN3151): у
+  BSD-сокетов надо самим следить за сменой сети. Мы так и делаем (`NetworkChanges` через `nw_path_monitor`).
+  - Пока игра идёт, приложение не засыпает (фоновый режим `location`), сокет живёт.
+  - Если шаг 0 плана (проверка на телефонах) покажет проблемы, план Б — мост Swift на `NWConnection`, за тем же
+    `LiveTransport`.
+- **AES-GCM.** CryptoKit есть только из Swift, а в публичном CommonCrypto нет GCM. Поэтому мост, как
+  `LiveActivityBridge`:
+
+```swift
+// iosApp/iosApp/LiveCrypto.swift — registered at start: LiveCryptoRegistry.shared.bridge = LiveCrypto()
+import CryptoKit
+final class LiveCrypto: NSObject, LiveCryptoBridge {
+    func seal(key: Data, nonce: Data, aad: Data, plaintext: Data) -> Data? {
+        guard let n = try? AES.GCM.Nonce(data: nonce),
+              let box = try? AES.GCM.seal(plaintext, using: SymmetricKey(data: key), nonce: n, authenticating: aad)
+        else { return nil }
+        return box.ciphertext + box.tag
+    }
+    func open(key: Data, nonce: Data, aad: Data, sealed: Data) -> Data? {
+        guard sealed.count >= 16, let n = try? AES.GCM.Nonce(data: nonce),
+              let box = try? AES.GCM.SealedBox(nonce: n, ciphertext: sealed.dropLast(16), tag: sealed.suffix(16))
+        else { return nil }
+        return try? AES.GCM.open(box, using: SymmetricKey(data: key), authenticating: aad)
+    }
+}
+```
+
+  - `LiveCryptoBridge` — протокол Kotlin в `iosMain` (`NSData` на входе и выходе). Ключ мост получает в каждом
+    вызове, а `IosAesGcm(key) : LiveAead` хранит его на стороне Kotlin.
+  - Мост собирается и проверяется только на Mac с Xcode. Владелец собирает его на своём Mac (Remote Control, как
+    стенд). Вслепую из облака iOS не чинить.
+  - Запасной путь без Swift — библиотека `cryptography-kotlin` 0.6 с провайдером CryptoKit. Минусы: версия 0.x,
+    свой плагин Gradle, известная поломка линковки, если Xcode не в `/Applications/Xcode.app`.
+- **Сборка без моста** просто не предлагает UDP (§4.3). Приложение работает на WebSocket v2.
+
+## 7. Android
+
+- **Сеть в фоне.** Во время игры работает служба переднего плана (`BackgroundTracker`), у неё нет ограничений сети
+  (Doze её не трогает). UDP работает в кармане так же, как опрос.
+- **`NetworkChanges`** — `ConnectivityManager.registerDefaultNetworkCallback`. На `onAvailable` новой сети —
+  пересоздать сокет.
+- **AES-GCM** — `javax.crypto`, общий с JVM код. Можно `jvmAndAndroidMain`, если такой набор исходников появится;
+  пока копия на 20 строк в двух местах.
+
+## 8. Тесты
+
+**`clientCore/src/commonTest`** (JVM и iOS), с ненастоящим `LiveTransport`:
+
+1. **Первый обмен.** Открытие → `Up{ack 0}` → полное состояние → `Snapshot`, равный ожидаемому `GameSnapshot`.
+2. **Дельты.** Цепочка `Down` с потерей, перестановкой и повтором: показанный снимок всегда равен правде на
+   `server_time_ms` (спека, §8).
+3. **База потерялась** → `full = true` в следующем `Up`.
+4. **Точки.** Остаются до `ack_up`; при уходе на v1 возвращаются в `outbox`; не больше 100 в `Up`.
+5. **`device`.** Уходит при изменении и повторяется до подтверждения; без изменений его нет.
+6. **Сигналы радара** уходят один раз.
+7. **Чат.** Курсор; `chat_more` → `Up` сразу; `chat_push` → `ConnectionEvent.Chat` без снимка.
+8. **Закрытия.** `close` каждой причины → нужное событие.
+9. **RESET** → новое открытие.
+10. **Срок сессии.** Новая открывается за 5 минут до `expiresAt`, переход без потери снимков.
+11. **Обёртка** (`LiveFirstGameConnection`):
+    - v1 → v2 по `LIVE_V2`;
+    - `FEATURE_DISABLED` → v1 на 10 минут;
+    - UDP молчит → WebSocket v2;
+    - WebSocket v2 не открывается → v1.
+
+**`shared/src/commonTest`:**
+
+- тестовые векторы спеки §18;
+- куски;
+- окно повторов;
+- `toGameSnapshot` на всех полях, с пустыми и нулевыми значениями.
+
+**e2e** (`e2e/`):
+
+- **Датаграммы.** `FakeNetwork` получает `datagrams`: потеря, задержка, перестановка, повтор, смена адреса (как
+  переход Wi-Fi → LTE) и «UDP закрыт».
+- **Транспорт ботов.** `BotTransport.V2` (как приложение: UDP с запасными путями) и `V2_WS`;
+  `-Pe2e.transport=v2` гоняет все сценарии на v2.
+- **Проверка видимости.** `SnapshotAudit` проверяет снимки, собранные из v2, теми же правилами.
+- **Новый сценарий** `LiveV2Test`:
+  - потеря 5 % датаграмм;
+  - смена адреса в раунде;
+  - UDP закрыт → WebSocket v2;
+  - сервер выключает `LIVE_V2` посреди игры → v1;
+  - рестарт сервера → RESET.
+
+**На телефонах** — шаг 0 и шаг 6 плана ([plan.md](plan.md)).
+
+## 9. Порядок работы и чек-лист PR
+
+1. **`:shared`:** схема, Wire, `LiveLimits`, `LiveDatagrams`, `LiveClientStates`/`LiveStates`, `LiveSnapshots`,
+   `LiveUplink`, `LiveDownlink`, тесты. **Сделано 14.10** (шаг 2 плана). Сервер делает свой шаг 3 на этом же коде.
+2. **`:clientCore`:**
+   - `LiveApi`, `LiveGameConnection` с `WsLiveTransport`, `LiveFirstGameConnection`, тесты;
+   - e2e на `V2_WS`.
+
+   Это первый релиз: v2 по WebSocket.
+3. **UDP:** `UdpLiveTransport`, `LiveAead` для JVM и Android, мост iOS, `NetworkChanges`, тесты, e2e на `V2`.
+4. **Полевой журнал:** новые значения `SyncFields`; диагностика — «by udp», «by ws2».
+
+Перед PR:
+
+- `./gradlew spotlessApply`
+- `./gradlew :shared:jvmTest :clientCore:jvmTest`
+- `./gradlew :e2e:test`, `./gradlew :e2e:test -Pe2e.transport=v2`
+- iOS — на Mac владельца: `./gradlew :shared:iosSimulatorArm64Test :clientCore:iosSimulatorArm64Test` и сборка
+  `iosApp`
+- в PR написать, что запускали (CLAUDE.md, «Run the long tests yourself before a PR»)
+
+Документы того же PR:
+
+- `docs/architecture.md`: таблица API и раздел о живом канале;
+- новый ADR 0026 (из [ADR 0026](../adr/0026-live-v2.md));
+- запись в `docs/devlog.md`, если игрок что-то заметит. Игрок v2 не видит, но «связь держится в метро» — это
+  заметно.

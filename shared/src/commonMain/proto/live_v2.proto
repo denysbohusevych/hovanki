@@ -1,0 +1,548 @@
+// Hovanki: the live channel, protocol v2 (docs/adr/0026-live-v2.md). The spec is docs/live-v2/spec.md.
+//
+// This file is the single source of truth for the binary messages of the live channel. Wire generates the Kotlin
+// classes for the server and the apps from it (package app.hovanki.shared.live.v2, see shared/build.gradle.kts).
+//
+// Rules that hold forever:
+// - A field number is never reused or renumbered. A removed field goes to `reserved`.
+// - The meaning of a field's zero value (0, false, "", empty bytes, an absent message) is fixed here and in the spec's
+//   tables, not by a Kotlin default. A Kotlin DTO's default may change; the mapping keeps the old meaning.
+// - An enum value's number never changes. A new value is added only where a phone that reads it as 0 (Wire keeps the
+//   field's default for an unknown value) still does the right thing; otherwise add a new field (see `cause`).
+// - Strings and ids are UTF-8. An empty string means null where the v1 field is nullable (never both meaningful).
+// - Times are server time in epoch milliseconds, absolute inside sections (a section must not depend on the moment
+//   of the Down, or its hash changes every time).
+// - Coordinates are E7: degrees × 10^7, rounded half away from zero. Accuracy is in decimetres, rounded up.
+
+syntax = "proto3";
+
+package hovanki.live.v2;
+
+option java_package = "app.hovanki.shared.live.v2";
+
+// ============================================================================================================
+// Up: phone → server. One per sync; also the keepalive and the acknowledgement.
+// ============================================================================================================
+
+message Up {
+  // 1, 2, 3, … per live session. A resend is a new Up with a new seq.
+  uint32 seq = 1;
+  // The newest state_id the phone has applied; 0: none (the server then sends a full state).
+  uint32 ack_state = 2;
+  // The phone's server time (ServerClock.now()) when it made this Up: the base of every t_ms below.
+  int64 time_ms = 3;
+  // Every fix not yet acknowledged by Down.ack_up, oldest first, at most 100 (SyncRequest.samples).
+  repeated Fix fixes = 4;
+  // Whom the phone heard since its previous Up (SyncRequest.nearby), at most 200. Sent once: never again.
+  repeated Sighting sightings = 5;
+  // The phone's report (SyncRequest.device), whenever it differs from the last one the server acknowledged.
+  // Absent: the same as before. The server applies its last known report with every Up, as v1 does with every sync.
+  Device device = 6;
+  // SyncRequest.chatAfter: the newest chat seq the phone has, 0 for none. Absent: the phone takes no chat.
+  optional int64 chat_after = 7;
+  // The echo of Down.path_challenge, once the phone got one (UDP only).
+  bytes path_response = 8;
+  // The phone lost its states: send a full state, whatever ack_state says.
+  bool full = 9;
+
+  // Kept for the uplink of the platform's other game kinds (ADR 0005).
+  reserved 20 to 29;
+}
+
+message Fix {
+  // The first fix of an Up: absolute E7. Every next fix: the difference to the previous fix of this Up.
+  sint32 lat_e7 = 1;
+  sint32 lon_e7 = 2;
+  // LocationSample.accuracyMeters in decimetres, rounded up (20.04 m → 201).
+  uint32 accuracy_dm = 3;
+  // LocationSample.timestampMillis minus Up.time_ms (so usually negative).
+  sint64 t_ms = 4;
+  // LocationSample.isMock.
+  bool mock = 5;
+}
+
+message Sighting {
+  // NearbySighting.token: the radar token's 8 lowercase hex characters as 4 bytes, big-endian.
+  // A token that is not 8 hex characters is not sent (the server would drop it anyway).
+  fixed32 token = 1;
+  // NearbySighting.rssi, dBm.
+  sint32 rssi = 2;
+  // NearbySighting.atMillis minus Up.time_ms.
+  sint64 t_ms = 3;
+}
+
+message Device {
+  Platform platform = 1;
+  BluetoothState bluetooth = 2;
+  bool uwb = 3;
+  // DeviceReport.onScreen inverted: false (the default) means on screen.
+  bool off_screen = 4;
+  // DeviceReport.uwbToken; empty: null.
+  string uwb_token = 5;
+  Activity activity = 6;
+  bool activity_sensor = 7;
+  Carry carry = 8;
+  // DeviceReport.model; empty: null.
+  string model = 9;
+}
+
+// ============================================================================================================
+// Down: server → phone. A reply to an Up, or a push (reply_to = 0).
+// ============================================================================================================
+
+message Down {
+  // The Up.seq this answers; 0: a push (the game changed, ServerFrame.Poke and ServerFrame.Chat of v1).
+  uint32 reply_to = 1;
+  // The newest Up.seq the server has processed: the phone drops the fixes it sent up to that Up.
+  uint32 ack_up = 2;
+  // The server's clock when it made this Down (GameSnapshot.serverTimeMillis). Always set.
+  int64 server_time_ms = 3;
+  // The id of the state this Down brings; 0: no state (only acks, chat, an error or a close).
+  uint32 state_id = 4;
+  // The state this one is a delta against; 0: a full state (every section, from scratch).
+  uint32 base_state_id = 5;
+  // The sections that differ from base_state_id (every section of the game for a full state).
+  State state = 6;
+  // Chat messages newer than Up.chat_after (GameSnapshot.chat), oldest first.
+  repeated ChatMessage chat = 7;
+  // The chat came as a push (ServerFrame.Chat): it does not move the phone's chat cursor.
+  bool chat_push = 8;
+  // The Up with seq reply_to was refused (ServerFrame.Error). The live session stays.
+  Error error = 9;
+  // The live session is over (see CloseReason).
+  Close close = 10;
+  // UDP only: the phone's address changed; echo this in the next Up's path_response.
+  bytes path_challenge = 11;
+  // More chat waits than fitted in this Down (LiveLimits.MAX_CHAT_BYTES): send the next Up now, not after the pause.
+  bool chat_more = 12;
+
+  // Kept for the states of the platform's other game kinds (ADR 0005).
+  reserved 20 to 29;
+}
+
+message ChatMessage {
+  int64 seq = 1;
+  string player_id = 2;
+  string text = 3;
+  int64 sent_at_ms = 4;
+  ChatChannel channel = 5;
+}
+
+message Error {
+  ErrorCode code = 1;
+  // ApiError.reason by name (ErrorReason); empty: null. A name the phone doesn't know reads as null, as in v1 JSON.
+  string reason = 2;
+  string message = 3;
+  optional int64 until_ms = 4;
+  // For TOO_MANY_REQUESTS: come back after this many seconds.
+  uint32 retry_after_s = 5;
+}
+
+message Close {
+  CloseReason reason = 1;
+  // For CLOSE_TOO_MANY: open again no sooner than this.
+  uint32 retry_after_s = 2;
+}
+
+// ============================================================================================================
+// The game's state as one viewer sees it, cut into sections (GameSnapshot of v1).
+// A section is either whole (sent whole when anything in it changed) or keyed (items by id: upserts, removals, order).
+// In a delta an absent section is unchanged. New sections take the next free number.
+// ============================================================================================================
+
+message State {
+  GameSection game = 1;          // whole
+  SettingsSection settings = 2;  // whole, JSON
+  PlayersSection players = 3;    // keyed by player id, three parts per item
+  MeSection me = 4;              // whole
+  CatchesSection catches = 5;    // keyed by catch id
+  RadarSection radar = 6;        // keyed by player id ("" for the one nameless contact)
+  TokensSection tokens = 7;      // whole
+  UwbSection uwb = 8;            // whole
+  SosSection sos = 9;            // whole
+  BoardSection board = 10;       // whole, JSON
+  QuestsSection quests = 11;     // whole, JSON
+  PerksSection perks = 12;       // whole, JSON
+  CountsSection counts = 13;     // whole
+}
+
+// The ids of a keyed section in their order. A wrapper, so that "present and empty" differs from "absent".
+message Keys {
+  repeated string ids = 1;
+}
+
+// ---------- game: who, what phase, the round's times, the map's state ----------
+
+message GameSection {
+  string game_id = 1;
+  string join_code = 2;
+  string host_id = 3;
+  GamePhase phase = 4;
+  optional int64 phase_ends_at_ms = 5;
+  optional int64 zone_started_at_ms = 6;
+  optional int64 finished_at_ms = 7;
+  int32 map_revision = 8;
+  optional int64 roles_drawn_at_ms = 9;
+  BuildingsState buildings = 10;
+  StreetZoneState street_zone = 11;
+  // ServerFeature names, as v1 sends them.
+  repeated string enabled_features = 12;
+  int32 spectators = 13;
+  // Absent: no pause (GameSnapshot.pause null).
+  Pause pause = 14;
+  // GameSnapshot.playAgain.joinCode; empty: null.
+  string play_again_code = 15;
+  // GameSnapshot.capacity as v1 JSON (protocolJson); empty: null.
+  bytes capacity_json = 16;
+  // GameSnapshot.bigGame as v1 JSON (protocolJson); empty: null.
+  bytes big_game_json = 17;
+}
+
+message Pause {
+  int64 since_ms = 1;
+  bool sos = 2;
+}
+
+// ---------- settings: the host's setup, as v1 JSON ----------
+
+message SettingsSection {
+  // GameSnapshot.settings encoded by protocolJson (encodeDefaults = true: a newer server's defaults may differ).
+  bytes json = 1;
+}
+
+// ---------- players ----------
+
+message PlayersSection {
+  repeated PlayerItem upsert = 1;
+  repeated string remove = 2;
+  // Present whenever the ids or their order differ from the base; always in a full state.
+  Keys order = 3;
+}
+
+// An item the phone doesn't have yet (a new id): an absent part means its zero (roster is always there,
+// presence: connected, location: none). An item the phone has: an absent part is unchanged.
+message PlayerItem {
+  string id = 1;
+  Roster roster = 2;
+  Presence presence = 3;
+  LocationPart location = 4;
+}
+
+message Roster {
+  string name = 1;
+  Role role = 2;
+  PlayerStatus status = 3;
+  // Empty: a guest (null).
+  string user_id = 4;
+  optional int64 out_at_ms = 5;
+  // Empty: null.
+  string caught_by = 6;
+  bool left = 7;
+  // Absent: the phone never said (null).
+  Caps caps = 8;
+  optional int32 sparks = 9;
+}
+
+message Caps {
+  Platform platform = 1;
+  BluetoothState bluetooth = 2;
+  bool uwb = 3;
+  bool off_screen = 4;
+  bool activity_sensor = 5;
+}
+
+// PlayerView.lastSeenMillis. last_seen_ms is sent only while the player is silent for longer than
+// LiveLimits.OFFLINE_AFTER_MILLIS (20 s); absent: connected, and the phone puts Down.server_time_ms in its place.
+message Presence {
+  optional int64 last_seen_ms = 1;
+}
+
+// PlayerView.location: value absent means the viewer may not see the player now (null).
+message LocationPart {
+  Location value = 1;
+}
+
+message Location {
+  sint32 lat_e7 = 1;
+  sint32 lon_e7 = 2;
+  uint32 accuracy_dm = 3;
+  int64 at_ms = 4;
+  // VisibleLocation.reason: only the values the first apps know.
+  VisibilityReason reason = 5;
+  // VisibleLocation.cause: the exact reason; absent: see reason.
+  optional VisibilityReason cause = 6;
+}
+
+// ---------- me: the viewer's own state ----------
+
+message MeSection {
+  string player_id = 1;
+  Role role = 2;
+  PlayerStatus status = 3;
+  // MyState.catchCodeSecret: the hex secret as bytes; empty: null. The phone writes it back as lowercase hex.
+  bytes catch_code_secret = 4;
+  optional int64 out_of_zone_deadline_ms = 5;
+  optional int64 inside_building_reveal_at_ms = 6;
+  // MyState.radarSecret as bytes; empty: null.
+  bytes radar_secret = 7;
+  optional int64 bluetooth_deadline_ms = 8;
+  int32 sparks = 9;
+  // Absent: no hint.
+  Hint hint = 10;
+  // MyState.radar is not null (its contacts are RadarSection).
+  bool radar_on = 11;
+}
+
+message Hint {
+  HintKind kind = 1;
+  int64 until_ms = 2;
+  optional int32 sector = 3;
+  optional DistanceBand band = 4;
+}
+
+// ---------- catches ----------
+
+message CatchesSection {
+  repeated CatchItem upsert = 1;
+  repeated string remove = 2;
+  Keys order = 3;
+}
+
+message CatchItem {
+  string id = 1;
+  string seeker_id = 2;
+  string hider_id = 3;
+  CatchStatus status = 4;
+  int64 created_at_ms = 5;
+  optional int64 deadline_ms = 6;
+  bool can_vote = 7;
+  optional bool my_vote = 8;
+}
+
+// ---------- radar: whom the viewer feels near ----------
+
+message RadarSection {
+  repeated Contact upsert = 1;
+  // Keys: the player id; "" for the nameless contact (a hider's sense), at most one.
+  repeated string remove = 2;
+  Keys order = 3;
+}
+
+message Contact {
+  // Empty: the nameless contact (RadarContact.playerId null).
+  string player_id = 1;
+  RadarBand band = 2;
+  optional int64 at_ms = 3;
+}
+
+// ---------- tokens: the radar tokens to listen for (this five-minute slot and its neighbours) ----------
+
+message TokensSection {
+  // MyState.seekerTokens, each as 4 bytes like Sighting.token.
+  repeated fixed32 seeker = 1;
+  // MyState.hiderTokens.
+  repeated fixed32 hider = 2;
+}
+
+// ---------- uwb ----------
+
+message UwbSection {
+  repeated UwbPeer peers = 1;
+}
+
+message UwbPeer {
+  string player_id = 1;
+  string token = 2;
+  Platform platform = 3;
+}
+
+// ---------- sos: everybody who called for help (ADR 0019), seen by every player of the game ----------
+
+message SosSection {
+  repeated SosCall calls = 1;
+}
+
+message SosCall {
+  string player_id = 1;
+  string name = 2;
+  int64 since_ms = 3;
+  // Absent: the phone sent no fix.
+  SosLocation location = 4;
+}
+
+message SosLocation {
+  sint32 lat_e7 = 1;
+  sint32 lon_e7 = 2;
+  uint32 accuracy_dm = 3;
+  int64 at_ms = 4;
+}
+
+// ---------- the board, quests, perks: rare and big, as v1 JSON ----------
+
+message BoardSection {
+  // GameSnapshot.items: a JSON array of BoardItem (protocolJson).
+  bytes items_json = 1;
+}
+
+message QuestsSection {
+  // GameSnapshot.quests: a JSON array of QuestView.
+  bytes quests_json = 1;
+}
+
+message PerksSection {
+  // MyState.perks: a JSON array of PerkView.
+  bytes perks_json = 1;
+}
+
+// ---------- counts: a big game's totals ----------
+
+message CountsSection {
+  // false: GameSnapshot.counts is null (the list of players is everybody).
+  bool shown = 1;
+  int32 players = 2;
+  int32 seekers = 3;
+  int32 hiders_active = 4;
+  int32 hiders_caught = 5;
+  int32 hiders_eliminated = 6;
+}
+
+// ============================================================================================================
+// Enums. Value 0 is the v1 default (or null where the v1 field is nullable). Names carry the enum's prefix
+// (protobuf's rule: enum values share the package's scope).
+// ============================================================================================================
+
+enum GamePhase {
+  GAME_PHASE_LOBBY = 0;
+  GAME_PHASE_HIDING = 1;
+  GAME_PHASE_SEEKING = 2;
+  GAME_PHASE_FINISHED = 3;
+}
+
+enum Role {
+  ROLE_HIDER = 0;
+  ROLE_SEEKER = 1;
+}
+
+enum PlayerStatus {
+  PLAYER_STATUS_ACTIVE = 0;
+  PLAYER_STATUS_CAUGHT = 1;
+  PLAYER_STATUS_ELIMINATED = 2;
+}
+
+enum CatchStatus {
+  CATCH_STATUS_AWAITING_CODE = 0;
+  CATCH_STATUS_DISPUTED = 1;
+  CATCH_STATUS_CONFIRMED = 2;
+  CATCH_STATUS_REJECTED = 3;
+}
+
+enum VisibilityReason {
+  VISIBILITY_REASON_TEAMMATE = 0;
+  VISIBILITY_REASON_STALE_SIGNAL = 1;
+  VISIBILITY_REASON_OUT_OF_ZONE = 2;
+  VISIBILITY_REASON_MOCK_LOCATION = 3;
+  VISIBILITY_REASON_INSIDE_BUILDING = 4;
+  VISIBILITY_REASON_GLOW = 5;
+  VISIBILITY_REASON_RADAR_OFF = 6;
+  VISIBILITY_REASON_SPOTLIGHT = 7;
+  VISIBILITY_REASON_FRESH_TRAIL = 8;
+}
+
+// 0: null (GameSnapshot.buildings absent).
+enum BuildingsState {
+  BUILDINGS_STATE_NONE = 0;
+  BUILDINGS_STATE_LOADING = 1;
+  BUILDINGS_STATE_READY = 2;
+  BUILDINGS_STATE_UNAVAILABLE = 3;
+}
+
+// 0: null (a circle zone).
+enum StreetZoneState {
+  STREET_ZONE_STATE_NONE = 0;
+  STREET_ZONE_STATE_LOADING = 1;
+  STREET_ZONE_STATE_READY = 2;
+  STREET_ZONE_STATE_UNAVAILABLE = 3;
+}
+
+enum ChatChannel {
+  CHAT_CHANNEL_ALL = 0;
+  CHAT_CHANNEL_SEEKERS = 1;
+  CHAT_CHANNEL_HIDERS = 2;
+}
+
+enum RadarBand {
+  RADAR_BAND_NONE = 0;
+  RADAR_BAND_WARM = 1;
+  RADAR_BAND_HOT = 2;
+  RADAR_BAND_BURNING = 3;
+}
+
+enum HintKind {
+  HINT_KIND_SENSE = 0;
+  HINT_KIND_DIRECTION = 1;
+  HINT_KIND_RADIUS = 2;
+}
+
+enum DistanceBand {
+  DISTANCE_BAND_NEAR = 0;
+  DISTANCE_BAND_CLOSE = 1;
+  DISTANCE_BAND_FAR = 2;
+}
+
+// v1 default: OTHER.
+enum Platform {
+  PLATFORM_OTHER = 0;
+  PLATFORM_ANDROID = 1;
+  PLATFORM_IOS = 2;
+}
+
+// v1 default: UNSUPPORTED.
+enum BluetoothState {
+  BLUETOOTH_STATE_UNSUPPORTED = 0;
+  BLUETOOTH_STATE_ON = 1;
+  BLUETOOTH_STATE_OFF = 2;
+  BLUETOOTH_STATE_DENIED = 3;
+  BLUETOOTH_STATE_OFF_BY_PLAYER = 4;
+}
+
+enum Activity {
+  ACTIVITY_UNKNOWN = 0;
+  ACTIVITY_STILL = 1;
+  ACTIVITY_WALKING = 2;
+  ACTIVITY_RUNNING = 3;
+  ACTIVITY_IN_VEHICLE = 4;
+}
+
+enum Carry {
+  CARRY_UNKNOWN = 0;
+  CARRY_IN_HAND = 1;
+  CARRY_IN_POCKET = 2;
+}
+
+// ApiError.code: the closed list of v1 (never a new ErrorCode: new errors are reasons).
+enum ErrorCode {
+  ERROR_CODE_INTERNAL = 0;
+  ERROR_CODE_BAD_REQUEST = 1;
+  ERROR_CODE_UNAUTHORIZED = 2;
+  ERROR_CODE_FORBIDDEN = 3;
+  ERROR_CODE_NOT_FOUND = 4;
+  ERROR_CODE_WRONG_STATE = 5;
+  ERROR_CODE_NO_LOCATION = 6;
+  ERROR_CODE_TOO_FAR = 7;
+  ERROR_CODE_INVALID_CODE = 8;
+}
+
+enum CloseReason {
+  // Unknown to this phone: treat as CLOSE_REOPEN.
+  CLOSE_REOPEN = 0;
+  // The token is no longer a player's of this game (401 of v1): ConnectionEvent.Ended(SESSION_REJECTED).
+  CLOSE_SESSION_REJECTED = 1;
+  // The game is gone (404 of v1): ConnectionEvent.Ended(GAME_NOT_FOUND).
+  CLOSE_GAME_NOT_FOUND = 2;
+  // Too many Ups or sessions: open again after Close.retry_after_s.
+  CLOSE_TOO_MANY = 3;
+  // The server turned v2 off (LIVE_V2): go back to v1 (WebSocket or polling).
+  CLOSE_FALLBACK_V1 = 4;
+  // A newer live session of the same player took this one's place.
+  CLOSE_REPLACED = 5;
+}
