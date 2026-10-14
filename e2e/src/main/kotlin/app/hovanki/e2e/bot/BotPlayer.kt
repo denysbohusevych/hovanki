@@ -917,7 +917,7 @@ class BotPlayer(
                 return
             }
             val snapshot = (frame as? ServerFrame.Snapshot)?.snapshot ?: return
-            SnapshotAudit.check(snapshot, body).forEach { violations += "$name: $it" }
+            SnapshotAudit.check(snapshot, SnapshotAudit.snapshotJson(body)).forEach { violations += "$name: $it" }
             snapshot.players.forEach { player -> player.location?.let { reveals += player.id to it.exactReason } }
             return
         }
@@ -941,10 +941,10 @@ class BotPlayer(
             SnapshotAudit.checkSpectator(view).forEach { violations += "$name: $it" }
             return
         }
+        // «Play again» answers with the session in the next game, like creating or joining one.
+        val isSession = exchange.path == ApiRoutes.GAMES || exchange.path == ApiRoutes.JOIN ||
+            exchange.path.endsWith(PLAY_AGAIN_SUFFIX)
         val snapshot = try {
-            // «Play again» answers with the session in the next game, like creating or joining one.
-            val isSession = exchange.path == ApiRoutes.GAMES || exchange.path == ApiRoutes.JOIN ||
-                exchange.path.endsWith(PLAY_AGAIN_SUFFIX)
             if (isSession) {
                 protocolJson.decodeFromString<SessionResponse>(body).snapshot
             } else {
@@ -954,7 +954,8 @@ class BotPlayer(
             violations += "$name: unreadable response from ${exchange.path}: ${e.message}"
             return
         }
-        SnapshotAudit.check(snapshot, body).forEach { violations += "$name: $it" }
+        val raw = if (isSession) SnapshotAudit.snapshotJson(body) else body
+        SnapshotAudit.check(snapshot, raw).forEach { violations += "$name: $it" }
         snapshot.players.forEach { player -> player.location?.let { reveals += player.id to it.exactReason } }
     }
 

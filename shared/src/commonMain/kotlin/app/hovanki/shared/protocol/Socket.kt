@@ -49,7 +49,10 @@ object SocketClose {
     /** Syncs too often, or too many sockets of one player: come back after a pause. */
     const val TOO_MANY = 4429
 
-    /** The server has the live channel off ([ServerFeature.LIVE_SOCKET]): poll `POST /sync` instead. */
+    /**
+     * The server has the live channel off ([ServerFeature.LIVE_SOCKET]), or the upgrade came without a token: poll
+     * `POST /sync` instead.
+     */
     const val POLL = 4503
 }
 
