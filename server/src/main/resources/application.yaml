@@ -88,6 +88,9 @@ hovanki:
     request-retention: 90d
   moderation:
     report-retention: 90d
+    # A user's bans and chat bans are read at most this often (every chat message asks); given or lifted in the admin
+    # they take effect at once.
+    sanction-cache-ttl: 1m
   # The inbox (InboxCache): the friend requests and the big games' lobbies are read from the database at most this often
   # per user; the server's own changes of them show at once.
   social:
