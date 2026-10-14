@@ -33,6 +33,8 @@ import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.SocketClose
 import app.hovanki.shared.protocol.SocketLimits
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
@@ -166,6 +168,35 @@ class LiveGameConnectionTest {
             assertEquals(3_000, currentTime - answeredAt)
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun anAppSlowerThanThePauseNeverBreaksTheConnection() = runTest {
+        val server = FakeLiveServer()
+        val events = mutableListOf<ConnectionEvent>()
+        // The app takes longer with every event than the pause lasts: a Down handled within a wait would have its
+        // emit cut by the wait's timeout, and the flow would break for good.
+        backgroundScope.launch {
+            connection(server).connect(testSession, LocationOutbox()).collect {
+                events += it
+                delay(5_000)
+            }
+        }
+        val socket = server.awaitSocket(0)
+        socket.answer(socket.awaitUp(), seeking)
+        val glowing = seeking.copy(serverTimeMillis = 6_000, players = listOf(testPlayer, seeker))
+        assertTrue(socket.push(glowing))
+        val caught = glowing.copy(
+            serverTimeMillis = 9_000,
+            players = listOf(testPlayer.copy(status = PlayerStatus.CAUGHT)),
+        )
+        socket.answer(socket.awaitUp(), caught)
+        socket.awaitUp()
+
+        assertEquals(
+            listOf(asV2Shows(seeking), asV2Shows(glowing), asV2Shows(caught)),
+            events.map { assertIs<ConnectionEvent.Snapshot>(it).snapshot },
+        )
     }
 
     @Test

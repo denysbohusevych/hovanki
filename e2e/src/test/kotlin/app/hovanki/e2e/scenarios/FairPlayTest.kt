@@ -37,7 +37,7 @@ class FairPlayTest {
         // Read only now: fixes taken before the GPS went off may still have been in the outbox a moment ago.
         val lastFix = checkNotNull(anna.onServer().latestFix)
         val revealed = awaitReveal(anna, VisibilityReason.STALE_SIGNAL, to = sam, within = 10.seconds)
-        check(revealed.point == lastFix.point, "Sam sees Anna's last known point")
+        check(revealed.point.distanceTo(lastFix.point) < SAME_POINT_METERS, "Sam sees Anna's last known point")
         check(
             anna.onServer().lastFixReceivedMillis!! <
                 state().serverTimeMillis - rules.staleLocationRevealSeconds * 1000L + 1500,
@@ -131,7 +131,7 @@ class FairPlayTest {
             revealedAt < seekingStarts + rules.staleLocationRevealSeconds * 1000L - 3_000,
             "revealed ${(revealedAt - seekingStarts) / 1000} s into seeking: the silence counts from the last fix",
         )
-        check(revealed.point == lastFix.point, "Sam sees Anna's last known point")
+        check(revealed.point.distanceTo(lastFix.point) < SAME_POINT_METERS, "Sam sees Anna's last known point")
     }
 
     /**
@@ -163,5 +163,10 @@ class FairPlayTest {
             sam.snapshot?.players?.single { it.id == anna.id }?.location == null
         }
         check(state().serverTimeMillis >= lastMock + 60_000, "not before a minute passed")
+    }
+
+    private companion object {
+        /** The same point: the live channel v2 carries coordinates to 1e-7°, about a centimetre (spec §10). */
+        const val SAME_POINT_METERS = 0.05
     }
 }

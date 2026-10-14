@@ -200,18 +200,19 @@ class LiveGameConnection(
                         "The Up was not sent within ${SocketLimits.REPLY_TIMEOUT_MILLIS} ms",
                         answered = conn.answered,
                     )
+                // The waits only read: a Down is handled (and its events emitted) after its wait. An emit that a
+                // timeout cuts short breaks the flow for good (exception transparency), and the app with it.
+                val replyBy = timeSource.markNow() + SocketLimits.REPLY_TIMEOUT_MILLIS.milliseconds
                 var reply: Handled? = null
-                withTimeoutOrNull(SocketLimits.REPLY_TIMEOUT_MILLIS) {
-                    while (reply == null) {
-                        val (down, bytes) = nextDown(socket)
-                        val handled = handle(conn, run, down, bytes)
-                        if (down.reply_to == up.seq) reply = handled
-                    }
+                while (reply == null) {
+                    val (down, bytes) = withTimeoutOrNull(-replyBy.elapsedNow()) { nextDown(socket) }
+                        ?: throw LiveChannelException(
+                            "No answer within ${SocketLimits.REPLY_TIMEOUT_MILLIS} ms",
+                            answered = conn.answered,
+                        )
+                    val handled = handle(conn, run, down, bytes)
+                    if (down.reply_to == up.seq) reply = handled
                 }
-                    ?: throw LiveChannelException(
-                        "No answer within ${SocketLimits.REPLY_TIMEOUT_MILLIS} ms",
-                        answered = conn.answered,
-                    )
                 val pauseMillis = when (val answer = reply) {
                     is Handled.Refused -> {
                         val pause = answer.retryAfterMillis ?: errorPauseMillis
@@ -229,12 +230,11 @@ class LiveGameConnection(
                 }
                 // The pause; the pushes come meanwhile. A push that could not be applied, or more chat waiting, cuts
                 // it short.
-                withTimeoutOrNull(pauseMillis) {
-                    while (true) {
-                        val (down, bytes) = nextDown(socket)
-                        val handled = handle(conn, run, down, bytes)
-                        if (handled == Handled.Dropped || (handled is Handled.State && handled.chatMore)) break
-                    }
+                val pauseEnds = timeSource.markNow() + pauseMillis.milliseconds
+                while (true) {
+                    val (down, bytes) = withTimeoutOrNull(-pauseEnds.elapsedNow()) { nextDown(socket) } ?: break
+                    val handled = handle(conn, run, down, bytes)
+                    if (handled == Handled.Dropped || (handled is Handled.State && handled.chatMore)) break
                 }
             }
         } catch (e: CancellationException) {

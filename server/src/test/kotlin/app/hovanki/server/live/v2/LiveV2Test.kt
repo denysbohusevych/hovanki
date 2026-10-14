@@ -217,6 +217,32 @@ class LiveV2Test(
     }
 
     @Test
+    fun aPushIsNoSignThatThePhoneIsThere() {
+        val host = create()
+        val guest = join(host)
+        val guestPhone = Phone(guest.session)
+        guestPhone.exchange()
+        val lastUp = guestPhone.exchange().server_time_ms
+        Thread.sleep(20)
+
+        post<GameSnapshot>(
+            ApiRoutes.roles(host.session.gameId),
+            RolesRequest(listOf(guest.session.playerId)),
+            host.session,
+        )
+        val push = guestPhone.next()
+        assertEquals(0, push.reply_to)
+        assertTrue(push.server_time_ms > lastUp)
+        val hostView = post<GameSnapshot>(ApiRoutes.sync(host.session.gameId), SyncRequest(), host.session)
+        assertEquals(
+            lastUp,
+            hostView.players.single { it.id == guest.session.playerId }.lastSeenMillis,
+            "the guest was last seen at their last Up, not at the push (docs/live-v2/server.md §3.2)",
+        )
+        guestPhone.close()
+    }
+
+    @Test
     fun aChatMessageIsPushedItselfToWhoMayReadIt() {
         val host = create()
         val guest = join(host)

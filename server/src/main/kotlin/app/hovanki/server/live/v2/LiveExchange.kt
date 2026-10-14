@@ -112,7 +112,7 @@ class LiveExchange(
             }
             if (!pending.state) return
             val snapshot = try {
-                // Read only (once the snapshot no longer marks its viewer as seen, docs/live-v2/server.md §3.2).
+                // Read only: a push is no sign that the phone is there (docs/live-v2/server.md §3.2).
                 games.withGame(session.ref, session.ref.gameId) { game, at ->
                     game.snapshotFor(session.ref.playerId, at, null, features.enabledNames())
                 }

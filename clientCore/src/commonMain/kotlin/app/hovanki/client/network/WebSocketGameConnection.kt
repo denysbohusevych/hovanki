@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
 
 /**
@@ -113,28 +114,29 @@ class WebSocketGameConnection(
                 var poked = false
                 var lastText = ""
                 var replyText = ""
-                val answer = withTimeoutOrNull(SocketLimits.REPLY_TIMEOUT_MILLIS) {
-                    var reply: ServerFrame? = null
-                    while (reply == null) {
-                        when (val frame = nextFrame(socket) { lastText = it }) {
-                            ServerFrame.Poke -> poked = true
+                // The waits only read: what a frame says is emitted after its wait. An emit that a timeout cuts short
+                // breaks the flow for good (exception transparency), and the app's sync with it.
+                val replyBy = sentAt + SocketLimits.REPLY_TIMEOUT_MILLIS.milliseconds
+                var answer: ServerFrame? = null
+                while (answer == null) {
+                    val frame = withTimeoutOrNull(-replyBy.elapsedNow()) { nextFrame(socket) { lastText = it } }
+                        ?: throw GameSocketException(
+                            "No answer within ${SocketLimits.REPLY_TIMEOUT_MILLIS} ms",
+                            answered = answered,
+                        )
+                    when (frame) {
+                        ServerFrame.Poke -> poked = true
 
-                            is ServerFrame.Snapshot -> if (frame.seq == sent) {
-                                reply = frame
-                                replyText = lastText
-                            }
-
-                            is ServerFrame.Error -> if (frame.seq == sent) reply = frame
-
-                            is ServerFrame.Chat -> Unit
+                        is ServerFrame.Snapshot -> if (frame.seq == sent) {
+                            answer = frame
+                            replyText = lastText
                         }
+
+                        is ServerFrame.Error -> if (frame.seq == sent) answer = frame
+
+                        is ServerFrame.Chat -> emitChat(frame)
                     }
-                    reply
                 }
-                    ?: throw GameSocketException(
-                        "No answer within ${SocketLimits.REPLY_TIMEOUT_MILLIS} ms",
-                        answered = answered,
-                    )
                 // Answered or refused: the samples are the server's now, sending them again would do nothing good.
                 inFlight = emptyList()
                 val pauseMillis = when (answer) {
@@ -164,10 +166,12 @@ class WebSocketGameConnection(
                 }
                 if (!poked) {
                     // The pause, unless a poke cuts it short; chat messages come meanwhile.
-                    poked = withTimeoutOrNull(pauseMillis) {
-                        while (nextFrame(socket) != ServerFrame.Poke) Unit
-                        true
-                    } == true
+                    val pauseEnds = timeSource.markNow() + pauseMillis.milliseconds
+                    while (!poked) {
+                        val frame = withTimeoutOrNull(-pauseEnds.elapsedNow()) { nextFrame(socket) } ?: break
+                        if (frame == ServerFrame.Poke) poked = true
+                        if (frame is ServerFrame.Chat) emitChat(frame)
+                    }
                 }
                 if (poked) {
                     val gap = SocketLimits.SYNC_AFTER_POKE_GAP_MILLIS - sentAt.elapsedNow().inWholeMilliseconds
@@ -215,26 +219,21 @@ class WebSocketGameConnection(
     private class SocketClosed : Exception("The socket closed")
 
     /**
-     * The next frame of [socket] this app can read; a newer server's frame of another type is skipped, and the chat's
-     * pushed messages go out as a [ConnectionEvent.Chat] at once.
+     * The next frame of [socket] this app can read; a newer server's frame of another type is skipped. [onText]: the
+     * text of a frame other than the chat's.
      */
-    private suspend fun FlowCollector<ConnectionEvent>.nextFrame(
-        socket: GameSocket,
-        onText: (String) -> Unit = {},
-    ): ServerFrame {
+    private suspend fun nextFrame(socket: GameSocket, onText: (String) -> Unit = {}): ServerFrame {
         while (true) {
             val text = socket.receive() ?: throw SocketClosed()
-            when (val frame = decode(text)) {
-                null -> Unit
-
-                is ServerFrame.Chat -> if (frame.messages.isNotEmpty()) emit(ConnectionEvent.Chat(frame.messages))
-
-                else -> {
-                    onText(text)
-                    return frame
-                }
-            }
+            val frame = decode(text) ?: continue
+            if (frame !is ServerFrame.Chat) onText(text)
+            return frame
         }
+    }
+
+    /** The chat's pushed messages go out at once, as they came. */
+    private suspend fun FlowCollector<ConnectionEvent>.emitChat(frame: ServerFrame.Chat) {
+        if (frame.messages.isNotEmpty()) emit(ConnectionEvent.Chat(frame.messages))
     }
 
     private fun encode(frame: ClientFrame): String = protocolJson.encodeToString(ClientFrame.serializer(), frame)

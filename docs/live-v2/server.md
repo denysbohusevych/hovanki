@@ -183,10 +183,9 @@ sync по v2 (Up от телефона):
 - Шаг: разделить на `snapshotFor(viewer, now, …)` без побочных эффектов и `touch(viewer, now)`, который зовут
   `sync`, команды и `Up` v2. **Сделал стенд 14.10** (на его ветке, придёт в `main` с его PR):
   `Game.touch(viewerId, now)`, `Game.snapshotFor` только читает, `GameService.snapshotOf` делает оба.
-- Push собирает снимок без `touch`: `LiveExchange.push` зовёт `Game.snapshotFor` прямо. Пока разделение стенда не в
-  `main`, эта функция ещё отмечает `lastSeen`, и push на это время делает игрока «на связи»; с разделением код v2 не
-  меняется.
-- Тест: push не меняет `lastSeen` и не продлевает «на связи» — вместе с разделением.
+- Push собирает снимок без `touch`: `LiveExchange.push` зовёт `Game.snapshotFor` прямо (разделение стенда в `main` с
+  PR #90).
+- Тест: push не меняет `lastSeen` (`LiveV2Test.aPushIsNoSignThatThePhoneIsThere`).
 
 ### 3.3. Потом: общие куски (`LiveView`)
 
