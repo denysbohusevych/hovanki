@@ -610,10 +610,13 @@ class GameService(
 
     /**
      * [playerId]'s snapshot of [game] (under its lock), with the server features the operator has on: what the
-     * host may turn on in the lobby. Every snapshot goes out through here.
+     * host may turn on in the lobby. Every snapshot of a player's request goes out through here, and marks them as
+     * seen now ([Game.touch]).
      */
-    fun snapshotOf(game: Game, playerId: PlayerId, now: Long, chatAfter: Long? = null): GameSnapshot =
-        game.snapshotFor(playerId, now, chatAfter, features.enabledNames())
+    fun snapshotOf(game: Game, playerId: PlayerId, now: Long, chatAfter: Long? = null): GameSnapshot {
+        game.touch(playerId, now)
+        return game.snapshotFor(playerId, now, chatAfter, features.enabledNames())
+    }
 
     /** Every game in memory as staff see it (docs/adr/0008-admin.md), newest first. */
     fun adminGames(): List<AdminGame> = registry.all().map { game ->

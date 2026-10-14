@@ -46,6 +46,7 @@ class InviteService(
     private val rateLimiter: RateLimiter,
     private val clock: Clock,
     private val bigGames: BigGameService,
+    private val inboxes: InboxCache,
     transactionManager: PlatformTransactionManager,
 ) {
     private val transactions = TransactionTemplate(transactionManager).apply { isReadOnly = true }
@@ -111,19 +112,27 @@ class InviteService(
      * The caller's invitations that can still be accepted, newest first, the friend requests to them, and the open
      * lobbies of the big games they signed up for (docs/adr/0010-big-games.md). Invitations
      * into games that are gone or out of the lobby, or that the caller joined, and those from users with a block
-     * either way (blocks may come after the invitation) are dropped here.
+     * either way (blocks may come after the invitation) are dropped here. The friend requests and the big games come
+     * from [InboxCache]: an inbox without invitations reads nothing from the database most of the time.
      */
     fun inbox(userId: UserId): Inbox {
         val pending = invites.of(userId, clock.millis())
         val (open, closed) = pending.partition { games.isOpenFor(it.gameId, userId) }
         invites.remove(closed.map { it.id })
-        return checkNotNull(
+        val stored = inboxes.of(userId) {
+            Inbox(
+                friendRequests = friends.incoming(userId).sortedByNickname(),
+                bigGames = bigGames.openLobbiesFor(userId),
+            )
+        }
+        if (open.isEmpty()) return stored
+        val views = checkNotNull(
             transactions.execute {
                 val inviters = users.findAll(open.map { it.inviterId }.distinct()).associateBy { it.id }
                 val blocked = blocks.blockedEitherWayAmong(userId, inviters.keys)
                 val (shown, refused) = open.partition { it.inviterId in inviters && it.inviterId !in blocked }
                 invites.remove(refused.map { it.id })
-                val views = shown.sortedWith(compareByDescending<Invite> { it.createdAtMillis }.thenBy { it.id.value })
+                shown.sortedWith(compareByDescending<Invite> { it.createdAtMillis }.thenBy { it.id.value })
                     .map { invite ->
                         GameInvite(
                             id = invite.id,
@@ -136,9 +145,9 @@ class InviteService(
                             expiresAtMillis = invite.expiresAtMillis,
                         )
                     }
-                Inbox(invites = views, friendRequests = friends.incoming(userId).sortedByNickname())
             },
-        ).copy(bigGames = bigGames.openLobbiesFor(userId))
+        )
+        return stored.copy(invites = views)
     }
 
     /** Hides one of the caller's invitations; an unknown one (or someone else's) changes nothing. */

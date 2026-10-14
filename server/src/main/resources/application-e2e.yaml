@@ -10,6 +10,9 @@ hovanki:
   accounts:
     # Fast password hashing: bots register and log in all the time.
     bcrypt-strength: 4
+  # The scenarios check the leaderboard right after a game or a change of city (LeaderboardTest).
+  leaderboard:
+    fresh-for: 1s
   games:
     # Tests create many short games; keep finished ones around a little for the report, then free the memory.
     finished-retention: 10m

@@ -107,7 +107,7 @@
 | `HOVANKI_ADMIN_SECRET_KEY` | Ключ админки: base64 от 32 случайных байт ([Админка](#админка)). Пусто или нет — админка выключена |
 | `DATABASE_NAME`, `DATABASE_USER` | Только для [staging](#staging): база и роль на RDS (`hovanki_staging`). По умолчанию `hovanki` и `hovanki` — на основной машине их не задают |
 | `SPRING_PROFILES_ACTIVE` | Обычно не задают. `field` — на основной машине в дни полевого теста ([Полевой тест на основном сервере](#полевой-тест-на-основном-сервере)); `staging` — на staging |
-| `SERVER_MEM_LIMIT` | Лимит памяти контейнера сервера, куча — 75 % от него. По умолчанию `640m` (машина в 1 ГБ); в день полевого теста на `t3.small` — `1g`; на staging `1g` или `2g` |
+| `SERVER_MEM_LIMIT` | Лимит памяти контейнера сервера, куча — 55 % от него, остальное — память JVM вне кучи. По умолчанию `640m` (машина в 1 ГБ); в день полевого теста на `t3.small` — `1g`; на staging `1g` или `2g` |
 | `SENTRY_DSN` | Только для staging, необязательно: DSN Sentry сервера. На основной машине не задают |
 
 `compose.yaml` передаёт их серверу как `SPRING_DATASOURCE_*` (база `hovanki`, пользователь `hovanki`, TLS с проверкой сертификата по `rds-ca.pem`), `SPRING_MAIL_*` и `HOVANKI_MAIL_FROM` и включает настоящую отправку писем (`HOVANKI_MAIL_SENDER=smtp`). Без `DOMAIN`, `DATABASE_HOST`, `DATABASE_PASSWORD`, `SPRING_MAIL_HOST` или `HOVANKI_MAIL_FROM` `docker compose` не запускается и пишет, какой переменной не хватает; без файла `rds-ca.pem` рядом не запускается сервер. Проверить `.env`, ничего не запуская: `docker compose config --quiet` (молчит, если всё на месте). После правки `.env` — `docker compose up -d`.
@@ -448,7 +448,7 @@ docker compose down postgres
    ```
    `disable --now` держит таймер выключенным и после перезагрузки машины; простой `systemctl stop` после перезагрузки включился бы снова.
 2. Машина `t3.medium`: EC2 → Instances → `hovanki-staging` → Instance state → Stop; Actions → Instance settings → Change instance type → `t3.medium`; Start. Elastic IP остаётся, простой — пара минут.
-3. В `.env` поднять память: `SERVER_MEM_LIMIT=2g`, затем `docker compose up -d`. Куча — 75 % от лимита.
+3. В `.env` поднять память: `SERVER_MEM_LIMIT=2g`, затем `docker compose up -d`. Куча — 55 % от лимита.
 4. Проверка: здоровье по адресу контейнера на 8081, как в шаге 7 [первого запуска staging](#первый-запуск-staging); `systemctl list-timers hovanki-update.timer` — таймера в списке нет; флаги в админке включены; RDS → Free storage space — запас есть.
 
 **В день:** `docker compose logs -f server` (сервер координат и токенов не логирует), `docker stats` — память и процессор, метрики сервера — `curl -s http://$IP:8081/actuator/prometheus` (задержки `hovanki_game_sync_seconds`, игры, игроки, сокеты, ответы по кодам в `http_server_requests_seconds`); RDS → Monitoring — подключения и нагрузка. Игру при сбое не перезапускать без нужды: рестарт обрывает все игры.

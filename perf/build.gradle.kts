@@ -31,6 +31,18 @@ tasks.named<io.gatling.gradle.GatlingRunTask>("gatlingRun") {
     outputs.upToDateWhen { false }
 }
 
+// `./gradlew :perf:gatlingClasspath`: the simulations' classpath as a java argument file
+// (perf/build/gatling-classpath.txt), for perf/gatling.sh, which runs Gatling inside the lab's Docker network.
+tasks.register("gatlingClasspath") {
+    group = "perf"
+    description = "Writes the Gatling simulations' runtime classpath for perf/gatling.sh."
+    val runtime: FileCollection = sourceSets["gatling"].runtimeClasspath
+    val file = layout.buildDirectory.file("gatling-classpath.txt")
+    inputs.files(runtime)
+    outputs.file(file)
+    doLast { file.get().asFile.writeText("-cp \"${runtime.asPath}\"\n") }
+}
+
 tasks.named("check") {
     dependsOn("compileGatlingKotlin")
 }

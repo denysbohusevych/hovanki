@@ -16,7 +16,9 @@ import kotlin.time.Duration.Companion.seconds
  * The leaderboard, «Рейтинг» (docs/adr/0020-leaderboard.md), after a whole game: every player with an account gets
  * the points of [LeaderboardRules] for it, in the world's week, among their friends, in the city their phone is in
  * (docs/adr/0022-city-leaderboard.md) and in the last game. The world is
- * shared with the other scenarios on the same server, so only the players' own lines are checked there.
+ * shared with the other scenarios on the same server, so only the players' own lines are checked there. The world's
+ * and the cities' order is computed again every second on the e2e server (every minute on production): their checks
+ * wait for it.
  */
 class LeaderboardTest {
     @Test
@@ -64,8 +66,10 @@ class LeaderboardTest {
 
         // The world: everybody's week; the scenarios before this one played on the same server.
         for ((bot, id) in listOf(sam to samId, anna to annaId, boris to borisId)) {
-            requireOk(bot.openLeaderboard(LeaderboardScope.WORLD), "${bot.name} opens the world")
-            val world = checkNotNull(bot.leaderboard)
+            val world = eventually("${bot.name} is ranked in the world with this game", within = 10.seconds) {
+                requireOk(bot.openLeaderboard(LeaderboardScope.WORLD), "${bot.name} opens the world")
+                bot.leaderboard?.takeIf { it.me?.points == expected[id] }
+            }
             val me = checkNotNull(world.me) { "${bot.name} is ranked" }
             check(me.userId == id && me.isMe && me.points == expected[id], "${bot.name}: ${me.points} points")
             check(world.weekStartMillis < world.weekEndMillis, "a week")
@@ -92,16 +96,21 @@ class LeaderboardTest {
         requireOk(sam.locateCity(), "Sam's phone finds its city")
         requireOk(anna.locateCity(), "Anna's phone finds its city")
         requireOk(boris.setCity("lviv"), "Boris is in Lviv")
-        requireOk(anna.openLeaderboard(LeaderboardScope.CITY), "Anna opens her city")
-        val kyiv = checkNotNull(anna.leaderboard)
+        val kyiv = eventually("Anna sees Sam above her in Kyiv, Boris is in Lviv", within = 10.seconds) {
+            requireOk(anna.openLeaderboard(LeaderboardScope.CITY), "Anna opens her city")
+            anna.leaderboard?.takeIf { it.entries.map { line -> line.userId } == listOf(samId, annaId) }
+        }
         check(kyiv.city == "kyiv", "the park is in Kyiv: ${kyiv.city}")
-        check(kyiv.entries.map { it.userId } == listOf(samId, annaId), "Sam above Anna, Boris is in Lviv")
         check(kyiv.points() == expected.filterKeys { it != borisId }, "the rule's points")
-        requireOk(boris.openLeaderboard(LeaderboardScope.CITY), "Boris opens his city")
-        check(boris.leaderboard?.entries?.map { it.userId } == listOf(borisId), "only Boris in Lviv")
+        eventually("only Boris in Lviv", within = 10.seconds) {
+            requireOk(boris.openLeaderboard(LeaderboardScope.CITY), "Boris opens his city")
+            boris.leaderboard?.takeIf { it.entries.map { line -> line.userId } == listOf(borisId) }
+        }
         requireOk(anna.setCity(null), "Anna is outside every city")
-        requireOk(sam.openLeaderboard(LeaderboardScope.CITY), "Sam opens his city")
-        check(sam.leaderboard?.entries?.map { it.userId } == listOf(samId), "Anna left Kyiv's leaderboard")
+        eventually("Anna left Kyiv's leaderboard", within = 10.seconds) {
+            requireOk(sam.openLeaderboard(LeaderboardScope.CITY), "Sam opens his city")
+            sam.leaderboard?.takeIf { it.entries.map { line -> line.userId } == listOf(samId) }
+        }
 
         // The last game: its account players, the guest left out.
         requireOk(boris.openLeaderboard(LeaderboardScope.LAST_GAME), "Boris opens the last game")

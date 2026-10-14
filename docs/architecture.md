@@ -264,7 +264,7 @@ stateDiagram-v2
 - Данные карты — из векторных тайлов, тех же, что у игроков (`map/VectorTiles`: TileJSON и тайлы z14 OpenFreeMap, свой декодер MVT, кэш на 15 минут, [ADR 0003](adr/0003-map-and-buildings.md#изменение-2026-09-28-здания-из-тайлов-карты)). Источник зданий — `hovanki.buildings.source`: `tiles` (по умолчанию), `overpass`, `fake` (тестовый квартал `DebugBuildings`, в тестах и профиле `e2e`; `hovanki.buildings.fake-delay` задерживает его, как медленную загрузку), `off`. Улицы — `hovanki.map.streets`: `tiles`, `fake` (сетка `DebugStreets`), `off`.
 - Аутентификация — два вида токенов, оба в `Authorization: Bearer <token>` ([ADR 0004](adr/0004-accounts-friends-chat.md#3-два-вида-токенов)):
   - **игровой** — при создании игры или входе сервер выдаёт `PlayerSession`. Токен привязан к одной игре и одному игроку, живёт в памяти вместе с игрой; игровые маршруты получают `PlayerRef` через `PlayerRefArgumentResolver`;
-  - **аккаунтный** — при регистрации, входе и сбросе пароля (`AccountSession`). В базе хранится только SHA-256. Маршруты аккаунта получают `AuthenticatedUser` через `UserArgumentResolver`: параметр без `?` — аккаунт обязателен, с `?` — необязателен (создание игры и вход в неё). Подтверждённый email не нужен ни одному маршруту.
+  - **аккаунтный** — при регистрации, входе и сбросе пароля (`AccountSession`). В базе хранится только SHA-256. Маршруты аккаунта получают `AuthenticatedUser` через `UserArgumentResolver`: параметр без `?` — аккаунт обязателен, с `?` — необязателен (создание игры и вход в неё). Подтверждённый email не нужен ни одному маршруту. Сессию по токену сервер читает из базы не чаще раза в минуту на устройство (`AccountSessionRepository`, `hovanki.accounts.session-cache-ttl`); выход, бан, «выйти на других устройствах» и удаление аккаунта действуют сразу, сессия, удалённая в базе руками, работает ещё до минуты.
 
 ## Модель времени
 
@@ -481,7 +481,7 @@ sequenceDiagram
 | GET | `/api/v1/me/games/{gameId}/route` | — | `GameRoute`; 404, если маршрут не сохранён |
 | POST | `/api/v1/me/games/{gameId}/route/delete` | — | 204; игра остаётся в истории |
 | GET | `/api/v1/me/games/{gameId}/recording` | — | `GameRecording`: пути всех игроков этой игры ([ADR 0011](adr/0011-spectators-and-recordings.md)); 404, если вызывающий не играл в ней с аккаунтом или запись удалена |
-| GET | `/api/v1/me/leaderboard?scope=LAST_GAME\|CITY\|FRIENDS\|WORLD` | — | `LeaderboardResponse` ([ADR 0020](adr/0020-leaderboard.md)): очки за неделю по Киеву (`LeaderboardRules`) — «Мир» (первые 50 и своя строка), город игрока ([ADR 0022](adr/0022-city-leaderboard.md): так же, среди тех, у кого сейчас тот же город; без города — пусто и `city = null`), «Друзья» или игроки своей последней партии; `me`, `nextAbove`, `rankChange`. По умолчанию `WORLD`, неизвестный `scope` — 400. Ничего не хранится: считается из `game_results` |
+| GET | `/api/v1/me/leaderboard?scope=LAST_GAME\|CITY\|FRIENDS\|WORLD` | — | `LeaderboardResponse` ([ADR 0020](adr/0020-leaderboard.md)): очки за неделю по Киеву (`LeaderboardRules`) — «Мир» (первые 50 и своя строка), город игрока ([ADR 0022](adr/0022-city-leaderboard.md): так же, среди тех, у кого сейчас тот же город; без города — пусто и `city = null`), «Друзья» или игроки своей последней партии; `me`, `nextAbove`, `rankChange`. По умолчанию `WORLD`, неизвестный `scope` — 400. Ничего не хранится: считается из `game_results`; «Мир» и «Город» — не чаще раза в минуту, в памяти сервера |
 | POST | `/api/v1/me/city` | `CityRequest` | `UserProfile` с `city`: город для рейтинга города из `Cities.IDS`: телефон определяет его по своему положению (`CityLocator`) и шлёт только id, `null` — не в городе из списка ([ADR 0022](adr/0022-city-leaderboard.md)). Неизвестный id — 400 |
 | GET | `/api/v1/me/achievements` | — | `AchievementsResponse` ([ADR 0021](adr/0021-achievements.md)): все достижения `AchievementRules` по порядку — `id`, пороги уровней, значение, уровень, когда он получен, `isNew` (после `seenAtMillis`). Считается из своих `game_results`, ничего не хранится, кроме `users.achievements_seen_at` |
 | POST | `/api/v1/me/achievements/seen` | `AchievementsSeenRequest` | `AchievementsResponse`: игрок видел уровни, полученные до `upToMillis` (время сервера; позже «сейчас» — как «сейчас», назад не двигается) |
@@ -490,7 +490,7 @@ sequenceDiagram
 
 | Метод | Путь | Тело запроса | Ответ |
 |---|---|---|---|
-| GET | `/api/v1/me/inbox` | — | `Inbox`: приглашения в игры, открытые лобби больших игр, на которые игрок записан (`bigGames`), и входящие заявки в друзья |
+| GET | `/api/v1/me/inbox` | — | `Inbox`: приглашения в игры, открытые лобби больших игр, на которые игрок записан (`bigGames`), и входящие заявки в друзья. Заявки и лобби сервер держит в памяти до минуты на игрока (`InboxCache`, `hovanki.social.inbox-cache-ttl`): свои изменения сервера (заявки, блокировки, запись на большую игру, её лобби, ник, удаление аккаунта) видны сразу, чужая запись на ту же большую игру — до минуты |
 | POST | `/api/v1/me/invites/{inviteId}/dismiss` | — | `Inbox` |
 | GET | `/api/v1/friends` | — | `FriendsResponse` |
 | POST | `/api/v1/friends/requests` | `SendFriendRequest` (точный ник или `userId`) | `FriendsResponse`; встречная заявка — сразу дружба |

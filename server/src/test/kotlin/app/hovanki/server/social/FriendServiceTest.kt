@@ -6,6 +6,7 @@ import app.hovanki.server.account.AccountTestConfig
 import app.hovanki.server.account.PasswordHasher
 import app.hovanki.server.account.UserRepository
 import app.hovanki.server.account.uniqueName
+import app.hovanki.server.db.toTimestamptz
 import app.hovanki.server.game.GameException
 import app.hovanki.server.game.IdGenerator
 import app.hovanki.shared.protocol.CreateGroupRequest
@@ -19,6 +20,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.simple.JdbcClient
+import java.time.Duration
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -36,12 +38,13 @@ class FriendServiceTest(
     @Autowired private val service: FriendService,
     @Autowired private val groupService: GroupService,
     @Autowired private val groups: GroupRepository,
+    @Autowired private val invites: InviteService,
     @Autowired users: UserRepository,
     @Autowired sessions: AccountSessionRepository,
     @Autowired hasher: PasswordHasher,
     @Autowired ids: IdGenerator,
-    @Autowired jdbc: JdbcClient,
-    @Autowired clock: MutableClock,
+    @Autowired private val jdbc: JdbcClient,
+    @Autowired private val clock: MutableClock,
 ) {
     private val testUsers = TestUsers(users, sessions, hasher, ids, jdbc, clock)
 
@@ -304,6 +307,37 @@ class FriendServiceTest(
         // Accepting a request needs no room for another one.
         service.sendRequest(bob.id, SendFriendRequest(userId = alice.id))
         assertEquals(listOf(bob.summary), service.accept(alice.id, bob.id).friends)
+    }
+
+    @Test
+    fun theInboxIsReadOnceAMinuteAndFollowsTheChangesAtOnce() {
+        val alice = testUsers.create("a")
+        val bob = testUsers.create("b")
+        val carol = testUsers.create("c")
+        assertEquals(emptyList(), invites.inbox(bob.id).friendRequests)
+
+        service.sendRequest(alice.id, SendFriendRequest(userId = bob.id))
+        assertEquals(listOf(alice.summary), invites.inbox(bob.id).friendRequests)
+
+        // Around the server: shows once the minute is over.
+        jdbc.sql("INSERT INTO friend_requests VALUES (:from, :to, :t)")
+            .param("from", carol.id.value)
+            .param("to", bob.id.value)
+            .param("t", clock.instant().toTimestamptz())
+            .update()
+        assertEquals(listOf(alice.summary), invites.inbox(bob.id).friendRequests)
+        clock.advance(Duration.ofMinutes(1))
+        assertEquals(listOf(alice.summary, carol.summary), invites.inbox(bob.id).friendRequests)
+
+        service.accept(bob.id, alice.id)
+        assertEquals(listOf(carol.summary), invites.inbox(bob.id).friendRequests)
+        service.block(bob.id, carol.id)
+        assertEquals(emptyList(), invites.inbox(bob.id).friendRequests)
+        service.unblock(bob.id, carol.id)
+        service.sendRequest(carol.id, SendFriendRequest(userId = bob.id))
+        assertEquals(listOf(carol.summary), invites.inbox(bob.id).friendRequests)
+        service.decline(carol.id, bob.id)
+        assertEquals(emptyList(), invites.inbox(bob.id).friendRequests)
     }
 
     private fun friends(): Pair<TestUser, TestUser> {

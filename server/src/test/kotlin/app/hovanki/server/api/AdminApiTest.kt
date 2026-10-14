@@ -4,6 +4,7 @@ import app.hovanki.server.MutableClock
 import app.hovanki.server.account.AccountTestConfig
 import app.hovanki.server.account.awaitCode
 import app.hovanki.server.account.uniqueName
+import app.hovanki.server.db.toTimestamptz
 import app.hovanki.server.mail.EmailPurpose
 import app.hovanki.server.mail.EmailSender
 import app.hovanki.server.mail.RecordingEmailSender
@@ -377,6 +378,17 @@ class AdminApiTest(
 
         post(ApiRoutes.adminUser(authorId, "unmute"), AdminReasonRequest("apologized"), moderator).ok<AdminUserCard>()
         chat(game.authorPlayer, "sorry").expect(200)
+
+        // Read once a minute: a chat ban written around the server stops the chat only once the minute is over.
+        jdbc.sql(
+            "INSERT INTO sanctions (user_id, kind, reason, created_by, created_at) VALUES (:u, 'MUTE', 'x', 'm', :t)",
+        )
+            .param("u", authorId.value)
+            .param("t", clock.instant().toTimestamptz())
+            .update()
+        chat(game.authorPlayer, "not yet").expect(200)
+        clock.advance(Duration.ofMinutes(1))
+        chat(game.authorPlayer, "now").error(403, ErrorCode.FORBIDDEN, ErrorReason.CHAT_MUTED)
     }
 
     @Test

@@ -1,5 +1,6 @@
 package app.hovanki.server.moderation
 
+import app.hovanki.server.db.ReadCache
 import app.hovanki.server.db.getInstant
 import app.hovanki.server.db.getInstantOrNull
 import app.hovanki.server.db.toTimestamptz
@@ -8,8 +9,11 @@ import app.hovanki.shared.protocol.SanctionKind
 import app.hovanki.shared.protocol.UserId
 import org.springframework.jdbc.core.RowMapper
 import org.springframework.jdbc.core.simple.JdbcClient
+import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Repository
+import java.time.Clock
 import java.time.Instant
+import java.util.concurrent.TimeUnit
 
 /** A row of `sanctions`: a ban or a chat ban (docs/adr/0008-admin.md). [until] null: forever. */
 data class SanctionRecord(
@@ -40,11 +44,26 @@ data class SanctionRecord(
     override fun toString(): String = "SanctionRecord($id, $kind)"
 }
 
-/** `sanctions`. Staff names are stored as they were ([createdBy], [liftedBy]): the log reads the same later. */
+/** A user's ban and chat ban as read at one moment, each the one ending last; checked again at the time of use. */
+data class ActiveSanctions(val ban: SanctionRecord?, val mute: SanctionRecord?) {
+    fun banAt(now: Instant): SanctionRecord? = ban?.takeIf { it.isActiveAt(now) }
+
+    fun muteAt(now: Instant): SanctionRecord? = mute?.takeIf { it.isActiveAt(now) }
+}
+
+/**
+ * `sanctions`. Staff names are stored as they were ([createdBy], [liftedBy]): the log reads the same later.
+ *
+ * Every chat message of a player with an account asks [activeOf]: it answers from memory for up to
+ * [ModerationProperties.sanctionCacheTtl], and a sanction given or lifted here takes effect at once.
+ */
 @Repository
-class SanctionRepository(private val jdbc: JdbcClient) {
-    fun insert(userId: UserId, kind: SanctionKind, reason: String, by: String, now: Instant, until: Instant?): Long =
-        jdbc.sql(
+class SanctionRepository(private val jdbc: JdbcClient, clock: Clock, properties: ModerationProperties) {
+    private val cache = ReadCache<UserId, ActiveSanctions>(properties.sanctionCacheTtl, clock)
+
+    fun insert(userId: UserId, kind: SanctionKind, reason: String, by: String, now: Instant, until: Instant?): Long {
+        cache.forget(userId)
+        return jdbc.sql(
             """
             INSERT INTO sanctions (user_id, kind, reason, created_by, created_at, until)
             VALUES (:u, :kind, :reason, :by, :now, :until)
@@ -59,6 +78,7 @@ class SanctionRepository(private val jdbc: JdbcClient) {
             .param("until", until?.toTimestamptz())
             .query(Long::class.java)
             .single()
+    }
 
     /** The active sanction of [kind] ending last (a forever one first), or null. */
     fun active(userId: UserId, kind: SanctionKind, now: Instant): SanctionRecord? = jdbc.sql(
@@ -76,18 +96,46 @@ class SanctionRepository(private val jdbc: JdbcClient) {
         .optional()
         .orElse(null)
 
-    /** Lifts every active sanction of [kind]; how many there were. */
-    fun lift(userId: UserId, kind: SanctionKind, by: String, now: Instant): Int = jdbc.sql(
-        """
-        UPDATE sanctions SET lifted_at = :now, lifted_by = :by
-        WHERE user_id = :u AND kind = :kind AND lifted_at IS NULL AND (until IS NULL OR until > :now)
-        """.trimIndent(),
+    /** [userId]'s ban and chat ban active at [now], from memory when read lately. */
+    fun activeOf(userId: UserId, now: Instant): ActiveSanctions = checkNotNull(
+        cache.get(userId) {
+            val active = jdbc.sql(
+                """
+                SELECT * FROM sanctions
+                WHERE user_id = :u AND lifted_at IS NULL AND (until IS NULL OR until > :now)
+                ORDER BY until DESC NULLS FIRST
+                """.trimIndent(),
+            )
+                .param("u", userId.value)
+                .param("now", now.toTimestamptz())
+                .query(mapper)
+                .list()
+                .filterNotNull()
+            ActiveSanctions(
+                ban = active.firstOrNull { it.kind == SanctionKind.BAN },
+                mute = active.firstOrNull { it.kind == SanctionKind.MUTE },
+            )
+        },
     )
-        .param("u", userId.value)
-        .param("kind", kind.name)
-        .param("by", by)
-        .param("now", now.toTimestamptz())
-        .update()
+
+    @Scheduled(fixedDelay = 1, timeUnit = TimeUnit.MINUTES)
+    fun sweepCache() = cache.sweep()
+
+    /** Lifts every active sanction of [kind]; how many there were. */
+    fun lift(userId: UserId, kind: SanctionKind, by: String, now: Instant): Int {
+        cache.forget(userId)
+        return jdbc.sql(
+            """
+            UPDATE sanctions SET lifted_at = :now, lifted_by = :by
+            WHERE user_id = :u AND kind = :kind AND lifted_at IS NULL AND (until IS NULL OR until > :now)
+            """.trimIndent(),
+        )
+            .param("u", userId.value)
+            .param("kind", kind.name)
+            .param("by", by)
+            .param("now", now.toTimestamptz())
+            .update()
+    }
 
     /** Every sanction of [userId], newest first. */
     fun of(userId: UserId): List<SanctionRecord> =

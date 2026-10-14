@@ -18,6 +18,8 @@ EXPOSE 8080
 # The commit the image was built from: the admin shows it (docs/adr/0008-admin.md).
 ARG REVISION=dev
 ENV HOVANKI_REVISION=$REVISION
-# Size the heap from the container memory limit, not from the host RAM.
-ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75"
+# Size the heap from the container memory limit, not from the host RAM: 55 % of it. The JVM's memory outside the heap
+# (code, classes, threads, malloc) takes ~230 MB with 1 800 sockets; with 75 % the 640 MB container was killed at
+# ~2 400 players, with 55 % the server slows down there instead (perf/results/2026-10-14-heap-share.md).
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=55"
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

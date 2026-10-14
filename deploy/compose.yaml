@@ -50,7 +50,7 @@ services:
         read_only: true
         bind:
           create_host_path: false
-    # The heap is 75% of this limit (JAVA_TOOL_OPTIONS in server/Dockerfile); 640m leaves room for Caddy on a 1 GB VM.
+    # The heap is 55% of this limit (JAVA_TOOL_OPTIONS in server/Dockerfile); 640m leaves room for Caddy on a 1 GB VM.
     # Staging has more RAM: SERVER_MEM_LIMIT=1g on a t3.small, 2g on a t3.medium on the day of a test.
     mem_limit: ${SERVER_MEM_LIMIT:-640m}
     logging: *logging

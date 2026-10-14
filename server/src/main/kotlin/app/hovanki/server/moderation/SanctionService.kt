@@ -3,7 +3,6 @@ package app.hovanki.server.moderation
 import app.hovanki.server.game.GameException
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
-import app.hovanki.shared.protocol.SanctionKind
 import app.hovanki.shared.protocol.UserId
 import org.springframework.stereotype.Service
 import java.time.Clock
@@ -17,7 +16,8 @@ import java.time.Clock
 class SanctionService(private val sanctions: SanctionRepository, private val clock: Clock) {
     /** Throws 403 [ErrorReason.ACCOUNT_BANNED] with the end of the ban. Call only after the password was right. */
     fun checkNotBanned(userId: UserId) {
-        val ban = sanctions.active(userId, SanctionKind.BAN, clock.instant()) ?: return
+        val now = clock.instant()
+        val ban = sanctions.activeOf(userId, now).banAt(now) ?: return
         throw GameException(
             ErrorCode.FORBIDDEN,
             "This account is banned",
@@ -29,9 +29,8 @@ class SanctionService(private val sanctions: SanctionRepository, private val clo
     /** Throws 403 [ErrorReason.CHAT_MUTED] if [userId] is banned or may not chat, with when that ends. */
     fun checkCanChat(userId: UserId) {
         val now = clock.instant()
-        val sanction = sanctions.active(userId, SanctionKind.BAN, now)
-            ?: sanctions.active(userId, SanctionKind.MUTE, now)
-            ?: return
+        val active = sanctions.activeOf(userId, now)
+        val sanction = active.banAt(now) ?: active.muteAt(now) ?: return
         throw GameException(
             ErrorCode.FORBIDDEN,
             "You may not write in the chat",

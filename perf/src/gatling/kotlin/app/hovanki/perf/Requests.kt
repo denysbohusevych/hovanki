@@ -9,6 +9,8 @@ import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.protocolJson
 import io.gatling.javaapi.core.ChainBuilder
 import io.gatling.javaapi.core.CoreDsl.StringBody
+import io.gatling.javaapi.core.CoreDsl.doIf
+import io.gatling.javaapi.core.CoreDsl.doIfOrElse
 import io.gatling.javaapi.core.CoreDsl.exec
 import io.gatling.javaapi.core.CoreDsl.jsonPath
 import io.gatling.javaapi.core.Session
@@ -30,19 +32,36 @@ object Keys {
 
     /** The number of the player's last sync over the live channel: its answer carries it back. */
     const val SEQ = "seq"
+
+    /** The player's own [Transport], when a simulation mixes them; else every player has [LabConfig.transport]. */
+    const val TRANSPORT = "transport"
+
+    /** The chat cursor: the newest message's seq the player got, as the app keeps it. */
+    const val CHAT_AFTER = "chatAfter"
+
+    /** The player's [Phone], when a simulation gives it one: what it reports and, with the radar, whom it hears. */
+    const val PHONE = "phone"
+
+    /** The player's radar secret, once the round of a game with the radar started (`MyState.radarSecret`). */
+    const val RADAR_SECRET = "radarSecret"
+
+    /** The join code of the lobby the host opened to play again (`GameSnapshot.playAgain`), once there is one. */
+    const val AGAIN_CODE = "againCode"
 }
 
 /** The protocol's JSON, as the app sends it: the same DTOs and the same [protocolJson] as the app and the server. */
 inline fun <reified T> json(value: T): String = protocolJson.encodeToString(value)
 
-/** Every player is a phone: gzip as OkHttp and NSURLSession ask for it, the connections as Caddy keeps them. */
-fun hovankiHttp(): HttpProtocolBuilder = http.baseUrl(LabConfig.baseUrl)
-    .wsBaseUrl(LabConfig.baseUrl.replaceFirst("http", "ws"))
-    // Production's phones connect to Caddy, which keeps a pool of a few connections to the server: so do the players
-    // here. One connection per player would stop at Tomcat's 8 192 (`server.tomcat.max-connections`) and hold 16 KB of
-    // its buffers each, a ceiling and a heap production doesn't have. A live channel's socket stays one per player,
-    // through Caddy too.
-    .shareConnections()
+/**
+ * Every player is a phone: gzip as OkHttp and NSURLSession ask for it, the connections as production has them. Through
+ * Caddy (an `https` [LabConfig.baseUrls]) every phone keeps its own connection, as on production. Straight to the server
+ * the players share a pool of a few connections, as Caddy keeps to it: one connection per player would stop at Tomcat's
+ * 8 192 (`server.tomcat.max-connections`) and hold 16 KB of its buffers each, a ceiling and a heap production doesn't
+ * have. A live channel's socket is one per player either way.
+ */
+fun hovankiHttp(): HttpProtocolBuilder = http.baseUrls(LabConfig.baseUrls)
+    .wsBaseUrls(LabConfig.baseUrls.map { it.replaceFirst("http", "ws") })
+    .let { if (LabConfig.throughCaddy) it else it.shareConnections() }
     .acceptHeader("application/json")
     .contentTypeHeader("application/json")
     .acceptEncodingHeader("gzip")
@@ -60,41 +79,43 @@ fun Session.gameId(): GameId = GameId(checkNotNull(getString(Keys.GAME_ID)) { "N
 
 fun Session.phase(): GamePhase = getString(Keys.PHASE)?.let(GamePhase::valueOf) ?: GamePhase.LOBBY
 
+fun Session.transport(): Transport = getString(Keys.TRANSPORT)?.let(Transport::valueOf) ?: LabConfig.transport
+
+private fun Session.onSocket(): Boolean = transport() == Transport.SOCKET
+
 /**
  * The player's live channel once it is in a game (`-Pperf.transport=socket`), as the app opens it; nothing for polling.
  * The upgrade is never refused: a bad token or the feature off closes the socket at once, and the first sync fails.
  */
-fun connect(): ChainBuilder = when (LabConfig.transport) {
-    Transport.POLL -> exec { session -> session }
-
-    Transport.SOCKET -> exec { session -> session.set(Keys.SEQ, 0L) }.exec(
+fun connect(): ChainBuilder = doIf { session -> session.onSocket() }.then(
+    exec { session -> session.set(Keys.SEQ, 0L) }.exec(
         ws("socket: open").connect { session -> ApiRoutes.socket(session.gameId()) }
             .header("Authorization") { session -> "${ApiRoutes.AUTH_SCHEME} ${session.getString(Keys.TOKEN)}" },
-    )
-}
+    ),
+)
 
 /** Closes the player's live channel at the end of the run; nothing for polling. */
-fun disconnect(): ChainBuilder = when (LabConfig.transport) {
-    Transport.POLL -> exec { session -> session }
-    Transport.SOCKET -> exec(ws("socket: close").close())
-}
+fun disconnect(): ChainBuilder = doIf { session -> session.onSocket() }.then(exec(ws("socket: close").close()))
 
 /**
  * One sync, as the app sends it every `GameRules.syncIntervalSeconds`: the fix since the last one and the chat cursor,
- * as `POST /sync` or as a frame of the live channel ([LabConfig.transport]). Named by the phase the player was in
+ * as `POST /sync` or as a frame of the live channel (the player's [transport]). Named by the phase the player was in
  * (`sync LOBBY`, `sync SEEKING`): the snapshots differ, and so do their times.
  */
-fun sync(): ChainBuilder = when (LabConfig.transport) {
-    Transport.POLL -> pollSync()
-    Transport.SOCKET -> socketSync()
-}
+fun sync(): ChainBuilder = doIfOrElse { session -> session.onSocket() }.then(socketSync()).orElse(pollSync())
 
 private fun pollSync(): ChainBuilder = exec(
     http { session -> "sync ${session.phase()}" }
         .post { session -> ApiRoutes.sync(session.gameId()) }
         .asPlayer()
         .body(StringBody { session -> json(syncRequest(session)) })
-        .check(status().shouldBe(200), jsonPath("$.phase").saveAs(Keys.PHASE)),
+        .check(
+            status().shouldBe(200),
+            jsonPath("$.phase").saveAs(Keys.PHASE),
+            jsonPath("$.chat[-1:].seq").ofLong().optional().saveAs(Keys.CHAT_AFTER),
+            jsonPath("$.me.radarSecret").optional().saveAs(Keys.RADAR_SECRET),
+            jsonPath("$.playAgain.joinCode").optional().saveAs(Keys.AGAIN_CODE),
+        ),
 )
 
 /**
@@ -115,11 +136,21 @@ private fun socketSync(): ChainBuilder = exec { session -> session.set(Keys.SEQ,
                     .check(
                         jsonPath("$.type").shouldBe("snapshot"),
                         jsonPath("$.snapshot.phase").saveAs(Keys.PHASE),
+                        jsonPath("$.snapshot.chat[-1:].seq").ofLong().optional().saveAs(Keys.CHAT_AFTER),
+                        jsonPath("$.snapshot.me.radarSecret").optional().saveAs(Keys.RADAR_SECRET),
+                        jsonPath("$.snapshot.playAgain.joinCode").optional().saveAs(Keys.AGAIN_CODE),
                     ),
             ),
     )
 
 private fun syncRequest(session: Session): SyncRequest {
     val walker = checkNotNull(session.get<Walker>(Keys.WALKER)) { "No walker in the session" }
-    return SyncRequest(samples = listOf(walker.fix(System.currentTimeMillis())), chatAfter = 0)
+    val now = System.currentTimeMillis()
+    val phone = session.get<Phone>(Keys.PHONE)
+    return SyncRequest(
+        samples = listOf(walker.fix(now)),
+        chatAfter = if (session.contains(Keys.CHAT_AFTER)) session.getLong(Keys.CHAT_AFTER) else 0,
+        nearby = phone?.heard(session.phase(), now).orEmpty(),
+        device = phone?.report,
+    )
 }

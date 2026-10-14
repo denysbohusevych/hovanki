@@ -8,9 +8,12 @@ name: hovanki-perf
 
 services:
   postgres:
-    # PostgreSQL 17 like production's RDS.
+    # PostgreSQL 17 like production's RDS db.t4g.micro: 2 vCPU and 1 GB, off the server's CPUs (it is another
+    # machine there), a quarter of its memory for the shared buffers as RDS sets it.
     image: postgres:17-alpine
     restart: unless-stopped
+    cpuset: ${PERF_DB_CPUSET:-2,3}
+    mem_limit: 1g
     # Every statement's count and time (perf/pg-top.sh reads them), and the time spent waiting for the disk.
     command:
       - postgres
@@ -20,6 +23,8 @@ services:
       - pg_stat_statements.track=all
       - -c
       - track_io_timing=on
+      - -c
+      - shared_buffers=256MB
     environment:
       POSTGRES_DB: hovanki
       POSTGRES_USER: hovanki
@@ -80,12 +85,20 @@ services:
         BASE_IMAGE: eclipse-temurin:21-jdk
     image: hovanki-server:perf
     restart: "no"
-    # Production: a t3.micro (2 vCPU) and mem_limit 640m in deploy/compose.yaml; the heap is 75 % of it (Dockerfile).
-    cpus: ${PERF_SERVER_CPUS:-2}
+    # Production: one t3.micro, its 2 vCPU (one core's two threads) for the server, Caddy and the system together, and
+    # mem_limit 640m in deploy/compose.yaml; the heap is 55 % of it (Dockerfile). The server and Caddy share the same
+    # two CPUs here, the database and Gatling (perf/run.sh) stay off them.
+    cpuset: ${PERF_CPUSET:-0,1}
     mem_limit: ${PERF_SERVER_MEM:-640m}
     environment:
       SPRING_PROFILES_ACTIVE: e2e,perf
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hovanki
+      # Tomcat's default, as production. perf/run.sh --lift raises it to check that the generator reaches a level.
+      SERVER_TOMCAT_MAX_CONNECTIONS: ${PERF_MAX_CONNECTIONS:-8192}
+      # The Dockerfile's heap share (PERF_HEAP_PERCENT), plus PERF_SERVER_JAVA_OPTS for one run (e.g. -XX:NativeMemoryTracking=summary).
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=${PERF_HEAP_PERCENT:-55} ${PERF_SERVER_JAVA_OPTS:-}
+      # glibc's malloc arenas (one per thread by default, up to 8 per CPU): PERF_MALLOC_ARENA_MAX caps them for a run.
+      MALLOC_ARENA_MAX: ${PERF_MALLOC_ARENA_MAX:-0}
     ports:
       - "127.0.0.1:8080:8080"
     # perf/up.sh --container returns once the server answers.
@@ -97,6 +110,42 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # Production's TLS in front of the server (perf/Caddyfile), on the server's CPUs and in what a 1 GB machine leaves
+  # it: 1 GB minus the server's 640 MB and the system's ~130 MB.
+  caddy:
+    profiles: [container]
+    image: caddy:2.10.2
+    restart: "no"
+    cpuset: ${PERF_CPUSET:-0,1}
+    mem_limit: ${PERF_CADDY_MEM:-250m}
+    ports:
+      - "127.0.0.1:8443-8446:8443-8446"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      server:
+        condition: service_healthy
+
+  # Gatling inside the lab's network (perf/gatling.sh), for runs of more connections than this machine's own network
+  # stack takes: macOS gives one address and port about 16 000 ephemeral ports, and Docker Desktop's port forwarding
+  # carries every connection through a process of its own. Here the players reach the server (http://server:8080) or
+  # Caddy (https://caddy:8443) straight, with all 64 000 ports of their own namespace. On its own CPUs, off the
+  # server's and the database's; the code is the host's (the repository and the Gradle cache at the same paths).
+  gatling:
+    profiles: [load]
+    image: eclipse-temurin:21-jdk
+    restart: "no"
+    cpuset: ${PERF_GATLING_CPUSET:-4-9}
+    mem_limit: ${PERF_GATLING_MEM:-4g}
+    sysctls:
+      net.ipv4.ip_local_port_range: "1024 65535"
+    ulimits:
+      nofile: 1048576
+    working_dir: ${PERF_REPO:-/repo}
+    volumes:
+      - ${PERF_REPO:-.}:${PERF_REPO:-/repo}
+      - ${PERF_GRADLE_HOME:-~/.gradle}:${PERF_GRADLE_HOME:-/gradle}:ro
 
 volumes:
   postgres-data:

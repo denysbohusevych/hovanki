@@ -13,9 +13,12 @@ class LiveChannel private constructor(private val admin: LabAdmin, private val t
     }
 
     companion object {
-        /** Turns the live channel on for a socket run; null for a polling one, which leaves the server as it is. */
-        fun openFor(admin: () -> LabAdmin): LiveChannel? {
-            if (LabConfig.transport != Transport.SOCKET) return null
+        /**
+         * Turns the live channel on for a run with sockets ([needed]: by default a socket run); null for a polling one,
+         * which leaves the server as it is.
+         */
+        fun openFor(needed: Boolean = LabConfig.transport == Transport.SOCKET, admin: () -> LabAdmin): LiveChannel? {
+            if (!needed) return null
             val lab = admin()
             val wasOn = lab.setFeature(ServerFeature.LIVE_SOCKET, true, "perf: a socket run")
             println("The live channel (LIVE_SOCKET) is on${if (wasOn) "" else " for this run"}")
