@@ -9,23 +9,36 @@ import app.hovanki.shared.rules.LeaderboardRules
 import org.springframework.stereotype.Service
 import java.time.Clock
 import java.time.DayOfWeek
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
+import java.util.concurrent.locks.ReentrantLock
 
 /**
  * The leaderboard, «Рейтинг» (docs/adr/0020-leaderboard.md): the weekly points of players with an account, computed
- * on every request from the history of finished games with [LeaderboardRules]; nothing of it is stored. Shows
- * nicknames and points only: no game, place or time of anybody else.
+ * from the history of finished games with [LeaderboardRules]; nothing of it is stored. The world's and the cities'
+ * order is computed for everybody at once at most every [LeaderboardProperties.freshFor] and kept in memory
+ * ([Standings]); the friends'
+ * and the last game's are read on every request. Shows nicknames and points only: no game, place or time of anybody
+ * else.
  */
 @Service
-class LeaderboardService(private val repository: LeaderboardRepository, private val clock: Clock) {
+class LeaderboardService(
+    private val repository: LeaderboardRepository,
+    private val clock: Clock,
+    private val properties: LeaderboardProperties = LeaderboardProperties(),
+) {
+    @Volatile
+    private var standings: Standings? = null
+    private val refreshing = ReentrantLock()
+
     fun leaderboard(user: AuthenticatedUser, scope: LeaderboardScope): LeaderboardResponse {
         val now = clock.instant()
         return when (scope) {
-            LeaderboardScope.WORLD -> weekly(user.userId, scope, now, only = null)
+            LeaderboardScope.WORLD -> standing(user.userId, scope, now, city = null)
             LeaderboardScope.CITY -> city(user.userId, now)
-            LeaderboardScope.FRIENDS -> weekly(user.userId, scope, now, only = repository.friends(user.userId))
+            LeaderboardScope.FRIENDS -> friends(user.userId, now)
             LeaderboardScope.LAST_GAME -> lastGame(user.userId, now)
         }
     }
@@ -37,33 +50,39 @@ class LeaderboardService(private val repository: LeaderboardRepository, private 
     private fun city(me: UserId, now: Instant): LeaderboardResponse {
         val city = repository.cityOf(me)
             ?: return weekOf(now).let { LeaderboardResponse(LeaderboardScope.CITY, it.startMillis, it.endMillis) }
-        return weekly(me, LeaderboardScope.CITY, now, only = null, city = city).copy(city = city)
+        return standing(me, LeaderboardScope.CITY, now, city).copy(city = city)
     }
 
-    /**
-     * This week's points of everybody ([only] null) or of the caller and [only], of [city]'s players when given; with
-     * last week's place to compare.
-     */
-    private fun weekly(
-        me: UserId,
-        scope: LeaderboardScope,
-        now: Instant,
-        only: List<UserId>?,
-        city: String? = null,
-    ): LeaderboardResponse {
+    /** The top of the world's ([city] null) or [city]'s order this week and the caller's line, from [standings]. */
+    private fun standing(me: UserId, scope: LeaderboardScope, now: Instant, city: String?): LeaderboardResponse {
+        val standings = standings(now)
+        val board = standings.thisWeek.board(city)
+        val mine = board.lineOf(me)
+        val mineLastWeek = standings.lastWeek.board(city).lineOf(me)
+        return LeaderboardResponse(
+            scope = scope,
+            weekStartMillis = standings.week.startMillis,
+            weekEndMillis = standings.week.endMillis,
+            entries = board.lines.take(LeaderboardRules.WORLD_TOP).map { if (it.userId == me) mine!! else it },
+            me = mine,
+            nextAbove = board.lines.above(mine),
+            rankChange = if (mine != null && mineLastWeek != null) mineLastWeek.rank - mine.rank else null,
+        )
+    }
+
+    /** This week's points of the caller and their friends, with last week's place to compare. */
+    private fun friends(me: UserId, now: Instant): LeaderboardResponse {
         val week = weekOf(now)
-        val lastWeek = Week(week.start.atZone(ZONE).minusWeeks(1).toInstant(), week.start)
-        val members = only?.let { it + me }
-        val results = repository.results(lastWeek.start, week.end, now, members, city)
+        val results = repository.results(week.lastWeekStart, week.end, now, repository.friends(me) + me)
         val (thisWeekResults, lastWeekResults) = results.partition { it.finishedAt >= week.start }
         val ranked = LeaderboardRules.rank(scores(thisWeekResults), me)
         val mine = ranked.firstOrNull { it.isMe }
         val mineLastWeek = LeaderboardRules.rank(scores(lastWeekResults), me).firstOrNull { it.isMe }
         return LeaderboardResponse(
-            scope = scope,
-            weekStartMillis = week.start.toEpochMilli(),
-            weekEndMillis = week.end.toEpochMilli(),
-            entries = if (only == null) ranked.take(LeaderboardRules.WORLD_TOP) else ranked,
+            scope = LeaderboardScope.FRIENDS,
+            weekStartMillis = week.startMillis,
+            weekEndMillis = week.endMillis,
+            entries = ranked,
             me = mine,
             nextAbove = ranked.above(mine),
             rankChange = if (mine != null && mineLastWeek != null) mineLastWeek.rank - mine.rank else null,
@@ -87,6 +106,34 @@ class LeaderboardService(private val repository: LeaderboardRepository, private 
         )
     }
 
+    /**
+     * This week's [Standings], computed again once they are [LeaderboardProperties.freshFor] old. One request computes them; the others
+     * meanwhile get the week's previous ones and wait only when there are none yet (a new week, a restart).
+     */
+    private fun standings(now: Instant): Standings {
+        val week = weekOf(now)
+        standings?.takeIf { it.isFresh(week, now, properties.freshFor) }?.let { return it }
+        val previous = standings?.takeIf { it.week == week }
+        if (previous != null && !refreshing.tryLock()) return previous
+        if (previous == null) refreshing.lock()
+        try {
+            standings?.takeIf { it.isFresh(week, now, properties.freshFor) }?.let { return it }
+            return computeStandings(week, now).also { standings = it }
+        } finally {
+            refreshing.unlock()
+        }
+    }
+
+    private fun computeStandings(week: Week, now: Instant): Standings {
+        val thisWeek = HashMap<UserId, Tally>()
+        val lastWeek = HashMap<UserId, Tally>()
+        repository.eachResult(week.lastWeekStart, week.end, now) { result, city ->
+            val tallies = if (result.finishedAt >= week.start) thisWeek else lastWeek
+            tallies.getOrPut(result.userId) { Tally(result.nickname, city) }.add(result)
+        }
+        return Standings(week, now, WeekStandings.of(thisWeek), WeekStandings.of(lastWeek))
+    }
+
     private fun scores(results: List<LeaderboardResult>): List<LeaderboardRules.Score> =
         results.groupBy { it.userId }.map { (userId, games) ->
             LeaderboardRules.Score(
@@ -104,6 +151,68 @@ class LeaderboardService(private val repository: LeaderboardRepository, private 
     data class Week(val start: Instant, val end: Instant) {
         val startMillis get() = start.toEpochMilli()
         val endMillis get() = end.toEpochMilli()
+
+        /** The Monday before [start]: last week's results count for the change of place. */
+        val lastWeekStart: Instant get() = start.atZone(ZONE).minusWeeks(1).toInstant()
+    }
+
+    /** One player's games of a week so far: their points and when their last game ended. */
+    private class Tally(val nickname: String, val city: String?) {
+        var points = 0
+        var lastGameAtMillis = Long.MIN_VALUE
+
+        fun add(result: LeaderboardResult) {
+            points += result.points
+            lastGameAtMillis = maxOf(lastGameAtMillis, result.finishedAt.toEpochMilli())
+        }
+    }
+
+    /** One group's order of a week: [lines] best first, nobody marked as the caller. */
+    private class Board(val lines: List<LeaderboardEntry>) {
+        private val index = HashMap<UserId, Int>(lines.size * 2).apply {
+            lines.forEachIndexed { i, line -> put(line.userId, i) }
+        }
+
+        /** [userId]'s line marked as the caller's; null: no game in this group this week. */
+        fun lineOf(userId: UserId): LeaderboardEntry? = index[userId]?.let { lines[it].copy(isMe = true) }
+
+        companion object {
+            val EMPTY = Board(emptyList())
+
+            fun of(tallies: Collection<Map.Entry<UserId, Tally>>) = Board(
+                LeaderboardRules.rank(
+                    tallies.map { (userId, tally) ->
+                        LeaderboardRules.Score(userId, tally.nickname, tally.points, tally.lastGameAtMillis)
+                    },
+                    me = null,
+                ),
+            )
+        }
+    }
+
+    /** A week's order of the world and of every city, by the players' cities today. */
+    private class WeekStandings(private val world: Board, private val cities: Map<String, Board>) {
+        fun board(city: String?): Board = if (city == null) world else cities[city] ?: Board.EMPTY
+
+        companion object {
+            fun of(tallies: Map<UserId, Tally>) = WeekStandings(
+                world = Board.of(tallies.entries),
+                cities = tallies.entries.filter { it.value.city != null }
+                    .groupBy { it.value.city!! }
+                    .mapValues { (_, inCity) -> Board.of(inCity) },
+            )
+        }
+    }
+
+    /** The world's and the cities' order of [week] and the week before, as of [computedAt]. */
+    private class Standings(
+        val week: Week,
+        val computedAt: Instant,
+        val thisWeek: WeekStandings,
+        val lastWeek: WeekStandings,
+    ) {
+        fun isFresh(week: Week, now: Instant, freshFor: Duration) =
+            week == this.week && Duration.between(computedAt, now) < freshFor
     }
 
     companion object {

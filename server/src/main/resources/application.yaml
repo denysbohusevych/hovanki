@@ -91,6 +91,10 @@ hovanki:
   history:
     route-retention: 90d
     recording-retention: 90d
+  # The leaderboard (docs/adr/0020-leaderboard.md): the world's and the cities' order is computed again at most this
+  # often; a new week at once.
+  leaderboard:
+    fresh-for: 1m
   # DataRetention: deletes what the retention periods above allow, once a day (server time is UTC).
   retention:
     cron: "0 17 3 * * *"

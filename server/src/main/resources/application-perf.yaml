@@ -26,6 +26,9 @@ hovanki:
   big-games:
     # Production's scheduler.
     tick: 10s
+  leaderboard:
+    # Production's: the world's and the cities' order computed at most once a minute.
+    fresh-for: 1m
   field:
     # Production never keeps the field log.
     allowed: false

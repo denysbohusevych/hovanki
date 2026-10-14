@@ -7,10 +7,15 @@ import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.rules.LeaderboardRules
+import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.jdbc.core.RowCallbackHandler
 import org.springframework.jdbc.core.RowMapper
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 import java.time.Instant
+import javax.sql.DataSource
 
 /** One finished game of one account, as the leaderboard counts it: a row of `game_results` and the nickname. */
 data class LeaderboardResult(
@@ -32,35 +37,52 @@ data class LeaderboardResult(
  * are left out everywhere; deleted ones have no rows left.
  */
 @Repository
-class LeaderboardRepository(private val jdbc: JdbcClient) {
-    /**
-     * Every result that ended in [from, to), of [only] when given (else everybody's), of the players whose city is
-     * [city] when given (their city today, not when they played).
-     */
-    fun results(
-        from: Instant,
-        to: Instant,
-        now: Instant,
-        only: Collection<UserId>? = null,
-        city: String? = null,
-    ): List<LeaderboardResult> {
-        if (only != null && only.isEmpty()) return emptyList()
-        val filter =
-            (if (only == null) "" else "AND r.user_id IN (:ids) ") + (if (city == null) "" else "AND u.city = :city")
-        val query = jdbc.sql(
+class LeaderboardRepository(
+    private val jdbc: JdbcClient,
+    dataSource: DataSource,
+    transactionManager: PlatformTransactionManager,
+) {
+    /** PostgreSQL hands a query's rows over in batches only with a fetch size, inside a transaction. */
+    private val streaming = JdbcClient.create(JdbcTemplate(dataSource).apply { fetchSize = STREAM_BATCH })
+    private val readOnly = TransactionTemplate(transactionManager).apply { isReadOnly = true }
+
+    /** Every result of [only] that ended in [from, to). */
+    fun results(from: Instant, to: Instant, now: Instant, only: Collection<UserId>): List<LeaderboardResult> {
+        if (only.isEmpty()) return emptyList()
+        return jdbc.sql(
             """
             SELECT r.user_id, u.nickname, r.finished_at, r.role, r.status, r.won, r.catches, r.survived_seconds
             FROM game_results r JOIN users u ON u.id = r.user_id
-            WHERE r.finished_at >= :from AND r.finished_at < :to $filter AND $NOT_BANNED
+            WHERE r.finished_at >= :from AND r.finished_at < :to AND r.user_id IN (:ids) AND $NOT_BANNED
             """.trimIndent(),
         )
             .param("from", from.toTimestamptz())
             .param("to", to.toTimestamptz())
             .param("now", now.toTimestamptz())
-        val withIds = if (only == null) query else query.param("ids", only.map { it.value }.distinct())
-        return (if (city == null) withIds else withIds.param("city", city))
+            .param("ids", only.map { it.value }.distinct())
             .query(resultMapper)
             .list()
+    }
+
+    /**
+     * Everybody's results that ended in [from, to), each handed to [each] with its player's city today (null: none) as
+     * the rows arrive in batches: the world's weeks never sit in memory as rows.
+     */
+    fun eachResult(from: Instant, to: Instant, now: Instant, each: (LeaderboardResult, String?) -> Unit) {
+        readOnly.executeWithoutResult {
+            streaming.sql(
+                """
+                SELECT r.user_id, u.nickname, u.city, r.finished_at, r.role, r.status, r.won, r.catches,
+                       r.survived_seconds
+                FROM game_results r JOIN users u ON u.id = r.user_id
+                WHERE r.finished_at >= :from AND r.finished_at < :to AND $NOT_BANNED
+                """.trimIndent(),
+            )
+                .param("from", from.toTimestamptz())
+                .param("to", to.toTimestamptz())
+                .param("now", now.toTimestamptz())
+                .query(RowCallbackHandler { rs -> each(resultMapper.mapRow(rs, rs.row)!!, rs.getString("city")) })
+        }
     }
 
     /** The results of [gameId], without accounts banned at [now] or blocked by or blocking [viewer]. */
@@ -115,6 +137,9 @@ class LeaderboardRepository(private val jdbc: JdbcClient) {
         .list()
 
     private companion object {
+        /** Rows per batch of [eachResult]: a few hundred kilobytes at a time. */
+        const val STREAM_BATCH = 2_000
+
         /** `r` is not under a ban at `:now` (the same test as `SanctionRepository.active`). */
         const val NOT_BANNED = """NOT EXISTS (
               SELECT 1 FROM sanctions s
