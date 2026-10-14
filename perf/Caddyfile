@@ -1,0 +1,19 @@
+# The lab's Caddy (perf/compose.yaml, profile `container`): production's `caddy reverse-proxy --from $DOMAIN --to
+# server:8080` (deploy/compose.yaml), with a certificate of Caddy's own CA instead of Let's Encrypt (Gatling trusts
+# any). Four ports to the same site: from one address to one port fit about 28 000 connections (the ephemeral ports
+# 32768–60999), so a run of 30 000 players spreads them over the four (perf.baseUrl takes a list).
+{
+	local_certs
+	skip_install_trust
+	admin off
+	# Java's TLS sends no server name for `localhost`: without one Caddy has no certificate to pick.
+	default_sni localhost
+}
+
+https://localhost:8443, https://localhost:8444, https://localhost:8445, https://localhost:8446 {
+	reverse_proxy server:8080 {
+		# Production listens on 443, which the server assumes for https; here it hears the real port, so an Origin
+		# of https://localhost:8443 (Gatling sends one) is the server's own, as production's own pages are.
+		header_up X-Forwarded-Port {http.request.port}
+	}
+}

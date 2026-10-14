@@ -35,14 +35,16 @@ object Keys {
 /** The protocol's JSON, as the app sends it: the same DTOs and the same [protocolJson] as the app and the server. */
 inline fun <reified T> json(value: T): String = protocolJson.encodeToString(value)
 
-/** Every player is a phone: gzip as OkHttp and NSURLSession ask for it, the connections as Caddy keeps them. */
-fun hovankiHttp(): HttpProtocolBuilder = http.baseUrl(LabConfig.baseUrl)
-    .wsBaseUrl(LabConfig.baseUrl.replaceFirst("http", "ws"))
-    // Production's phones connect to Caddy, which keeps a pool of a few connections to the server: so do the players
-    // here. One connection per player would stop at Tomcat's 8 192 (`server.tomcat.max-connections`) and hold 16 KB of
-    // its buffers each, a ceiling and a heap production doesn't have. A live channel's socket stays one per player,
-    // through Caddy too.
-    .shareConnections()
+/**
+ * Every player is a phone: gzip as OkHttp and NSURLSession ask for it, the connections as production has them. Through
+ * Caddy (an `https` [LabConfig.baseUrls]) every phone keeps its own connection, as on production. Straight to the server
+ * the players share a pool of a few connections, as Caddy keeps to it: one connection per player would stop at Tomcat's
+ * 8 192 (`server.tomcat.max-connections`) and hold 16 KB of its buffers each, a ceiling and a heap production doesn't
+ * have. A live channel's socket is one per player either way.
+ */
+fun hovankiHttp(): HttpProtocolBuilder = http.baseUrls(LabConfig.baseUrls)
+    .wsBaseUrls(LabConfig.baseUrls.map { it.replaceFirst("http", "ws") })
+    .let { if (LabConfig.throughCaddy) it else it.shareConnections() }
     .acceptHeader("application/json")
     .contentTypeHeader("application/json")
     .acceptEncodingHeader("gzip")

@@ -98,7 +98,7 @@ class LabAdmin private constructor(private val email: String) {
     }
 
     private fun send(path: String, body: String?, token: String? = null, admin: Boolean = false): String {
-        val request = HttpRequest.newBuilder(URI.create(LabConfig.baseUrl + path))
+        val request = HttpRequest.newBuilder(URI.create(LabConfig.adminUrl + path))
             .timeout(Duration.ofSeconds(30))
             .header("Content-Type", "application/json")
             .apply {
