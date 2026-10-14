@@ -67,7 +67,14 @@ object SnapshotAudit {
 
     private const val SPECTATOR_TRAIL_MILLIS = 60_000L
 
-    /** Violations found in [snapshot]; [rawJson] is the response body as it came over the wire. */
+    /**
+     * The snapshot's own JSON out of a body that carries it under `snapshot`: a live channel's frame or a session. The
+     * audit's exceptions, like `sos`, are keys of the snapshot, not of what wraps it.
+     */
+    fun snapshotJson(body: String): String =
+        (Json.parseToJsonElement(body) as? JsonObject)?.get("snapshot")?.toString() ?: body
+
+    /** Violations found in [snapshot]; [rawJson] is the snapshot as it came over the wire ([snapshotJson]). */
     fun check(snapshot: GameSnapshot, rawJson: String): List<String> {
         val problems = mutableListOf<String>()
         val me = snapshot.me

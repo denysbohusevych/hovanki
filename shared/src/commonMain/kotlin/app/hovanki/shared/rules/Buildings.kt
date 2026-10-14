@@ -105,7 +105,7 @@ class BuildingMap(buildings: List<BuildingArea>, passages: List<Passage>, privat
         val x = offset.eastMeters
         val y = offset.northMeters
         var depth: Double? = null
-        for (index in shapeCells[cellKey(cell(x), cell(y))].orEmpty()) {
+        for (index in shapeCells[cellKey(cell(x), cell(y))]) {
             val shape = shapes[index]
             if (shape.contains(x, y)) depth = max(depth ?: 0.0, shape.distanceToEdge(x, y))
         }
@@ -128,22 +128,52 @@ class BuildingMap(buildings: List<BuildingArea>, passages: List<Passage>, privat
         )
     }
 
-    private fun index(bounds: List<Bounds>): Map<Long, List<Int>> {
+    private fun index(bounds: List<Bounds>): Cells {
         val cells = HashMap<Long, MutableList<Int>>()
         bounds.forEachIndexed { index, box ->
             for (cx in cell(box.minX)..cell(box.maxX)) {
                 for (cy in cell(box.minY)..cell(box.maxY)) cells.getOrPut(cellKey(cx, cy)) { ArrayList() } += index
             }
         }
-        return cells
+        return Cells(cells)
     }
 
-    private fun cellsAround(cells: Map<Long, List<Int>>, x: Double, y: Double, radius: Double): Set<Int> {
+    private fun cellsAround(cells: Cells, x: Double, y: Double, radius: Double): Set<Int> {
         val found = LinkedHashSet<Int>()
         for (cx in cell(x - radius)..cell(x + radius)) {
-            for (cy in cell(y - radius)..cell(y + radius)) cells[cellKey(cx, cy)]?.let(found::addAll)
+            for (cy in cell(y - radius)..cell(y + radius)) {
+                for (index in cells[cellKey(cx, cy)]) found += index
+            }
         }
         return found
+    }
+
+    /**
+     * The grid: the indexes of what lies in each cell, by the cell's key. The keys are sorted in a [LongArray] and found
+     * by binary search: a map would box every key it is asked for, and it is asked for each fix of each hider.
+     */
+    private class Cells(byKey: Map<Long, List<Int>>) {
+        private val keys = byKey.keys.sorted().toLongArray()
+        private val indexes = Array(keys.size) { byKey.getValue(keys[it]).toIntArray() }
+
+        operator fun get(key: Long): IntArray {
+            var low = 0
+            var high = keys.size - 1
+            while (low <= high) {
+                val middle = (low + high) ushr 1
+                val found = keys[middle]
+                when {
+                    found < key -> low = middle + 1
+                    found > key -> high = middle - 1
+                    else -> return indexes[middle]
+                }
+            }
+            return NONE
+        }
+
+        private companion object {
+            val NONE = IntArray(0)
+        }
     }
 
     private class Bounds(val minX: Double, val maxX: Double, val minY: Double, val maxY: Double) {
@@ -238,9 +268,15 @@ object BuildingRules {
 
     /** Enough recent fixes, and at least [GameRules.buildingInsideShare] of them inside a building. */
     fun isConfidentlyInside(recentFixes: List<LocationSample>, buildings: BuildingMap, rules: GameRules): Boolean {
-        val spots = recentFixes.mapNotNull { spotOf(it, buildings, rules) }
-        return spots.size >= rules.minFixesForDecision &&
-            spots.count { it == Spot.INSIDE } >= spots.size * rules.buildingInsideShare
+        // Counted in one pass, by index: the server asks this for every hider many times a second.
+        var spots = 0
+        var inside = 0
+        for (index in recentFixes.indices) {
+            val spot = spotOf(recentFixes[index], buildings, rules) ?: continue
+            spots++
+            if (spot == Spot.INSIDE) inside++
+        }
+        return spots >= rules.minFixesForDecision && inside >= spots * rules.buildingInsideShare
     }
 
     /**
@@ -248,8 +284,14 @@ object BuildingRules {
      * out resets nothing, and neither does a dot at a wall: that is where a player by a window is, too.
      */
     fun hasLeft(recentFixes: List<LocationSample>, buildings: BuildingMap, rules: GameRules): Boolean {
-        val spots = recentFixes.mapNotNull { spotOf(it, buildings, rules) }
-        return spots.size >= rules.minFixesForDecision &&
-            spots.takeLast(rules.minFixesForDecision).all { it == Spot.OUTSIDE }
+        // From the latest fix back, the fixes the rule can judge, until there are enough of them.
+        var outside = 0
+        for (index in recentFixes.lastIndex downTo 0) {
+            if (outside >= rules.minFixesForDecision) break
+            val spot = spotOf(recentFixes[index], buildings, rules) ?: continue
+            if (spot != Spot.OUTSIDE) return false
+            outside++
+        }
+        return outside >= rules.minFixesForDecision
     }
 }

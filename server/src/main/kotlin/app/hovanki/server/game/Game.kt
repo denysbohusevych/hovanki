@@ -2444,7 +2444,9 @@ class Game(
         // The zone by streets when it was built, else the circle (also when building it failed).
         val zone = settings.zone.areaAt(nowMillis - zoneStart, streetZone)
         var lastOutMillis: Long? = null
-        for (hider in players.values.filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
+        // Over the players themselves, not a list of the hiders: this runs on most requests of a round.
+        for (hider in players.values) {
+            if (hider.role != Role.HIDER || hider.status != PlayerStatus.ACTIVE) continue
             // Players in an open catch claim or dispute are frozen until it is resolved.
             if (catches.values.any { it.isOpen && it.hiderId == hider.id }) continue
             val recent = hider.track.recentUsableFixes(nowMillis)
@@ -2487,7 +2489,8 @@ class Game(
      */
     private fun checkBuildings(nowMillis: Long) {
         val map = buildingMap ?: return
-        for (hider in players.values.filter { it.role == Role.HIDER && it.status == PlayerStatus.ACTIVE }) {
+        for (hider in players.values) {
+            if (hider.role != Role.HIDER || hider.status != PlayerStatus.ACTIVE) continue
             // Players in an open catch claim or dispute are frozen until it is resolved.
             if (catches.values.any { it.isOpen && it.hiderId == hider.id }) continue
             // Of any accuracy: indoors GPS is worse than the other rules accept, the rule filters for itself.

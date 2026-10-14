@@ -13,6 +13,7 @@ import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LocationSample
+import app.hovanki.shared.protocol.NearbySighting
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
@@ -32,6 +33,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.web.socket.CloseStatus
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -114,7 +116,8 @@ class GameSocketTest(
     fun onlyAPlayerOfTheGameWithTheServerOnGetsIn() {
         val host = create()
         val other = create()
-        assertEquals(SocketClose.SESSION_REJECTED, open(host.session, token = null).awaitClose())
+        // Without a token the phone is told to poll: its upgrade may have lost the header, and polling decides.
+        assertEquals(SocketClose.POLL, open(host.session, token = null).awaitClose())
         assertEquals(SocketClose.SESSION_REJECTED, open(host.session, token = "nope").awaitClose())
         // The token of another game.
         assertEquals(SocketClose.SESSION_REJECTED, open(host.session, token = other.session.token).awaitClose())
@@ -269,6 +272,39 @@ class GameSocketTest(
     }
 
     @Test
+    fun theLongestSyncComesInPiecesAndIsAnswered() {
+        val host = create()
+        val socket = open(host.session)
+        // The most a sync may carry (GameService's limits): far over Tomcat's buffer of 8 K characters.
+        val now = clock.millis()
+        val fixes =
+            List(100) { LocationSample(park, accuracyMeters = 5.0, timestampMillis = now - (100 - it) * 1_000L) }
+        val heard = List(200) { NearbySighting(token = "t$it", rssi = -70, atMillis = now) }
+        val longest = protocolJson.encodeToString(
+            ClientFrame.serializer(),
+            ClientFrame.Sync(1, SyncRequest(fixes, chatAfter = 0, nearby = heard)),
+        )
+        assertTrue(longest.length > 2 * 8 * 1024, "${longest.length} characters")
+        socket.sendText(longest)
+        assertEquals(1, assertIs<ServerFrame.Snapshot>(socket.next()).seq)
+        // A frame the phone sends in parts is one sync too.
+        val sync = protocolJson.encodeToString(ClientFrame.serializer(), ClientFrame.Sync(2, SyncRequest()))
+        socket.sendParts(sync.chunked(8))
+        assertEquals(2, assertIs<ServerFrame.Snapshot>(socket.next()).seq)
+        socket.close()
+    }
+
+    @Test
+    fun aFrameOverTheLimitClosesTheSocket() {
+        val host = create()
+        val socket = open(host.session)
+        val padding = "x".repeat(SocketLimits.MAX_FRAME_BYTES)
+        // The server may close before the frame is all sent.
+        runCatching { socket.sendText("""{"type":"sync","seq":1,"padding":"$padding"}""") }
+        assertEquals(CloseStatus.TOO_BIG_TO_PROCESS.code, socket.awaitClose())
+    }
+
+    @Test
     fun aPlayerHasAFewSocketsAtMost() {
         val host = create()
         val first = open(host.session)
@@ -371,6 +407,11 @@ class GameSocketTest(
 
         fun sendText(text: String) {
             socket.sendText(text, true).get(5, TimeUnit.SECONDS)
+        }
+
+        /** One frame in [parts], each sent apart. */
+        fun sendParts(parts: List<String>) = parts.forEachIndexed { index, part ->
+            socket.sendText(part, index == parts.lastIndex).get(5, TimeUnit.SECONDS)
         }
 
         fun next(timeoutMillis: Long = 5_000): ServerFrame =

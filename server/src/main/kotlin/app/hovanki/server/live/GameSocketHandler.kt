@@ -52,8 +52,13 @@ class GameSocketHandler(
 ) : TextWebSocketHandler() {
     private val log = LoggerFactory.getLogger(javaClass)
 
+    /**
+     * Frames come in pieces of Tomcat's buffer (8 K characters): [LiveSocket.assemble] puts a longer one together up to
+     * [SocketLimits.MAX_FRAME_BYTES]. A buffer of the whole limit would be held by every open socket, 512 KB each.
+     */
+    override fun supportsPartialMessages(): Boolean = true
+
     override fun afterConnectionEstablished(session: WebSocketSession) {
-        session.textMessageSizeLimit = SocketLimits.MAX_FRAME_BYTES
         (session as? NativeWebSocketSession)?.getNativeSession(jakarta.websocket.Session::class.java)?.let {
             it.maxIdleTimeout = SocketLimits.IDLE_TIMEOUT_MILLIS
             // A phone that stopped reading holds a sending thread this long at most (Tomcat's default is 20 s).
@@ -64,8 +69,15 @@ class GameSocketHandler(
         val ref = token?.let(registry::resolveToken)
         val refusal = when {
             !features.isEnabled(ServerFeature.LIVE_SOCKET) -> CloseStatus(SocketClose.POLL, "poll")
+
+            // No token at all: the phone's upgrade lost its header on the way (nobody has tried every engine on a real
+            // phone). Polling, which sends the same token, decides about the session: a 4401 here would end it.
+            token == null -> CloseStatus(SocketClose.POLL, "no token")
+
             ref == null || ref.gameId.value != gameId -> CloseStatus(SocketClose.SESSION_REJECTED, "session over")
+
             registry.get(ref.gameId) == null -> CloseStatus(SocketClose.GAME_NOT_FOUND, "game over")
+
             else -> null
         }
         if (refusal != null || ref == null || token == null) {
@@ -81,8 +93,9 @@ class GameSocketHandler(
 
     override fun handleTextMessage(session: WebSocketSession, message: TextMessage) {
         val socket = session.attributes[SOCKET] as LiveSocket? ?: return
+        val text = socket.assemble(message.payload, message.isLast) ?: return
         val frame = try {
-            protocolJson.decodeFromString(ClientFrame.serializer(), message.payload)
+            protocolJson.decodeFromString(ClientFrame.serializer(), text)
         } catch (e: SerializationException) {
             // A newer app's frame this server doesn't know, or garbage: skipped, the socket stays.
             return

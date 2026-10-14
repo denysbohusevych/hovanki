@@ -46,6 +46,31 @@ class LiveSocket(
     private val chatPending = ArrayList<ChatMessage>()
     private val syncNanos = ArrayDeque<Long>()
 
+    /** The frame put together so far; null between frames, as nearly every frame comes whole. */
+    private var pieces: StringBuilder? = null
+
+    /**
+     * A frame from the pieces Tomcat hands over ([GameSocketHandler.supportsPartialMessages]): the whole frame once its
+     * last piece is in, null before. A frame over [SocketLimits.MAX_FRAME_BYTES] closes the socket as too big (1009),
+     * as Tomcat did itself; counted in characters, which for a sync's JSON is its bytes. Tomcat hands one socket's
+     * pieces in turn, under its read lock: no lock of ours.
+     */
+    fun assemble(piece: String, last: Boolean): String? {
+        if (!session.isOpen) return null
+        val started = pieces
+        if ((started?.length ?: 0) + piece.length > SocketLimits.MAX_FRAME_BYTES) {
+            pieces = null
+            close(CloseStatus.TOO_BIG_TO_PROCESS)
+            return null
+        }
+        if (!last) {
+            pieces = (started ?: StringBuilder()).append(piece)
+            return null
+        }
+        pieces = null
+        return started?.append(piece)?.toString() ?: piece
+    }
+
     /** Pokes the phone: sync now. */
     fun poke() = push(emptyList(), poke = true)
 
