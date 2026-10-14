@@ -377,7 +377,8 @@ sync по v2 (Up от телефона):
   умолчанию, включает админ. Оба попадают в `GameSnapshot.enabledFeatures`, по ним приложение решает, пробовать ли v2
   (спека, §3; [client.md](client.md), §5).
 - **Добавлять безопасно.** `enabledFeatures` — список строк, старые приложения незнакомое имя пропускают.
-- **e2e.** `Observer` включает их только при `-Pe2e.transport=v2` или `v2ws`, как `LIVE_SOCKET` при `socket`.
+- **e2e.** `Observer` держит `LIVE_V2` включённым только при `-Pe2e.transport=v2ws` (сделано, `E2eTransport.features`),
+  как `LIVE_SOCKET` при `socket`; `LIVE_UDP` — при `v2`, с UDP.
 
 ## 7. Стенд и нагрузка
 
@@ -391,9 +392,9 @@ sync по v2 (Up от телефона):
 ## 8. e2e
 
 - **Сервер.** Тот же в процессе. UDP на случайном порту, адрес отдаёт ответ на открытие.
-- **Боты.** `BotTransport.V2` и `V2_WS`, `FakeNetwork.datagrams` с потерями, перестановками и сменой адреса
-  ([client.md](client.md), §8).
-- **Новый сценарий** `LiveV2Test`:
+- **Боты.** Связаны как приложение (`LiveFirstGameConnection`); WebSocket v2 идёт через `FakeNetwork.liveSockets`
+  (сделано). С UDP — `FakeNetwork.datagrams` с потерями, перестановками и сменой адреса ([client.md](client.md), §8).
+- **Новый сценарий** `LiveV2Test` (сделаны push, сеть и выключение `LIVE_V2` посреди игры → v1; остальное — с UDP):
   - UDP закрыт → WebSocket v2;
   - выключение `LIVE_V2` посреди игры → v1;
   - смена адреса;

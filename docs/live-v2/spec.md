@@ -816,5 +816,14 @@ reset_tag = 5db9c3d4b54d3a1a55839d6ff976fe7d
 | `LivePushes`, `LivePokeSink` | толчки игры → push | §8.7, §11 |
 | `LiveWsHandler` | WebSocket v2 | §6 |
 
+Приложение, пакет `app.hovanki.client.network.live` в `:clientCore` (подробно — [client.md](client.md), §10):
+
+| класс | что | разделы |
+|---|---|---|
+| `LiveApi`, `HttpLiveApi` | открытие живой сессии | §4 |
+| `LiveSocket`, `LiveSocketOpener`, `KtorLiveSocketOpener` | WebSocket v2: бинарные кадры, подпротокол, коды закрытия | §6 |
+| `LiveGameConnection` | `Up` по расписанию, `Down` и push → те же `ConnectionEvent`, что у v1; точки до `ack_up`, отчёт до подтверждения, новая сессия до срока | §7, §8.3, §8.6, §11, §13 |
+| `LiveFirstGameConnection` | v2, пока сервер его включил и он работает, иначе v1 | §3, §13 |
+
 Протокол JSON открытия — `shared/.../protocol/Live.kt` (`LiveOpenRequest`, `LiveOpenResponse`, `LiveWs`), маршруты —
 `ApiRoutes.LIVE_OPEN`, `ApiRoutes.LIVE_WS`, флаг — `ServerFeature.LIVE_V2`.

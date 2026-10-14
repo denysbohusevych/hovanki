@@ -3,15 +3,23 @@ package app.hovanki.e2e.bot
 import app.hovanki.client.location.LocationProvider
 import app.hovanki.client.network.GameSocket
 import app.hovanki.client.network.GameSocketOpener
+import app.hovanki.client.network.live.LiveSocket
+import app.hovanki.client.network.live.LiveSocketOpener
 import app.hovanki.client.storage.SecureStore
 import app.hovanki.client.tracking.BackgroundTracker
 import app.hovanki.client.tracking.HiderAlert
 import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.route.Route
 import app.hovanki.shared.geo.moveBy
+import app.hovanki.shared.live.LiveClientStates
+import app.hovanki.shared.live.LiveDownlink
+import app.hovanki.shared.live.LiveSnapshots
+import app.hovanki.shared.live.v2.Down
+import app.hovanki.shared.live.v2.Up
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.ClientFrame
+import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.ServerFrame
@@ -133,8 +141,13 @@ class Exchange(
  */
 class FakeNetwork(
     private val onExchange: (Exchange) -> Unit,
-    /** The chat messages a socket pushed ([ServerFrame.Chat]), as they reach the phone. */
+    /** The chat messages a socket pushed ([ServerFrame.Chat], v2's chat push), as they reach the phone. */
     private val onPushedChat: (List<ChatMessage>) -> Unit = {},
+    /**
+     * Every snapshot the live channel v2 brings, answer or push, put together from its Downs as the app does
+     * ([liveSockets]): v2's Downs are binary, so the audit reads them here.
+     */
+    private val onLiveSnapshot: (GameSnapshot) -> Unit = {},
 ) : Interceptor {
     private val online = MutableStateFlow(true)
 
@@ -290,6 +303,88 @@ class FakeNetwork(
         }
     }
 
+    /**
+     * The app's WebSockets of the live channel v2 over this network (docs/live-v2/spec.md §6), like [sockets]: an
+     * answered Up is reported as an exchange (method [LIVE_METHOD]), every snapshot the Downs make as [onLiveSnapshot].
+     */
+    fun liveSockets(opener: LiveSocketOpener): LiveSocketOpener = LiveSocketOpener { session, live ->
+        SimulatedLiveSocket(opener.open(session, live), taps.computeIfAbsent(live.sessionId) { LiveTap() })
+    }
+
+    /** The phone's view of each live session, by its id: the WebSockets of one session share it. */
+    private val taps = ConcurrentHashMap<String, LiveTap>()
+
+    /** What the phone shows of a live session, put together from the Downs as they pass (spec §8.6, §11). */
+    private class LiveTap {
+        private val states = LiveClientStates()
+        private val snapshots = LiveSnapshots()
+
+        @Synchronized
+        fun apply(down: Down): GameSnapshot? {
+            if (!states.apply(down.state_id, down.base_state_id, down.state)) return null
+            if (down.chat_push && down.state_id == 0) return null
+            val shown = states.shown ?: return null
+            val chat = if (down.chat_push) emptyList() else down.chat.map(LiveDownlink::chatMessage)
+            return snapshots.toGameSnapshot(shown, down.server_time_ms, chat)
+        }
+    }
+
+    /** A WebSocket v2 on this network: breaks, waits and fails like [SimulatedSocket]. */
+    private inner class SimulatedLiveSocket(private val socket: LiveSocket, private val tap: LiveTap) : LiveSocket {
+        private val sentAt = ConcurrentHashMap<Int, Long>()
+
+        @Volatile private var brokenByNetwork = false
+
+        override suspend fun receive(): ByteArray? {
+            val bytes = coroutineScope {
+                val outage = launch {
+                    online.first { !it }
+                    breakDown()
+                }
+                try {
+                    socket.receive()
+                } finally {
+                    outage.cancel()
+                }
+            } ?: return null
+            report(bytes)
+            return bytes
+        }
+
+        override suspend fun send(bytes: ByteArray) {
+            val wait = latency
+            if (wait.isPositive()) delay(wait)
+            if (!isOnline || isFlaky()) {
+                breakDown()
+                throw IOException("Frame failed (simulated bad network)")
+            }
+            runCatching { Up.ADAPTER.decode(bytes).seq }.getOrNull()?.let { sentAt[it] = System.nanoTime() }
+            socket.send(bytes)
+        }
+
+        override suspend fun closeCode(): Int? = if (brokenByNetwork) null else socket.closeCode()
+
+        override suspend fun close() = socket.close()
+
+        private suspend fun breakDown() {
+            brokenByNetwork = true
+            socket.close()
+        }
+
+        private fun report(bytes: ByteArray) {
+            val down = try {
+                Down.ADAPTER.decode(bytes)
+            } catch (e: IOException) {
+                return
+            }
+            if (down.chat_push && down.chat.isNotEmpty()) onPushedChat(down.chat.map(LiveDownlink::chatMessage))
+            tap.apply(down)?.let(onLiveSnapshot)
+            val started = (if (down.reply_to != 0) sentAt.remove(down.reply_to) else null) ?: return
+            val status = if (down.error != null) 400 else 200
+            onExchange(Exchange(LIVE_METHOD, ApiRoutes.LIVE_WS, status, elapsedMillis(started), body = null))
+        }
+    }
+
     private fun takeLostResponse(path: String): Boolean = synchronized(lostResponses) {
         val rule = lostResponses.firstOrNull { path.endsWith(it.pathSuffix) } ?: return false
         if (--rule.left == 0) lostResponses -= rule
@@ -301,6 +396,9 @@ class FakeNetwork(
     companion object {
         /** The method of an [Exchange] that was a sync over the live channel. */
         const val SOCKET_METHOD = "WS"
+
+        /** The method of an [Exchange] that was an Up of the live channel v2 and its answer. */
+        const val LIVE_METHOD = "WS2"
 
         private const val MAX_BODY_BYTES = 1L shl 20
         private const val SWITCHING_PROTOCOLS = 101

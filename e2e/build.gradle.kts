@@ -164,7 +164,8 @@ val bigGamePlayers = providers.gradleProperty("e2e.bigGamePlayers").orElse("")
 val fieldLoadMinutes = providers.gradleProperty("e2e.fieldLoadMinutes").orElse("")
 
 // `-Pe2e.transport=socket`: every scenario's bots sync over the live channel (docs/adr/0015-websockets.md, E2eTransport);
-// by default (polling) only LiveSocketTest does.
+// `-Pe2e.transport=v2ws`: over the live channel v2's WebSocket (docs/live-v2/client.md); by default (polling) only
+// LiveSocketTest and LiveV2Test do.
 val transport = providers.gradleProperty("e2e.transport").orElse("polling")
 
 tasks.test {

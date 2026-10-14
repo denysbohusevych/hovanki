@@ -50,6 +50,10 @@ import app.hovanki.client.network.SocialApi
 import app.hovanki.client.network.SpectatorApi
 import app.hovanki.client.network.WebSocketGameConnection
 import app.hovanki.client.network.createHttpClient
+import app.hovanki.client.network.live.HttpLiveApi
+import app.hovanki.client.network.live.KtorLiveSocketOpener
+import app.hovanki.client.network.live.LiveFirstGameConnection
+import app.hovanki.client.network.live.LiveGameConnection
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.app_name
 import app.hovanki.client.resources.hud_radar_burning
@@ -142,11 +146,20 @@ val commonModule: Module = module {
     single<HistoryApi> { HttpHistoryApi(get(), get()) }
     single<BigGameApi> { HttpBigGameApi(get(), get()) }
     single<SpectatorApi> { HttpSpectatorApi(get(), get()) }
-    // The live channel while the server has it on and it works, polling otherwise (docs/adr/0015-websockets.md).
+    // The live channel v2 while the server has it on and it works (docs/live-v2/client.md §5); else v1: its socket while
+    // the server has that on and it works, polling otherwise (docs/adr/0015-websockets.md).
     single<GameConnection> {
-        AdaptiveGameConnection(
-            WebSocketGameConnection(KtorGameSocketOpener(get(), get())),
-            PollingGameConnection(get()),
+        LiveFirstGameConnection(
+            LiveGameConnection(
+                HttpLiveApi(get(), get()),
+                KtorLiveSocketOpener(get(), get()),
+                serverTime = get<ServerClock>()::now,
+                appVersion = get<BuildInfo>().version,
+            ),
+            AdaptiveGameConnection(
+                WebSocketGameConnection(KtorGameSocketOpener(get(), get())),
+                PollingGameConnection(get()),
+            ),
         )
     }
     single { ServerClock() }

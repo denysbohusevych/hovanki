@@ -74,5 +74,8 @@ enum class EndReason {
     GAME_NOT_FOUND,
 }
 
-/** How the syncs go: `POST /sync` every few seconds, or frames over the live channel's socket. */
-enum class Transport { POLLING, SOCKET }
+/**
+ * How the syncs go: `POST /sync` every few seconds, frames over the live channel's socket, or the live channel v2's
+ * binary frames over its WebSocket (docs/live-v2/spec.md §6).
+ */
+enum class Transport { POLLING, SOCKET, LIVE_WS }

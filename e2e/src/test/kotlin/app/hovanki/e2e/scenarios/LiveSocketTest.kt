@@ -24,7 +24,8 @@ import kotlin.time.TimeSource
  * server pokes them when something happens, so a claim reaches the other phones within a second although they sync only
  * every five; a chat message comes itself, to the readers only; an app from before it polls in the same game. A broken network sends an app to polling
  * and back to the socket; the switch turned off mid-game sends every app to polling, and the game goes on. On a server
- * of its own: the switch changes how every game on a server syncs.
+ * of its own: the switch changes how every game on a server syncs; the live channel v2 stays off there, whatever the
+ * run (`-Pe2e.transport=v2ws`), since these are v1's.
  */
 class LiveSocketTest {
     /** Syncs every 5 s: whatever arrives within a second came with a poke. */
@@ -33,7 +34,7 @@ class LiveSocketTest {
     @Test
     @ResourceLock(OWN_SERVER)
     fun whatHappensReachesThePhonesAtOnce() = scenarioOnOwnServer("Live channel: at once", properties = emptyMap()) {
-        observer.setFeatures(listOf(ServerFeature.LIVE_SOCKET.name))
+        observer.setFeatures(listOf(ServerFeature.LIVE_SOCKET.name), keepLiveChannel = false)
         val sam = player("Sam", at = PARK)
         val anna = player("Anna", at = PARK.offset(eastMeters = 15.0))
         val oleg = player("Oleg", at = PARK.offset(northMeters = 60.0), transport = BotTransport.POLLING)
@@ -78,7 +79,7 @@ class LiveSocketTest {
     @Test
     @ResourceLock(OWN_SERVER)
     fun aBrokenNetworkPollsAndComesBack() = scenarioOnOwnServer("Live channel: network", properties = emptyMap()) {
-        observer.setFeatures(listOf(ServerFeature.LIVE_SOCKET.name))
+        observer.setFeatures(listOf(ServerFeature.LIVE_SOCKET.name), keepLiveChannel = false)
         val sam = player("Sam", at = PARK)
         val anna = player("Anna", at = PARK.offset(eastMeters = 40.0), pollAfterSocketFailure = 5.seconds)
         sam.createsGame(slowSync)
@@ -100,7 +101,7 @@ class LiveSocketTest {
     @Test
     @ResourceLock(OWN_SERVER)
     fun theSwitchTurnedOffMidGame() = scenarioOnOwnServer("Live channel: switched off", properties = emptyMap()) {
-        observer.setFeatures(listOf(ServerFeature.LIVE_SOCKET.name))
+        observer.setFeatures(listOf(ServerFeature.LIVE_SOCKET.name), keepLiveChannel = false)
         val sam = player("Sam", at = PARK, pollAfterSocketFailure = 5.seconds)
         val anna = player("Anna", at = PARK.offset(eastMeters = 40.0), pollAfterSocketFailure = 5.seconds)
         sam.createsGame(GameSetups.fast())
@@ -108,7 +109,7 @@ class LiveSocketTest {
         sam.startsGame(seekers = listOf(sam))
         awaitThat("both apps sync over the socket") { listOf(sam, anna).all { it.syncTransport == Transport.SOCKET } }
 
-        observer.setFeatures(emptyList(), keepLiveSocket = false)
+        observer.setFeatures(emptyList(), keepLiveChannel = false)
         note("the operator turns the live channel off")
         awaitThat("both apps poll", within = 10.seconds) {
             listOf(sam, anna).all { it.syncTransport == Transport.POLLING }
@@ -120,7 +121,7 @@ class LiveSocketTest {
             listOf(sam, anna).all { it.syncTransport == Transport.POLLING }
         }
 
-        observer.setFeatures(listOf(ServerFeature.LIVE_SOCKET.name))
+        observer.setFeatures(listOf(ServerFeature.LIVE_SOCKET.name), keepLiveChannel = false)
         note("and on again")
         awaitThat("both apps are back on the socket", within = 15.seconds) {
             listOf(sam, anna).all { it.syncTransport == Transport.SOCKET }

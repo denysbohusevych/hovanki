@@ -227,11 +227,12 @@ flowchart LR
 
 ### Живой канал v2
 
-[ADR 0026](adr/0026-live-v2.md), спецификация — [docs/live-v2/spec.md](live-v2/spec.md). Выключатель — `ServerFeature.LIVE_V2` в админке (по умолчанию выключен), на весь сервер. Сейчас есть сервер с WebSocket v2; UDP и приложение — следующие шаги [плана](live-v2/plan.md).
+[ADR 0026](adr/0026-live-v2.md), спецификация — [docs/live-v2/spec.md](live-v2/spec.md). Выключатель — `ServerFeature.LIVE_V2` в админке (по умолчанию выключен), на весь сервер. Сейчас есть сервер и приложение на WebSocket v2; UDP и сервер без Caddy — следующие шаги [плана](live-v2/plan.md).
 
 - **Открытие** `POST /api/v2/live/open` с игровым токеном: живая сессия (`LiveOpenResponse`: id, два ключа AES-GCM для UDP, метка RESET, срок — час). Выключен `LIVE_V2` — 404 с `FEATURE_DISABLED`, приложение остаётся на v1.
 - **WebSocket v2** `GET /api/v2/live/ws?s=<id>`, подпротокол `hovanki.live.v2`: каждый бинарный кадр — `Up` (protobuf, `live_v2.proto`), ответ — `Down`. `Up` — это `sync` v1 того же игрока тем же `GameService.sync` (таймер `hovanki.game.sync{transport=ws2}`); `Down` несёт состояние, вырезанное из снимка v1 (`LiveSections`), дельтой от того, что телефон подтвердил. Отказ — закрытие кодом: `4401`, `4404`, `4503` — как у v1, `4410` — открыть новую сессию.
 - **Сервер** (`server/.../live/v2/`): `LiveSessions` — сессии в памяти (не больше трёх у игрока, 10 открытий в минуту, уборка раз в 10 с: простой минута, возраст час, ушедшая игра, отозванный токен, выключенный флаг), `LiveExchange` — `Up` → `Down` и push, `LivePushes` — толчки игры (`Pokes`) как push состояния и чата, не чаще раза в 500 мс на сессию; `LivePokeSink` раздаёт толчки и v1 (`GameSockets`), и v2. Порядок замков — сессия, потом игра.
+- **Приложение** (`clientCore/.../network/live/`, [client.md](live-v2/client.md), §10): `LiveFirstGameConnection` держит v1 (`AdaptiveGameConnection`), пока в снимке нет `LIVE_V2`, потом переходит на `LiveGameConnection`: открывает сессию (`HttpLiveApi`), шлёт `Up` в темпе игры (в лобби и на итогах — раз в 10 с, остальное приносит push), собирает из `Down` тот же `GameSnapshot` (`LiveClientStates`, `LiveSnapshots`) и отдаёт те же `ConnectionEvent`. Сервер выключил v2, канал не открылся или рвётся трижды за минуту — v1 на 10 минут.
 - **Данные** — ровно снимок v1 этого игрока; ничего не хранится и не логируется, ключи живут в памяти с сессией.
 
 ## Перезапуск приложения

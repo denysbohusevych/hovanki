@@ -63,6 +63,7 @@ class FieldServerSampler(
         lastMillis = nowMillis
         val poll = metrics.takeSyncWindow(SyncTransport.POLL)
         val socket = metrics.takeSyncWindow(SyncTransport.SOCKET)
+        val ws2 = metrics.takeSyncWindow(SyncTransport.WS2)
         val (errors5xx, errors429) = httpErrors()
         val since5xx = last5xx?.let { (errors5xx - it).coerceAtLeast(0) }
         val since429 = last429?.let { (errors429 - it).coerceAtLeast(0) }
@@ -73,11 +74,12 @@ class FieldServerSampler(
             ?.processCpuLoad?.takeIf { it >= 0 }
         return buildJsonObject {
             windowStart?.let { put(SrvFields.WINDOW, nowMillis - it) }
-            val all = poll + socket
+            val all = poll + socket + ws2
             put(SrvFields.SYNCS, all.size)
             percentiles(all, SrvFields.SYNC_P50, SrvFields.SYNC_P95)
             percentiles(poll, SrvFields.POLL_P50, SrvFields.POLL_P95)
             percentiles(socket, SrvFields.SOCKET_P50, SrvFields.SOCKET_P95)
+            percentiles(ws2, SrvFields.WS2_P50, SrvFields.WS2_P95)
             // The first window after the start has no count before it: the totals so far would say nothing.
             since5xx?.let { put(SrvFields.ERRORS_5XX, it) }
             since429?.let { put(SrvFields.ERRORS_429, it) }
