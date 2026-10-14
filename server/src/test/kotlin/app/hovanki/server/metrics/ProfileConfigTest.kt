@@ -107,6 +107,26 @@ class ProfileConfigTest {
         )
     }
 
+    @Test
+    fun thePerformanceLabPutsBackProductionsValuesOverTheE2eProfile() {
+        // The local lab (docs/perf.md) runs `e2e,perf`: every game setting it changes is production's own, so the numbers
+        // measured are production's, not the e2e profile's shortcuts (a cheap password hash, a scheduler every second).
+        val perf = load("application-perf.yaml")
+        val production = load("application.yaml")
+        val ownGameSettings = perf.propertyNames.filter { it.startsWith("hovanki.") }
+        assertTrue(ownGameSettings.isNotEmpty())
+        for (name in ownGameSettings) {
+            assertEquals(production.text(name), perf.text(name), "$name in the perf profile")
+        }
+        assertEquals("false", perf.text("hovanki.field.allowed"))
+        val exposed = assertNotNull(perf.text("management.endpoints.web.exposure.include")).split(",")
+        assertContains(exposed, "prometheus")
+        assertTrue(
+            perf.propertyNames.none { it.startsWith("spring.profiles") },
+            "the lab is started as `e2e,perf` by hand, the file turns no profile on",
+        )
+    }
+
     private companion object {
         /** What both a test server and an e2e server have, and production never: the field log. */
         val BOTH_TEST_SERVERS = setOf("hovanki.field.allowed")
