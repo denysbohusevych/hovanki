@@ -1,30 +1,8 @@
-# The field test's server (docs/adr/0018-field-test-build.md, section 2): the same image as production, started with
-# SPRING_PROFILES_ACTIVE=staging (deploy/compose.yaml passes it on from .env). Only what differs from application.yaml.
-# Not the e2e profile: no observer endpoints, real emails, rate limits on.
-
-hovanki:
-  game:
-    # An ordinary game takes up to 60 players (production: 30, Game.MAX_PLAYERS).
-    max-players: 60
-  lab:
-    # The field build (release code) shows the lab's screen to staff: only staff accounts join a lab run here
-    # (docs/adr/0018-field-test-build.md §4.D). The field log of real games is FIELD_LOG, switched in the admin.
-    join-staff-only: true
-  field:
-    # The one server that may have the field log (FIELD_LOG; production: never).
-    allowed: true
-  features:
-    # These two never change a game here: the proximity rule and the pocket stealth only run in the field log's shadow
-    # (what they would have answered), whatever the admin's switch or a host's choice says (ADR 0018 §3.3).
-    shadow-only: [PROXIMITY_CATCH, POCKET_STEALTH]
-  # The limits per client IP fit a test day's 60 players behind one address (the venue's Wi-Fi, a carrier's NAT): the
-  # clock of every field build's phone (5 requests at the join and every 5 minutes), accounts made and logged into on
-  # the spot. Per account and per player the limits stay production's.
-  rate-limits:
-    time-per-ip: { count: 3000, window: 1m }
-    login-per-ip: { count: 300, window: 15m }
-    register-per-ip: { count: 200, window: 1h }
-    password-reset-per-ip: { count: 100, window: 1h }
+# The field test's own server (docs/adr/0018-field-test-build.md, section 2): the same image as production, started with
+# SPRING_PROFILES_ACTIVE=staging (deploy/compose.yaml passes it on from .env). It is a field test's server always: the
+# group `staging` in application.yaml turns application-field.yaml on with it (the field log, 60 players, the limits).
+# Here only what staging adds: the management port and the logs. Not the e2e profile: no observer endpoints, real
+# emails, rate limits on.
 
 management:
   # Everything under /actuator (health, restarthold, prometheus) moves to this port, which deploy/compose.yaml does not

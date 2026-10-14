@@ -13,6 +13,7 @@
 | Дашборд «Hovanki: сервер» | `perf/grafana/dashboards/hovanki.json` |
 | Нагрузочные сценарии Gatling на Kotlin | `perf/src/gatling/kotlin/app/hovanki/perf/` |
 | Скрипты: поднять, сервер, профиль, база, погасить | `perf/up.sh`, `perf/server.sh`, `perf/profile.sh`, `perf/pg-top.sh`, `perf/down.sh` |
+| Прогон с отчётом в JSON, чтение и сравнение прогонов | `perf/run.sh`, `perf/report.sh` (`perf/report.py`) |
 
 Нужны Docker с Compose и JDK 21. Сценарии ходят в протокол через `:shared` (`ApiRoutes`, DTO, `protocolJson`): поменяли протокол — CI упадёт на компиляции сценария, а не нагрузочный тест посреди прогона.
 
@@ -22,6 +23,7 @@
 perf/up.sh                    # база (5433), Prometheus (9090), Grafana (3000)
 perf/server.sh                # сервер на :8080, в другом терминале; Ctrl+C — стоп
 ./gradlew :perf:gatlingRun --simulation app.hovanki.perf.OrdinaryGames
+perf/run.sh OrdinaryGames     # то же, плюс отчёт прогона: perf/runs/<id>/run.json и summary.md
 open http://localhost:3000    # дашборд «Hovanki: сервер» открывается сам
 perf/profile.sh cpu 60        # во время прогона: флеймграф в perf/build/profiles/
 perf/down.sh                  # всё погасить; --wipe — со стёртой базой и графиками
@@ -108,6 +110,46 @@ perf/gatling.sh app.hovanki.perf.Mix -Pperf.players=30000
 
 Как добавить сценарий: класс `Simulation` рядом с этими, запросы из `Requests.kt` (`hovankiHttp()`, `connect()`, `sync()`, `disconnect()`, `asPlayer()`; `connect` и `disconnect` открывают и закрывают сокет, если прогон на сокете), параметры через `LabConfig.int("имя", умолчание)`, они приходят из `-Pperf.имя=…`. Для админских действий — `LabAdmin`.
 
+## Отчёт прогона
+
+`perf/run.sh` запускает сценарий так же, как `./gradlew :perf:gatlingRun`, и сам собирает в один файл всё, что видно в Grafana и в отчёте Gatling. Скриншоты не нужны: файл читают и человек, и Claude, два прогона сравниваются одной командой.
+
+```bash
+perf/run.sh OrdinaryGames -Pperf.transport=socket -Pperf.games=40 -Pperf.steps=6 --label "база"
+perf/run.sh OrdinaryGames -Pperf.transport=socket -Pperf.games=40 -Pperf.steps=6 --label "без копий" --baseline база
+```
+
+Прогон ложится в `perf/runs/<id>/` (не в git): `run.json` — весь отчёт, `summary.md` — короткая сводка (ступени, контейнеры, запросы Gatling, находки, топ базы), `gatling.log` — консоль Gatling со временем у каждой строки, `samples.jsonl` — замеры контейнеров раз в 5 с. `perf/runs/index.jsonl` — строка на прогон. `PERF_RUNS_EXPORT=<папка>` копирует туда же `run.json` и `summary.md` каждого прогона (общая папка проекта в облаке).
+
+Что в `run.json` (`schema: hovanki.perf.run/1`, единицы — в именах ключей: `_ms`, `_mb`, `_vcpu`, `_per_s`, `_per_sync`):
+
+| ключ | что |
+|---|---|
+| `outcome` | итог (`completed`, `ladder_stopped`, `oom_killed`, `server_down`, `failed`, `interrupted`), строка LoadWatch, на скольких игроках остановилась лесенка, сколько удержала |
+| `steps[]` | ступени лесенки (у прогона без лесенки одна). Окно `hold_s` — от прихода игроков ступени плюс 15 с до следующей ступени; ступень, на которой лесенка сломалась, пока игроки ещё шли, — последние 30 с до остановки. `players` — игроки этого прогона по Gatling. `server` — метрики Prometheus: сокеты и игроки в памяти сервера (`players_in_memory`, с играми прошлых прогонов), синхронизации в секунду по транспорту, p50/p95/p99 таймера `hovanki.game.sync`, CPU в vCPU и на синхронизацию, аллокации на синхронизацию, куча, после GC, non-heap, паузы GC (число, сумма, самая долгая), потоки и соединения Tomcat, пул базы, 5xx и 429, закрытия сокета по кодам. `containers` — каждый контейнер стенда и процесс Gatling: CPU в vCPU, память cgroup и RSS, сеть и КБ на синхронизацию вверх и вниз, троттлинг. `client` — синхронизации глазами Gatling: p50…p99.9, max, ошибки по сообщениям |
+| `whole` | то же за весь прогон, плюс каждый запрос Gatling |
+| `timeline` | те же ряды по 15 с и больше (до 60 точек) |
+| `db` | топ-10 `pg_stat_statements` за прогон (сброс в начале), строки по таблицам, коммиты |
+| `findings` | что сборщик заметил сам, коды ниже |
+| `baseline_delta` | против `--baseline`: каждое поле до, после и изменение в %, и то же на ступенях с одинаковым числом игроков |
+| `server`, `containers`, `code`, `machine` | лимиты стенда, куча и GC, OOMKilled и коды выхода, коммит и незакоммиченные файлы, машина и Docker |
+
+Находки (`findings[].code`): `oom_killed`, `server_died` (с какой секунды и на скольких игроках цифр сервера нет), `server_down`, `server_not_fresh` (на сервере остались игры прошлых прогонов: память не с нуля), `ladder_stop`, `full_gc`, `gc_overhead`, `heap_pressure`, `memory_near_limit`, `cpu_throttled`, `cpu_saturated`, `machine_saturated` (машина занята, предел может быть генератора), `queueing` (клиент ждёт намного дольше, чем меряет сервер: время уходит до таймера), `db_pool_wait`, `tomcat_threads`, `tomcat_connections`, `http_5xx`, `socket_closes`, `client_errors`, `server_p95_over_target`.
+
+```bash
+perf/report.sh list                 # все прогоны: итог, задержки, цена синхронизации, находки
+perf/report.sh show latest          # сводка прогона; --json — весь отчёт
+perf/report.sh compare база latest  # рядом, изменение в %, и на одинаковой нагрузке
+perf/report.sh collect latest       # пересобрать отчёт (Prometheus хранит 14 дней)
+perf/report.sh import               # прогон, запущенный без perf/run.sh: по последнему отчёту Gatling
+```
+
+Прогон называют по id, началу id, метке, `latest` или `latest~1`.
+
+Ступени сборщик берёт из консоли `OrdinaryGames`: строки `<игры> games of <игроки> over <транспорт>, <N> levels of <M> games, <секунды>s each`, `Level <k> of <N>: <игроки> players` и `The ladder stops at <игроки> players (<синхр> syncs/s) …`. Поменяли их — поправьте `parse_console` в `perf/report.py`; сценарий без них (`BigGame`) — одна ступень после разгона.
+
+Откуда цифры: сервер — те же запросы к Prometheus, что на дашборде; контейнеры — Docker API раз в 5 с; клиент — `simulation.log` Gatling (двоичный, сборщик читает его сам: если обновление Gatling поменяет формат, отчёт выйдет без цифр клиента и с предупреждением); база — `pg_stat_statements`. Нужен Python 3.9+, только стандартная библиотека (на Mac он есть вместе с Xcode). Если в сводке «исходники сервера новее его jar», под нагрузкой был старый код: пересоберите (`perf/up.sh --container`).
+
 ## Grafana
 
 <http://localhost:3000>, без логина. Дашборд «Hovanki: сервер», переменная `job`: `hovanki-host` (сервер на машине) или `hovanki-container`. Prometheus снимает метрики раз в 5 с.
@@ -155,7 +197,7 @@ EXPLAIN (ANALYZE, BUFFERS) SELECT …;
 5. **Поведение не сломано:** `./gradlew check` и `./gradlew :e2e:test`.
 6. **Каждая оптимизация — отдельный PR** с цифрами до и после.
 
-Журнал замеров — `perf/results/<дата>-<сценарий>.md`:
+Журнал замеров — `perf/results/<дата>-<сценарий>.md`, цифры для него — из `perf/report.sh compare`:
 
 ```markdown
 # 2026-10-14 OrdinaryGames, 20 × 30, контейнер (2 ядра, 640 МБ)

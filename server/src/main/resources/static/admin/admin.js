@@ -958,7 +958,7 @@ function featuresPage({ features }) {
 }
 
 /**
- * A shadow-only feature (the test server): never on for a game. Its switch on in the database is shown, since it would
+ * A shadow-only feature (a server with the profile `field`): never on for a game. Its switch on in the database is shown, since it would
  * go live once the server no longer keeps it in the shadow; an admin can only turn it off.
  */
 function featureShadowState(feature) {
