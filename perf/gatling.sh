@@ -38,4 +38,4 @@ export PERF_GRADLE_HOME="${GRADLE_USER_HOME:-$HOME/.gradle}"
 exec docker compose -f perf/compose.yaml --profile load run --rm --no-deps gatling \
   java -Xmx"${PERF_GATLING_HEAP:-3g}" -Xss512k -XX:+UseParallelGC ${PERF_GATLING_JAVA_OPTS:-} \
   "${properties[@]}" @perf/build/gatling-classpath.txt \
-  io.gatling.app.Gatling --simulation "$simulation" --results-folder perf/build/reports/gatling
+  io.gatling.app.Gatling -s "$simulation" -rf "$PWD/perf/build/reports/gatling"

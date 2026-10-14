@@ -2113,7 +2113,12 @@ def cmd_run(args: argparse.Namespace) -> int:
         "load": {
             "simulation": simulation,
             "params": params,
-            "command": ["./gradlew", ":perf:gatlingRun", "--simulation", simulation, *gradle_args],
+            # PERF_GATLING=docker: Gatling inside the stand's network (perf/gatling.sh), for runs past ~10 000 sockets.
+            "command": (
+                ["perf/gatling.sh", simulation, *gradle_args]
+                if os.environ.get("PERF_GATLING") == "docker"
+                else ["./gradlew", ":perf:gatlingRun", "--simulation", simulation, *gradle_args]
+            ),
         },
         "prometheus_job": job,
         "db_before": psql(pg, DB_SNAPSHOT_SQL) if pg else None,

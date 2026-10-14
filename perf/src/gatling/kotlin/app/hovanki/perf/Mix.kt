@@ -25,16 +25,17 @@ import app.hovanki.shared.protocol.ZonePolygon
 import app.hovanki.shared.rules.BigGameLimits
 import app.hovanki.shared.rules.GameSetup
 import io.gatling.javaapi.core.ChainBuilder
-import io.gatling.javaapi.core.Choice
 import io.gatling.javaapi.core.CoreDsl.StringBody
 import io.gatling.javaapi.core.CoreDsl.asLongAs
 import io.gatling.javaapi.core.CoreDsl.doIf
 import io.gatling.javaapi.core.CoreDsl.doIfOrElse
 import io.gatling.javaapi.core.CoreDsl.exec
+import io.gatling.javaapi.core.CoreDsl.feed
 import io.gatling.javaapi.core.CoreDsl.jsonPath
 import io.gatling.javaapi.core.CoreDsl.nothingFor
 import io.gatling.javaapi.core.CoreDsl.pace
 import io.gatling.javaapi.core.CoreDsl.pause
+import io.gatling.javaapi.core.CoreDsl.percent
 import io.gatling.javaapi.core.CoreDsl.rampUsers
 import io.gatling.javaapi.core.CoreDsl.randomSwitch
 import io.gatling.javaapi.core.CoreDsl.scenario
@@ -478,14 +479,14 @@ class Mix : Simulation() {
 
     /** One visit of the start screen's other tabs: what a player looks at about once a minute. */
     private val browse = randomSwitch().on(
-        Choice.withWeight(20.0, exec(accountGet("profile", ApiRoutes.ME))),
-        Choice.withWeight(15.0, exec(accountGet("stats", ApiRoutes.ME_STATS))),
-        Choice.withWeight(15.0, exec(accountGet("history", ApiRoutes.ME_GAMES))),
-        Choice.withWeight(15.0, exec(accountGet("achievements", ApiRoutes.ME_ACHIEVEMENTS))),
-        Choice.withWeight(15.0, exec(leaderboard(LeaderboardScope.WORLD))),
-        Choice.withWeight(10.0, exec(leaderboard(LeaderboardScope.CITY))),
-        Choice.withWeight(5.0, exec(leaderboard(LeaderboardScope.FRIENDS))),
-        Choice.withWeight(5.0, exec(leaderboard(LeaderboardScope.LAST_GAME))),
+        percent(20.0).then(exec(accountGet("profile", ApiRoutes.ME))),
+        percent(15.0).then(exec(accountGet("stats", ApiRoutes.ME_STATS))),
+        percent(15.0).then(exec(accountGet("history", ApiRoutes.ME_GAMES))),
+        percent(15.0).then(exec(accountGet("achievements", ApiRoutes.ME_ACHIEVEMENTS))),
+        percent(15.0).then(exec(leaderboard(LeaderboardScope.WORLD))),
+        percent(10.0).then(exec(leaderboard(LeaderboardScope.CITY))),
+        percent(5.0).then(exec(leaderboard(LeaderboardScope.FRIENDS))),
+        percent(5.0).then(exec(leaderboard(LeaderboardScope.LAST_GAME))),
     )
 
     private fun accountGet(name: String, path: String) =
@@ -517,8 +518,8 @@ class Mix : Simulation() {
                 session.set(LOGGED_IN_AT, System.currentTimeMillis()).set(ITERATION, iteration)
             }
                 .randomSwitch().on(
-                    Choice.withWeight(REGISTER_PERCENT, exec(register())),
-                    Choice.withWeight(100.0 - REGISTER_PERCENT, exec(login())),
+                    percent(REGISTER_PERCENT).then(exec(register())),
+                    percent(100.0 - REGISTER_PERCENT).then(exec(login())),
                 )
                 .doIf { session -> session.contains(Keys.ACCOUNT_TOKEN) }.then(
                     exec(accountGet("profile", ApiRoutes.ME))
