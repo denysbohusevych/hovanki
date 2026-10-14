@@ -10,7 +10,9 @@
 	default_sni localhost
 }
 
-https://localhost:8443, https://localhost:8444, https://localhost:8445, https://localhost:8446 {
+# The same four ports as `caddy` for Gatling inside the lab's network (perf/gatling.sh).
+https://localhost:8443, https://localhost:8444, https://localhost:8445, https://localhost:8446,
+https://caddy:8443, https://caddy:8444, https://caddy:8445, https://caddy:8446 {
 	reverse_proxy server:8080 {
 		# Production listens on 443, which the server assumes for https; here it hears the real port, so an Origin
 		# of https://localhost:8443 (Gatling sends one) is the server's own, as production's own pages are.
