@@ -1,11 +1,13 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Code shared by the mobile client and the server. Pure Kotlin, no platform APIs:
-// wire protocol (kotlinx.serialization), catch codes (TOTP), QR codes, geo math and game rules.
+// wire protocol (kotlinx.serialization; the live channel v2 in protobuf by Wire), catch codes (TOTP), QR codes, geo
+// math and game rules.
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.wire)
 }
 
 kotlin {
@@ -31,6 +33,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(libs.kotlinx.serialization.json)
+            // The generated classes of the live channel v2 are part of this module's API.
+            api(libs.wire.runtime)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -46,4 +50,10 @@ kotlin {
 tasks.withType<JavaCompile>().configureEach {
     sourceCompatibility = JavaVersion.VERSION_17.toString()
     targetCompatibility = JavaVersion.VERSION_17.toString()
+}
+
+// The live channel v2 (docs/adr/0026-live-v2.md): src/commonMain/proto/live_v2.proto is the schema, Wire generates
+// its Kotlin classes (package app.hovanki.shared.live.v2) into commonMain.
+wire {
+    kotlin {}
 }
