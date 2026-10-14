@@ -31,8 +31,9 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * The field test's server (application-staging.yaml, docs/adr/0018-field-test-build.md): 60 players in a game, and the
- * metrics on the management port, which the internet never reaches (deploy/compose.yaml publishes the game's port only).
+ * The field test's own server (application-staging.yaml with application-field.yaml through the group `staging`,
+ * docs/adr/0018-field-test-build.md): 60 players in a game, and the metrics on the management port, which the internet
+ * never reaches (deploy/compose.yaml publishes the game's port only).
  * The management port is random here (`management.server.port=0`) so that the tests don't fight over 8081; that it is
  * the profile's own one is [ProfileConfigTest]'s.
  */
