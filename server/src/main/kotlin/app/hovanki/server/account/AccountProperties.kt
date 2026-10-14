@@ -16,4 +16,6 @@ data class AccountProperties(
     val sessionIdleRetention: Duration = Duration.ofDays(180),
     /** Unanswered friend requests are deleted after this. */
     val requestRetention: Duration = Duration.ofDays(90),
+    /** A session read for an account token is kept in memory this long ([AccountSessionRepository]). */
+    val sessionCacheTtl: Duration = Duration.ofMinutes(1),
 )

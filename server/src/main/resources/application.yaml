@@ -81,10 +81,17 @@ hovanki:
     code-max-attempts: 5
     # Logged-in devices unused for this long are logged out.
     session-idle-retention: 180d
+    # A request's account token is checked against the database at most this often per device; logging out, a ban
+    # and a deleted account take effect at once all the same.
+    session-cache-ttl: 1m
     # Unanswered friend requests.
     request-retention: 90d
   moderation:
     report-retention: 90d
+  # The inbox (InboxCache): the friend requests and the big games' lobbies are read from the database at most this often
+  # per user; the server's own changes of them show at once.
+  social:
+    inbox-cache-ttl: 1m
   # Game history (docs/adr/0007-game-history-and-routes.md): saved routes of the players who turned it on, and the
   # recordings of games for their players (docs/adr/0011-spectators-and-recordings.md). Results and statistics stay
   # until the account is deleted.

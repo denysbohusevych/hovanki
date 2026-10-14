@@ -11,6 +11,7 @@ import app.hovanki.server.game.GameService
 import app.hovanki.server.moderation.ReportRecord
 import app.hovanki.server.moderation.ReportRepository
 import app.hovanki.server.moderation.SanctionRepository
+import app.hovanki.server.social.InboxCache
 import app.hovanki.shared.protocol.AdminAction
 import app.hovanki.shared.protocol.AdminAudit
 import app.hovanki.shared.protocol.AdminFeature
@@ -77,6 +78,7 @@ class AdminService(
     private val audit: AuditLog,
     private val games: GameService,
     private val features: FeatureFlags,
+    private val inboxes: InboxCache,
     private val clock: Clock,
     transactionManager: PlatformTransactionManager,
 ) {
@@ -500,6 +502,8 @@ class AdminService(
                         .joinToString("")
             check(AccountRules.isValidNickname(nickname)) { "Generated nickname is invalid" }
             if (users.findByNickname(nickname) == null && users.updateNickname(user.id, nickname)) {
+                // Their friend requests show the old nickname in somebody's inbox.
+                inboxes.forgetAll()
                 audit.record(staff, AdminAction.RENAME, now, user.id, nickname, reason)
                 return
             }

@@ -105,12 +105,19 @@ class GameLobbyTest {
     @Test
     fun whoIsConnected() {
         now += 5_000
-        game.snapshotFor(anna, now)
+        game.touch(anna, now)
+        game.touch(host, now + 1_000)
 
         val players = game.snapshotFor(host, now + 1_000).players.associateBy { it.id }
         assertEquals(now, players.getValue(anna).lastSeenMillis)
         assertEquals(now + 1_000, players.getValue(host).lastSeenMillis)
         assertNull(players.getValue(boris).lastSeenMillis)
+
+        // A snapshot alone, like one the server sends on its own, marks nobody as connected.
+        game.snapshotFor(boris, now + 2_000)
+        val after = game.snapshotFor(host, now + 2_000).players.associateBy { it.id }
+        assertNull(after.getValue(boris).lastSeenMillis)
+        assertEquals(now + 1_000, after.getValue(host).lastSeenMillis)
     }
 
     @Test

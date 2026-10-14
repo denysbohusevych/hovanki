@@ -1414,8 +1414,17 @@ class Game(
     }
 
     /**
-     * State as [viewerId] is allowed to see it. [chatAfter]: the viewer's chat cursor; the snapshot brings the newest
-     * [ChatRules.MAX_PER_RESPONSE] messages after it that the viewer may see. Null (a client without chat): none.
+     * [viewerId] asked something now: the lobby shows who is connected ([PlayerView.lastSeenMillis]). Every request of
+     * a player ends here, before its snapshot ([GameService.snapshotOf]); what the server sends on its own does not.
+     */
+    fun touch(viewerId: PlayerId, nowMillis: Long) {
+        player(viewerId).lastSeenMillis = nowMillis
+    }
+
+    /**
+     * State as [viewerId] is allowed to see it, changing nothing (who asked is [touch]'s). [chatAfter]: the viewer's
+     * chat cursor; the snapshot brings the newest [ChatRules.MAX_PER_RESPONSE] messages after it that the viewer may
+     * see. Null (a client without chat): none.
      */
     fun snapshotFor(
         viewerId: PlayerId,
@@ -1425,8 +1434,6 @@ class Game(
         enabledFeatures: List<String> = emptyList(),
     ): GameSnapshot {
         val viewer = player(viewerId)
-        // Every request ends in a snapshot for its player: the lobby shows who is connected.
-        viewer.lastSeenMillis = nowMillis
         val features = settings.features
         val inRound = phase == GamePhase.HIDING || phase == GamePhase.SEEKING
         return GameSnapshot(

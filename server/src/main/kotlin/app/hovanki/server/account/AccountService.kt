@@ -248,6 +248,8 @@ class AccountService(
      */
     fun deleteAccount(userId: UserId) {
         beforeDeletion.orderedStream().forEach { it.beforeDelete(userId) }
+        // The foreign key would delete the sessions too, but not the ones kept in memory.
+        sessions.deleteAll(userId)
         users.delete(userId)
     }
 

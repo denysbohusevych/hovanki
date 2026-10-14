@@ -27,7 +27,8 @@ import java.time.Instant
  * block each other.
  *
  * Each change runs in one transaction that first locks the two users ([UserRepository.lock]): two users asking each
- * other at the same moment become friends, and the limits hold under parallel requests.
+ * other at the same moment become friends, and the limits hold under parallel requests. A change of the requests or
+ * the blocks between two users forgets both inboxes ([InboxCache]).
  */
 @Service
 class FriendService(
@@ -35,6 +36,7 @@ class FriendService(
     private val friends: FriendRepository,
     private val blocks: BlockRepository,
     private val groups: GroupRepository,
+    private val inboxes: InboxCache,
     private val rateLimiter: RateLimiter,
     private val clock: Clock,
     transactionManager: PlatformTransactionManager,
@@ -57,6 +59,7 @@ class FriendService(
         if (target.id == userId) throw badRequest("You can't be your own friend")
         return inTransaction {
             if (target.id !in users.lock(listOf(userId, target.id))) throw userNotFound()
+            inboxes.forget(userId, target.id)
             when {
                 blocks.isBlocked(userId, target.id) -> throw blockedByYou()
 
@@ -79,6 +82,7 @@ class FriendService(
     /** Accepts [from]'s request; 404 without one. Accepting twice changes nothing. */
     fun accept(userId: UserId, from: UserId): FriendsResponse = inTransaction {
         users.lock(listOf(userId, from))
+        inboxes.forget(userId, from)
         if (!friends.areFriends(userId, from)) {
             // A request the caller can't see (they blocked its sender) can't be accepted either.
             if (!friends.hasRequest(from, userId) || blocks.isBlocked(userId, from)) {
@@ -91,6 +95,7 @@ class FriendService(
 
     /** Declines [other]'s request or withdraws the caller's request to them; nothing to do is fine. */
     fun decline(userId: UserId, other: UserId): FriendsResponse = inTransaction {
+        inboxes.forget(userId, other)
         friends.removeRequestsBetween(userId, other)
         view(userId)
     }
@@ -109,6 +114,7 @@ class FriendService(
         if (target == userId) throw badRequest("You can't block yourself")
         return inTransaction {
             if (target !in users.lock(listOf(userId, target))) throw userNotFound()
+            inboxes.forget(userId, target)
             blocks.block(userId, target, clock.instant())
             friends.removeFriendship(userId, target)
             friends.removeRequestsBetween(userId, target)
@@ -120,6 +126,7 @@ class FriendService(
     /** Idempotent. The requests [target] sent while blocked were never shown: they go with the block. */
     fun unblock(userId: UserId, target: UserId): FriendsResponse = inTransaction {
         users.lock(listOf(userId, target))
+        inboxes.forget(userId, target)
         if (blocks.unblock(userId, target)) friends.removeRequest(from = target, to = userId)
         view(userId)
     }

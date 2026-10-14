@@ -46,7 +46,10 @@ class LiveSocketTest {
 
         requireOk(sam.sendChat("ready?"), "Sam writes in the lobby")
         within("Anna reads it", 1.seconds) { anna.chat.any { it.text == "ready?" } }
-        check(anna.chatPushed.any { it.text == "ready?" }, "the message itself came over Anna's socket")
+        // A sync of Anna's already under way may bring the message a moment before its frame does.
+        awaitThat("the message itself came over Anna's socket", within = 1.seconds) {
+            anna.chatPushed.any { it.text == "ready?" }
+        }
         eventually("Oleg reads it with his next poll", within = 7.seconds) {
             oleg.chat.firstOrNull { it.text == "ready?" }
         }

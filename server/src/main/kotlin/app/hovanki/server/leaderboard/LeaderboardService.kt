@@ -6,6 +6,9 @@ import app.hovanki.shared.protocol.LeaderboardResponse
 import app.hovanki.shared.protocol.LeaderboardScope
 import app.hovanki.shared.protocol.UserId
 import app.hovanki.shared.rules.LeaderboardRules
+import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.DisposableBean
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
 import java.time.Clock
 import java.time.DayOfWeek
@@ -13,25 +16,38 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
+import java.util.concurrent.Executor
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * The leaderboard, «Рейтинг» (docs/adr/0020-leaderboard.md): the weekly points of players with an account, computed
  * from the history of finished games with [LeaderboardRules]; nothing of it is stored. The world's and the cities'
  * order is computed for everybody at once at most every [LeaderboardProperties.freshFor] and kept in memory
- * ([Standings]); the friends'
- * and the last game's are read on every request. Shows nicknames and points only: no game, place or time of anybody
- * else.
+ * ([Standings]), on the [refresher]'s thread while the requests get the previous ones; the friends' and the last
+ * game's are read on every request. Shows nicknames and points only: no game, place or time of anybody else.
  */
 @Service
-class LeaderboardService(
+class LeaderboardService internal constructor(
     private val repository: LeaderboardRepository,
     private val clock: Clock,
-    private val properties: LeaderboardProperties = LeaderboardProperties(),
-) {
+    private val properties: LeaderboardProperties,
+    private val refresher: Executor,
+) : DisposableBean {
+    @Autowired
+    constructor(
+        repository: LeaderboardRepository,
+        clock: Clock,
+        properties: LeaderboardProperties = LeaderboardProperties(),
+    ) : this(repository, clock, properties, Executors.newSingleThreadExecutor(::refresherThread))
+
     @Volatile
     private var standings: Standings? = null
-    private val refreshing = ReentrantLock()
+    private val computing = ReentrantLock()
+    private val refreshing = AtomicBoolean()
 
     fun leaderboard(user: AuthenticatedUser, scope: LeaderboardScope): LeaderboardResponse {
         val now = clock.instant()
@@ -107,21 +123,43 @@ class LeaderboardService(
     }
 
     /**
-     * This week's [Standings], computed again once they are [LeaderboardProperties.freshFor] old. One request computes them; the others
-     * meanwhile get the week's previous ones and wait only when there are none yet (a new week, a restart).
+     * This week's [Standings]. Once they are [LeaderboardProperties.freshFor] old the [refresher] computes them again
+     * and the requests meanwhile get them as they are; a request waits only while there are none of this week yet (a
+     * new week, a restart).
      */
     private fun standings(now: Instant): Standings {
         val week = weekOf(now)
-        standings?.takeIf { it.isFresh(week, now, properties.freshFor) }?.let { return it }
-        val previous = standings?.takeIf { it.week == week }
-        if (previous != null && !refreshing.tryLock()) return previous
-        if (previous == null) refreshing.lock()
-        try {
-            standings?.takeIf { it.isFresh(week, now, properties.freshFor) }?.let { return it }
-            return computeStandings(week, now).also { standings = it }
-        } finally {
-            refreshing.unlock()
+        val current = standings?.takeIf { it.week == week } ?: return compute(week)
+        if (!current.isFresh(week, now, properties.freshFor) && refreshing.compareAndSet(false, true)) {
+            try {
+                refresher.execute { refresh() }
+            } catch (e: RuntimeException) {
+                refreshing.set(false)
+                log.warn("The leaderboard was not refreshed", e)
+            }
         }
+        return standings?.takeIf { it.week == week } ?: current
+    }
+
+    private fun refresh() {
+        try {
+            compute(weekOf(clock.instant()))
+        } catch (e: RuntimeException) {
+            log.warn("The leaderboard was not refreshed", e)
+        } finally {
+            refreshing.set(false)
+        }
+    }
+
+    /** One computation at a time; a fresh one of [week] made meanwhile is taken as it is. */
+    private fun compute(week: Week): Standings = computing.withLock {
+        val now = clock.instant()
+        standings?.takeIf { it.isFresh(week, now, properties.freshFor) }
+            ?: computeStandings(week, now).also { standings = it }
+    }
+
+    override fun destroy() {
+        (refresher as? ExecutorService)?.shutdownNow()
     }
 
     private fun computeStandings(week: Week, now: Instant): Standings {
@@ -217,6 +255,9 @@ class LeaderboardService(
 
     companion object {
         private val ZONE: ZoneId = ZoneId.of(LeaderboardRules.WEEK_TIME_ZONE)
+        private val log = LoggerFactory.getLogger(LeaderboardService::class.java)
+
+        private fun refresherThread(task: Runnable) = Thread(task, "leaderboard").apply { isDaemon = true }
 
         /** The week [instant] falls in. */
         fun weekOf(instant: Instant): Week {

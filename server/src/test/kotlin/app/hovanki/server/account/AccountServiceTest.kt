@@ -76,6 +76,30 @@ class AccountServiceTest(
     }
 
     @Test
+    fun aSessionIsReadOnceAMinuteButEndsAtOnceThroughTheServer() {
+        val removedInSql = register(uniqueName())
+        accounts.authenticate(removedInSql.token)
+        jdbc.sql("DELETE FROM account_sessions WHERE token_hash = :hash")
+            .param("hash", AccountKeys.tokenHash(removedInSql.token))
+            .update()
+        // Kept in memory: a row deleted around the server goes on working for a minute at most.
+        assertEquals(removedInSql.user.id, accounts.authenticate(removedInSql.token).userId)
+        clock.advance(Duration.ofMinutes(1))
+        assertEquals(
+            ErrorReason.SESSION_EXPIRED,
+            assertFailsWith<GameException> { accounts.authenticate(removedInSql.token) }.reason,
+        )
+
+        val loggedOut = register(uniqueName())
+        accounts.logout(accounts.authenticate(loggedOut.token))
+        assertFailsWith<GameException> { accounts.authenticate(loggedOut.token) }
+
+        val deleted = register(uniqueName())
+        accounts.delete(accounts.authenticate(deleted.token), DeleteAccountRequest(PASSWORD))
+        assertFailsWith<GameException> { accounts.authenticate(deleted.token) }
+    }
+
+    @Test
     fun confirmingTheEmailIsOptional() {
         val nickname = uniqueName()
         val session = register(nickname)
