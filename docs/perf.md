@@ -109,6 +109,8 @@ PERF_SERVER_MEM=5g PERF_MAX_CONNECTIONS=40000 docker compose -f perf/compose.yam
 perf/gatling.sh app.hovanki.perf.Mix -Pperf.players=30000
 ```
 
+С отчётом прогона — то же через `perf/run.sh`: `PERF_GATLING=docker perf/run.sh Mix -Pperf.players=30000`. Контейнер `gatling` попадает в отчёт отдельной строкой, по его CPU и памяти видно, что генератор не предел.
+
 Как добавить сценарий: класс `Simulation` рядом с этими, запросы из `Requests.kt` (`hovankiHttp()`, `connect()`, `sync()`, `disconnect()`, `asPlayer()`; `connect` и `disconnect` открывают и закрывают сокет, если прогон на сокете), параметры через `LabConfig.int("имя", умолчание)`, они приходят из `-Pperf.имя=…`. Для админских действий — `LabAdmin`.
 
 ## Отчёт прогона

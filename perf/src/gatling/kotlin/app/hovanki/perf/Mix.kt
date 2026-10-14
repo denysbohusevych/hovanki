@@ -298,7 +298,11 @@ class Mix : Simulation() {
     private val start = exec(
         http("start").post { session -> ApiRoutes.start(session.gameId()) }
             .asPlayer()
-            .body(StringBody { session -> json(StartGameRequest(session.table().joined.take(session.table().seekers))) })
+            .body(
+                StringBody { session ->
+                    json(StartGameRequest(session.table().joined.take(session.table().seekers)))
+                },
+            )
             .check(status().shouldBe(200), jsonPath("$.phase").saveAs(Keys.PHASE)),
     )
 
@@ -352,7 +356,9 @@ class Mix : Simulation() {
             session.isHost() && session.phase() == GamePhase.LOBBY && session.table().starts &&
                 session.table().ready() && session.table().claimStart()
         }.then(start)
-        .doIf { session -> session.phase() != GamePhase.FINISHED && ThreadLocalRandom.current().nextInt(CHAT_SYNCS) == 0 }
+        .doIf { session ->
+            session.phase() != GamePhase.FINISHED && ThreadLocalRandom.current().nextInt(CHAT_SYNCS) == 0
+        }
         .then(chat)
         .doIf { session -> session.phase() == GamePhase.FINISHED }.then(
             exec { session -> session.set(FINISHED_SYNCS, session.getInt(FINISHED_SYNCS) + 1) }
@@ -399,30 +405,29 @@ class Mix : Simulation() {
         stay: (Session) -> Boolean,
         then: ChainBuilder?,
         onLeave: ChainBuilder? = null,
-    ): ScenarioBuilder =
-        scenario(name)
-            .exec(phone(accountPercent))
-            .exec { session ->
-                watch.players.incrementAndGet()
-                session
-            }
-            .asLongAs { running() }.on(
-                feed(seats)
-                    .exec { session -> seat(session).remove(LEAVING) }
-                    .doIfOrElse { session -> session.isHost() }.then(host).orElse(guest)
-                    .doIf { session -> !session.isFailed && session.contains(Keys.TOKEN) }.then(
-                        exec(connect())
-                            .exec { session -> session.set(JOINED_AT, System.currentTimeMillis()) }
-                            .exec(syncLoop(until = { session -> session.contains(LEAVING) || !stay(session) }, then))
-                            .exec(disconnect())
-                            .let { if (onLeave != null) it.exec(onLeave) else it },
-                    )
-                    .exec { session -> session.markAsSucceeded() },
-            )
-            .exec { session ->
-                watch.players.decrementAndGet()
-                session
-            }
+    ): ScenarioBuilder = scenario(name)
+        .exec(phone(accountPercent))
+        .exec { session ->
+            watch.players.incrementAndGet()
+            session
+        }
+        .asLongAs { running() }.on(
+            feed(seats)
+                .exec { session -> seat(session).remove(LEAVING) }
+                .doIfOrElse { session -> session.isHost() }.then(host).orElse(guest)
+                .doIf { session -> !session.isFailed && session.contains(Keys.TOKEN) }.then(
+                    exec(connect())
+                        .exec { session -> session.set(JOINED_AT, System.currentTimeMillis()) }
+                        .exec(syncLoop(until = { session -> session.contains(LEAVING) || !stay(session) }, then))
+                        .exec(disconnect())
+                        .let { if (onLeave != null) it.exec(onLeave) else it },
+                )
+                .exec { session -> session.markAsSucceeded() },
+        )
+        .exec { session ->
+            watch.players.decrementAndGet()
+            session
+        }
 
     private val roundsScenario = games("Rounds", Seats(starts = true), stay = { true }, then = afterSync)
 
@@ -489,15 +494,17 @@ class Mix : Simulation() {
         percent(5.0).then(exec(leaderboard(LeaderboardScope.LAST_GAME))),
     )
 
-    private fun accountGet(name: String, path: String) =
-        http(name).get(path).asAccount().check(status().shouldBe(200))
+    private fun accountGet(name: String, path: String) = http(name).get(path).asAccount().check(status().shouldBe(200))
 
     private fun leaderboard(scope: LeaderboardScope) =
         http("leaderboard ${scope.name}").get("${ApiRoutes.ME_LEADERBOARD}?scope=${scope.name}").asAccount()
             .check(status().shouldBe(200))
 
     /** The start screen while [until] holds: the inbox every 10 s, and about every sixth time a look elsewhere. */
-    private fun startScreen(until: (Session) -> Boolean): ChainBuilder = asLongAs { session -> running() && until(session) }
+    private fun startScreen(until: (Session) -> Boolean): ChainBuilder = asLongAs { session ->
+        running() &&
+            until(session)
+    }
         .on(
             pace(Duration.ofSeconds(INBOX_SECONDS))
                 .exec(http("inbox").get(ApiRoutes.INBOX).asAccount().check(status().shouldBe(200)))
