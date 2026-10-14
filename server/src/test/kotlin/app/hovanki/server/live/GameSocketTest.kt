@@ -34,6 +34,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.web.socket.CloseStatus
+import java.net.Socket
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -302,6 +303,37 @@ class GameSocketTest(
         // The server may close before the frame is all sent.
         runCatching { socket.sendText("""{"type":"sync","seq":1,"padding":"$padding"}""") }
         assertEquals(CloseStatus.TOO_BIG_TO_PROCESS.code, socket.awaitClose())
+    }
+
+    @Test
+    fun framesAreNeverCompressed() {
+        // The app asks for permessage-deflate (OkHttp does); the server says nothing of it, so the socket gets none.
+        val host = create()
+        Socket("127.0.0.1", port).use { raw ->
+            raw.soTimeout = 5_000
+            val upgrade = listOf(
+                "GET ${ApiRoutes.socket(host.session.gameId)} HTTP/1.1",
+                "Host: 127.0.0.1:$port",
+                "Upgrade: websocket",
+                "Connection: Upgrade",
+                "Sec-WebSocket-Version: 13",
+                "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+                "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits",
+                "Authorization: ${ApiRoutes.AUTH_SCHEME} ${host.session.token}",
+            ).joinToString("\r\n", postfix = "\r\n\r\n")
+            raw.getOutputStream().apply {
+                write(upgrade.toByteArray())
+                flush()
+            }
+            val head = raw.getInputStream().bufferedReader().lineSequence().takeWhile { it.isNotEmpty() }.toList()
+            assertTrue(head.first().startsWith("HTTP/1.1 101"), head.joinToString(" | "))
+            assertTrue(
+                head.none {
+                    it.startsWith("Sec-WebSocket-Extensions", ignoreCase = true)
+                },
+                head.joinToString(" | "),
+            )
+        }
     }
 
     @Test
