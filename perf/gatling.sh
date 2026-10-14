@@ -36,6 +36,6 @@ export PERF_REPO="$PWD"
 export PERF_GRADLE_HOME="${GRADLE_USER_HOME:-$HOME/.gradle}"
 # shellcheck disable=SC2086 # the options are words on purpose
 exec docker compose -f perf/compose.yaml --profile load run --rm --no-deps gatling \
-  java -Xmx"${PERF_GATLING_HEAP:-3g}" -Xss512k -XX:+UseParallelGC ${PERF_GATLING_JAVA_OPTS:-} \
+  java -Xmx"${PERF_GATLING_HEAP:-3g}" -Xss512k -XX:+UseParallelGC --add-opens=java.base/java.lang=ALL-UNNAMED ${PERF_GATLING_JAVA_OPTS:-} \
   "${properties[@]}" @perf/build/gatling-classpath.txt \
   io.gatling.app.Gatling -s "$simulation" -rf "$PWD/perf/build/reports/gatling"
