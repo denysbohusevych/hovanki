@@ -86,7 +86,7 @@ services:
     image: hovanki-server:perf
     restart: "no"
     # Production: one t3.micro, its 2 vCPU (one core's two threads) for the server, Caddy and the system together, and
-    # mem_limit 640m in deploy/compose.yaml; the heap is 75 % of it (Dockerfile). The server and Caddy share the same
+    # mem_limit 640m in deploy/compose.yaml; the heap is 55 % of it (Dockerfile). The server and Caddy share the same
     # two CPUs here, the database and Gatling (perf/run.sh) stay off them.
     cpuset: ${PERF_CPUSET:-0,1}
     mem_limit: ${PERF_SERVER_MEM:-640m}
