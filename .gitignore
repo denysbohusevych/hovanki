@@ -36,3 +36,6 @@ keystore.properties
 
 # Claude Code agent worktrees (local only)
 .claude/worktrees/
+
+# The performance lab's runs (perf/run.sh, docs/perf.md): local only
+perf/runs/
