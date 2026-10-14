@@ -1142,9 +1142,8 @@ class Game(
         chat.addLast(message)
         while (chat.size > ChatRules.HISTORY_SIZE) chat.removeFirst()
         // Those who can read it, the sender aside: the answer brings it to them.
-        for (reader in players.values) {
-            if (reader.id != playerId && ChatRules.canSee(message.channel, reader.role)) pokes.add(reader.id)
-        }
+        val readers = players.values.filter { it.id != playerId && ChatRules.canSee(message.channel, it.role) }
+        pokes.addChat(message, readers.map { it.id })
         if (clientMessageId != null) {
             val byClientId = sender.chatByClientId
             byClientId[clientMessageId] = message

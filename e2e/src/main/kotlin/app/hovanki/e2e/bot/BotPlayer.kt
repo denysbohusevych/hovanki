@@ -68,6 +68,7 @@ import app.hovanki.shared.protocol.BluetoothState
 import app.hovanki.shared.protocol.Carry
 import app.hovanki.shared.protocol.CatchId
 import app.hovanki.shared.protocol.CatchStatus
+import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.FriendsResponse
@@ -194,7 +195,7 @@ class BotPlayer(
 
     /** The pulse the phone beats with (docs/adr/0012-nearby-radar.md, «Пульс»). */
     val pulse = FakePocketPulse()
-    val network = FakeNetwork(::onExchange)
+    val network = FakeNetwork(::onExchange, ::onPushedChat)
     val backgroundTracker = FakeBackgroundTracker { running ->
         if (logChanges) log(if (running) "background tracking started" else "background tracking stopped")
     }
@@ -502,6 +503,17 @@ class BotPlayer(
 
     /** The chat panel: this game's messages this player may see, minus those of users they blocked. */
     val chat: List<ChatLine> get() = state.chatLines(blockedIds)
+
+    private val pushedChat = CopyOnWriteArrayList<ChatMessage>()
+
+    /** The chat messages the live channel pushed to this phone as they were sent (docs/adr/0015-websockets.md). */
+    val chatPushed: List<ChatMessage> get() = pushedChat.toList()
+
+    /** On the socket's thread, before the app has the messages: the app's snapshot is the one before them. */
+    private fun onPushedChat(messages: List<ChatMessage>) {
+        pushedChat += messages
+        SnapshotAudit.checkPushedChat(messages, snapshot).forEach { violations += "$name: $it" }
+    }
 
     /** The number on the chat button. */
     val unreadChatCount: Int get() = state.unreadChatCount(blockedIds)

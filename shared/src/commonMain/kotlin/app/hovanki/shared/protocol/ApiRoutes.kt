@@ -21,7 +21,8 @@ object ApiRoutes {
 
     /**
      * GET with the WebSocket upgrade and the game token: the live channel ([ClientFrame], [ServerFrame],
-     * docs/adr/0015-websockets.md), `sync` as frames plus pokes; only while the server has [ServerFeature.LIVE_SOCKET].
+     * docs/adr/0015-websockets.md), `sync` as frames plus pokes and, with [SocketFrames.CHAT], the chat's new messages;
+     * only while the server has [ServerFeature.LIVE_SOCKET].
      */
     const val SOCKET = "$GAMES/{gameId}/socket"
     const val CATCHES = "$GAMES/{gameId}/catches"

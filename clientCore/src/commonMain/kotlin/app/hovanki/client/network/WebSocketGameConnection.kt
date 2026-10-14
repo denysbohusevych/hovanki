@@ -25,9 +25,10 @@ import kotlin.time.TimeSource
 
 /**
  * The game's live channel (docs/adr/0015-websockets.md, section 4): the same `sync` as [PollingGameConnection], as
- * frames over one socket, and the server's pokes cut the pause short. One sync in flight at a time; its samples count
- * as sent only once its answer came, else they go back to the [LocationOutbox]. A broken socket is opened again with
- * the same backoff as polling; the server's close codes end the session like a 401 or a 404 would.
+ * frames over one socket, and the server's pokes cut the pause short; the chat's new messages come as they are sent
+ * ([ConnectionEvent.Chat]). One sync in flight at a time; its samples count as sent only once its answer came, else they
+ * go back to the [LocationOutbox]. A broken socket is opened again with the same backoff as polling; the server's close
+ * codes end the session like a 401 or a 404 would.
  *
  * Every [ConnectionEvent.Problem] carries a [GameSocketException] when the socket failed, which
  * [AdaptiveGameConnection] reads to fall back to polling.
@@ -115,7 +116,7 @@ class WebSocketGameConnection(
                 val answer = withTimeoutOrNull(SocketLimits.REPLY_TIMEOUT_MILLIS) {
                     var reply: ServerFrame? = null
                     while (reply == null) {
-                        when (val frame = socket.nextFrame { lastText = it }) {
+                        when (val frame = nextFrame(socket) { lastText = it }) {
                             ServerFrame.Poke -> poked = true
 
                             is ServerFrame.Snapshot -> if (frame.seq == sent) {
@@ -124,6 +125,8 @@ class WebSocketGameConnection(
                             }
 
                             is ServerFrame.Error -> if (frame.seq == sent) reply = frame
+
+                            is ServerFrame.Chat -> Unit
                         }
                     }
                     reply
@@ -157,12 +160,12 @@ class WebSocketGameConnection(
                         pause
                     }
 
-                    ServerFrame.Poke -> error("A poke is no answer")
+                    ServerFrame.Poke, is ServerFrame.Chat -> error("No answer: $answer")
                 }
                 if (!poked) {
-                    // The pause, unless a poke cuts it short.
+                    // The pause, unless a poke cuts it short; chat messages come meanwhile.
                     poked = withTimeoutOrNull(pauseMillis) {
-                        while (socket.nextFrame() != ServerFrame.Poke) Unit
+                        while (nextFrame(socket) != ServerFrame.Poke) Unit
                         true
                     } == true
                 }
@@ -211,13 +214,25 @@ class WebSocketGameConnection(
 
     private class SocketClosed : Exception("The socket closed")
 
-    /** The next frame this app can read; a newer server's frame of another type is skipped. */
-    private suspend fun GameSocket.nextFrame(onText: (String) -> Unit = {}): ServerFrame {
+    /**
+     * The next frame of [socket] this app can read; a newer server's frame of another type is skipped, and the chat's
+     * pushed messages go out as a [ConnectionEvent.Chat] at once.
+     */
+    private suspend fun FlowCollector<ConnectionEvent>.nextFrame(
+        socket: GameSocket,
+        onText: (String) -> Unit = {},
+    ): ServerFrame {
         while (true) {
-            val text = receive() ?: throw SocketClosed()
-            decode(text)?.let {
-                onText(text)
-                return it
+            val text = socket.receive() ?: throw SocketClosed()
+            when (val frame = decode(text)) {
+                null -> Unit
+
+                is ServerFrame.Chat -> if (frame.messages.isNotEmpty()) emit(ConnectionEvent.Chat(frame.messages))
+
+                else -> {
+                    onText(text)
+                    return frame
+                }
             }
         }
     }

@@ -32,10 +32,15 @@ data class SessionState(
     val streetZone: StreetZoneResponse? = null,
     /**
      * This game's chat as far as the player may see it, oldest first: merged by seq from every snapshot (polls and
-     * command responses), at most [ChatRules.HISTORY_SIZE]. Show it with `chatLines`; [snapshot]'s own `chat` is only
-     * the part that came with it.
+     * command responses) and every message the live channel pushed, at most [ChatRules.HISTORY_SIZE]. Show it with
+     * `chatLines`; [snapshot]'s own `chat` is only the part that came with it.
      */
     val chat: List<ChatMessage> = emptyList(),
+    /**
+     * The newest seq a snapshot brought: the chat cursor of the next sync (`SyncRequest.chatAfter`). Pushed messages
+     * don't move it: a push lost with its socket comes again with the next sync.
+     */
+    val chatSyncedSeq: Long = 0,
     /** Every player's track of the round, loaded once the game is over: the replay on the results screen. */
     val tracks: TracksResponse? = null,
     /** The newest seq the player has read (`GameSessionManager.markChatRead`); 0: none. See `unreadChatCount`. */
