@@ -53,8 +53,9 @@ class GameSocketHandler(
     private val log = LoggerFactory.getLogger(javaClass)
 
     /**
-     * Frames come in pieces of Tomcat's buffer (8 K characters): [LiveSocket.assemble] puts a longer one together up to
-     * [SocketLimits.MAX_FRAME_BYTES]. A buffer of the whole limit would be held by every open socket, 512 KB each.
+     * Frames come in pieces of Tomcat's buffer (2 K characters, [SocketBuffers]): [LiveSocket.assemble] puts a longer
+     * one together up to [SocketLimits.MAX_FRAME_BYTES]. A buffer of the whole limit would be held by every open socket,
+     * 512 KB each.
      */
     override fun supportsPartialMessages(): Boolean = true
 

@@ -28,6 +28,8 @@ import app.hovanki.shared.protocol.SyncRequest
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.rules.shrinkingZone
 import io.micrometer.core.instrument.MeterRegistry
+import jakarta.servlet.ServletContext
+import jakarta.websocket.server.ServerContainer
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.springframework.beans.factory.annotation.Autowired
@@ -65,6 +67,7 @@ class GameSocketTest(
     @Autowired private val sockets: GameSockets,
     @Autowired private val clock: Clock,
     @Autowired private val meters: MeterRegistry,
+    @Autowired private val servletContext: ServletContext,
 ) {
     private val http = HttpClient.newHttpClient()
     private val park = GeoPoint(50.4501, 30.5234)
@@ -276,7 +279,7 @@ class GameSocketTest(
     fun theLongestSyncComesInPiecesAndIsAnswered() {
         val host = create()
         val socket = open(host.session)
-        // The most a sync may carry (GameService's limits): far over Tomcat's buffer of 8 K characters.
+        // The most a sync may carry (GameService's limits): far over Tomcat's buffer of 2 K characters.
         val now = clock.millis()
         val fixes =
             List(100) { LocationSample(park, accuracyMeters = 5.0, timestampMillis = now - (100 - it) * 1_000L) }
@@ -285,7 +288,7 @@ class GameSocketTest(
             ClientFrame.serializer(),
             ClientFrame.Sync(1, SyncRequest(fixes, chatAfter = 0, nearby = heard)),
         )
-        assertTrue(longest.length > 2 * 8 * 1024, "${longest.length} characters")
+        assertTrue(longest.length > 8 * SocketBuffers.SIZE, "${longest.length} characters")
         socket.sendText(longest)
         assertEquals(1, assertIs<ServerFrame.Snapshot>(socket.next()).seq)
         // A frame the phone sends in parts is one sync too.
@@ -334,6 +337,14 @@ class GameSocketTest(
                 head.joinToString(" | "),
             )
         }
+    }
+
+    @Test
+    fun aSocketsBuffersAreSmall() {
+        // Tomcat's buffers of every socket take the size of its container's (SocketBuffers), not its own 8 KB.
+        val container = assertIs<ServerContainer>(servletContext.getAttribute(ServerContainer::class.java.name))
+        assertEquals(SocketBuffers.SIZE, container.defaultMaxTextMessageBufferSize)
+        assertEquals(SocketBuffers.SIZE, container.defaultMaxBinaryMessageBufferSize)
     }
 
     @Test
