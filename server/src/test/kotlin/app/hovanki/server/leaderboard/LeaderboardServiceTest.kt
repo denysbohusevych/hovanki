@@ -140,6 +140,39 @@ class LeaderboardServiceTest(
     }
 
     @Test
+    fun theWorldIsComputedAgainAfterAMinuteOrInANewWeek() {
+        val monday = Instant.parse("2046-01-07T22:00:00Z")
+        val clock = MutableClock(monday.plus(Duration.ofDays(6)))
+        val service = LeaderboardService(repository, clock)
+        val anna = testUsers.create("anna")
+        val bob = testUsers.create("bob")
+        game(monday, seeker(anna, catches = 1, won = false))
+        assertEquals(listOf(anna.id), service.leaderboard(anna.auth, LeaderboardScope.WORLD).entries.map { it.userId })
+
+        // Bob's game counts only once the world is computed again, a minute later.
+        game(monday.plusSeconds(60), seeker(bob, catches = 2, won = false))
+        clock.advance(LeaderboardProperties().freshFor.minusSeconds(1))
+        val cached = service.leaderboard(bob.auth, LeaderboardScope.WORLD)
+        assertEquals(listOf(anna.id), cached.entries.map { it.userId })
+        assertNull(cached.me)
+        clock.advance(Duration.ofSeconds(1))
+        val fresh = service.leaderboard(bob.auth, LeaderboardScope.WORLD)
+        assertEquals(listOf(bob.id, anna.id), fresh.entries.map { it.userId })
+        assertEquals(1, fresh.me?.rank)
+        assertTrue(fresh.entries.first().isMe)
+        assertTrue(fresh.entries.drop(1).none { it.isMe }, "only the caller's line is marked")
+
+        // A new week starts empty at once, without waiting for the minute; last week's places count for the change.
+        val nextMonday = monday.plus(Duration.ofDays(7))
+        game(nextMonday.plusSeconds(1), seeker(anna, catches = 0, won = false))
+        clock.advance(Duration.between(clock.instant(), nextMonday.plusSeconds(10)))
+        val newWeek = service.leaderboard(anna.auth, LeaderboardScope.WORLD)
+        assertEquals(nextMonday.toEpochMilli(), newWeek.weekStartMillis)
+        assertEquals(listOf(anna.id), newWeek.entries.map { it.userId })
+        assertEquals(2 - 1, newWeek.rankChange, "second last week, first now")
+    }
+
+    @Test
     fun friendsAreTheCallerAndTheirFriendsWithoutTheBlocked() {
         val monday = Instant.parse("2043-01-04T22:00:00Z")
         val anna = testUsers.create("anna")
