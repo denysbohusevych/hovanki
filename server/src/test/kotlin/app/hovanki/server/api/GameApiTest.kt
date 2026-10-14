@@ -67,6 +67,8 @@ class GameApiTest(@Autowired private val mvc: MockMvc, @Autowired private val re
         val lobby = post<SessionResponse>(ApiRoutes.JOIN, JoinGameRequest(created.snapshot.joinCode, "Seeker").toJson())
         val seeker = lobby.session
         assertEquals(listOf("Host", "Seeker"), lobby.snapshot.players.map { it.name })
+        val joined = lobby.snapshot.players.single { it.id == seeker.playerId }
+        assertNotNull(joined.lastSeenMillis, "a player's request marks them as connected")
 
         post<GameSnapshot>(ApiRoutes.start(host.gameId), StartGameRequest(listOf(seeker.playerId)).toJson(), host)
 
