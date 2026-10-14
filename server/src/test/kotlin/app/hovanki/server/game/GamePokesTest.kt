@@ -108,6 +108,10 @@ class GamePokesTest {
         assertTrue(pokes.concerns(hider), "the other hider reads it")
         assertFalse(pokes.concerns(host), "the sender has the answer")
         assertFalse(pokes.concerns(seeker), "the other team can't read it")
+        // An app that takes the chat's frames gets the message itself, without a poke.
+        assertEquals(listOf("I'm behind the kiosk"), pokes.chatFor(hider).map { it.text })
+        assertFalse(pokes.concerns(hider, takesChat = true))
+        assertTrue(pokes.chatFor(host).isEmpty() && pokes.chatFor(seeker).isEmpty())
 
         game.sendChat(hider, "good luck", team = false, now)
         val all = assertNotNull(game.takePokes())

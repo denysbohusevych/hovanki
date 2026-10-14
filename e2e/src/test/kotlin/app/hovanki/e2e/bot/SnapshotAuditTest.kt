@@ -4,6 +4,7 @@ import app.hovanki.e2e.scenario.GameSetups
 import app.hovanki.shared.protocol.ChatChannel
 import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.GameId
+import app.hovanki.shared.protocol.GamePause
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.MyState
@@ -11,6 +12,9 @@ import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
+import app.hovanki.shared.protocol.ServerFrame
+import app.hovanki.shared.protocol.SosCall
+import app.hovanki.shared.protocol.SosLocation
 import app.hovanki.shared.protocol.VisibilityReason
 import app.hovanki.shared.protocol.VisibleLocation
 import app.hovanki.shared.protocol.protocolJson
@@ -43,6 +47,20 @@ class SnapshotAuditTest {
         val problems = SnapshotAudit.check(snapshot(hider, Role.HIDER), raw)
 
         assertEquals(listOf("hider hider received a position in SEEKING"), problems)
+    }
+
+    @Test
+    fun anSosInALiveChannelsFrameIsNoViolation() {
+        // Everybody sees where the SOS caller is, under the snapshot's `sos`, which the frame wraps.
+        val call = SosCall(seeker, "Sam", 1_000, SosLocation(GameSetups.PARK, 5.0, 1_000))
+        val snapshot = snapshot(hider, Role.HIDER).copy(pause = GamePause(1_000, sos = true), sos = listOf(call))
+        val frame = protocolJson.encodeToString(ServerFrame.serializer(), ServerFrame.Snapshot(7, snapshot))
+
+        assertEquals(emptyList(), SnapshotAudit.check(snapshot, SnapshotAudit.snapshotJson(frame)))
+        assertEquals(
+            listOf("hider hider received a position in SEEKING"),
+            SnapshotAudit.check(snapshot, SnapshotAudit.snapshotJson(frame.replace("\"sos\":", "\"leak\":"))),
+        )
     }
 
     @Test

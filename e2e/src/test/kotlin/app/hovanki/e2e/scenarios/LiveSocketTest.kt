@@ -21,8 +21,8 @@ import kotlin.time.TimeSource
 
 /**
  * The live channel (docs/adr/0015-websockets.md): with the operator's switch on, the apps sync over a socket and the
- * server pokes them when something happens, so a claim or a message reaches the other phones within a second although
- * they sync only every five; an app from before it polls in the same game. A broken network sends an app to polling
+ * server pokes them when something happens, so a claim reaches the other phones within a second although they sync only
+ * every five; a chat message comes itself, to the readers only; an app from before it polls in the same game. A broken network sends an app to polling
  * and back to the socket; the switch turned off mid-game sends every app to polling, and the game goes on. On a server
  * of its own: the switch changes how every game on a server syncs.
  */
@@ -46,6 +46,7 @@ class LiveSocketTest {
 
         requireOk(sam.sendChat("ready?"), "Sam writes in the lobby")
         within("Anna reads it", 1.seconds) { anna.chat.any { it.text == "ready?" } }
+        check(anna.chatPushed.any { it.text == "ready?" }, "the message itself came over Anna's socket")
         eventually("Oleg reads it with his next poll", within = 7.seconds) {
             oleg.chat.firstOrNull { it.text == "ready?" }
         }
@@ -54,6 +55,10 @@ class LiveSocketTest {
         within("Anna's phone knows the round began", 1.seconds) { anna.snapshot?.phase == GamePhase.HIDING }
         awaitPhase(GamePhase.SEEKING, within = 20.seconds)
         within("the search began on Anna's phone", 1.seconds) { anna.snapshot?.phase == GamePhase.SEEKING }
+
+        requireOk(oleg.sendChat("by the fountain", team = true), "Oleg writes to the hiders")
+        within("Anna reads it", 1.seconds) { anna.chat.any { it.text == "by the fountain" } }
+        check(sam.chatPushed.none { it.text == "by the fountain" }, "the seeker never gets the hiders' message")
 
         sam.claimsCatch(anna)
         within("Anna's phone shows the claim", 1.seconds) {

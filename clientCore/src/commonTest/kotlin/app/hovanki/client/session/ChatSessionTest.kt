@@ -2,10 +2,14 @@ package app.hovanki.client.session
 
 import app.hovanki.client.account.AccountCredentials
 import app.hovanki.client.network.ApiException
+import app.hovanki.client.network.ConnectionEvent
 import app.hovanki.client.network.FakeGameApi
 import app.hovanki.client.network.GameApi
+import app.hovanki.client.network.GameConnection
+import app.hovanki.client.network.LocationOutbox
 import app.hovanki.client.network.PollingGameConnection
 import app.hovanki.client.network.ServerUrl
+import app.hovanki.client.network.SyncExtras
 import app.hovanki.client.network.testMessage
 import app.hovanki.client.network.testPlayer
 import app.hovanki.client.network.testSession
@@ -23,6 +27,7 @@ import app.hovanki.shared.protocol.GroupId
 import app.hovanki.shared.protocol.InviteRequest
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.PlayerId
+import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.PlayerView
 import app.hovanki.shared.protocol.Role
@@ -34,8 +39,11 @@ import app.hovanki.shared.rules.RequestIds
 import app.hovanki.shared.rules.shrinkingZone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -69,18 +77,21 @@ class ChatSessionTest {
     private val bo = PlayerView(PlayerId("bo"), "Bo", Role.SEEKER, PlayerStatus.ACTIVE, userId = UserId("u2"))
     private val players = listOf(testPlayer, bo)
 
-    private fun TestScope.manager(api: GameApi, account: AccountCredentials = AccountCredentials.None) =
-        GameSessionManager(
-            api,
-            PollingGameConnection(api),
-            ServerClock { 0L },
-            locations,
-            tracker,
-            ServerUrl("http://10.0.2.2:8080"),
-            storage,
-            backgroundScope,
-            account,
-        )
+    private fun TestScope.manager(
+        api: GameApi,
+        account: AccountCredentials = AccountCredentials.None,
+        connection: GameConnection = PollingGameConnection(api),
+    ) = GameSessionManager(
+        api,
+        connection,
+        ServerClock { 0L },
+        locations,
+        tracker,
+        ServerUrl("http://10.0.2.2:8080"),
+        storage,
+        backgroundScope,
+        account,
+    )
 
     /**
      * Answers the polls from [script] in order (the last one again and again). The connection polls on
@@ -189,6 +200,43 @@ class ChatSessionTest {
         assertEquals(ids[0], ids[1], "pressed again after no answer: the same request")
         assertNotEquals(ids[1], ids[2], "another game: another request")
         assertNotEquals(ids[2], ids[3], "pressed again after a refusal: a new request")
+    }
+
+    @Test
+    fun pushedMessagesShowAtOnceButTheCursorFollowsTheSnapshots() = runTest {
+        val api = FakeGameApi(onJoin = { SessionResponse(testSession, testSnapshot(players = players)) }) {
+            error("No polls on the live channel")
+        }
+        // The live channel as the manager sees it: snapshots and pushed messages.
+        val events = Channel<ConnectionEvent>(Channel.UNLIMITED)
+        var cursor: () -> Long? = { null }
+        val live = object : GameConnection {
+            override fun connect(
+                session: PlayerSession,
+                outbox: LocationOutbox,
+                chatAfter: () -> Long?,
+                extras: () -> SyncExtras,
+                intervalMillis: (GameSnapshot) -> Long,
+            ): Flow<ConnectionEvent> {
+                cursor = chatAfter
+                return events.receiveAsFlow()
+            }
+        }
+        val manager = manager(api, connection = live)
+        manager.join("ABC234", "Anna")
+
+        events.send(ConnectionEvent.Snapshot(snapshot(2_000, 1)))
+        eventually { manager.state.value.chat.size == 1 }
+        events.send(ConnectionEvent.Chat(listOf(testMessage(3, from = bo.id))))
+        eventually { manager.state.value.chat.size == 2 }
+        assertEquals(listOf(1L, 3L), manager.state.value.chat.map { it.seq })
+        assertEquals(1, cursor(), "a push may go with its socket: the next sync asks after the snapshot's newest")
+
+        // The sync brings it again, with what no push brought.
+        events.send(ConnectionEvent.Snapshot(snapshot(3_000, 2, 3)))
+        eventually { manager.state.value.chat.size == 3 }
+        assertEquals(listOf(1L, 2L, 3L), manager.state.value.chat.map { it.seq })
+        assertEquals(3, cursor())
     }
 
     @Test

@@ -1,0 +1,9 @@
+# The lab's dashboards from perf/grafana/dashboards. Edited in Grafana: export the JSON over the file to keep a change.
+apiVersion: 1
+providers:
+  - name: hovanki
+    folder: Hovanki
+    type: file
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

@@ -10,6 +10,7 @@ import app.hovanki.e2e.route.GpsNoise
 import app.hovanki.e2e.route.Route
 import app.hovanki.shared.geo.moveBy
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.ClientFrame
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LocationSample
@@ -130,7 +131,11 @@ class Exchange(
  * - [latency]: every request and every frame the phone sends waits this long before it goes out;
  * - [failRequests]: a share of requests fails before reaching the server; a socket frame that fails breaks its socket.
  */
-class FakeNetwork(private val onExchange: (Exchange) -> Unit) : Interceptor {
+class FakeNetwork(
+    private val onExchange: (Exchange) -> Unit,
+    /** The chat messages a socket pushed ([ServerFrame.Chat]), as they reach the phone. */
+    private val onPushedChat: (List<ChatMessage>) -> Unit = {},
+) : Interceptor {
     private val online = MutableStateFlow(true)
 
     var isOnline: Boolean
@@ -264,8 +269,15 @@ class FakeNetwork(private val onExchange: (Exchange) -> Unit) : Interceptor {
             }
             val (seq, status) = when (frame) {
                 is ServerFrame.Snapshot -> frame.seq to 200
+
                 is ServerFrame.Error -> frame.seq to 400
+
                 ServerFrame.Poke -> return
+
+                is ServerFrame.Chat -> {
+                    onPushedChat(frame.messages)
+                    return
+                }
             }
             val started = sentAt.remove(seq) ?: return
             onExchange(Exchange(SOCKET_METHOD, path, status, elapsedMillis(started), text.takeIf { status == 200 }))

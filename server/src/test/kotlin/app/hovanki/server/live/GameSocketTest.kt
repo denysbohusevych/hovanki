@@ -2,6 +2,8 @@ package app.hovanki.server.live
 
 import app.hovanki.server.features.FeatureFlags
 import app.hovanki.shared.protocol.ApiRoutes
+import app.hovanki.shared.protocol.ChatChannel
+import app.hovanki.shared.protocol.ChatMessage
 import app.hovanki.shared.protocol.ClientFrame
 import app.hovanki.shared.protocol.CreateGameRequest
 import app.hovanki.shared.protocol.ErrorCode
@@ -11,6 +13,7 @@ import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LocationSample
+import app.hovanki.shared.protocol.NearbySighting
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.RolesRequest
 import app.hovanki.shared.protocol.SendChatRequest
@@ -18,6 +21,7 @@ import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.ServerFrame
 import app.hovanki.shared.protocol.SessionResponse
 import app.hovanki.shared.protocol.SocketClose
+import app.hovanki.shared.protocol.SocketFrames
 import app.hovanki.shared.protocol.SocketLimits
 import app.hovanki.shared.protocol.StartGameRequest
 import app.hovanki.shared.protocol.SyncRequest
@@ -29,6 +33,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.web.socket.CloseStatus
+import java.net.Socket
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -50,7 +56,7 @@ import kotlin.test.fail
 
 /**
  * The game's live channel on a real server (docs/adr/0015-websockets.md): who may open it, a sync over it is the sync
- * of `POST /sync`, the pokes, and the close codes the app acts on.
+ * of `POST /sync`, the pokes, the chat's messages pushed, and the close codes the app acts on.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class GameSocketTest(
@@ -111,7 +117,8 @@ class GameSocketTest(
     fun onlyAPlayerOfTheGameWithTheServerOnGetsIn() {
         val host = create()
         val other = create()
-        assertEquals(SocketClose.SESSION_REJECTED, open(host.session, token = null).awaitClose())
+        // Without a token the phone is told to poll: its upgrade may have lost the header, and polling decides.
+        assertEquals(SocketClose.POLL, open(host.session, token = null).awaitClose())
         assertEquals(SocketClose.SESSION_REJECTED, open(host.session, token = "nope").awaitClose())
         // The token of another game.
         assertEquals(SocketClose.SESSION_REJECTED, open(host.session, token = other.session.token).awaitClose())
@@ -184,6 +191,57 @@ class GameSocketTest(
     }
 
     @Test
+    fun aChatMessageComesItselfToAnAppThatTakesIt() {
+        val host = create()
+        val anna = join(host, "Anna")
+        val oleg = join(host, "Oleg")
+        val hostSocket = open(host.session, frames = SocketFrames.CHAT)
+        val annaSocket = open(anna.session, frames = "${SocketFrames.CHAT}, newer")
+        // An app from before the chat's frames: poked, as before.
+        val olegSocket = open(oleg.session)
+
+        post<GameSnapshot>(ApiRoutes.chat(host.session.gameId), SendChatRequest("ready?", chatAfter = 0), host.session)
+        val pushed = assertIs<ServerFrame.Chat>(annaSocket.next())
+        assertEquals(listOf("ready?"), pushed.messages.map { it.text })
+        assertEquals(host.session.playerId, pushed.messages.single().playerId)
+        assertEquals(ServerFrame.Poke, olegSocket.next())
+        assertNull(annaSocket.poll(SocketLimits.POKE_GAP_MILLIS * 2), "no poke: the message came itself")
+        assertNull(hostSocket.poll(0), "the sender has the answer")
+
+        // The round, the host seeks: a hiders' message goes to the hiders only.
+        post<GameSnapshot>(
+            ApiRoutes.start(host.session.gameId),
+            StartGameRequest(listOf(host.session.playerId)),
+            host.session,
+        )
+        assertEquals(ServerFrame.Poke, annaSocket.next())
+        assertEquals(ServerFrame.Poke, olegSocket.next())
+        post<GameSnapshot>(
+            ApiRoutes.chat(host.session.gameId),
+            SendChatRequest("behind the kiosk", team = true, chatAfter = 0),
+            oleg.session,
+        )
+        val team = assertIs<ServerFrame.Chat>(annaSocket.next()).messages.single()
+        assertEquals("behind the kiosk" to ChatChannel.HIDERS, team.text to team.channel)
+        assertNull(hostSocket.poll(SocketLimits.POKE_GAP_MILLIS * 2), "the seeker can't read it")
+
+        // A burst comes as a frame per gap at most, every message once and in order.
+        repeat(3) {
+            post<GameSnapshot>(ApiRoutes.chat(host.session.gameId), SendChatRequest("go $it"), host.session)
+        }
+        val burst = mutableListOf<ChatMessage>()
+        var frames = 0
+        while (burst.size < 3) {
+            burst += assertIs<ServerFrame.Chat>(annaSocket.next(timeoutMillis = 2_000)).messages
+            frames++
+        }
+        assertEquals(listOf("go 0", "go 1", "go 2"), burst.map { it.text })
+        assertTrue(frames <= 2, "$frames frames")
+        assertNull(annaSocket.poll(SocketLimits.POKE_GAP_MILLIS * 2))
+        listOf(hostSocket, annaSocket, olegSocket).forEach { it.close() }
+    }
+
+    @Test
     fun theEndOfHidingPokesWithoutAnyRequest() {
         val host = create(settings.copy(hidingSeconds = 1))
         val guest = join(host)
@@ -215,6 +273,70 @@ class GameSocketTest(
     }
 
     @Test
+    fun theLongestSyncComesInPiecesAndIsAnswered() {
+        val host = create()
+        val socket = open(host.session)
+        // The most a sync may carry (GameService's limits): far over Tomcat's buffer of 8 K characters.
+        val now = clock.millis()
+        val fixes =
+            List(100) { LocationSample(park, accuracyMeters = 5.0, timestampMillis = now - (100 - it) * 1_000L) }
+        val heard = List(200) { NearbySighting(token = "t$it", rssi = -70, atMillis = now) }
+        val longest = protocolJson.encodeToString(
+            ClientFrame.serializer(),
+            ClientFrame.Sync(1, SyncRequest(fixes, chatAfter = 0, nearby = heard)),
+        )
+        assertTrue(longest.length > 2 * 8 * 1024, "${longest.length} characters")
+        socket.sendText(longest)
+        assertEquals(1, assertIs<ServerFrame.Snapshot>(socket.next()).seq)
+        // A frame the phone sends in parts is one sync too.
+        val sync = protocolJson.encodeToString(ClientFrame.serializer(), ClientFrame.Sync(2, SyncRequest()))
+        socket.sendParts(sync.chunked(8))
+        assertEquals(2, assertIs<ServerFrame.Snapshot>(socket.next()).seq)
+        socket.close()
+    }
+
+    @Test
+    fun aFrameOverTheLimitClosesTheSocket() {
+        val host = create()
+        val socket = open(host.session)
+        val padding = "x".repeat(SocketLimits.MAX_FRAME_BYTES)
+        // The server may close before the frame is all sent.
+        runCatching { socket.sendText("""{"type":"sync","seq":1,"padding":"$padding"}""") }
+        assertEquals(CloseStatus.TOO_BIG_TO_PROCESS.code, socket.awaitClose())
+    }
+
+    @Test
+    fun framesAreNeverCompressed() {
+        // The app asks for permessage-deflate (OkHttp does); the server says nothing of it, so the socket gets none.
+        val host = create()
+        Socket("127.0.0.1", port).use { raw ->
+            raw.soTimeout = 5_000
+            val upgrade = listOf(
+                "GET ${ApiRoutes.socket(host.session.gameId)} HTTP/1.1",
+                "Host: 127.0.0.1:$port",
+                "Upgrade: websocket",
+                "Connection: Upgrade",
+                "Sec-WebSocket-Version: 13",
+                "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+                "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits",
+                "Authorization: ${ApiRoutes.AUTH_SCHEME} ${host.session.token}",
+            ).joinToString("\r\n", postfix = "\r\n\r\n")
+            raw.getOutputStream().apply {
+                write(upgrade.toByteArray())
+                flush()
+            }
+            val head = raw.getInputStream().bufferedReader().lineSequence().takeWhile { it.isNotEmpty() }.toList()
+            assertTrue(head.first().startsWith("HTTP/1.1 101"), head.joinToString(" | "))
+            assertTrue(
+                head.none {
+                    it.startsWith("Sec-WebSocket-Extensions", ignoreCase = true)
+                },
+                head.joinToString(" | "),
+            )
+        }
+    }
+
+    @Test
     fun aPlayerHasAFewSocketsAtMost() {
         val host = create()
         val first = open(host.session)
@@ -239,8 +361,8 @@ class GameSocketTest(
     private fun create(settings: GameSettings = this.settings): SessionResponse =
         post(ApiRoutes.GAMES, CreateGameRequest("Host", settings), session = null)
 
-    private fun join(host: SessionResponse): SessionResponse =
-        post(ApiRoutes.JOIN, JoinGameRequest(host.snapshot.joinCode, "Guest"), session = null)
+    private fun join(host: SessionResponse, name: String = "Guest"): SessionResponse =
+        post(ApiRoutes.JOIN, JoinGameRequest(host.snapshot.joinCode, name), session = null)
 
     private inline fun <reified T> post(path: String, body: Any?, session: PlayerSession?): T {
         val json = when (body) {
@@ -263,10 +385,12 @@ class GameSocketTest(
         return if (T::class == Unit::class) Unit as T else protocolJson.decodeFromString<T>(response.body())
     }
 
-    private fun open(session: PlayerSession, token: String? = session.token): TestSocket {
+    /** [frames]: the [SocketFrames.HEADER] of the upgrade, what else the app takes; null: an app from before. */
+    private fun open(session: PlayerSession, token: String? = session.token, frames: String? = null): TestSocket {
         val listener = TestSocket()
         http.newWebSocketBuilder()
             .apply { if (token != null) header("Authorization", "${ApiRoutes.AUTH_SCHEME} $token") }
+            .apply { if (frames != null) header(SocketFrames.HEADER, frames) }
             .buildAsync(URI("ws://127.0.0.1:$port${ApiRoutes.socket(session.gameId)}"), listener)
             .get(5, TimeUnit.SECONDS)
         return listener
@@ -315,6 +439,11 @@ class GameSocketTest(
 
         fun sendText(text: String) {
             socket.sendText(text, true).get(5, TimeUnit.SECONDS)
+        }
+
+        /** One frame in [parts], each sent apart. */
+        fun sendParts(parts: List<String>) = parts.forEachIndexed { index, part ->
+            socket.sendText(part, index == parts.lastIndex).get(5, TimeUnit.SECONDS)
         }
 
         fun next(timeoutMillis: Long = 5_000): ServerFrame =

@@ -1,0 +1,17 @@
+# The lab's Prometheus (perf/compose.yaml): the server's /actuator/prometheus (the perf profile opens it) every 5 s.
+# One job per place the server runs; the dashboard picks the one that answers.
+global:
+  scrape_interval: 5s
+  scrape_timeout: 4s
+
+scrape_configs:
+  # perf/server.sh or the IDE: the server on this machine.
+  - job_name: hovanki-host
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+  # perf/up.sh --container: the server in the lab's compose network.
+  - job_name: hovanki-container
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["server:8080"]

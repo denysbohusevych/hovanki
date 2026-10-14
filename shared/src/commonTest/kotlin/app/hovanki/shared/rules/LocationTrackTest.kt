@@ -41,6 +41,20 @@ class LocationTrackTest {
         assertEquals(listOf(12.0), track.recentUsableFixes(nowMillis = 25_000).map { it.accuracyMeters })
     }
 
+    @Test
+    fun theWindowEndsAtNowAndReachesBackItsLength() {
+        val track = LocationTrack(rules)
+        val times = (0..60 step 5).map { it * 1000L }
+        times.forEach { track.add(fix(start, atSeconds = (it / 1000).toInt())) }
+        val window = rules.decisionWindowSeconds * 1000L
+        // Both ends count; a fix after now (from a phone whose clock runs ahead) is not in the window yet.
+        for (now in listOf(-1L, 0L, 12_500L, 30_000L, 60_000L, 64_999L, 200_000L)) {
+            val expected = times.filter { it in now - window..now }
+            assertEquals(expected, track.recentFixes(now).map { it.timestampMillis }, "at $now")
+            assertEquals(expected, track.recentUsableFixes(now).map { it.timestampMillis }, "usable at $now")
+        }
+    }
+
     private fun fix(point: GeoPoint, atSeconds: Int, accuracy: Double = 5.0, isMock: Boolean = false) =
         LocationSample(point, accuracy, timestampMillis = atSeconds * 1000L, isMock = isMock)
 }

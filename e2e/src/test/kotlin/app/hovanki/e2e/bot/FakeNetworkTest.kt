@@ -17,7 +17,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 class FakeNetworkTest {
     private val exchanges = CopyOnWriteArrayList<Exchange>()
-    private val network = FakeNetwork { exchanges += it }
+    private val network = FakeNetwork(onExchange = { exchanges += it })
 
     /** Requests that reached the "server": the last interceptor answers them without a real network. */
     private val served = AtomicInteger()

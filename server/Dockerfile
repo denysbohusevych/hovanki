@@ -2,8 +2,10 @@
 #   ./gradlew :server:bootJar
 #   docker build -t hovanki-server server
 #   docker run --rm -p 8080:8080 hovanki-server
-# CI does the same in .github/workflows/release.yml.
-FROM eclipse-temurin:21-jre
+# CI does the same in .github/workflows/server-image.yml. The performance lab (perf/compose.yaml, docs/perf.md) builds
+# it on the JDK instead, for jcmd and the profiler: the same JVM, the same everything else.
+ARG BASE_IMAGE=eclipse-temurin:21-jre
+FROM ${BASE_IMAGE}
 
 RUN groupadd --system hovanki \
     && useradd --system --gid hovanki --home-dir /app --shell /usr/sbin/nologin hovanki

@@ -48,14 +48,26 @@ class LocationTrack(private val rules: GameRules, private val retentionMillis: L
     /** The last accepted fix taken at or before [atMillis], within the kept history; null when there is none. */
     fun latestAtOrBefore(atMillis: Long): LocationSample? = fixes.lastOrNull { it.timestampMillis <= atMillis }
 
-    /** Accepted fixes of any accuracy within the decision window that ends at [nowMillis]. */
+    /**
+     * Accepted fixes of any accuracy within the decision window that ends at [nowMillis]. A view of the track, not a
+     * copy (the rules ask for it many times a second): valid until the next [add], so read it, never keep it.
+     */
     fun recentFixes(nowMillis: Long): List<LocationSample> {
         val since = nowMillis - rules.decisionWindowSeconds * 1000L
-        return fixes.filter { it.timestampMillis in since..nowMillis }
+        // The fixes are in time order (add drops the late ones): the window is a run of them, found from the end.
+        var end = fixes.size
+        while (end > 0 && fixes[end - 1].timestampMillis > nowMillis) end--
+        var start = end
+        while (start > 0 && fixes[start - 1].timestampMillis >= since) start--
+        return fixes.subList(start, end)
     }
 
-    /** Usable fixes within the decision window that ends at [nowMillis]. */
-    fun recentUsableFixes(nowMillis: Long): List<LocationSample> = recentFixes(nowMillis).filter { it.isUsable(rules) }
+    /** Usable fixes within the decision window that ends at [nowMillis]; like [recentFixes], read it, never keep it. */
+    fun recentUsableFixes(nowMillis: Long): List<LocationSample> {
+        val recent = recentFixes(nowMillis)
+        // Mostly every fix is usable: then the window itself, else a list of the usable ones.
+        return if (recent.all { it.isUsable(rules) }) recent else recent.filter { it.isUsable(rules) }
+    }
 
     private fun isPlausibleMove(from: LocationSample, to: LocationSample): Boolean {
         val seconds = (to.timestampMillis - from.timestampMillis) / 1000.0

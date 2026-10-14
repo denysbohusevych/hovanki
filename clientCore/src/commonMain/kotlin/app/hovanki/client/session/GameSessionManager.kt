@@ -628,6 +628,9 @@ class GameSessionManager(
                 if (resuming) startLocationUpdates()
             }
 
+            // The live channel's push: the messages at once, the cursor stays for the next sync.
+            is ConnectionEvent.Chat -> mutableState.update { it.copy(chat = mergeChat(it.chat, event.messages)) }
+
             is ConnectionEvent.Problem -> {
                 diagnostics.onSyncFailed(event.error, event.retryInMillis)
                 trace.onSyncFailed(event.error)
@@ -662,7 +665,14 @@ class GameSessionManager(
         // A late response from a previous game must not leak into the current one.
         if (current.session?.gameId != snapshot.gameId) return
         // Messages are merged by seq, so even an overtaken response may add some.
-        if (snapshot.chat.isNotEmpty()) mutableState.update { it.copy(chat = mergeChat(it.chat, snapshot.chat)) }
+        if (snapshot.chat.isNotEmpty()) {
+            mutableState.update {
+                it.copy(
+                    chat = mergeChat(it.chat, snapshot.chat),
+                    chatSyncedSeq = maxOf(it.chatSyncedSeq, snapshot.chat.last().seq),
+                )
+            }
+        }
         // A slow poll can be overtaken by a command's response: keep the newer state.
         val previous = current.snapshot
         if (isOvertaken(snapshot, previous)) return
@@ -725,8 +735,8 @@ class GameSessionManager(
         }
     }
 
-    /** The chat cursor: the newest message seq this game's chat has, 0 for none. */
-    private fun chatCursor(): Long = mutableState.value.chat.lastOrNull()?.seq ?: 0L
+    /** The chat cursor: the newest message seq the snapshots brought, 0 for none ([SessionState.chatSyncedSeq]). */
+    private fun chatCursor(): Long = mutableState.value.chatSyncedSeq
 
     /**
      * The radar: advertising and scanning while a round with it goes on, this player plays and keeps their phone in

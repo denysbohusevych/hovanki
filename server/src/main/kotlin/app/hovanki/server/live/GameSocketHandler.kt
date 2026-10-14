@@ -13,6 +13,7 @@ import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.ServerFrame
 import app.hovanki.shared.protocol.SocketClose
+import app.hovanki.shared.protocol.SocketFrames
 import app.hovanki.shared.protocol.SocketLimits
 import app.hovanki.shared.protocol.protocolJson
 import kotlinx.serialization.SerializationException
@@ -33,7 +34,8 @@ import org.springframework.web.util.UriTemplate
 
 /**
  * The game's live channel ([ApiRoutes.SOCKET], docs/adr/0015-websockets.md, section 3): a player's `sync` as frames,
- * answered with the same snapshot as `POST /sync` by the same [GameService.sync], and the pokes of [GameSockets].
+ * answered with the same snapshot as `POST /sync` by the same [GameService.sync], and the pokes and chat messages of
+ * [GameSockets].
  *
  * The upgrade itself is never refused for a bad token: the socket opens and closes at once with a code the app acts on
  * ([SocketClose]), which a refused handshake could not carry. Every sync checks again that the token still works and
@@ -50,8 +52,13 @@ class GameSocketHandler(
 ) : TextWebSocketHandler() {
     private val log = LoggerFactory.getLogger(javaClass)
 
+    /**
+     * Frames come in pieces of Tomcat's buffer (8 K characters): [LiveSocket.assemble] puts a longer one together up to
+     * [SocketLimits.MAX_FRAME_BYTES]. A buffer of the whole limit would be held by every open socket, 512 KB each.
+     */
+    override fun supportsPartialMessages(): Boolean = true
+
     override fun afterConnectionEstablished(session: WebSocketSession) {
-        session.textMessageSizeLimit = SocketLimits.MAX_FRAME_BYTES
         (session as? NativeWebSocketSession)?.getNativeSession(jakarta.websocket.Session::class.java)?.let {
             it.maxIdleTimeout = SocketLimits.IDLE_TIMEOUT_MILLIS
             // A phone that stopped reading holds a sending thread this long at most (Tomcat's default is 20 s).
@@ -62,8 +69,15 @@ class GameSocketHandler(
         val ref = token?.let(registry::resolveToken)
         val refusal = when {
             !features.isEnabled(ServerFeature.LIVE_SOCKET) -> CloseStatus(SocketClose.POLL, "poll")
+
+            // No token at all: the phone's upgrade lost its header on the way (nobody has tried every engine on a real
+            // phone). Polling, which sends the same token, decides about the session: a 4401 here would end it.
+            token == null -> CloseStatus(SocketClose.POLL, "no token")
+
             ref == null || ref.gameId.value != gameId -> CloseStatus(SocketClose.SESSION_REJECTED, "session over")
+
             registry.get(ref.gameId) == null -> CloseStatus(SocketClose.GAME_NOT_FOUND, "game over")
+
             else -> null
         }
         if (refusal != null || ref == null || token == null) {
@@ -71,15 +85,17 @@ class GameSocketHandler(
             return
         }
         val concurrent = ConcurrentWebSocketSessionDecorator(session, SEND_TIME_LIMIT_MILLIS, SEND_BUFFER_LIMIT_BYTES)
-        val socket = LiveSocket(concurrent, ref, token, sockets.pokeScheduler)
+        val takesChat = session.attributes[TAKES_CHAT] == true
+        val socket = LiveSocket(concurrent, ref, token, sockets.pokeScheduler, takesChat)
         session.attributes[SOCKET] = socket
         sockets.opened(socket)
     }
 
     override fun handleTextMessage(session: WebSocketSession, message: TextMessage) {
         val socket = session.attributes[SOCKET] as LiveSocket? ?: return
+        val text = socket.assemble(message.payload, message.isLast) ?: return
         val frame = try {
-            protocolJson.decodeFromString(ClientFrame.serializer(), message.payload)
+            protocolJson.decodeFromString(ClientFrame.serializer(), text)
         } catch (e: SerializationException) {
             // A newer app's frame this server doesn't know, or garbage: skipped, the socket stays.
             return
@@ -143,6 +159,7 @@ class GameSocketHandler(
     companion object {
         internal const val TOKEN = "hovanki.token"
         internal const val GAME_ID = "hovanki.gameId"
+        internal const val TAKES_CHAT = "hovanki.takesChat"
         private const val SOCKET = "hovanki.socket"
 
         /** A phone that can't take a frame within this, or lets this much pile up, is dropped: it reconnects. */
@@ -153,8 +170,9 @@ class GameSocketHandler(
 }
 
 /**
- * Takes the game token (`Authorization: Bearer`, as the HTTP routes do) and the game of the path into the socket's
- * attributes; [GameSocketHandler] decides once the socket is open. Never refuses the upgrade itself.
+ * Takes the game token (`Authorization: Bearer`, as the HTTP routes do), the game of the path and whether the app
+ * takes the chat's frames ([SocketFrames.HEADER]) into the socket's attributes; [GameSocketHandler] decides once the
+ * socket is open. Never refuses the upgrade itself.
  */
 class GameSocketHandshake : HandshakeInterceptor {
     private val path = UriTemplate(ApiRoutes.SOCKET)
@@ -169,6 +187,8 @@ class GameSocketHandshake : HandshakeInterceptor {
         val token = header.removePrefix("${ApiRoutes.AUTH_SCHEME} ").trim()
         if (token.isNotEmpty() && token != header.trim()) attributes[GameSocketHandler.TOKEN] = token
         path.match(request.uri.path)["gameId"]?.let { attributes[GameSocketHandler.GAME_ID] = it }
+        val frames = request.headers[SocketFrames.HEADER].orEmpty().flatMap { it.split(',') }.map { it.trim() }
+        if (SocketFrames.CHAT in frames) attributes[GameSocketHandler.TAKES_CHAT] = true
         return true
     }
 
