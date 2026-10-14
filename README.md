@@ -111,7 +111,7 @@ open iosApp/iosApp.xcodeproj
 | `./gradlew :e2e:route --args="--to 50.4481,30.5402 --adb emulator-5554"` | Провести эмулятор (`--simctl <udid>` — симулятор) по маршруту пешком |
 | `./gradlew :e2e:lab --args="merge A.jsonl mac.jsonl --out e2e/build/lab/merged"` | Свести журналы лаборатории радио с нескольких устройств на одну шкалу (`docs/radio-lab.md`) |
 | `perf/up.sh` + `perf/server.sh` | Стенд для оптимизации сервера: база, Prometheus, Grafana (<http://localhost:3000>) и сервер с профилями `e2e,perf`; `perf/up.sh --container` — сервер в контейнере с лимитами прода. Подробности — [docs/perf.md](docs/perf.md) |
-| `./gradlew :perf:gatlingRun --simulation app.hovanki.perf.OrdinaryGames` | Нагрузочный тест против стенда (`BigGame` — большая игра; параметры `-Pperf.*`); отчёт — `perf/build/reports/gatling/` |
+| `./gradlew :perf:gatlingRun --simulation app.hovanki.perf.OrdinaryGames` | Нагрузочный тест против стенда (`BigGame` — большая игра; параметры `-Pperf.*`: `-Pperf.steps=10` — лесенка до предела, `-Pperf.transport=socket` — через живой канал); отчёт — `perf/build/reports/gatling/` |
 | `perf/profile.sh cpu 60` | Флеймграф работающего сервера стенда (`alloc`, `lock`, `wall`, `jfr`), в `perf/build/profiles/` |
 | `./gradlew :shared:iosSimulatorArm64Test` | Тесты общего кода на iOS-симуляторе (только macOS); то же для `:device` и `:clientCore` |
 | `./gradlew spotlessApply` | Отформатировать код (ktlint); `spotlessCheck` — проверка в CI |

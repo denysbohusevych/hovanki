@@ -9,6 +9,8 @@ import app.hovanki.shared.protocol.AdminBigGameRequest
 import app.hovanki.shared.protocol.AdminBigGames
 import app.hovanki.shared.protocol.AdminEnrollRequest
 import app.hovanki.shared.protocol.AdminEnrollment
+import app.hovanki.shared.protocol.AdminFeatureRequest
+import app.hovanki.shared.protocol.AdminFeatures
 import app.hovanki.shared.protocol.AdminLoginRequest
 import app.hovanki.shared.protocol.AdminLoginResponse
 import app.hovanki.shared.protocol.AdminLoginStep
@@ -18,6 +20,7 @@ import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.BigGameStatus
 import app.hovanki.shared.protocol.RegisterRequest
+import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.UserRole
 import app.hovanki.shared.protocol.VerifyEmailRequest
 import app.hovanki.shared.protocol.protocolJson
@@ -57,6 +60,16 @@ class LabAdmin private constructor(private val email: String) {
 
     fun cancelBigGame(id: BigGameId, reason: String) {
         send(ApiRoutes.adminBigGameCancel(id), json(AdminReasonRequest(reason)), admin = true)
+    }
+
+    /** Turns [feature] on or off for the whole server, as an admin does on the admin page; returns whether it was on. */
+    fun setFeature(feature: ServerFeature, enabled: Boolean, reason: String): Boolean {
+        val features = decode<AdminFeatures>(send(ApiRoutes.ADMIN_FEATURES, body = null, admin = true)).features
+        val wasOn = features.single { it.feature == feature }.enabled
+        if (wasOn != enabled) {
+            send(ApiRoutes.adminFeature(feature), json(AdminFeatureRequest(enabled, reason)), admin = true)
+        }
+        return wasOn
     }
 
     private fun logIn(password: String) {
