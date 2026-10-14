@@ -106,8 +106,8 @@
 | `HOVANKI_MAIL_FROM` | Адрес отправителя писем |
 | `HOVANKI_ADMIN_SECRET_KEY` | Ключ админки: base64 от 32 случайных байт ([Админка](#админка)). Пусто или нет — админка выключена |
 | `DATABASE_NAME`, `DATABASE_USER` | Только для [staging](#staging): база и роль на RDS (`hovanki_staging`). По умолчанию `hovanki` и `hovanki` — на основной машине их не задают |
-| `SPRING_PROFILES_ACTIVE` | Только для staging: `staging`. На основной машине не задают |
-| `SERVER_MEM_LIMIT` | Лимит памяти контейнера сервера, куча — 75 % от него. По умолчанию `640m` (машина в 1 ГБ); на staging `1g` или `2g` |
+| `SPRING_PROFILES_ACTIVE` | Обычно не задают. `field` — на основной машине в дни полевого теста ([Полевой тест на основном сервере](#полевой-тест-на-основном-сервере)); `staging` — на staging |
+| `SERVER_MEM_LIMIT` | Лимит памяти контейнера сервера, куча — 75 % от него. По умолчанию `640m` (машина в 1 ГБ); в день полевого теста на `t3.small` — `1g`; на staging `1g` или `2g` |
 | `SENTRY_DSN` | Только для staging, необязательно: DSN Sentry сервера. На основной машине не задают |
 
 `compose.yaml` передаёт их серверу как `SPRING_DATASOURCE_*` (база `hovanki`, пользователь `hovanki`, TLS с проверкой сертификата по `rds-ca.pem`), `SPRING_MAIL_*` и `HOVANKI_MAIL_FROM` и включает настоящую отправку писем (`HOVANKI_MAIL_SENDER=smtp`). Без `DOMAIN`, `DATABASE_HOST`, `DATABASE_PASSWORD`, `SPRING_MAIL_HOST` или `HOVANKI_MAIL_FROM` `docker compose` не запускается и пишет, какой переменной не хватает; без файла `rds-ca.pem` рядом не запускается сервер. Проверить `.env`, ничего не запуская: `docker compose config --quiet` (молчит, если всё на месте). После правки `.env` — `docker compose up -d`.
@@ -289,8 +289,30 @@ docker compose down postgres
 - **Новый `hovanki-update.sh` сам на машину не попадает**: таймер обновляет только образ. После изменений в `deploy/` скопировать файл, как в шаге 8 [первого запуска](#первый-запуск): `scp -i ~/Downloads/hovanki.pem deploy/hovanki-update.sh ubuntu@<IP>:/opt/hovanki/`. Старый скрипт просто не ждёт больших игр.
 - **Миграции.** Новый сервер при старте применяет миграции Flyway. Если миграция испортила данные, RDS восстанавливает базу на момент до обновления: время — в строке «New server image … at …» ([Восстановление](#восстановление)).
 - **Закрепить версию**: `HOVANKI_TAG=sha-<коммит>` в `.env`, затем `docker compose up -d`. Таймер продолжит работать, но этот тег не меняется. Вернуть автообновление — `HOVANKI_TAG=main`.
-- **Выключить**: `sudo systemctl disable --now hovanki-update.timer`. Вернуть: `sudo systemctl enable --now hovanki-update.timer`. На staging так делают в день теста ([День теста](#день-теста)).
+- **Выключить**: `sudo systemctl disable --now hovanki-update.timer`. Вернуть: `sudo systemctl enable --now hovanki-update.timer`. Так делают в день полевого теста ([Полевой тест на основном сервере](#полевой-тест-на-основном-сервере), на staging — [День теста](#день-теста)).
 - **Проверить**: `systemctl list-timers hovanki-update.timer` — когда следующий запуск; `journalctl -u hovanki-update -n 50` — что было при последних. Обновление пишет «New server image …» и «Server updated», ожидание большой игры — «… waits for a big game until …». Ошибка `unauthorized` значит, что истёк PAT: создать новый и повторить `docker login ghcr.io`.
+
+## Полевой тест на основном сервере
+
+Отдельного staging нет (2026-10-03), и полевой тест идёт на основном сервере (решение 2026-10-08, [ADR 0018](adr/0018-field-test-build.md#полевой-журнал-на-основном-сервере-2026-10-08)). Полевой журнал включает профиль Spring `field` ([`application-field.yaml`](../server/src/main/resources/application-field.yaml)): с ним админ может включить `FIELD_LOG`, в игру входит до 60 человек, `PROXIMITY_CATCH` и `POCKET_STEALTH` работают только в тени, лимиты по IP подняты для толпы за одним Wi-Fi, в прогон лабы входят только сотрудники. Порты, логи и Sentry остаются как без профиля. Журнал пишут только тестовые сборки `preview` после согласия тестера; release-сборки — никогда.
+
+Журналы лежат в той же базе, что и аккаунты игроков, видят их только админы, удаляются целиком через 90 дней после игры (`DataRetention`), устройство и куски тестера — вместе с его аккаунтом. Все журналы вместе — не больше 5 ГБ (`hovanki.field.max-total-bytes`), дальше сервер не берёт новые.
+
+**Накануне** (перезапуск обрывает идущие игры: делать, когда никто не играет). Команды — на машине `hovanki`, в `/opt/hovanki`:
+
+1. Выключить автообновление и закрепить проверенный образ: `sudo systemctl disable --now hovanki-update.timer`; в `.env` `HOVANKI_TAG=sha-<коммит>` ([Автообновление](#автообновление)). Не мержить в `main` до конца теста: тестовые сборки `preview.yml` тоже пересобираются на каждый push.
+2. Машина `t3.small`: EC2 → Instances → `hovanki` → Instance state → Stop; Actions → Instance settings → Change instance type → `t3.small`; Start. Elastic IP остаётся. В `.env`: `SERVER_MEM_LIMIT=1g`.
+3. В `.env`: `SPRING_PROFILES_ACTIVE=field`, затем `docker compose up -d`.
+4. Проверка: `docker compose logs server | grep -i "profile"` — активен `field`; `curl -s https://hovanki.duckdns.org/actuator/health` — `UP`; `systemctl list-timers hovanki-update.timer` — таймера в списке нет.
+5. Админка → «Возможности»: включить `FIELD_LOG` и то, что играем (радар, `LIVE_SOCKET` и т. д.). `PROXIMITY_CATCH` и `POCKET_STEALTH` помечены «только тень». RDS → Monitoring → Free storage space: запас больше 5 ГБ.
+
+Остальное про людей и телефоны — чек-лист дня в [field-test.md](field-test.md#чек-лист-дня-теста).
+
+**После теста:**
+
+1. Забрать из админки отчёт и выгрузки («Полевые тесты»).
+2. Админка → «Возможности»: выключить `FIELD_LOG`.
+3. В `.env`: убрать `SPRING_PROFILES_ACTIVE` и `SERVER_MEM_LIMIT`, `HOVANKI_TAG=main`. Машину вернуть на `t3.micro` (Stop → Change instance type → Start), затем `docker compose up -d` и `sudo systemctl enable --now hovanki-update.timer`. Профиль можно и оставить, если тесты продолжаются: пока `FIELD_LOG` выключен, журнал не пишется; но в игру тогда пускает до 60 человек и лимиты по IP остаются поднятыми.
 
 ## Staging
 
@@ -303,8 +325,8 @@ docker compose down postgres
 | Машина | `hovanki`, `t3.micro` | `hovanki-staging`, `t3.small`; на сутки теста `t3.medium` (отчёт по игре считается в памяти) |
 | Имя | `hovanki.duckdns.org` | `hovanki-staging.duckdns.org` |
 | База и роль | `hovanki` / `hovanki` | `hovanki_staging` / `hovanki_staging` |
-| Профиль Spring | нет | `staging` (`SPRING_PROFILES_ACTIVE` в `.env`): в игру входит до 60 человек вместо 30 |
-| Возможности | как решит админ; `FIELD_LOG` здесь не включается никогда (`hovanki.field.allowed` выключен: сервер отказывает и не считает его включённым, даже если флаг в базе стоит) | `FIELD_LOG`, `RADIO_LAB`, `LIVE_SOCKET` и всё, что проверяет тест, включает админ на самом staging; полевой журнал разрешает профиль `staging` |
+| Профиль Spring | нет; `field` в дни полевого теста ([выше](#полевой-тест-на-основном-сервере)) | `staging` (`SPRING_PROFILES_ACTIVE` в `.env`), с ним всегда и `field`: полевой журнал, до 60 человек в игре вместо 30 |
+| Возможности | как решит админ; `FIELD_LOG` включается только с профилем `field` (без него `hovanki.field.allowed` выключен: сервер отказывает и не считает его включённым, даже если флаг в базе стоит) | `FIELD_LOG`, `RADIO_LAB`, `LIVE_SOCKET` и всё, что проверяет тест, включает админ на самом staging; полевой журнал разрешает профиль `field`, который включает `staging` |
 | Автообновление | всегда | обычно да; **на день теста выключено** |
 | Приложения | App Store, Google Play, релизные сборки | `preview`: «Hovanki β» на Android, сборки TestFlight из `preview.yml`; адрес — переменная репозитория `STAGING_SERVER_URL` ([ci-cd.md](ci-cd.md#переменные-и-секреты)) |
 
