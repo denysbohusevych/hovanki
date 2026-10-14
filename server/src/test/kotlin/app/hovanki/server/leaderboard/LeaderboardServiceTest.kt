@@ -34,6 +34,7 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.concurrent.Executor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -143,7 +144,8 @@ class LeaderboardServiceTest(
     fun theWorldIsComputedAgainAfterAMinuteOrInANewWeek() {
         val monday = Instant.parse("2046-01-07T22:00:00Z")
         val clock = MutableClock(monday.plus(Duration.ofDays(6)))
-        val service = LeaderboardService(repository, clock)
+        val refreshes = ArrayDeque<Runnable>()
+        val service = LeaderboardService(repository, clock, LeaderboardProperties(), Executor { refreshes.add(it) })
         val anna = testUsers.create("anna")
         val bob = testUsers.create("bob")
         game(monday, seeker(anna, catches = 1, won = false))
@@ -156,6 +158,11 @@ class LeaderboardServiceTest(
         assertEquals(listOf(anna.id), cached.entries.map { it.userId })
         assertNull(cached.me)
         clock.advance(Duration.ofSeconds(1))
+        // Old now: the refresher computes it again while the requests get the old one, and only one refresh waits.
+        assertEquals(listOf(anna.id), service.leaderboard(bob.auth, LeaderboardScope.WORLD).entries.map { it.userId })
+        assertEquals(listOf(anna.id), service.leaderboard(anna.auth, LeaderboardScope.WORLD).entries.map { it.userId })
+        assertEquals(1, refreshes.size)
+        refreshes.removeFirst().run()
         val fresh = service.leaderboard(bob.auth, LeaderboardScope.WORLD)
         assertEquals(listOf(bob.id, anna.id), fresh.entries.map { it.userId })
         assertEquals(1, fresh.me?.rank)
@@ -167,6 +174,7 @@ class LeaderboardServiceTest(
         game(nextMonday.plusSeconds(1), seeker(anna, catches = 0, won = false))
         clock.advance(Duration.between(clock.instant(), nextMonday.plusSeconds(10)))
         val newWeek = service.leaderboard(anna.auth, LeaderboardScope.WORLD)
+        assertEquals(0, refreshes.size, "the request computes a new week itself")
         assertEquals(nextMonday.toEpochMilli(), newWeek.weekStartMillis)
         assertEquals(listOf(anna.id), newWeek.entries.map { it.userId })
         assertEquals(2 - 1, newWeek.rankChange, "second last week, first now")

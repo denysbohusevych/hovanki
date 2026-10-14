@@ -3,6 +3,7 @@ package app.hovanki.server.bigGames
 import app.hovanki.server.db.getInstant
 import app.hovanki.server.db.getInstantOrNull
 import app.hovanki.server.db.toTimestamptz
+import app.hovanki.server.social.InboxCache
 import app.hovanki.shared.protocol.AreaNorms
 import app.hovanki.shared.protocol.BigGameId
 import app.hovanki.shared.protocol.BigGameSetup
@@ -45,10 +46,14 @@ data class BigGameRecord(
     override fun toString(): String = "BigGame(${id.value}, $status)"
 }
 
-/** `big_games` and `big_game_signups`. Times are passed in (the injected Clock). */
+/**
+ * `big_games` and `big_game_signups`. Times are passed in (the injected Clock). The inbox shows the open lobbies of
+ * the big games one signed up for: a change of a big game forgets every inbox, a sign-up the user's ([InboxCache]).
+ */
 @Repository
-class BigGameRepository(private val jdbc: JdbcClient) {
+class BigGameRepository(private val jdbc: JdbcClient, private val inboxes: InboxCache) {
     fun insert(game: BigGameRecord) {
+        inboxes.forgetAll()
         jdbc.sql(
             """
             INSERT INTO big_games (id, title, status, starts_at, time_zone, zone, setup, norms, capacity, areas,
@@ -62,6 +67,7 @@ class BigGameRepository(private val jdbc: JdbcClient) {
 
     /** Everything an admin can change, and the state; the id, the creator and the creation time stay. */
     fun update(game: BigGameRecord) {
+        inboxes.forgetAll()
         jdbc.sql(
             """
             UPDATE big_games SET title = :title, status = :status, starts_at = :startsAt, time_zone = :timeZone,
@@ -96,16 +102,21 @@ class BigGameRepository(private val jdbc: JdbcClient) {
             .param("limit", limit).query(rows).list()
 
     /** True when [userId] was not signed up yet. */
-    fun signUp(id: BigGameId, userId: UserId, now: Instant): Boolean = jdbc.sql(
-        """
-        INSERT INTO big_game_signups (big_game_id, user_id, signed_up_at) VALUES (:id, :userId, :now)
-        ON CONFLICT DO NOTHING
-        """.trimIndent(),
-    ).param("id", id.value).param("userId", userId.value).param("now", now.toTimestamptz()).update() > 0
+    fun signUp(id: BigGameId, userId: UserId, now: Instant): Boolean {
+        inboxes.forget(userId)
+        return jdbc.sql(
+            """
+            INSERT INTO big_game_signups (big_game_id, user_id, signed_up_at) VALUES (:id, :userId, :now)
+            ON CONFLICT DO NOTHING
+            """.trimIndent(),
+        ).param("id", id.value).param("userId", userId.value).param("now", now.toTimestamptz()).update() > 0
+    }
 
-    fun cancelSignup(id: BigGameId, userId: UserId): Boolean =
-        jdbc.sql("DELETE FROM big_game_signups WHERE big_game_id = :id AND user_id = :userId")
+    fun cancelSignup(id: BigGameId, userId: UserId): Boolean {
+        inboxes.forget(userId)
+        return jdbc.sql("DELETE FROM big_game_signups WHERE big_game_id = :id AND user_id = :userId")
             .param("id", id.value).param("userId", userId.value).update() > 0
+    }
 
     fun isSignedUp(id: BigGameId, userId: UserId): Boolean = jdbc.sql(
         "SELECT EXISTS (SELECT 1 FROM big_game_signups WHERE big_game_id = :id AND user_id = :userId)",
