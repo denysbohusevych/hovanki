@@ -4,6 +4,7 @@ import app.hovanki.client.tracking.AlertKind
 import app.hovanki.e2e.OWN_SERVER
 import app.hovanki.e2e.admin.StaffConsole
 import app.hovanki.e2e.route.offset
+import app.hovanki.e2e.scenario.E2eTransport
 import app.hovanki.e2e.scenario.GameSetups
 import app.hovanki.e2e.scenario.GameSetups.PARK
 import app.hovanki.e2e.scenarioOnOwnServer
@@ -43,7 +44,7 @@ class FeatureFlagTest {
             check(console.logIn(account).role == UserRole.ADMIN, "Sam logs in to the admin as an admin")
             // The live channel is as the run has it (-Pe2e.transport).
             check(
-                console.features().none { it.enabled && it.feature != ServerFeature.LIVE_SOCKET },
+                console.features().none { it.enabled && it.feature.name !in E2eTransport.features },
                 "everything is off to begin with",
             )
             val features = console.setFeature(ServerFeature.RADAR, enabled = true, reason = "the radar spike")

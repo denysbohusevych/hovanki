@@ -25,6 +25,19 @@ object ApiRoutes {
      * only while the server has [ServerFeature.LIVE_SOCKET].
      */
     const val SOCKET = "$GAMES/{gameId}/socket"
+
+    /**
+     * POST [LiveOpenRequest] with the game token: a live session of the live channel v2 ([LiveOpenResponse],
+     * docs/live-v2/spec.md §4); only while the server has [ServerFeature.LIVE_V2], else 404 with
+     * [ErrorReason.FEATURE_DISABLED].
+     */
+    const val LIVE_OPEN = "/api/v2/live/open"
+
+    /**
+     * GET with the WebSocket upgrade, the game token and `?s=<sessionId>` ([LiveWs]): the live session's binary
+     * frames, `Up` from the phone and `Down` from the server (docs/live-v2/spec.md §6).
+     */
+    const val LIVE_WS = "/api/v2/live/ws"
     const val CATCHES = "$GAMES/{gameId}/catches"
     const val CATCH_CONFIRM = "$CATCHES/{catchId}/confirm"
     const val CATCH_DISPUTE = "$CATCHES/{catchId}/dispute"
@@ -369,6 +382,9 @@ object ApiRoutes {
     fun sync(gameId: GameId): String = SYNC.fill("gameId" to gameId.value)
 
     fun socket(gameId: GameId): String = SOCKET.fill("gameId" to gameId.value)
+
+    /** [LIVE_WS] of the live session [sessionId] ([LiveOpenResponse.sessionId]). */
+    fun liveWs(sessionId: String): String = "$LIVE_WS?${LiveWs.SESSION_PARAM}=$sessionId"
 
     fun catches(gameId: GameId): String = CATCHES.fill("gameId" to gameId.value)
 

@@ -139,7 +139,11 @@ class Diagnostics(
         }
         val took = duration?.let { "$it ms" } ?: "answer"
         val heard = pending?.sightings?.takeIf { it > 0 }?.let { ", $it sightings" }.orEmpty()
-        val via = if (transport == Transport.SOCKET) " by socket" else ""
+        val via = when (transport) {
+            Transport.POLLING -> ""
+            Transport.SOCKET -> " by socket"
+            Transport.LIVE_WS -> " by ws2"
+        }
         log(DiagnosticsKind.SYNC, "sync $took$heard$via", now)
     }
 

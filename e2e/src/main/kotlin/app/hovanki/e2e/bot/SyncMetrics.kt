@@ -28,7 +28,8 @@ class SyncMetrics {
             status >= 400 -> failures += "$request -> $status"
         }
         if (status != null && status >= 500) serverFailures += "$request -> $status"
-        val isSync = exchange.path.endsWith("/sync") || exchange.method == FakeNetwork.SOCKET_METHOD
+        val isSync = exchange.path.endsWith("/sync") || exchange.method == FakeNetwork.SOCKET_METHOD ||
+            exchange.method == FakeNetwork.LIVE_METHOD
         if (isSync && status != null && !exchange.isResponseLost) {
             syncMillis += exchange.durationMillis
         }

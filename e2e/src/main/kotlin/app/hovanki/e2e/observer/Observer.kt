@@ -75,11 +75,11 @@ class Observer(serverUrl: String) : AutoCloseable {
 
     /**
      * Turns exactly [names] on for the whole server (every other feature off), as the admin would one by one. A run on
-     * the live channel (`-Pe2e.transport=socket`, [E2eTransport]) keeps [ServerFeature.LIVE_SOCKET] on whatever the
-     * names, unless [keepLiveSocket] is false: a scenario that switches the channel itself.
+     * a live channel (`-Pe2e.transport=socket` or `v2ws`, [E2eTransport]) keeps its feature on whatever the names,
+     * unless [keepLiveChannel] is false: a scenario that switches the channel itself.
      */
-    suspend fun setFeatures(names: List<String>, keepLiveSocket: Boolean = E2eTransport.isSocket) {
-        val wanted = if (keepLiveSocket) names + ServerFeature.LIVE_SOCKET.name else names
+    suspend fun setFeatures(names: List<String>, keepLiveChannel: Boolean = true) {
+        val wanted = if (keepLiveChannel) names + E2eTransport.features else names
         switchFeatures(DebugSetFeatures(wanted.distinct()))
     }
 

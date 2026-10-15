@@ -26,12 +26,12 @@
 | `:shared` | `src/commonMain/proto/live_v2.proto` | схема; Wire генерирует классы в `app.hovanki.shared.live.v2` |
 | `:shared` | `protocol/Live.kt` | `LiveOpenRequest`, `LiveOpenResponse`, `LiveUdpEndpoint` (JSON); `ApiRoutes.LIVE_OPEN`, `ApiRoutes.LIVE_WS`; `ServerFeature.LIVE_V2`, `LIVE_UDP` |
 | `:shared` | `live/` (**уже в коде**, шаг 2) | `LiveLimits` (спека, §14); `LiveClientStates` (до 8 состояний телефона, применение `Down`, §8.6) поверх `LiveStates.apply`; `LiveSnapshots` (состояние → `GameSnapshot`, §9) и обратный ему `LiveSections.fromSnapshot` (им пользуется сервер); `LiveUplink` (кусок `SyncRequest` → `Up`, §7.1, §10); `LiveDownlink` (чат и ошибки `Down`, §11, §13); `LiveDatagrams`, `LiveReassembler`, `LiveReplayWindow` (заголовок, куски, окно повторов, §5); интерфейс `LiveAead`. Серверное (`LiveDelta`, `LiveServerStates`) телефону не нужно. Полная таблица — спека, §19 |
-| `:clientCore` | `network/live/` | `LiveApi` (открытие по HTTPS); `LiveGameConnection : GameConnection`; `LiveTransport` и его `UdpLiveTransport`, `WsLiveTransport`; `NetworkChanges` |
+| `:clientCore` | `network/live/` | **сделано (шаг 3b, §10):** `LiveApi`/`HttpLiveApi` (открытие по HTTPS); `LiveSocket`, `LiveSocketOpener`, `KtorLiveSocketOpener` (WebSocket v2); `LiveGameConnection : GameConnection`; `LiveFirstGameConnection`; `LiveChannelException`. **Впереди (UDP):** `UdpLiveTransport`, `NetworkChanges` |
 | `:clientCore` | `jvmMain`, `androidMain` | `JdkAesGcm : LiveAead` |
 | `:clientCore` | `iosMain` | `IosAesGcm : LiveAead` поверх моста `LiveCryptoBridge` |
 | `iosApp` | `LiveCrypto.swift` | реализация моста на CryptoKit |
-| `:composeApp` | `di/Koin.kt` | новая привязка `GameConnection` (§5) |
-| `e2e` | `bot/`, `scenario/` | датаграммы в `FakeNetwork`, `BotTransport.V2`, `-Pe2e.transport=v2` |
+| `:composeApp` | `di/Koin.kt` | новая привязка `GameConnection` (§5), **сделано** |
+| `e2e` | `bot/`, `scenario/` | **сделано:** `FakeNetwork.liveSockets`, `-Pe2e.transport=v2ws`, `LiveV2Test`; **с UDP:** датаграммы в `FakeNetwork`, `-Pe2e.transport=v2` |
 
 Почему состояние и сборка снимка в `:shared`, а не в `:clientCore`: тест равенства на сервере (спека, §18)
 собирает снимок тем же кодом, что телефон. Сервер и приложение не могут разойтись молча.
@@ -81,8 +81,8 @@ connect(session, outbox, chatAfter, extras, intervalMillis): Flow<ConnectionEven
 
 | `Down` | событие |
 |---|---|
-| с состоянием или без, `server_time_ms` не меньше прошлого выданного | `ConnectionEvent.Snapshot(snapshot, Transport.LIVE_UDP / LIVE_WS, bytes)`; `bytes` — сумма байт датаграмм этого `Down` (для `sync.bytes` полевого журнала) |
-| `chat_push = true` | `ConnectionEvent.Chat(messages)`, без снимка (как `ServerFrame.Chat` v1) |
+| с состоянием или без (кроме push чата без состояния), `server_time_ms` не меньше прошлого выданного | `ConnectionEvent.Snapshot(snapshot, Transport.LIVE_UDP / LIVE_WS, bytes)`; `bytes` — сумма байт датаграмм этого `Down` (для `sync.bytes` полевого журнала) |
+| `chat_push = true` | `ConnectionEvent.Chat(messages)`, без снимка (как `ServerFrame.Chat` v1); сервер шлёт его отдельным `Down`, без состояния |
 | `error` | `ConnectionEvent.Problem(ApiException(error), retryInMillis)` |
 | `close` `SESSION_REJECTED` / `GAME_NOT_FOUND` | `ConnectionEvent.Ended(...)`, поток кончается |
 | `close` `REOPEN` / `REPLACED` / незнакомая | новое открытие, событие не нужно |
@@ -276,8 +276,9 @@ final class LiveCrypto: NSObject, LiveCryptoBridge {
 
 - **Датаграммы.** `FakeNetwork` получает `datagrams`: потеря, задержка, перестановка, повтор, смена адреса (как
   переход Wi-Fi → LTE) и «UDP закрыт».
-- **Транспорт ботов.** `BotTransport.V2` (как приложение: UDP с запасными путями) и `V2_WS`;
-  `-Pe2e.transport=v2` гоняет все сценарии на v2.
+- **Транспорт ботов.** Боты связаны как приложение (`LiveFirstGameConnection`), выбор — на весь прогон:
+  `-Pe2e.transport=v2ws` (сделано) гоняет все сценарии на WebSocket v2, `-Pe2e.transport=v2` — на UDP с запасными
+  путями (с шагом 4).
 - **Проверка видимости.** `SnapshotAudit` проверяет снимки, собранные из v2, теми же правилами.
 - **Новый сценарий** `LiveV2Test`:
   - потеря 5 % датаграмм;
@@ -292,9 +293,9 @@ final class LiveCrypto: NSObject, LiveCryptoBridge {
 
 1. **`:shared`:** схема, Wire, `LiveLimits`, `LiveDatagrams`, `LiveClientStates`/`LiveStates`, `LiveSnapshots`,
    `LiveUplink`, `LiveDownlink`, тесты. **Сделано 14.10** (шаг 2 плана). Сервер делает свой шаг 3 на этом же коде.
-2. **`:clientCore`:**
-   - `LiveApi`, `LiveGameConnection` с `WsLiveTransport`, `LiveFirstGameConnection`, тесты;
-   - e2e на `V2_WS`.
+2. **`:clientCore`:** **сделано 14.10** (шаг 3b, §10).
+   - `LiveApi`, `LiveGameConnection` поверх WebSocket v2, `LiveFirstGameConnection`, тесты;
+   - e2e на `-Pe2e.transport=v2ws`.
 
    Это первый релиз: v2 по WebSocket.
 3. **UDP:** `UdpLiveTransport`, `LiveAead` для JVM и Android, мост iOS, `NetworkChanges`, тесты, e2e на `V2`.
@@ -315,3 +316,55 @@ final class LiveCrypto: NSObject, LiveCryptoBridge {
 - новый ADR 0026 (из [ADR 0026](../adr/0026-live-v2.md));
 - запись в `docs/devlog.md`, если игрок что-то заметит. Игрок v2 не видит, но «связь держится в метро» — это
   заметно.
+
+## 10. Как сделано (шаг 3b) и чем отличается
+
+Пакет `app.hovanki.client.network.live` в `:clientCore`, всё в `commonMain`. В приложении `Koin.kt` связывает
+`LiveFirstGameConnection(LiveGameConnection(...), AdaptiveGameConnection(...))`; боты e2e — так же. Пока сервер не
+включил `LIVE_V2`, приложение работает как раньше: обёртка только смотрит на `enabledFeatures` в снимках v1.
+
+| класс | что |
+|---|---|
+| `LiveApi`, `HttpLiveApi` | `POST /api/v2/live/open`; в запросе `transports = ["ws"]`, пока нет UDP |
+| `LiveSocket`, `LiveSocketOpener`, `KtorLiveSocketOpener` | шов WebSocket v2, как `GameSocket` v1: бинарные кадры, `Authorization`, подпротокол `hovanki.live.v2`, адрес из `wsPath` ответа (только путь этого сервера) |
+| `LiveGameConnection` | живая сессия: открытие, `Up` по расписанию, `Down` → `ConnectionEvent`, переподключение, новая сессия |
+| `LiveFirstGameConnection` | v2 или v1 (§5) |
+| `LiveChannelException` | сбой канала: код закрытия, работал ли канал, «сервер выключил v2» |
+
+Что вышло не так, как написано выше:
+
+- **Нет отдельного `LiveTransport`.** Шов — `LiveSocket`: «отправить сообщение, получить сообщение, код закрытия».
+  `LiveGameConnection` сам кодирует `Up` и разбирает `Down`. UDP (шаг 4) встанет за тот же шов: датаграммы, шифрование и
+  куски будут внутри своей реализации `LiveSocket`, которая отдаёт целые `Down`.
+- **Один `Up` в пути**, как у сокета v1: следующий — после ответа и паузы. Ответа нет `REPLY_TIMEOUT_MILLIS` (10 с) —
+  WebSocket открывается заново на той же сессии, состояния сохраняются.
+- **Пауза между `Up`.** Темп игры (`intervalMillis`, не меньше 500 мс), но не больше `IDLE_UP_MILLIS` (10 с); в лобби и
+  на итогах — ровно 10 с: всё, что там происходит, приходит push-ем. Push сам по себе `Up` не вызывает. Сразу, без
+  паузы, `Up` уходит, когда база потерялась (`full`) и когда сервер сказал `chat_more`.
+- **Ожидания только читают.** Таймаут (ответа, паузы) стоит только вокруг чтения `Down`; разбирается `Down` и выдаёт
+  события уже после ожидания. Иначе таймаут, сработавший посреди `emit` (приложение медленно разбирает снимок), ломает
+  поток навсегда: Kotlin запрещает `emit` после того, как прошлый `emit` бросил исключение, и приложение молча перестаёт
+  синхронизироваться. Это нашёл прогон e2e на v2 (`RadarTest`). `Down`, прочитанный ровно в момент таймаута, может
+  потеряться — это как потеря пакета: следующий `Up` подтверждает то, что есть, и сервер шлёт дельту от него.
+- **Отказ `Up`** (`Down.error`) — `ConnectionEvent.Problem` с `ApiException` того же статуса, что дал бы v1 (`429` для
+  `TOO_MANY_REQUESTS`), следующий `Up` — через `retry_after_s` или паузу ошибки (1 → 5 с).
+- **Точки.** Все неподтверждённые идут в каждом `Up` (не больше 100, лишние старые выкидываются) и снимаются, когда
+  `ack_up` дошёл до последнего `Up`, который их нёс. Отказанный `Up` их не подтверждает. Конец соединения (отмена,
+  переход на v1, конец сессии) — обратно в `outbox`.
+- **Отчёт телефона** идёт, пока он отличается от подтверждённого; новая сессия начинает с «ничего не подтверждено».
+- **Новая сессия до срока** — по монотонным часам телефона: `expiresAtMillis − serverTimeMillis` ответа минус 5 минут.
+  Неверные часы телефона её не сдвигают. Старый WebSocket закрывается, потом открывается новая сессия (не «после первого
+  `Down` новой»): между ними может пропасть один push, ответ на первый `Up` новой сессии всё равно несёт полное
+  состояние.
+- **Коды закрытия WebSocket:** 4401 и 4404 — `Ended`; 4410 — новая сессия без события; 4429 — `Problem`, потом новая
+  сессия; 4503 — «сервер выключил v2»; другой код или его нет — та же сессия заново после паузы (1 → 5 с). Открытие:
+  401 — `Ended(SESSION_REJECTED)`, 404 с `FEATURE_DISABLED` — «выключил», 404 — `Ended(GAME_NOT_FOUND)`, 429 — ждать
+  `Retry-After`.
+- **Обёртка** уходит на v1 на 10 минут, когда сервер выключил v2, когда канал ни разу не ответил на этом соединении
+  или когда он рвался 3 раза за минуту; один разрыв работавшего канала остаётся ему. Неудачи v2 на экран не выходят:
+  v1 сообщает о своих.
+- **Полевой журнал и диагностика:** `Transport.LIVE_WS` пишется как `ws2` (`SyncFields.LIVE_WS`), в диагностике —
+  «by ws2»; сервер считает `ws2_p50`/`ws2_p95` в `srv`. Отчёт полевого теста ещё считает отдельно только сокет v1.
+- **e2e.** `-Pe2e.transport=v2ws` включает `LIVE_V2` на всех сценариях. `FakeNetwork.liveSockets` — WebSocket v2 через
+  ту же сеть, что сокет v1 (обрывы, задержка, потери); по его `Down` сеть собирает снимок тем же кодом, что телефон, и
+  отдаёт боту на аудит приватности каждый снимок — и ответ, и push. `LiveV2Test`: push, сеть, выключение флага.

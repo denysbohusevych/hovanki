@@ -5,10 +5,12 @@ import app.hovanki.e2e.route.offset
 import app.hovanki.e2e.scenario
 import app.hovanki.e2e.scenario.GameSetups
 import app.hovanki.e2e.scenario.GameSetups.PARK
+import app.hovanki.shared.live.LiveLimits
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.PlayerStatus
 import app.hovanki.shared.protocol.Role
 import kotlin.test.Test
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 class FullRoundTest {
@@ -55,9 +57,10 @@ class FullRoundTest {
         awaitThat("apps stop background tracking") { players.none { it.backgroundTracker.isRunning } }
         check(players.none { it.storage.read("session") != null }, "no phone keeps the finished game to resume")
 
-        // The results screen stays and keeps polling (the chat goes on) until the player closes it.
+        // The results screen stays and keeps syncing (the chat goes on) until the player closes it: the live channel v2
+        // asks every LiveLimits.IDLE_UP_MILLIS there, its pushes bring the rest.
         val resultsAt = players.associateWith { checkNotNull(it.snapshot).serverTimeMillis }
-        awaitThat("the results keep updating", 10.seconds) {
+        awaitThat("the results keep updating", LiveLimits.IDLE_UP_MILLIS.milliseconds + 5.seconds) {
             players.all { it.snapshot?.phase == GamePhase.FINISHED && it.snapshot!!.serverTimeMillis > resultsAt[it]!! }
         }
         for (player in players) requireOk(player.leave(), "${player.name} closes the results")
