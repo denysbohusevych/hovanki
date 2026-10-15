@@ -35,6 +35,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.boot.tomcat.TomcatWebServer
+import org.springframework.boot.web.server.context.WebServerApplicationContext
 import org.springframework.web.socket.CloseStatus
 import java.net.Socket
 import java.net.URI
@@ -68,6 +70,7 @@ class GameSocketTest(
     @Autowired private val clock: Clock,
     @Autowired private val meters: MeterRegistry,
     @Autowired private val servletContext: ServletContext,
+    @Autowired private val context: WebServerApplicationContext,
 ) {
     private val http = HttpClient.newHttpClient()
     private val park = GeoPoint(50.4501, 30.5234)
@@ -345,6 +348,10 @@ class GameSocketTest(
         val container = assertIs<ServerContainer>(servletContext.getAttribute(ServerContainer::class.java.name))
         assertEquals(SocketBuffers.SIZE, container.defaultMaxTextMessageBufferSize)
         assertEquals(SocketBuffers.SIZE, container.defaultMaxBinaryMessageBufferSize)
+        // And the connection's own read and write buffers.
+        val connector = assertIs<TomcatWebServer>(context.webServer).tomcat.connector
+        assertEquals(SocketBuffers.SIZE.toString(), connector.getProperty(SocketBuffers.READ_PROPERTY)?.toString())
+        assertEquals(SocketBuffers.SIZE.toString(), connector.getProperty(SocketBuffers.WRITE_PROPERTY)?.toString())
     }
 
     @Test
