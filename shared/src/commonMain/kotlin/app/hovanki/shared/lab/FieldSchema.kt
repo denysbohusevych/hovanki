@@ -89,10 +89,13 @@ object GpsFields {
 
 /** `sync`. */
 object SyncFields {
-    /** [POLL] or [SOCKET]. */
+    /** [POLL], [SOCKET] or [LIVE_WS]. */
     const val TRANSPORT = "transport"
     const val POLL = "poll"
     const val SOCKET = "socket"
+
+    /** The live channel v2 over its WebSocket (docs/live-v2/spec.md §6). */
+    const val LIVE_WS = "ws2"
     const val OK = "ok"
 
     /** From the request to the answer, ms. */
@@ -202,6 +205,10 @@ object SrvFields {
     const val POLL_P95 = "poll_p95"
     const val SOCKET_P50 = "socket_p50"
     const val SOCKET_P95 = "socket_p95"
+
+    /** The live channel v2's WebSocket (docs/live-v2/spec.md §6). */
+    const val WS2_P50 = "ws2_p50"
+    const val WS2_P95 = "ws2_p95"
     const val HEAP_MAX_MB = "heap_max_mb"
 
     /** The server's events of all games dropped since the last `srv`: their queue was full. */

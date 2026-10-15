@@ -11,7 +11,8 @@ import java.util.Collections
 import java.util.Enumeration
 
 /**
- * Keeps the live channel's frames uncompressed: the upgrade of [ApiRoutes.SOCKET] reaches Tomcat without the app's
+ * Keeps the live channel's frames uncompressed: the upgrade of [ApiRoutes.SOCKET] (and of v2's [ApiRoutes.LIVE_WS])
+ * reaches Tomcat without the app's
  * `Sec-WebSocket-Extensions`, so no permessage-deflate is agreed. Tomcat holds a zlib deflater and inflater for every
  * compressed socket, about 220 KB outside the heap for the socket's whole life: 900 sockets killed a server with
  * production's 640 MB (docs/perf.md, «Первые находки»). A frame is plain JSON instead, ~6.5 KB a sync. Tomcat has no
@@ -20,7 +21,8 @@ import java.util.Enumeration
 class NoSocketCompression : OncePerRequestFilter() {
     private val socket = UriTemplate(ApiRoutes.SOCKET)
 
-    override fun shouldNotFilter(request: HttpServletRequest): Boolean = !socket.matches(request.requestURI)
+    override fun shouldNotFilter(request: HttpServletRequest): Boolean =
+        !socket.matches(request.requestURI) && request.requestURI != ApiRoutes.LIVE_WS
 
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
         chain.doFilter(WithoutExtensions(request), response)

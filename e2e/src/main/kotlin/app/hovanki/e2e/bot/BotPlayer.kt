@@ -30,6 +30,10 @@ import app.hovanki.client.network.ServerUrl
 import app.hovanki.client.network.Transport
 import app.hovanki.client.network.WebSocketGameConnection
 import app.hovanki.client.network.createHttpClient
+import app.hovanki.client.network.live.HttpLiveApi
+import app.hovanki.client.network.live.KtorLiveSocketOpener
+import app.hovanki.client.network.live.LiveFirstGameConnection
+import app.hovanki.client.network.live.LiveGameConnection
 import app.hovanki.client.session.CatchCode
 import app.hovanki.client.session.ChatLine
 import app.hovanki.client.session.DraftZone
@@ -59,6 +63,7 @@ import app.hovanki.radar.ProximityRadio
 import app.hovanki.radar.RadarTrace
 import app.hovanki.radar.RadioApi
 import app.hovanki.shared.lab.PermFields
+import app.hovanki.shared.live.LiveLimits
 import app.hovanki.shared.protocol.AchievementsResponse
 import app.hovanki.shared.protocol.ApiRoutes
 import app.hovanki.shared.protocol.Audience
@@ -155,6 +160,8 @@ class BotPlayer(
      * a scenario waits for the socket's return.
      */
     private val pollAfterSocketFailureMillis: Long = AdaptiveGameConnection.POLL_AFTER_FAILURE_MILLIS,
+    /** How long the app stays on v1 after the live channel v2 failed ([LiveFirstGameConnection]). */
+    private val v1AfterLiveFailureMillis: Long = LiveLimits.V1_AFTER_DISABLED_MILLIS,
     /**
      * The field build (`preview`) whose tester agreed at the first launch (docs/adr/0018-field-test-build.md §3): its
      * [FieldSession] writes the game's field log and uploads it, as the app's DI wires it. Off: any other build.
@@ -195,7 +202,7 @@ class BotPlayer(
 
     /** The pulse the phone beats with (docs/adr/0012-nearby-radar.md, «Пульс»). */
     val pulse = FakePocketPulse()
-    val network = FakeNetwork(::onExchange, ::onPushedChat)
+    val network = FakeNetwork(::onExchange, ::onPushedChat, ::onLiveSnapshot)
     val backgroundTracker = FakeBackgroundTracker { running ->
         if (logChanges) log(if (running) "background tracking started" else "background tracking stopped")
     }
@@ -916,6 +923,13 @@ class BotPlayer(
         return CommandResult.Failed("the app is not running")
     }
 
+    /** A snapshot the live channel v2 brought (an answer or a push), checked like every other one. */
+    private fun onLiveSnapshot(snapshot: GameSnapshot) {
+        val raw = protocolJson.encodeToString(GameSnapshot.serializer(), snapshot)
+        SnapshotAudit.check(snapshot, raw).forEach { violations += "$name: $it" }
+        snapshot.players.forEach { player -> player.location?.let { reveals += player.id to it.exactReason } }
+    }
+
     private fun onExchange(exchange: Exchange) {
         metrics?.record(exchange)
         val body = exchange.body ?: return
@@ -990,11 +1004,21 @@ class BotPlayer(
         private val connection: GameConnection = when (transport) {
             BotTransport.POLLING -> PollingGameConnection(api)
 
-            // As the app's DI: the live channel while the server has it on, through the phone's network.
-            BotTransport.APP -> AdaptiveGameConnection(
-                WebSocketGameConnection(network.sockets(KtorGameSocketOpener(httpClient, url))),
-                PollingGameConnection(api),
-                pollAfterFailureMillis = pollAfterSocketFailureMillis,
+            // As the app's DI: the live channel v2 while the server has it on, else v1's socket while the server has
+            // that on, else polling; the sockets through the phone's network.
+            BotTransport.APP -> LiveFirstGameConnection(
+                LiveGameConnection(
+                    HttpLiveApi(httpClient, url),
+                    network.liveSockets(KtorLiveSocketOpener(httpClient, url)),
+                    serverTime = serverClock::now,
+                    appVersion = "e2e",
+                ),
+                AdaptiveGameConnection(
+                    WebSocketGameConnection(network.sockets(KtorGameSocketOpener(httpClient, url))),
+                    PollingGameConnection(api),
+                    pollAfterFailureMillis = pollAfterSocketFailureMillis,
+                ),
+                v1AfterFailureMillis = v1AfterLiveFailureMillis,
             )
         }
 

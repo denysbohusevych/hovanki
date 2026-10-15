@@ -18,6 +18,7 @@ import app.hovanki.shared.debug.DebugEmail
 import app.hovanki.shared.debug.DebugGameState
 import app.hovanki.shared.debug.DebugPlayer
 import app.hovanki.shared.geo.distanceTo
+import app.hovanki.shared.live.LiveLimits
 import app.hovanki.shared.protocol.Audience
 import app.hovanki.shared.protocol.CatchStatus
 import app.hovanki.shared.protocol.ErrorCode
@@ -57,8 +58,8 @@ fun runScenario(name: String, serverUrl: String, timeout: Duration = 3.minutes, 
     try {
         runBlocking {
             withTimeout(timeout) {
-                // A run on the live channel: every scenario's bots sync over sockets.
-                if (E2eTransport.isSocket) scenario.observer.enableFeatures(listOf(ServerFeature.LIVE_SOCKET.name))
+                // A run on a live channel: every scenario's bots sync over it.
+                if (E2eTransport.features.isNotEmpty()) scenario.observer.enableFeatures(E2eTransport.features)
                 scenario.block()
                 scenario.checkPrivacy()
                 scenario.checkNoServerErrors()
@@ -114,6 +115,8 @@ class Scenario(val name: String, val serverUrl: String) {
         platform: Platform = Platform.ANDROID,
         transport: BotTransport = BotTransport.APP,
         pollAfterSocketFailure: Duration = AdaptiveGameConnection.POLL_AFTER_FAILURE_MILLIS.milliseconds,
+        /** How long the app stays on v1 after the live channel v2 failed: ten minutes, shorter where awaited. */
+        v1AfterLiveFailure: Duration = LiveLimits.V1_AFTER_DISABLED_MILLIS.milliseconds,
         /** The field build whose tester agreed: it writes and uploads the game's field log (ADR 0018). */
         fieldLog: Boolean = false,
     ): BotPlayer {
@@ -130,6 +133,7 @@ class Scenario(val name: String, val serverUrl: String) {
             radio,
             transport,
             pollAfterSocketFailure.inWholeMilliseconds,
+            v1AfterLiveFailure.inWholeMilliseconds,
             fieldLog,
         )
         bot.clock.skewMillis = clockSkew.inWholeMilliseconds
@@ -338,7 +342,7 @@ class Scenario(val name: String, val serverUrl: String) {
      * channel stays as the run has it ([E2eTransport]): it changes how every scenario on the server syncs.
      */
     suspend fun enableAllFeatures() {
-        observer.setFeatures(ServerFeature.entries.filter { it != ServerFeature.LIVE_SOCKET }.map { it.name })
+        observer.setFeatures(ServerFeature.entries.filter { it !in LIVE_CHANNELS }.map { it.name })
         note("every server feature is on")
     }
 
@@ -533,5 +537,8 @@ class Scenario(val name: String, val serverUrl: String) {
 
     private companion object {
         val POLL = 250.milliseconds
+
+        /** The ways the phones sync: the run decides them ([E2eTransport]), not a scenario's features. */
+        val LIVE_CHANNELS = setOf(ServerFeature.LIVE_SOCKET, ServerFeature.LIVE_V2)
     }
 }

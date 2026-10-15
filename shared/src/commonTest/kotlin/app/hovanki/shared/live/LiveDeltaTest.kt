@@ -41,8 +41,8 @@ class LiveDeltaTest {
             return push(snapshot)
         }
 
-        fun push(snapshot: GameSnapshot): ByteArray {
-            val next = server.next(LiveSections.fromSnapshot(snapshot))
+        fun push(snapshot: GameSnapshot, onlyNew: Boolean = false): ByteArray {
+            val next = server.next(LiveSections.fromSnapshot(snapshot), push = onlyNew)
             val down =
                 Down(
                     server_time_ms = snapshot.serverTimeMillis,
@@ -167,6 +167,19 @@ class LiveDeltaTest {
             val down = Down.ADAPTER.decode(session.push(lobby(player("p1", lat = 50.0 + it))))
             assertEquals(1, down.base_state_id)
         }
+    }
+
+    @Test
+    fun aPushOfWhatWasSentAlreadyBringsNoState() {
+        val session = Session()
+        session.exchange(lobby(player("p1")))
+        val moved = lobby(player("p1", lat = 50.5))
+        val first = Down.ADAPTER.decode(session.push(moved, onlyNew = true))
+        assertEquals(2, first.state_id)
+        // Another poke, nothing new for this phone: no state (an answer would still carry one, rule 4).
+        assertNull(Down.ADAPTER.decode(session.push(moved, onlyNew = true)).state)
+        assertEquals(3, Down.ADAPTER.decode(session.push(lobby(player("p1", lat = 50.6)), onlyNew = true)).state_id)
+        assertEquals(4, Down.ADAPTER.decode(session.reply(moved, ackState = 1, full = false)).state_id)
     }
 
     @Test

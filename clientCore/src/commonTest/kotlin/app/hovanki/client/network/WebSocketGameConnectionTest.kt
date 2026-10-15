@@ -15,6 +15,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
@@ -126,6 +128,28 @@ class WebSocketGameConnectionTest {
             assertEquals(3_000, currentTime - answeredAt, "the sync after the game's pace")
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun anAppSlowerThanThePauseNeverBreaksTheConnection() = runTest {
+        val server = FakeSocketServer()
+        val events = mutableListOf<ConnectionEvent>()
+        // The app takes longer with every event than the pause lasts: a pushed message emitted within a wait would
+        // have its emit cut by the wait's timeout, and the flow would break for good.
+        backgroundScope.launch {
+            connection(server).connect(testSession, LocationOutbox()).collect {
+                events += it
+                delay(5_000)
+            }
+        }
+        val socket = server.awaitSocket(0)
+        val seeking = testSnapshot(syncIntervalSeconds = 3, phase = GamePhase.SEEKING)
+        socket.answer(socket.awaitSync(), seeking)
+        socket.send(ServerFrame.Chat(listOf(testMessage(4))))
+        socket.answer(socket.awaitSync(), seeking)
+        socket.awaitSync()
+
+        assertEquals(listOf("Snapshot", "Chat", "Snapshot"), events.map { it::class.simpleName })
     }
 
     @Test

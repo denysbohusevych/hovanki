@@ -809,6 +809,7 @@ class FieldSession(
         get() = when (this) {
             Transport.POLLING -> SyncFields.POLL
             Transport.SOCKET -> SyncFields.SOCKET
+            Transport.LIVE_WS -> SyncFields.LIVE_WS
         }
 
     companion object {

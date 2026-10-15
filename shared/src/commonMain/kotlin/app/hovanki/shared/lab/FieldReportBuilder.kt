@@ -1790,6 +1790,7 @@ class FieldReportBuilder(
             SrvFields.SYNC_P95,
             SrvFields.POLL_P95,
             SrvFields.SOCKET_P95,
+            SrvFields.WS2_P95,
             SrvFields.ERRORS_5XX,
             SrvFields.ERRORS_429,
             SrvFields.SOCKETS,
