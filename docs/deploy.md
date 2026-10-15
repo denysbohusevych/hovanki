@@ -1,6 +1,6 @@
 # Деплой сервера (AWS)
 
-Одна виртуальная машина EC2: сервер в Docker, перед ним Caddy с сертификатом Let's Encrypt. База — отдельно от машины, в Amazon RDS for PostgreSQL в том же регионе. Сервер обновляется сам после каждого push в `main` ([Автообновление](#автообновление)), бэкапы базы делает RDS ([Бэкапы](#бэкапы)). Файлы лежат в [`deploy/`](../deploy/): `aws-user-data.sh` готовит машину при первом запуске, `compose.yaml` запускает сервер и Caddy, `hovanki-update.sh` с `hovanki-update.service` и `hovanki-update.timer` обновляют сервер, `.env.staging.example` — настройки второго сервера для полевого теста ([Staging](#staging)).
+Одна виртуальная машина EC2: сервер в Docker сам отвечает по HTTPS с сертификатом Let's Encrypt, который получает и продлевает lego через DuckDNS ([Без Caddy](#без-caddy)). База — отдельно от машины, в Amazon RDS for PostgreSQL в том же регионе. Сервер обновляется сам после каждого push в `main` ([Автообновление](#автообновление)), бэкапы базы делает RDS ([Бэкапы](#бэкапы)). Файлы лежат в [`deploy/`](../deploy/): `aws-user-data.sh` готовит машину при первом запуске, `compose.yaml` запускает сервер (и Caddy, если откатиться на него), `hovanki-lego-install.sh` ставит lego, `hovanki-cert.sh` с `hovanki-cert-deploy.sh`, `hovanki-cert.service` и `hovanki-cert.timer` держат сертификат, `hovanki-update.sh` с `hovanki-update.service` и `hovanki-update.timer` обновляют сервер, `.env.staging.example` — настройки второго сервера для полевого теста ([Staging](#staging)).
 
 ## Почему так
 
@@ -8,10 +8,10 @@
 - **База отдельно от машины — в RDS.** Аккаунты, друзья, группы и жалобы живут в PostgreSQL 17 на Amazon RDS ([ADR 0004](adr/0004-accounts-friends-chat.md#1-хранилище-postgresql-в-amazon-rds)):
   - база переживает потерю или пересоздание машины;
   - бэкапы с восстановлением на любую секунду последних 7 дней (пока аккаунт AWS на Free plan — последних суток), обновления PostgreSQL и шифрование диска делает AWS;
-  - вся память машины достаётся серверу и Caddy.
+  - вся память машины достаётся серверу.
 
   Цена — отдельный счёт за RDS ([Сколько стоит](#сколько-стоит)). В интернет база не смотрит: подключаться к ней может только машина `hovanki`, и только по TLS с проверкой сертификата.
-- **HTTPS.** Тестовые и релизные сборки ходят только по HTTPS. Caddy сам получает и продлевает сертификат.
+- **HTTPS прямо в сервере.** Тестовые и релизные сборки ходят только по HTTPS. TLS держит сам сервер (Tomcat, HTTP/2), прокси перед ним нет: Caddy стоил около 110 КБ памяти и 120 мкс процессора на каждый сокет, а UDP живого канала v2 через него не пройдёт ([Без Caddy](#без-caddy)).
 - **Франкфурт (`eu-central-1`).** Через сервер идут координаты игроков и данные аккаунтов, поэтому и машина, и база — в ЕС (GDPR).
 - **Без Terraform.** Машина, база, группы безопасности и IP-адрес создаются в консоли минут за двадцать. Повторяемость дают файлы в `deploy/` и шаги ниже.
 
@@ -36,7 +36,7 @@
 ## Что понадобится
 
 - Аккаунт AWS на Free plan с MFA на root-пользователе.
-- Имя для сертификата: поддомен на [duckdns.org](https://www.duckdns.org) (вход через GitHub). sslip.io не подходит: у него один общий на всех лимит Let's Encrypt, и он часто исчерпан.
+- Имя для сертификата: поддомен на [duckdns.org](https://www.duckdns.org) (вход через GitHub), и токен этого аккаунта DuckDNS (вверху страницы duckdns.org): с ним lego доказывает Let's Encrypt, что имя наше. sslip.io не подходит: у него один общий на всех лимит Let's Encrypt, и он часто исчерпан.
 - GitHub PAT (classic) со scope `read:packages`: образ в GHCR приватный, как и репозиторий. GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic).
 - Образ сервера в GHCR. Образ `main` публикует `ci.yml` после каждого push в `main`, релизные `0.1.0` и `latest` — `release.yml` по тегу `v*` ([CI/CD](ci-cd.md#образ-сервера)).
 - Почтовый ящик, с которого сервер шлёт коды подтверждения email и сброса пароля. Для начала — Gmail с паролем приложения ([Почта](#почта)).
@@ -51,12 +51,12 @@
    - Application and OS Images: Ubuntu Server 24.04 LTS, 64-bit (x86): образ сервера собирается под amd64.
    - Instance type: `t3.micro`.
    - Key pair: Create new key pair → `hovanki`, ED25519, `.pem`. Скачать файл и выполнить `chmod 400 ~/Downloads/hovanki.pem`.
-   - Network settings: Create security group. SSH — только с **My IP**; отметить «Allow HTTPS traffic from the internet» и «Allow HTTP traffic from the internet». Порт 80 нужен Let's Encrypt для проверки домена.
+   - Network settings: Create security group. SSH — только с **My IP**; отметить «Allow HTTPS traffic from the internet». HTTP (порт 80) не нужен: Let's Encrypt проверяет имя через DNS (DuckDNS). 443/udp для живого канала v2 добавить потом, когда до него дойдёт ([Без Caddy](#без-caddy)).
    - Configure storage: 10 GiB, gp3.
-   - Advanced details → User data: вставить содержимое [`deploy/aws-user-data.sh`](../deploy/aws-user-data.sh). Он ставит Docker и кладёт в `/opt/hovanki/rds-ca.pem` сертификаты RDS.
+   - Advanced details → User data: вставить содержимое [`deploy/aws-user-data.sh`](../deploy/aws-user-data.sh). Он ставит Docker, кладёт в `/opt/hovanki/rds-ca.pem` сертификаты RDS, заводит папку `/etc/hovanki/tls` для сертификата сервера и поднимает лимиты ядра под много соединений.
    - Launch instance.
 4. **Постоянный IP.** EC2 → Elastic IPs → Allocate Elastic IP address → Allocate. Затем Actions → Associate Elastic IP address → машина `hovanki`. Без него IP меняется после остановки машины.
-5. **Имя.** На duckdns.org добавить поддомен, например `hovanki`, и указать в поле current ip Elastic IP. Проверка: `dig +short hovanki.duckdns.org` отвечает этим IP.
+5. **Имя.** На duckdns.org добавить поддомен, например `hovanki`, и указать в поле current ip Elastic IP. Проверка: `dig +short hovanki.duckdns.org` отвечает этим IP. Токен аккаунта (вверху той же страницы) понадобится в шаге 8.
 6. **База.** Создать базу в RDS и в ней пользователя сервера — [База (RDS)](#база-rds).
 7. **Почта.** Завести ящик и пароль приложения ([Почта](#почта)).
 8. **Сервер.** Выполнить с компьютера, из корня репозитория:
@@ -81,14 +81,19 @@
    EOF
    chmod 600 .env
    docker compose config --quiet     # молчит, если всё на месте
+   # Сертификат (подробно — «Без Caddy»): lego, токен DuckDNS, первый сертификат
+   sudo bash hovanki-lego-install.sh
+   sudo install -m 600 -o root -g root /dev/null /etc/hovanki/duckdns.token
+   read -rsp 'Токен DuckDNS: ' T && printf '%s' "$T" | sudo tee /etc/hovanki/duckdns.token >/dev/null; unset T; echo
+   sudo bash hovanki-cert.sh        # в конце: «The certificate of hovanki.duckdns.org is in /etc/hovanki/tls»
    docker login ghcr.io -u denysbohusevych     # пароль — PAT с read:packages
    docker compose up -d
-   sudo cp hovanki-update.service hovanki-update.timer /etc/systemd/system/
+   sudo cp hovanki-cert.service hovanki-cert.timer hovanki-update.service hovanki-update.timer /etc/systemd/system/
    sudo systemctl daemon-reload
-   sudo systemctl enable --now hovanki-update.timer
+   sudo systemctl enable --now hovanki-cert.timer hovanki-update.timer
    ```
    Если `docker` отвечает «permission denied», переподключиться по SSH: группа `docker` применяется при новом входе.
-9. **Проверка.** На машине: `docker compose ps` — `server` и `caddy` в статусе `running`; `docker compose logs server | grep -i flyway` — миграции применены. С компьютера: `curl https://hovanki.duckdns.org/actuator/health` → `{"status":"UP",…}`. Если нет, смотреть `docker compose logs caddy` и `docker compose logs server`. Обычно причина одна из четырёх: закрыт порт 80, имя указывает не на Elastic IP, в `.env` не хватает переменной или сервер не достучался до базы ([База (RDS)](#база-rds), «Если сервер не подключается»). Затем зарегистрироваться в приложении: аккаунт работает сразу, письмо с кодом подтверждения приходит за минуту.
+9. **Проверка.** На машине: `docker compose ps` — `server` в статусе `running`, порты `443->8443/tcp` и `443->8443/udp`; `docker compose logs server | grep -iE "flyway|Tomcat started"` — миграции применены, `Tomcat started on port 8443 (https)`. С компьютера: `curl https://hovanki.duckdns.org/actuator/health` → `{"status":"UP",…}`. Если нет, смотреть `docker compose logs server` и `journalctl -u hovanki-cert`. Обычно причина одна из четырёх: нет сертификата (`hovanki-cert.sh` не смог: неверный токен или имя), имя указывает не на Elastic IP, в `.env` не хватает переменной или сервер не достучался до базы ([База (RDS)](#база-rds), «Если сервер не подключается»). Затем зарегистрироваться в приложении: аккаунт работает сразу, письмо с кодом подтверждения приходит за минуту.
 10. **Адрес в сборках.** Строка `hovanki.serverUrl=https://hovanki.duckdns.org` в `gradle.properties` (уже вписана). Тестовые сборки из `main` ходят только на этот адрес ([CI/CD](ci-cd.md#адрес-сервера)). Другое имя — поменять строку.
 
 ## Настройки (`.env`)
@@ -109,8 +114,9 @@
 | `SPRING_PROFILES_ACTIVE` | Обычно не задают. `field` — на основной машине в дни полевого теста ([Полевой тест на основном сервере](#полевой-тест-на-основном-сервере)); `staging` — на staging |
 | `SERVER_MEM_LIMIT` | Лимит памяти контейнера сервера, куча — 55 % от него, остальное — память JVM вне кучи. По умолчанию `640m` (машина в 1 ГБ); в день полевого теста на `t3.small` — `1g`; на staging `1g` или `2g` |
 | `SENTRY_DSN` | Только для staging, необязательно: DSN Sentry сервера. На основной машине не задают |
+| `HOVANKI_TLS`, `HOVANKI_PUBLISH`, `COMPOSE_PROFILES` | Только для отката на Caddy ([Без Caddy](#без-caddy)): `HOVANKI_TLS=` (пусто) — сервер на обычном HTTP 8080, `HOVANKI_PUBLISH=127.0.0.1:8443` — 443 свободен для Caddy, `COMPOSE_PROFILES=caddy` — Caddy запущен. Без них сервер сам на 443 |
 
-`compose.yaml` передаёт их серверу как `SPRING_DATASOURCE_*` (база `hovanki`, пользователь `hovanki`, TLS с проверкой сертификата по `rds-ca.pem`), `SPRING_MAIL_*` и `HOVANKI_MAIL_FROM` и включает настоящую отправку писем (`HOVANKI_MAIL_SENDER=smtp`). Без `DOMAIN`, `DATABASE_HOST`, `DATABASE_PASSWORD`, `SPRING_MAIL_HOST` или `HOVANKI_MAIL_FROM` `docker compose` не запускается и пишет, какой переменной не хватает; без файла `rds-ca.pem` рядом не запускается сервер. Проверить `.env`, ничего не запуская: `docker compose config --quiet` (молчит, если всё на месте). После правки `.env` — `docker compose up -d`.
+`compose.yaml` передаёт их серверу как `SPRING_DATASOURCE_*` (база `hovanki`, пользователь `hovanki`, TLS с проверкой сертификата по `rds-ca.pem`), `SPRING_MAIL_*` и `HOVANKI_MAIL_FROM` и включает настоящую отправку писем (`HOVANKI_MAIL_SENDER=smtp`) и HTTPS сервера (профиль `tls`, `SPRING_PROFILES_INCLUDE`). Без `DOMAIN`, `DATABASE_HOST`, `DATABASE_PASSWORD`, `SPRING_MAIL_HOST` или `HOVANKI_MAIL_FROM` `docker compose` не запускается и пишет, какой переменной не хватает; без файла `rds-ca.pem` рядом или без папки `/etc/hovanki/tls` не запускается сервер. Проверить `.env`, ничего не запуская: `docker compose config --quiet` (молчит, если всё на месте). После правки `.env` — `docker compose up -d`.
 
 ### Почта
 
@@ -150,7 +156,7 @@
 | Снять админа | В консоли базы: `UPDATE users SET role = 'PLAYER' WHERE email_key = lower('…');` — его админ-сессии перестают работать на следующем запросе. |
 | Выключить админку | Убрать `HOVANKI_ADMIN_SECRET_KEY` из `.env`, `docker compose up -d server`. |
 | Включить радар, задания, перки и другие новые возможности | Админка → «Возможности»: каждая фишка сервера отдельно — радар по Bluetooth, чутьё, находка вплотную, задания, перки, контрольные точки, перки на карте, датчик бега, «карман прячет» ([ADR 0012, 4.1](adr/0012-nearby-radar.md#41-модель)). По умолчанию всё выключено: обычные прятки не меняются. Переключают только админы, с причиной, в журнал; модераторы видят состояние. Включённое подхватывают только новые игры — хост выбирает фишку в настройках лобби; идущие игры не меняются, выключение их тоже не трогает. Радар на настоящих телефонах ещё не проверен: включать для тестовой партии, а не «для всех». |
-| Включить живой канал (WebSocket) | Админка → «Возможности» → «Живой канал (WebSocket)» ([ADR 0015](adr/0015-websockets.md)). Не выбор хоста: сразу для всех игр сервера — приложения со следующим снимком переходят на сокет, выключили — со следующей синхронизацией возвращаются к опросу; старые приложения опрашивают всегда. Caddy (`caddy reverse-proxy`) пропускает WebSocket без настроек. Кадры не сжимаются: так каждый игрок на сокете стоит около 0,1–0,2 МБ памяти сервера, и контейнер прода (640 МБ) держит около 1 800 игроков на сокете ([замер](../perf/results/2026-10-14-socket-vs-poll.md)). Рестарт сервера закрывает сокеты, приложения переподключаются сами. На телефонах (фон, мобильная сеть) ещё не проверен: сначала тестовая партия. |
+| Включить живой канал (WebSocket) | Админка → «Возможности» → «Живой канал (WebSocket)» ([ADR 0015](adr/0015-websockets.md)). Не выбор хоста: сразу для всех игр сервера — приложения со следующим снимком переходят на сокет, выключили — со следующей синхронизацией возвращаются к опросу; старые приложения опрашивают всегда. Сервер принимает WebSocket сам; Caddy при откате пропускает его без настроек. Кадры не сжимаются: так каждый игрок на сокете стоит около 0,1–0,2 МБ памяти сервера, и контейнер прода (640 МБ) держит около 1 800 игроков на сокете ([замер](../perf/results/2026-10-14-socket-vs-poll.md)). Рестарт сервера закрывает сокеты, приложения переподключаются сами. На телефонах (фон, мобильная сеть) ещё не проверен: сначала тестовая партия. |
 | Кто что делал | Админка → «Журнал»: каждое действие сотрудников, каждый показ email и каждое переключение возможности, с причиной; хранится год. |
 
 ## База (RDS)
@@ -278,19 +284,100 @@ docker compose down postgres
 
 1. `docker compose pull server` — скачать образ тега `HOVANKI_TAG` из `.env`;
 2. если это тот же образ, из которого запущен контейнер сервера, — ничего не делать;
-3. спросить работающий сервер, не идёт ли большая игра (`GET /actuator/restarthold` прямо на контейнер, мимо Caddy: сначала на порту управления 8081, как на staging, потом на 8080). Идёт — написать в журнал «New server image … waits for a big game until <время UTC>» и выйти: следующий запуск таймера спросит снова ([ADR 0010](adr/0010-big-games.md#6-обновление-сервера-во-время-большой-игры));
+3. спросить работающий сервер, не идёт ли большая игра (`GET /actuator/restarthold` прямо на адрес контейнера: сначала на порту управления 8081, как на staging, потом на порту игры — 8443 по HTTPS, с именем из `DOMAIN`, или 8080, если сервер за Caddy). Идёт — написать в журнал «New server image … waits for a big game until <время UTC>» и выйти: следующий запуск таймера спросит снова ([ADR 0010](adr/0010-big-games.md#6-обновление-сервера-во-время-большой-игры));
 4. `docker compose up -d server` — перезапустить сервер с новым образом. В журнал пишется «New server image … at <время UTC>»;
 5. `docker image prune -f` — удалить старые образы.
 
-Сервер обновляется примерно через 5–10 минут после push: проверки CI, сборка образа, до 2 минут ожидания таймера. Caddy таймер не трогает.
+Сервер обновляется примерно через 5–10 минут после push: проверки CI, сборка образа, до 2 минут ожидания таймера. Сертификат и Caddy (при откате) таймер не трогает.
 
 - **Обновление обрывает идущие обычные игры**: они хранятся в памяти. Образ собирается на каждый push в `main`, в том числе на правки только документации.
 - **Большие игры обновление ждёт**: пока открыто лобби, идёт раунд и ещё 10 минут после его конца (итоги и разбор тоже в памяти). Сервер не ответил (не запущен, старая версия без этого адреса) — обновление идёт как обычно. Срочное исправление, которое не может ждать: `HOVANKI_UPDATE_FORCE=1 /opt/hovanki/hovanki-update.sh` под пользователем `ubuntu`.
-- **Новый `hovanki-update.sh` сам на машину не попадает**: таймер обновляет только образ. После изменений в `deploy/` скопировать файл, как в шаге 8 [первого запуска](#первый-запуск): `scp -i ~/Downloads/hovanki.pem deploy/hovanki-update.sh ubuntu@<IP>:/opt/hovanki/`. Старый скрипт просто не ждёт больших игр.
+- **Новый `hovanki-update.sh` сам на машину не попадает**: таймер обновляет только образ. После изменений в `deploy/` скопировать файл, как в шаге 8 [первого запуска](#первый-запуск): `scp -i ~/Downloads/hovanki.pem deploy/hovanki-update.sh ubuntu@<IP>:/opt/hovanki/`. Старый скрипт просто не ждёт больших игр; после перехода [без Caddy](#без-caddy) он не достучится до сервера по HTTPS и тоже не ждёт.
 - **Миграции.** Новый сервер при старте применяет миграции Flyway. Если миграция испортила данные, RDS восстанавливает базу на момент до обновления: время — в строке «New server image … at …» ([Восстановление](#восстановление)).
 - **Закрепить версию**: `HOVANKI_TAG=sha-<коммит>` в `.env`, затем `docker compose up -d`. Таймер продолжит работать, но этот тег не меняется. Вернуть автообновление — `HOVANKI_TAG=main`.
 - **Выключить**: `sudo systemctl disable --now hovanki-update.timer`. Вернуть: `sudo systemctl enable --now hovanki-update.timer`. Так делают в день полевого теста ([Полевой тест на основном сервере](#полевой-тест-на-основном-сервере), на staging — [День теста](#день-теста)).
 - **Проверить**: `systemctl list-timers hovanki-update.timer` — когда следующий запуск; `journalctl -u hovanki-update -n 50` — что было при последних. Обновление пишет «New server image …» и «Server updated», ожидание большой игры — «… waits for a big game until …». Ошибка `unauthorized` значит, что истёк PAT: создать новый и повторить `docker login ghcr.io`.
+
+## Без Caddy
+
+С шага 1 живого канала v2 ([план](live-v2/plan.md), [server.md, §2](live-v2/server.md#2-без-caddy)) сервер сам отвечает на 443 по TLS и HTTP/2: профиль Spring `tls` ([`application-tls.yaml`](../server/src/main/resources/application-tls.yaml)), который `compose.yaml` включает рядом с `SPRING_PROFILES_ACTIVE` (`field` и `staging` с ним работают). Внутри контейнера сервер слушает 8443 (он не root), compose публикует его как 443/tcp и 443/udp. UDP пока никто не слушает: он для живого канала v2, когда до него дойдёт ([план](live-v2/plan.md), шаги 0 и 4). Локальный запуск, e2e и стенд остаются на обычном HTTP 8080.
+
+Сертификат Let's Encrypt получает и продлевает [lego](https://go-acme.github.io/lego/) по DNS-01 через DuckDNS:
+
+- `hovanki-cert.timer` дважды в день запускает `hovanki-cert.service`, тот — `hovanki-cert.sh`, а тот — `lego run --dns duckdns -d <DOMAIN>`. lego продлевает, когда от срока осталась треть. После нового сертификата его хук `hovanki-cert-deploy.sh` кладёт `fullchain.pem` и `privkey.pem` в `/etc/hovanki/tls`: ключ читает только пользователь сервера в образе (uid 10001). Сервер берёт новую пару сам, через 10 секунд, без перезапуска.
+- Порт 80 не нужен, и первый сертификат получается, пока Caddy ещё держит 80 и 443: переход — один перезапуск сервера.
+- **Токен DuckDNS** лежит на машине в `/etc/hovanki/duckdns.token` (`root:root`, `600`), никогда не в `.env`: он даёт власть над всеми именами аккаунта DuckDNS. Сменили токен на duckdns.org — записать новый так же, как в шаге 2 ниже.
+- lego, его аккаунт Let's Encrypt и выданные сертификаты — в `/var/lib/hovanki-cert`, только root. Сам lego ставит `hovanki-lego-install.sh`: одна закреплённая версия, проверка по контрольной сумме. Новая версия — поменять две строки в скрипте и запустить снова.
+- **Лимит Let's Encrypt** — 5 одинаковых сертификатов в неделю. `hovanki-cert.sh` при ошибке не повторяет, следующий запуск таймера попробует сам. Пробовать без лимита — на тестовом сервере Let's Encrypt, в стороне от настоящих файлов: `sudo LEGO_PATH=/tmp/lego-test HOVANKI_TLS_DIR=/tmp/tls-test bash hovanki-cert.sh --server letsencrypt-staging`.
+
+### Переход на работающей машине
+
+Сначала в `main` должен быть шаг 1 и сервер должен работать на его образе: `docker compose exec server id` → `uid=10001(hovanki)`. Сам merge сервер не переключает: на машине остаётся старый `compose.yaml` с Caddy, пока его не скопировать в шаге 6. Команды — на машине `hovanki`, в `/opt/hovanki`; файлы — с компьютера, из корня репозитория.
+
+1. **Скрипты** (всё, кроме `compose.yaml`; новый `hovanki-update.sh` работает и со старым):
+   ```bash
+   scp -i ~/Downloads/hovanki.pem deploy/hovanki-* ubuntu@<IP>:/opt/hovanki/
+   ```
+2. **Папки, токен DuckDNS, lego:**
+   ```bash
+   sudo install -d -m 0755 -o root -g root /etc/hovanki
+   sudo install -d -m 0750 -o root -g 10001 /etc/hovanki/tls
+   sudo install -m 600 -o root -g root /dev/null /etc/hovanki/duckdns.token
+   read -rsp 'Токен DuckDNS: ' T && printf '%s' "$T" | sudo tee /etc/hovanki/duckdns.token >/dev/null; unset T; echo
+   sudo bash hovanki-lego-install.sh     # lego version 5.5.2
+   ```
+3. **Ядро** — те же строки, что в `aws-user-data.sh`: много соединений и UDP-потоков через проброс порта Docker.
+   ```bash
+   echo nf_conntrack | sudo tee /etc/modules-load.d/hovanki.conf
+   sudo modprobe nf_conntrack
+   printf '%s\n' 'net.core.rmem_max = 8388608' 'net.core.wmem_max = 8388608' \
+     'net.netfilter.nf_conntrack_max = 262144' 'net.core.somaxconn = 4096' | sudo tee /etc/sysctl.d/90-hovanki.conf
+   sudo sysctl --system
+   ```
+4. **Первый сертификат** (Caddy ещё работает, игры не прерываются):
+   ```bash
+   sudo bash hovanki-cert.sh        # в конце: «The certificate of hovanki.duckdns.org is in /etc/hovanki/tls»
+   sudo ls -l /etc/hovanki/tls      # fullchain.pem (root, r--r--r--) и privkey.pem (10001, r--------)
+   ```
+5. **Таймер продления:**
+   ```bash
+   sudo cp hovanki-cert.service hovanki-cert.timer /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now hovanki-cert.timer
+   ```
+6. **Переключение.** Обрывает идущие игры, сервер недоступен примерно на время своего запуска (полминуты): делать, когда никто не играет и нет большой игры. С компьютера:
+   ```bash
+   scp -i ~/Downloads/hovanki.pem deploy/compose.yaml ubuntu@<IP>:/opt/hovanki/
+   ```
+   На машине:
+   ```bash
+   docker compose config --quiet                 # молчит, если всё на месте
+   docker compose --profile caddy stop caddy     # освобождает 80 и 443
+   docker compose --profile caddy rm -f caddy    # том с сертификатами Caddy остаётся для отката
+   docker compose up -d
+   ```
+7. **Проверка.**
+   - На машине: `docker compose ps` — только `server`, порты `0.0.0.0:443->8443/tcp` и `/udp`; `docker compose logs server | grep -iE 'profile|Tomcat started'` — профиль `tls` и `Tomcat started on port 8443 (https)`.
+   - С компьютера: `curl -s https://hovanki.duckdns.org/actuator/health` → `UP`; `curl -sI https://hovanki.duckdns.org/api/v1/time | head -1` → `HTTP/2 200`; `echo | openssl s_client -connect hovanki.duckdns.org:443 -servername hovanki.duckdns.org 2>/dev/null | openssl x509 -noout -issuer -enddate` — Let's Encrypt и дата через ~90 дней.
+   - Приложение на телефоне: войти, создать игру, открыть админку `https://hovanki.duckdns.org/admin`.
+   - `systemctl list-timers hovanki-cert.timer` — следующий запуск есть.
+8. **Группа безопасности** (EC2 → Security Groups → группа машины → Edit inbound rules): правило HTTP (80) можно удалить. 443/udp (Custom UDP, 443, `0.0.0.0/0`) — добавить, когда дойдёт до UDP.
+9. **Кредиты процессора.** TLS теперь считает сам сервер. EC2 → Instances → `hovanki` → Actions → Instance settings → Change credit specification: должно быть `unlimited` (у `t3` так по умолчанию). На `standard` машина без кредитов падает до 10 % ядра.
+
+### Откат на Caddy
+
+В `.env`:
+```
+COMPOSE_PROFILES=caddy
+HOVANKI_TLS=
+HOVANKI_PUBLISH=127.0.0.1:8443
+```
+Затем:
+```bash
+docker compose up -d server     # сервер на HTTP 8080, 443 свободен
+docker compose up -d            # Caddy со своими старыми сертификатами
+```
+Проверка: `docker compose ps` — `server` и `caddy`. Если правило 80 в группе безопасности удалено, Caddy продлевает сертификат через 443 (TLS-ALPN); вернуть правило не обязательно. `hovanki-cert.timer` можно не трогать: он продолжает держать сертификат в `/etc/hovanki/tls` для возврата. Вернуться без Caddy: убрать три строки из `.env`, `docker compose --profile caddy stop caddy`, `docker compose up -d`.
 
 ## Полевой тест на основном сервере
 
@@ -363,7 +450,7 @@ docker compose down postgres
    - Name: `hovanki-staging`;
    - Ubuntu Server 24.04 LTS (x86), Instance type: `t3.small`;
    - Key pair: тот же `hovanki`;
-   - Network settings: **новая** группа безопасности `hovanki-staging`: SSH только с **My IP**, HTTPS и HTTP из интернета;
+   - Network settings: **новая** группа безопасности `hovanki-staging`: SSH только с **My IP**, HTTPS из интернета;
    - Configure storage: 10 GiB, gp3;
    - Advanced details → User data: содержимое [`deploy/aws-user-data.sh`](../deploy/aws-user-data.sh), тот же файл.
 3. **Постоянный IP.** Elastic IPs → Allocate → Associate с машиной `hovanki-staging`. На duckdns.org вписать этот IP в `hovanki-staging`. Проверка: `dig +short hovanki-staging.duckdns.org`.
@@ -407,20 +494,27 @@ docker compose down postgres
    nano .env                    # DATABASE_HOST, DATABASE_PASSWORD, почта; остальное уже для staging
    chmod 600 .env
    docker compose config --quiet     # молчит, если всё на месте
+   # Сертификат, как на основной машине (шаг 8 первого запуска, «Без Caddy»); токен — того аккаунта DuckDNS, где hovanki-staging
+   sudo bash hovanki-lego-install.sh
+   sudo install -m 600 -o root -g root /dev/null /etc/hovanki/duckdns.token
+   read -rsp 'Токен DuckDNS: ' T && printf '%s' "$T" | sudo tee /etc/hovanki/duckdns.token >/dev/null; unset T; echo
+   sudo bash hovanki-cert.sh
    docker login ghcr.io -u denysbohusevych     # пароль — PAT с read:packages
    docker compose up -d
-   sudo cp hovanki-update.service hovanki-update.timer /etc/systemd/system/
+   sudo cp hovanki-cert.service hovanki-cert.timer hovanki-update.service hovanki-update.timer /etc/systemd/system/
    sudo systemctl daemon-reload
-   sudo systemctl enable --now hovanki-update.timer
+   sudo systemctl enable --now hovanki-cert.timer hovanki-update.timer
    ```
    Что значат переменные — в самом файле и в [Настройки](#настройки-env). Ключ админки: `echo "HOVANKI_ADMIN_SECRET_KEY=$(openssl rand -base64 32)"` — вписать в `.env` вместо пустого значения, потом `docker compose up -d server`. Ключ у staging свой.
-7. **Проверка.** На машине: `docker compose ps` — `server` и `caddy` в `running`; `docker compose logs server | grep -iE "flyway|profile"` — миграции применены, профиль `staging` включён (логи staging — JSON, читать удобнее через `jq`). Весь `/actuator` на staging живёт на порту управления 8081, который compose не публикует и Caddy не проксирует, поэтому здоровье и метрики смотрят с машины, по адресу контейнера:
+7. **Проверка.** На машине: `docker compose ps` — `server` в `running`; `docker compose logs server | grep -iE "flyway|profile"` — миграции применены, профили `staging` и `tls` включены (логи staging — JSON, читать удобнее через `jq`). Весь `/actuator` на staging живёт на порту управления 8081, который compose не публикует, поэтому здоровье и метрики смотрят с машины, по адресу контейнера. Порт 8081 тоже говорит по HTTPS с сертификатом на имя staging, поэтому имя привязывают к адресу контейнера (`--resolve`):
    ```bash
    IP=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' $(docker compose ps --quiet server) | awk '{print $1}')
-   curl -s http://$IP:8081/actuator/health        # {"status":"UP",…}
-   curl -s http://$IP:8081/actuator/prometheus | grep '^hovanki_'
+   M="--resolve hovanki-staging.duckdns.org:8081:$IP https://hovanki-staging.duckdns.org:8081"
+   curl -s $M/actuator/health        # {"status":"UP",…}
+   curl -s $M/actuator/prometheus | grep '^hovanki_'
    ```
-   С компьютера: `https://hovanki-staging.duckdns.org/admin` открывается, а `curl -s -o /dev/null -w '%{http_code}\n' https://hovanki-staging.duckdns.org/actuator/health` и то же для `/actuator/prometheus` отвечают `404` — снаружи `/actuator` не виден. Порт 8081 нельзя открывать в группе безопасности и публиковать в `compose.yaml`, Caddy остаётся на `--to server:8080`. Если сервер не поднимается — таблица [Если сервер не подключается](#если-сервер-не-подключается), только с базой и ролью `hovanki_staging`.
+   При откате на Caddy (`HOVANKI_TLS=`) порт 8081 — обычный HTTP: `curl -s http://$IP:8081/actuator/health`.
+   С компьютера: `https://hovanki-staging.duckdns.org/admin` открывается, а `curl -s -o /dev/null -w '%{http_code}\n' https://hovanki-staging.duckdns.org/actuator/health` и то же для `/actuator/prometheus` отвечают `404` — снаружи `/actuator` не виден. Порт 8081 нельзя открывать в группе безопасности и публиковать в `compose.yaml`; Caddy при откате проксирует только `--to server:8080`. Если сервер не поднимается — таблица [Если сервер не подключается](#если-сервер-не-подключается), только с базой и ролью `hovanki_staging`.
 8. **Админ.** Зарегистрироваться в тестовой сборке, которая ходит на staging (или любой сборкой с `-Phovanki.serverUrl=https://hovanki-staging.duckdns.org`), потом в консоли базы staging (как в [Обслуживание](#обслуживание), но `dbname=hovanki_staging user=hovanki_staging` и пароль из `.env`):
    ```sql
    UPDATE users SET role = 'ADMIN' WHERE email_key = lower('you@example.com');
@@ -451,7 +545,7 @@ docker compose down postgres
 3. В `.env` поднять память: `SERVER_MEM_LIMIT=2g`, затем `docker compose up -d`. Куча — 55 % от лимита.
 4. Проверка: здоровье по адресу контейнера на 8081, как в шаге 7 [первого запуска staging](#первый-запуск-staging); `systemctl list-timers hovanki-update.timer` — таймера в списке нет; флаги в админке включены; RDS → Free storage space — запас есть.
 
-**В день:** `docker compose logs -f server` (сервер координат и токенов не логирует), `docker stats` — память и процессор, метрики сервера — `curl -s http://$IP:8081/actuator/prometheus` (задержки `hovanki_game_sync_seconds`, игры, игроки, сокеты, ответы по кодам в `http_server_requests_seconds`); RDS → Monitoring — подключения и нагрузка. Игру при сбое не перезапускать без нужды: рестарт обрывает все игры.
+**В день:** `docker compose logs -f server` (сервер координат и токенов не логирует), `docker stats` — память и процессор, метрики сервера — `curl -s $M/actuator/prometheus` (`$M` — как в шаге 7 [первого запуска staging](#первый-запуск-staging); задержки `hovanki_game_sync_seconds`, игры, игроки, сокеты, ответы по кодам в `http_server_requests_seconds`); RDS → Monitoring — подключения и нагрузка. Игру при сбое не перезапускать без нужды: рестарт обрывает все игры.
 
 **После теста:**
 
@@ -534,9 +628,10 @@ RDS восстанавливает бэкап в **новую** базу ряд�
 
 | Задача | Как |
 |---|---|
-| Обновить сервер | Само, после каждого push в `main` ([Автообновление](#автообновление)). Сразу, не дожидаясь таймера: `sudo systemctl start hovanki-update`. Обновить Caddy: `docker compose pull caddy && docker compose up -d caddy`. |
+| Обновить сервер | Само, после каждого push в `main` ([Автообновление](#автообновление)). Сразу, не дожидаясь таймера: `sudo systemctl start hovanki-update`. Обновить Caddy (только при откате на него): `docker compose pull caddy && docker compose up -d caddy`. |
+| Сертификат | Продлевается сам ([Без Caddy](#без-caddy)): `hovanki-cert.timer` дважды в день, lego продлевает, когда от срока осталась треть, сервер берёт новый без перезапуска. До какого числа: `sudo openssl x509 -in /etc/hovanki/tls/fullchain.pem -noout -enddate`. Что было: `journalctl -u hovanki-cert -n 50`. Проверить сейчас: `sudo systemctl start hovanki-cert`. Новый токен DuckDNS — в `/etc/hovanki/duckdns.token`, как в «Без Caddy», шаг 2. |
 | Откатить | Прописать нужный `sha-<коммит>` в `HOVANKI_TAG` в `.env` и выполнить `docker compose up -d`. Пока там не `main`, автообновление стоит. Если старый сервер не запускается на базе после новой миграции — [восстановить](#восстановление) базу на момент до обновления. |
-| Логи сервера | `docker compose logs -f server`. Ротация — 3 файла по 10 МБ на контейнер. Access-лог Caddy выключен: Caddy пишет только ошибки проксирования (например, 502, пока сервер перезапускается), значения `Authorization` и cookies в них скрыты. Сервер координаты, токены, пароли, коды, email и текст чата не логирует. |
+| Логи сервера | `docker compose logs -f server`. Ротация — 3 файла по 10 МБ на контейнер. Access-лога нет: сервер его не пишет, а Caddy при откате пишет только ошибки проксирования (например, 502, пока сервер перезапускается), значения `Authorization` и cookies в них скрыты. Сервер координаты, токены, пароли, коды, email и текст чата не логирует. |
 | Логи и нагрузка базы | RDS → Databases → `hovanki` → Monitoring (CPU, память, свободное место, подключения) и Logs & events. Запросы PostgreSQL не логирует. |
 | Консоль базы | `docker run --rm -it -v /opt/hovanki/rds-ca.pem:/rds-ca.pem:ro postgres:17-alpine psql "host=$DB_HOST dbname=hovanki user=hovanki sslmode=verify-full sslrootcert=/rds-ca.pem"` (спросит пароль из `DATABASE_PASSWORD`): `\dt` — таблицы, `\q` — выход. Там личные данные игроков: заходить только для обслуживания. |
 | Место | Диск базы: RDS → Monitoring → Free storage space (растёт сам до 50 ГБ). Размер базы: в консоли базы `SELECT pg_size_pretty(pg_database_size('hovanki'));`. Диск машины: `df -h /`, `docker system df`. |

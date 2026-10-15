@@ -194,7 +194,7 @@
 | Жалобы | 10 в час |
 | Сообщения в чате | 5 за 10 секунд на игрока (в `Game`) |
 
-IP клиента за Caddy сервер берёт из `X-Forwarded-For` (`server.forward-headers-strategy: native`).
+IP клиента за Caddy сервер берёт из `X-Forwarded-For` (`server.forward-headers-strategy: native`). Без Caddy ([ADR 0026](0026-live-v2.md), профиль `tls`) сервер видит адрес телефона сам, а заголовку не верит (`forward-headers-strategy: none`).
 
 ## 11. Сроки хранения и GDPR
 

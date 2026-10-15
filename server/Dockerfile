@@ -7,8 +7,9 @@
 ARG BASE_IMAGE=eclipse-temurin:21-jre
 FROM ${BASE_IMAGE}
 
-RUN groupadd --system hovanki \
-    && useradd --system --gid hovanki --home-dir /app --shell /usr/sbin/nologin hovanki
+# A fixed uid and gid: the TLS key on the VM belongs to them (deploy/hovanki-cert-deploy.sh, docs/deploy.md).
+RUN groupadd --system --gid 10001 hovanki \
+    && useradd --system --uid 10001 --gid hovanki --home-dir /app --shell /usr/sbin/nologin hovanki
 
 WORKDIR /app
 COPY build/libs/hovanki-server.jar /app/app.jar

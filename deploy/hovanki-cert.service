@@ -1,0 +1,19 @@
+# Gets or renews the Hovanki server's certificate with hovanki-cert.sh (lego, DNS-01 over DuckDNS) and, when there is
+# a new one, puts it in /etc/hovanki/tls for the server. Started by hovanki-cert.timer; see docs/deploy.md, «Без Caddy».
+[Unit]
+Description=Get or renew the Hovanki server's TLS certificate
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Root: the DuckDNS token and lego's account are root's, and the hook gives the key to the server's uid.
+ExecStart=/usr/bin/bash /opt/hovanki/hovanki-cert.sh
+# lego's account and certificates, /var/lib/hovanki-cert, root only.
+StateDirectory=hovanki-cert
+StateDirectoryMode=0700
+# lego waits for the DNS record, and before a renewal for a random while (Let's Encrypt asks for it).
+TimeoutStartSec=30min
+PrivateTmp=yes
+ProtectHome=yes
+NoNewPrivileges=yes
