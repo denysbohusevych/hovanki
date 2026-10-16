@@ -46,7 +46,7 @@ class LiveSocket(
     private val chatPending = ArrayList<ChatMessage>()
     private val syncNanos = ArrayDeque<Long>()
 
-    /** The frame put together so far; null between frames, as nearly every frame comes whole. */
+    /** The frame put together so far; null between frames, as most frames come whole. */
     private var pieces: StringBuilder? = null
 
     /**
