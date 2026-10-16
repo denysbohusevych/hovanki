@@ -24,7 +24,7 @@ ENV HOVANKI_REVISION=$REVISION
 # ~2 400 players, with 55 % the server slows down there instead (perf/results/2026-10-14-heap-share.md).
 # G1 by name: with under 2 CPUs or 1792 MB the JVM picks Serial itself, and Serial cleans the old generation only by a
 # full collection that stops the server for 300–500 ms once the heap fills. G1 cleans it in parts: on the live channel
-# v2's UDP at 890 MB it holds 18 000 players against Serial's 12 000, for 10–25 % more CPU a sync and ~35 MB more
-# outside the heap (perf/results/2026-10-16-gc.md).
+# v2's UDP at 890 MB it holds 18 000 players against Serial's 12 000, on the socket with its own TLS 2 400 against
+# 1 800, for 10–25 % more CPU a sync and ~35 MB more outside the heap (perf/results/2026-10-16-gc.md).
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=55 -XX:+UseG1GC"
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
