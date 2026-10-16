@@ -174,9 +174,9 @@ class LabAdmin private constructor(private val email: String) {
 /**
  * The server's own TLS in the lab (perf/compose.tls.yaml: the profile `tls` with the test certificate of
  * server/src/test/resources/tls): its certificate taken as it is, for any of the lab's names (`localhost`, `server` in
- * the lab's network), as Gatling's players take any. The lab only, never a real server.
+ * the lab's network), as Gatling's players take any; UdpGames' players too. The lab only, never a real server.
  */
-private fun labCertificates(): SSLContext = SSLContext.getInstance("TLS").apply {
+internal fun labCertificates(): SSLContext = SSLContext.getInstance("TLS").apply {
     val anyCertificate = object : X509ExtendedTrustManager() {
         override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) = Unit
 

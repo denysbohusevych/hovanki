@@ -71,6 +71,15 @@ DEFAULTS = {
     },
     "BigGame": {"players": 300, "rampSeconds": 60, "minutes": 5, "transport": "poll"},
 }
+# UdpGames: OrdinaryGames over the live channel v2's UDP, a program of its own (Gatling has no UDP).
+DEFAULTS["UdpGames"] = {**DEFAULTS["OrdinaryGames"], "transport": "udp"}
+
+# The simulations whose ladder is OrdinaryGames': levels of `games` games of `players`.
+GAMES_LADDER = ("OrdinaryGames", "UdpGames")
+
+# The load generators that are not Gatling simulations: their Gradle task, and they write client.json instead of
+# Gatling's simulation.log (docs/perf.md, «UDP»).
+GENERATORS = {"UdpGames": ":perf:udpRun"}
 
 # Local services only: never through the session's HTTP proxy.
 _LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -801,6 +810,9 @@ def parse_console(lines: list[tuple[float, str]]) -> dict:
         m = re.search(r"open the following file: (?:file://)?(\S+index\.html)", text, re.IGNORECASE)
         if m:
             out["report"] = m.group(1)
+        m = re.match(r"^Load report: (\S+)$", text.strip())
+        if m:
+            out["report_dir"] = m.group(1)
         m = re.search(r"Global: .*(true|false)", text)
         if "assertion" in text.lower() and m:
             out.setdefault("assertions", []).append(text.strip())
@@ -851,6 +863,8 @@ class ClientLog:
         self.ko_messages: dict[tuple[int, str], int] = {}
         self.users: dict[int, int] = {}  # second -> users started minus ended in it
         self.crashes: dict[str, int] = {}
+        # The UDP generator's own counters (UdpGames): datagrams, bytes, answers; None for Gatling.
+        self.udp: dict | None = None
         self.read()
 
     def read(self) -> None:
@@ -1011,6 +1025,36 @@ class ClientLog:
         return most
 
 
+class HistogramLog(ClientLog):
+    """client.json of a load generator that is not Gatling (UdpGames, perf/src/gatling/.../ClientStats.kt): the same
+    latencies by second and name, the failures by message and the users, already counted."""
+
+    def read(self) -> None:
+        data = json.loads(self.path.read_text())
+        self.version = None
+        self.simulation = data.get("generator")
+        self.start_ms = int(data["start_ms"])
+        for second, name, latencies in data.get("ok", []):
+            self.ok[(int(second), name)] = {int(ms): int(n) for ms, n in latencies.items()}
+        for second, name, n in data.get("ko", []):
+            self.ko[(int(second), name)] = int(n)
+        for second, message, n in data.get("ko_messages", []):
+            self.ko_messages[(int(second), message)] = int(n)
+        self.users = {int(second): int(n) for second, n in data.get("users", {}).items()}
+        self.udp = data.get("udp")
+
+
+def udp_numbers(udp: dict) -> dict:
+    """The UDP generator's counters with the bytes per Up both ways (a sync of v2 over UDP)."""
+    ups = udp.get("ups") or 0
+    out = dict(udp)
+    if ups:
+        out["bytes_up_per_up"] = rnd(udp.get("bytes_out", 0) / ups)
+        out["bytes_down_per_up"] = rnd(udp.get("bytes_in", 0) / ups)
+        out["unanswered_pct"] = rnd(udp.get("unanswered", 0) / ups * 100, 2)
+    return out
+
+
 def percentiles(latencies: dict[int, int], count: int) -> dict:
     if not count:
         return {}
@@ -1037,6 +1081,12 @@ SYNC_REQUESTS = r"^sync "
 
 
 def client_log(report_dir: Path | None) -> ClientLog | None:
+    if report_dir and (report_dir / "client.json").exists():
+        try:
+            return HistogramLog(report_dir / "client.json")
+        except (ValueError, KeyError, TypeError) as e:
+            warn(f"client.json can't be read ({e}): the report has no client numbers")
+            return None
     if not report_dir or not (report_dir / "simulation.log").exists():
         return None
     try:
@@ -1070,7 +1120,7 @@ def steps_of(console: dict, params: dict, simulation: str, start: float, end: fl
     plan = console.get("plan") or {}
     levels = plan.get("levels") or int(params.get("steps", defaults.get("steps", 1)))
     level_seconds = plan.get("level_seconds")
-    if not level_seconds and simulation == "OrdinaryGames" and levels > 1:
+    if not level_seconds and simulation in GAMES_LADDER and levels > 1:
         # No console (an imported run): OrdinaryGames' ladder by its parameters.
         level_seconds = ramp + int(params.get("minutes", defaults["minutes"])) * 60
     games_per_level = plan.get("games_per_level") or int(params.get("games", defaults.get("games", 0)))
@@ -1105,7 +1155,7 @@ def steps_of(console: dict, params: dict, simulation: str, start: float, end: fl
                 break
     else:
         hold_from = min(start + ramp + SETTLE_SECONDS, end)
-        planned = (games_per_level * players_per_game) if simulation == "OrdinaryGames" else players_per_game
+        planned = (games_per_level * players_per_game) if simulation in GAMES_LADDER else players_per_game
         steps.append({"step": 1, "from_s": 0, "players_planned": planned or None, "hold": [hold_from, end]})
         if end - hold_from < SAMPLE_SECONDS * 3:
             steps[-1]["hold"] = [start, end]
@@ -1386,6 +1436,8 @@ def collect(run_dir: Path) -> dict:
     params = meta["load"]["params"]
 
     report_dir = Path(console["report"]).parent if console.get("report") else None
+    if not report_dir and console.get("report_dir"):
+        report_dir = Path(console["report_dir"])
     if report_dir and not report_dir.exists():
         report_dir = None
     if not report_dir and meta.get("gatling_report"):
@@ -1445,6 +1497,8 @@ def collect(run_dir: Path) -> dict:
         whole["players"] = whole["client"]["users_max"]
         if client.crashes:
             whole["client"]["crashes"] = client.crashes
+        if client.udp:
+            whole["client"]["udp"] = udp_numbers(client.udp)
     derive(whole)
 
     timeline = None
@@ -1497,7 +1551,10 @@ def collect(run_dir: Path) -> dict:
         "db": meta.get("db"),
         "timeline": timeline,
         "links": {
-            "gatling_report": str(report_dir / "index.html") if report_dir else None,
+            "gatling_report": (
+                str(report_dir / "index.html") if report_dir and (report_dir / "index.html").exists() else None
+            ),
+            "client_report": str(report_dir / "client.json") if report_dir and client and client.udp else None,
             "grafana": grafana_link(job, start, end),
         },
     }
@@ -1682,8 +1739,9 @@ def summary_md(r: dict) -> str:
     lines = [f"# Прогон {r['id']}", ""]
     if r.get("label"):
         lines += [f"**{r['label']}**", ""]
+    transport = params.get("transport", DEFAULTS.get(sim, {}).get("transport", "poll"))
     lines += [
-        f"- {sim}, {params.get('transport', 'poll')}, {limits}, куча {fmt(server.get('heap_max_mb'))} МБ, "
+        f"- {sim}, {transport}, {limits}, куча {fmt(server.get('heap_max_mb'))} МБ, "
         f"GC {server.get('gc', '—')}",
         f"- параметры: {' '.join(f'{k}={v}' for k, v in params.items()) or 'по умолчанию'}",
         code_line,
@@ -1772,15 +1830,29 @@ def summary_md(r: dict) -> str:
             )
         lines.append("")
     client = whole.get("client") or {}
+    udp = client.get("udp") or {}
+    if udp:
+        lines += [
+            "## UDP за прогон",
+            "",
+            f"Up {fmt(udp.get('ups'))}, отвечено {fmt(udp.get('answers'))}, без ответа {fmt(udp.get('unanswered'))} "
+            f"({fmt(udp.get('unanswered_pct'))} %), пушей {fmt(udp.get('pushes'))}, проверок адреса "
+            f"{fmt(udp.get('challenges'))}, ошибок {fmt(udp.get('errors'))}, RESET {fmt(udp.get('resets'))}, "
+            f"закрытий {fmt(udp.get('closes'))}, новых сессий {fmt(udp.get('reopens'))}. На Up: "
+            f"{fmt(udp.get('bytes_up_per_up'))} Б вверх, {fmt(udp.get('bytes_down_per_up'))} Б вниз. Датаграмм "
+            f"отброшено {fmt(udp.get('dropped'))}, не ушло {fmt(udp.get('send_failed'))}, порт закрыт "
+            f"{fmt(udp.get('unreachable'))}.",
+            "",
+        ]
     if client.get("requests"):
-        lines += ["## Запросы Gatling за прогон", ""]
+        lines += ["## Запросы клиента за прогон", ""]
         lines += table("запрос", "всего", "KO", "p50", "p95", "p99", "max, мс")
         for name, q in sorted(client["requests"].items(), key=lambda kv: -kv[1]["count"]):
             lines.append(row(name, *(fmt(q.get(k)) for k in ("count", "ko", "p50_ms", "p95_ms", "p99_ms", "max_ms"))))
         lines.append("")
     errors = client.get("errors") or out.get("gatling_errors") or []
     if errors:
-        lines += ["## Ошибки Gatling", ""]
+        lines += ["## Ошибки клиента", ""]
         lines += [f"- {e['count']} × {e['message']}" for e in errors[:10]]
         lines.append("")
     fs = r.get("findings") or []
@@ -1806,7 +1878,10 @@ def summary_md(r: dict) -> str:
     if r.get("baseline_comparison"):
         lines += ["## Против базового прогона", "", r["baseline_comparison"], ""]
     links = r.get("links") or {}
-    lines += ["## Ссылки", "", f"- Grafana: {links.get('grafana')}", f"- Gatling: {links.get('gatling_report')}", ""]
+    lines += ["## Ссылки", "", f"- Grafana: {links.get('grafana')}", f"- Gatling: {links.get('gatling_report')}"]
+    if links.get("client_report"):
+        lines.append(f"- клиент: {links['client_report']}")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -2081,12 +2156,14 @@ def parse_props(args: list[str]) -> tuple[dict, list[str]]:
 def run_id(started: float, simulation: str, params: dict) -> str:
     stamp = datetime.datetime.fromtimestamp(started, datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
     short = re.sub(r"[^a-z0-9]+", "", simulation.rsplit(".", 1)[-1].lower())
-    return f"{stamp}-{short}-{params.get('transport', 'poll')}"
+    transport = params.get("transport", DEFAULTS.get(simulation.rsplit(".", 1)[-1], {}).get("transport", "poll"))
+    return f"{stamp}-{short}-{transport}"
 
 
 def cmd_run(args: argparse.Namespace) -> int:
     docker = Docker()
     simulation = args.simulation if "." in args.simulation else SIMULATION_PACKAGE + args.simulation
+    short_name = simulation.rsplit(".", 1)[-1]
     params, gradle_args = parse_props(args.gradle)
     started = now()
     rid = run_id(started, simulation, params)
@@ -2117,7 +2194,11 @@ def cmd_run(args: argparse.Namespace) -> int:
             "command": (
                 ["perf/gatling.sh", simulation, *gradle_args]
                 if os.environ.get("PERF_GATLING") == "docker"
-                else ["./gradlew", ":perf:gatlingRun", "--simulation", simulation, *gradle_args]
+                else (
+                    ["./gradlew", GENERATORS[short_name], *gradle_args]
+                    if short_name in GENERATORS
+                    else ["./gradlew", ":perf:gatlingRun", "--simulation", simulation, *gradle_args]
+                )
             ),
         },
         "prometheus_job": job,
@@ -2173,6 +2254,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     console = parse_console(read_console(run_dir / "gatling.log"))
     if console.get("report"):
         meta["gatling_report"] = str(Path(console["report"]).parent)
+    elif console.get("report_dir"):
+        meta["gatling_report"] = console["report_dir"]
     else:
         latest = latest_gatling_report(after=started)
         meta["gatling_report"] = str(latest) if latest else None
