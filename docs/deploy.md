@@ -112,7 +112,7 @@
 | `HOVANKI_ADMIN_SECRET_KEY` | Ключ админки: base64 от 32 случайных байт ([Админка](#админка)). Пусто или нет — админка выключена |
 | `DATABASE_NAME`, `DATABASE_USER` | Только для [staging](#staging): база и роль на RDS (`hovanki_staging`). По умолчанию `hovanki` и `hovanki` — на основной машине их не задают |
 | `SPRING_PROFILES_ACTIVE` | Обычно не задают. `field` — на основной машине в дни полевого теста ([Полевой тест на основном сервере](#полевой-тест-на-основном-сервере)); `staging` — на staging |
-| `SERVER_MEM_LIMIT` | Лимит памяти контейнера сервера, куча — 55 % от него, остальное — память JVM вне кучи. По умолчанию `640m` (машина в 1 ГБ); в день полевого теста на `t3.small` — `1g`; на staging `1g` или `2g` |
+| `SERVER_MEM_LIMIT` | Лимит памяти контейнера сервера, куча — 55 % от него, остальное — память JVM вне кучи. По умолчанию `890m`: машина в 1 ГБ без Caddy, ~130 МБ системе. С Caddy впереди ([откат](#откат-на-caddy)) — `640m`, остальное Caddy. В день полевого теста на `t3.small` — `1g`; на staging `1g` или `2g` |
 | `SENTRY_DSN` | Только для staging, необязательно: DSN Sentry сервера. На основной машине не задают |
 | `HOVANKI_LIVE_RESET_SECRET` | Необязательно: base64 от 32 случайных байт (`openssl rand -base64 32`), ключ RESET живого канала v2 по UDP. Один и тот же через перезапуски: после падения сервера телефоны сразу узнают, что их живых сессий нет. Пусто — новый при каждом старте, телефоны узнают на несколько секунд позже ([UDP живого канала](#udp-живого-канала)) |
 | `HOVANKI_TLS`, `HOVANKI_PUBLISH`, `COMPOSE_PROFILES` | Только для отката на Caddy ([Без Caddy](#без-caddy)): `HOVANKI_TLS=` (пусто) — сервер на обычном HTTP 8080, `HOVANKI_PUBLISH=127.0.0.1:8443` — 443 свободен для Caddy, `COMPOSE_PROFILES=caddy` — Caddy запущен. Без них сервер сам на 443 |
@@ -350,7 +350,7 @@ docker compose down postgres
    ```bash
    scp -i ~/Downloads/hovanki.pem deploy/compose.yaml ubuntu@<IP>:/opt/hovanki/
    ```
-   На машине:
+   На машине: в `.env` не должно быть `SERVER_MEM_LIMIT` (кроме дня полевого теста), тогда сервер получает 890 МБ: память Caddy отходит ему. Затем:
    ```bash
    docker compose config --quiet                 # молчит, если всё на месте
    docker compose --profile caddy stop caddy     # освобождает 80 и 443
@@ -358,7 +358,7 @@ docker compose down postgres
    docker compose up -d
    ```
 7. **Проверка.**
-   - На машине: `docker compose ps` — только `server`, порты `0.0.0.0:443->8443/tcp` и `/udp`; `docker compose logs server | grep -iE 'profile|Tomcat started'` — профиль `tls` и `Tomcat started on port 8443 (https)`.
+   - На машине: `docker compose ps` — только `server`, порты `0.0.0.0:443->8443/tcp` и `/udp`; `docker compose logs server | grep -iE 'profile|Tomcat started'` — профиль `tls` и `Tomcat started on port 8443 (https)`; `docker stats --no-stream server` — лимит `890MiB`: память Caddy теперь у сервера (замер стенда 16.10: 2 385 игроков против 1 935 с Caddy; с прежними 640 МБ было бы 1 647).
    - С компьютера: `curl -s https://hovanki.duckdns.org/actuator/health` → `UP`; `curl -sI https://hovanki.duckdns.org/api/v1/time | head -1` → `HTTP/2 200`; `echo | openssl s_client -connect hovanki.duckdns.org:443 -servername hovanki.duckdns.org 2>/dev/null | openssl x509 -noout -issuer -enddate` — Let's Encrypt и дата через ~90 дней.
    - Приложение на телефоне: войти, создать игру, открыть админку `https://hovanki.duckdns.org/admin`.
    - `systemctl list-timers hovanki-cert.timer` — следующий запуск есть.
@@ -372,13 +372,14 @@ docker compose down postgres
 COMPOSE_PROFILES=caddy
 HOVANKI_TLS=
 HOVANKI_PUBLISH=127.0.0.1:8443
+SERVER_MEM_LIMIT=640m
 ```
 Затем:
 ```bash
 docker compose up -d server     # сервер на HTTP 8080, 443 свободен
 docker compose up -d            # Caddy со своими старыми сертификатами
 ```
-Перед откатом выключить в админке «Живой канал v2 по UDP»: через Caddy датаграммы до сервера не доходят. Проверка: `docker compose ps` — `server` и `caddy`. Если правило 80 в группе безопасности удалено, Caddy продлевает сертификат через 443 (TLS-ALPN); вернуть правило не обязательно. `hovanki-cert.timer` можно не трогать: он продолжает держать сертификат в `/etc/hovanki/tls` для возврата. Вернуться без Caddy: убрать три строки из `.env`, `docker compose --profile caddy stop caddy`, `docker compose up -d`.
+Перед откатом выключить в админке «Живой канал v2 по UDP»: через Caddy датаграммы до сервера не доходят. Проверка: `docker compose ps` — `server` и `caddy`. Если правило 80 в группе безопасности удалено, Caddy продлевает сертификат через 443 (TLS-ALPN); вернуть правило не обязательно. `hovanki-cert.timer` можно не трогать: он продолжает держать сертификат в `/etc/hovanki/tls` для возврата. Последняя строка отдаёт Caddy память, которую без него берёт сервер. Вернуться без Caddy: убрать четыре строки из `.env`, `docker compose --profile caddy stop caddy`, `docker compose up -d`.
 
 ### UDP живого канала
 

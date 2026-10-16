@@ -76,10 +76,11 @@ services:
         read_only: true
         bind:
           create_host_path: false
-    # The heap is 55% of this limit (JAVA_TOOL_OPTIONS in server/Dockerfile); 640m leaves room for the OS and Caddy on
-    # a 1 GB VM. Without Caddy it may grow, after a measurement (docs/live-v2/server.md §2.4).
+    # The heap is 55% of this limit (JAVA_TOOL_OPTIONS in server/Dockerfile). 890m is a 1 GB VM without Caddy: ~130 MB
+    # for the OS, the rest to the server, which holds its TLS connections itself now (docs/live-v2/server.md §2.4: 2 385
+    # players instead of 1 647 at 640m). Back behind Caddy: SERVER_MEM_LIMIT=640m in .env, Caddy needs the rest.
     # Staging has more RAM: SERVER_MEM_LIMIT=1g on a t3.small, 2g on a t3.medium on the day of a test.
-    mem_limit: ${SERVER_MEM_LIMIT:-640m}
+    mem_limit: ${SERVER_MEM_LIMIT:-890m}
     logging: *logging
 
   # The way back to Caddy in front (docs/deploy.md, «Без Caddy»): COMPOSE_PROFILES=caddy, HOVANKI_TLS= and
