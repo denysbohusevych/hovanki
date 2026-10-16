@@ -15,6 +15,7 @@ import org.locationtech.jts.geom.Envelope
 import org.locationtech.jts.geom.Geometry
 import org.locationtech.jts.geom.LineString
 import org.locationtech.jts.geom.Polygon
+import org.locationtech.jts.geom.prep.PreparedGeometryFactory
 import org.locationtech.jts.operation.buffer.BufferOp
 import org.locationtech.jts.operation.buffer.BufferParameters
 import org.locationtech.jts.simplify.TopologyPreservingSimplifier
@@ -79,7 +80,10 @@ class TileBuildingSource(private val tiles: VectorTiles, private val properties:
         if (vertices > properties.maxVertices) {
             throw BuildingsUnavailableException("More than ${properties.maxVertices} building vertices", retry = false)
         }
-        val passages = tunnels.filter { it.intersects(merged) }.map { line ->
+        // Prepared once: a plain intersects builds the graph of every building again for each tunnel, ~0.4 s of CPU a
+        // game in a city centre (perf/results/2026-10-16-buildings.md).
+        val houses = PreparedGeometryFactory.prepare(merged)
+        val passages = tunnels.filter { houses.intersects(it) }.map { line ->
             Passage(line.coordinates.map(projection::toGeo), PASSAGE_WIDTH_METERS)
         }
         return Buildings(areas, passages)

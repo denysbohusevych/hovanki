@@ -83,6 +83,7 @@ import app.hovanki.shared.protocol.ZoneShape
 import app.hovanki.shared.rules.BoardRules
 import app.hovanki.shared.rules.BuildingMap
 import app.hovanki.shared.rules.BuildingRules
+import app.hovanki.shared.rules.BuildingSpots
 import app.hovanki.shared.rules.Capacity
 import app.hovanki.shared.rules.CatchRules
 import app.hovanki.shared.rules.ChatRules
@@ -2502,12 +2503,14 @@ class Game(
             if (catches.values.any { it.isOpen && it.hiderId == hider.id }) continue
             // Of any accuracy: indoors GPS is worse than the other rules accept, the rule filters for itself.
             val recent = hider.track.recentFixes(nowMillis)
+            val spots = hider.buildingSpots?.takeIf { it.map === map && it.rules === rules }
+                ?: BuildingSpots(map, rules).also { hider.buildingSpots = it }
             val since = hider.insideBuildingSinceMillis
-            if (since == null && BuildingRules.isConfidentlyInside(recent, map, rules)) {
+            if (since == null && BuildingRules.isConfidentlyInside(recent, spots, rules)) {
                 hider.insideBuildingSinceMillis = nowMillis
                 hider.buildingWarnings++
                 pokes.add(hider.id)
-            } else if (since != null && BuildingRules.hasLeft(recent, map, rules)) {
+            } else if (since != null && BuildingRules.hasLeft(recent, spots, rules)) {
                 hider.insideBuildingSinceMillis = null
                 pokes.add(hider.id)
             }
