@@ -46,3 +46,6 @@ management:
       percentiles-histogram:
         "[http.server.requests]": true
         "[hovanki.game.sync]": true
+      # A sync over UDP or the socket takes ~50 µs: from the default 1 ms bucket up every quantile read 0.5/0.95/0.99 ms.
+      minimum-expected-value:
+        "[hovanki.game.sync]": 10us

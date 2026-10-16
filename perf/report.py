@@ -458,6 +458,11 @@ WINDOW_METRICS = [
     # own players are Gatling's (`players` of a step, `client.users_max`).
     ("players_in_memory", "max_over_time(hovanki_players{JOB}[WIN])"),
     ("sockets", "max_over_time(hovanki_sockets{JOB}[WIN])"),
+    # The live channel v2's sessions (WebSocket v2 and UDP) and its bytes, docs/live-v2/server.md.
+    ("live_sessions", 'max_over_time(sum(hovanki_live_sessions{JOB,transport!="none"})[WIN:5s])'),
+    ("live_out_kb_s", 'sum(rate(hovanki_live_bytes_total{JOB,dir="out"}[WIN])) / 1024'),
+    ("live_in_kb_s", 'sum(rate(hovanki_live_bytes_total{JOB,dir="in"}[WIN])) / 1024'),
+    ("live_full_per_s", 'sum(rate(hovanki_live_down_total{JOB,state="full"}[WIN]))'),
     ("games_in_memory", "max_over_time(hovanki_games{JOB}[WIN])"),
     ("syncs_per_s", "sum(rate(hovanki_game_sync_seconds_count{JOB}[WIN]))"),
     ("syncs_per_s_poll", 'sum(rate(hovanki_game_sync_seconds_count{JOB,transport="poll"}[WIN]))'),
@@ -466,6 +471,10 @@ WINDOW_METRICS = [
     ("sync_p95_ms", "histogram_quantile(0.95, sum by (le) (rate(hovanki_game_sync_seconds_bucket{JOB}[WIN]))) * 1000"),
     ("sync_p99_ms", "histogram_quantile(0.99, sum by (le) (rate(hovanki_game_sync_seconds_bucket{JOB}[WIN]))) * 1000"),
     ("sync_max_ms", "max(max_over_time(hovanki_game_sync_seconds_max{JOB}[WIN])) * 1000"),
+    (
+        "sync_mean_ms",
+        "sum(rate(hovanki_game_sync_seconds_sum{JOB}[WIN])) / sum(rate(hovanki_game_sync_seconds_count{JOB}[WIN])) * 1000",
+    ),
     ("http_per_s", "sum(rate(http_server_requests_seconds_count{JOB}[WIN]))"),
     ("http_5xx_per_s", 'sum(rate(http_server_requests_seconds_count{JOB,status=~"5.."}[WIN]))'),
     ("http_429_per_s", 'sum(rate(http_server_requests_seconds_count{JOB,status="429"}[WIN]))'),
@@ -544,6 +553,7 @@ DIGITS = {
     "sync_p95_ms": 2,
     "sync_p99_ms": 2,
     "sync_max_ms": 1,
+    "sync_mean_ms": 3,
     "gc_pause_pct": 2,
     "http_5xx_per_s": 2,
     "http_429_per_s": 2,
@@ -1594,13 +1604,16 @@ def derive(window: dict) -> None:
     """The per-sync numbers: what one sync costs, comparable between loads."""
     srv = window.get("server") or {}
     if window.get("players") is not None and srv.get("sockets") is not None:
-        srv["players_poll"] = rnd(max(0, window["players"] - srv["sockets"]))
+        connected = srv["sockets"] + (srv.get("live_sessions") or 0)
+        srv["players_poll"] = rnd(max(0, window["players"] - connected))
     syncs = srv.get("syncs_per_s")
     if not syncs:
         return
     cpu = srv.get("cpu_vcpu")
     if cpu is not None:
         srv["cpu_ms_per_sync"] = rnd(cpu * 1000 / syncs, 3)
+    if srv.get("live_out_kb_s") is not None:
+        srv["live_out_b_per_sync"] = rnd(srv["live_out_kb_s"] * 1024 / syncs)
     if srv.get("alloc_mb_per_s") is not None:
         srv["alloc_kb_per_sync"] = rnd(srv["alloc_mb_per_s"] * 1e6 / syncs / 1024)
     for who, c in (window.get("containers") or {}).items():
@@ -1754,7 +1767,7 @@ def summary_md(r: dict) -> str:
         lines += ["## Ступени", ""]
         lines += table(
             "ст.",
-            "игроков (сокет)",
+            "игроков (сокет, v2)",
             "синхр/с",
             "клиент p95/p99 мс",
             "сервер p95/p99 мс",
@@ -1780,7 +1793,7 @@ def summary_md(r: dict) -> str:
             lines.append(
                 row(
                     f"{s['step']}{' ⛔' if s.get('stopped_here') else ''}",
-                    f"{fmt(s.get('players'))} ({fmt(srv.get('sockets'))})",
+                    f"{fmt(s.get('players'))} ({fmt((srv.get('sockets') or 0) + (srv.get('live_sessions') or 0))})",
                     fmt(srv.get("syncs_per_s")),
                     pair(cli.get("p95_ms"), cli.get("p99_ms")),
                     pair(srv.get("sync_p95_ms"), srv.get("sync_p99_ms")),
@@ -1878,7 +1891,9 @@ def summary_md(r: dict) -> str:
     if r.get("baseline_comparison"):
         lines += ["## Против базового прогона", "", r["baseline_comparison"], ""]
     links = r.get("links") or {}
-    lines += ["## Ссылки", "", f"- Grafana: {links.get('grafana')}", f"- Gatling: {links.get('gatling_report')}"]
+    lines += ["## Ссылки", "", f"- Grafana: {links.get('grafana')}"]
+    if links.get("gatling_report"):
+        lines.append(f"- Gatling: {links['gatling_report']}")
     if links.get("client_report"):
         lines.append(f"- клиент: {links['client_report']}")
     lines.append("")
