@@ -64,9 +64,9 @@ hovanki:
     reset-secret: ${HOVANKI_LIVE_RESETSECRET:}
 ```
 
-- **Второй коннектор на 8080** — обычный HTTP, внутри сети compose, без публикации. Через него
-  `deploy/hovanki-update.sh` спрашивает `/actuator/restarthold` (он ходит на `:8081`, потом на `:8080`). Сделать через
-  `TomcatServletWebServerFactory.addAdditionalTomcatConnectors`.
+- ~~**Второй коннектор на 8080**~~ не понадобился: `deploy/hovanki-update.sh` спрашивает `/actuator/restarthold` по
+  HTTPS на 8443 (на staging — на 8081, он тоже HTTPS: порт управления берёт `server.ssl`) с
+  `curl --resolve <DOMAIN>:8443:<адрес контейнера>`, сертификат выписан на имя. Серверный код не меняется (§2.7).
 - **`forward-headers-strategy: native`** без прокси безвреден: Tomcat верит `X-Forwarded-For` только от частных
   адресов. Но `none` честнее, и его надо поставить в том же PR, где уходит Caddy.
 - **Проверить замером на стенде, сколько памяти Tomcat держит на одно TLS-соединение** (JSSE, буферы
@@ -75,12 +75,19 @@ hovanki:
 ### 2.3. Сертификат: lego и DuckDNS
 
 - **lego v5.5.2** (бинарник с релизов GitHub в `/usr/local/bin/lego`).
-- **Запуск:** `lego run --dns duckdns -d ${DOMAIN}` с `DUCKDNS_TOKEN_FILE=/etc/hovanki/duckdns.token`. У v5 одна
-  команда `run`: она и получает, и продлевает, когда осталась треть срока (с ARI). Точные флаги путей и хука —
-  сверить с документацией v5 при внедрении (`lego migrate` для старых установок).
-- **Таймер:** `deploy/hovanki-cert.timer` + `.service` — дважды в день `lego run …` с `--deploy-hook`. Хук копирует
-  `fullchain.pem` и `privkey.pem` в `/etc/hovanki/tls/` с правами для uid пользователя `hovanki` из образа. Spring
-  перечитает их сам.
+- **Запуск** (сверено с бинарником v5.5.2, `deploy/hovanki-cert.sh`): `lego --log.format text run --dns duckdns
+  --domains <DOMAIN> --deploy-hook "/usr/bin/bash /opt/hovanki/hovanki-cert-deploy.sh"` с окружением
+  `DUCKDNS_TOKEN_FILE=/etc/hovanki/duckdns.token`, `LEGO_PATH=/var/lib/hovanki-cert`, `LEGO_ACCEPT_TOS=true`. Одна
+  команда `run` и получает, и продлевает, когда осталась треть срока (с ARI); перед продлением сама спит случайное
+  время. Email не обязателен. Ключ — EC256 в PKCS#8 (`BEGIN PRIVATE KEY`), `.crt` — вся цепочка (без `--no-bundle`),
+  лежат в `<LEGO_PATH>/certificates/<DOMAIN>.crt` и `.key`.
+- **Хук** (`deploy/hovanki-cert-deploy.sh`) получает окружение lego и `LEGO_HOOK_CERT_PATH`,
+  `LEGO_HOOK_CERT_KEY_PATH`, `LEGO_HOOK_CERT_DOMAINS`; строку хука lego делит по пробелам, поэтому `bash <скрипт>`
+  работает без бита исполнения после `scp`. Хук кладёт `fullchain.pem` (`root`, `0444`) и `privkey.pem` (uid и gid
+  10001, `0400`) в `/etc/hovanki/tls/` (`root:10001`, `0750`): каждый файл рядом, потом `mv` поверх. uid и gid 10001
+  закреплены в `server/Dockerfile`. Spring перечитывает пару сам после 10 тихих секунд.
+- **Таймер:** `deploy/hovanki-cert.timer` + `.service` (root) — дважды в день, `RandomizedDelaySec=1h`, `Persistent`.
+  lego ставит `deploy/hovanki-lego-install.sh`: версия и sha256 архива закреплены в нём.
 - **Почему DNS-01, а не HTTP-01.** Порт 80 не нужен, и первый сертификат можно получить, пока Caddy ещё держит 80 и
   443: переход без простоя.
 - **Цена DNS-01.** Токен DuckDNS лежит на машине. Он даёт власть над всеми именами аккаунта DuckDNS. Файл
@@ -134,13 +141,32 @@ net.core.somaxconn = 4096
 
 ### 2.6. Откат
 
-- **Caddy остаётся в `compose.yaml` под профилем `caddy`.** Откат:
-  1. убрать TLS-настройки сервера (переменная);
-  2. вернуть `ports` Caddy;
-  3. `docker compose --profile caddy up -d`.
+- **Caddy остаётся в `compose.yaml` под профилем `caddy`.** Откат — три строки в `.env`: `COMPOSE_PROFILES=caddy`,
+  `HOVANKI_TLS=` (сервер без профиля `tls`, на HTTP 8080), `HOVANKI_PUBLISH=127.0.0.1:8443` (443 свободен для Caddy);
+  затем `docker compose up -d server` и `docker compose up -d` (`docs/deploy.md`, «Откат на Caddy»).
 
   Сертификаты Caddy лежат в своём томе, он их помнит.
-- **В `docs/deploy.md`:** новый раздел про lego и откат; строки «Caddy» в проверках поменять.
+
+### 2.7. Как сделано (шаг 1)
+
+- **Сервер:** только новый профиль `application-tls.yaml` (§2.2: порт 8443, HTTP/2, бандл `hovanki` из PEM с
+  `reload-on-update`, `forward-headers-strategy: none`, папка — `HOVANKI_TLS_DIR`, по умолчанию `/etc/hovanki/tls`) и
+  закреплённые uid/gid 10001 в `server/Dockerfile`. Кода нет; `application.yaml` не тронут. Без профиля всё как было:
+  локально, e2e и стенд на HTTP 8080.
+- **Включение:** `compose.yaml` ставит `SPRING_PROFILES_INCLUDE: ${HOVANKI_TLS-tls}`, рядом с
+  `SPRING_PROFILES_ACTIVE` (пусто, `field`, `staging`; проверено запуском jar). На staging порт управления 8081 тоже
+  становится HTTPS.
+- **Деплой:** `compose.yaml` (443/tcp и 443/udp → 8443, `/etc/hovanki/tls` только для чтения, Caddy под профилем),
+  `hovanki-cert.sh`, `hovanki-cert-deploy.sh`, `hovanki-cert.service`/`.timer`, `hovanki-lego-install.sh`,
+  `hovanki-update.sh` (§2.2), `aws-user-data.sh` (ядро §2.4, `/etc/hovanki/tls`). `mem_limit` пока 640 МБ: поднять по
+  замеру стенда.
+- **Проверено:** `TlsProfileTest` (ответ по TLS и HTTP/2; новый сертификат в папке — сервер отдаёт его без
+  перезапуска); lego v5.5.2 с хуком на тестовом ACME (Pebble): выдача, «рано продлевать», принудительное продление под
+  работающим jar — сервер отдал новый сертификат через 4 с; запрос `restarthold` из `hovanki-update.sh` во всех
+  четырёх видах (prod/staging × TLS/за Caddy); `docker compose config` в обоих режимах. На машине AWS и с настоящим
+  DuckDNS не запускалось: это переход по `docs/deploy.md`, «Без Caddy».
+- **Merge сервер не переключает:** на машине остаётся старый `compose.yaml`. Переход — вручную, по шагам
+  `docs/deploy.md`.
 
 ## 3. Состояние v2 на сервере
 

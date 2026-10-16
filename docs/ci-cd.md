@@ -338,7 +338,7 @@ curl http://localhost:8080/actuator/health
 - Правило зданий и зона по улицам: серверу нужен исходящий HTTPS к тайлам карты (`tiles.openfreemap.org`, `HOVANKI_MAP_TILES_URL` — свой TileJSON). `HOVANKI_BUILDINGS_SOURCE=overpass` берёт здания из Overpass API (`HOVANKI_BUILDINGS_OVERPASS_URLS` — адреса через запятую, свой инстанс первым), `off` выключает правило; `HOVANKI_MAP_STREETS=off` выключает зону по улицам (игры идут кругами). Без доступа игры идут без правила и кругами, и игроки это видят ([ADR 0003](adr/0003-map-and-buildings.md#изменение-2026-09-28-здания-из-тайлов-карты), [ADR 0009](adr/0009-game-setup-glow-streets.md)).
 - Пробы для оркестратора: `/actuator/health/liveness` и `/actuator/health/readiness`.
 - Игры хранятся в памяти: запускаем **одну реплику**, рестарт/деплой обрывает идущие игры. Аккаунты, друзья и группы — в PostgreSQL и переживают рестарт.
-- Release-сборки приложений должны ходить по HTTPS (на Android cleartext разрешён только в debug, на iOS действует App Transport Security), поэтому в проде сервер ставится за reverse proxy с TLS (Caddy, Traefik, nginx) или за managed-балансировщик.
+- Release-сборки приложений должны ходить по HTTPS (на Android cleartext разрешён только в debug, на iOS действует App Transport Security), поэтому в проде сервер отвечает по HTTPS: сам, с профилем `tls` и сертификатом от lego ([deploy.md](deploy.md#без-caddy)), или за reverse proxy с TLS (Caddy, Traefik, nginx) или managed-балансировщиком.
 - Локальная сборка образа: `./gradlew :server:bootJar && docker build -t hovanki-server server`.
 
 ## iOS: TestFlight

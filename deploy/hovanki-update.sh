@@ -37,9 +37,13 @@ if [ -n "$container" ] && [ "${HOVANKI_UPDATE_FORCE:-0}" != 1 ]; then
   until=""
   if [ -n "$address" ]; then
     # The management port first (8081, the staging profile: everything under /actuator is there and the game's port
-    # answers 404 to it), then the game's port (production). A port that is closed or says 404 gives no answer at all.
-    for port in 8081 8080; do
-      until=$(curl --silent --fail --max-time 5 "http://$address:$port/actuator/restarthold" |
+    # answers 404 to it), then the game's port (production): 8443 with the server's own TLS (the profile `tls`, its
+    # certificate is for DOMAIN, so the name is pinned to the container's address), 8080 behind Caddy. A port that is
+    # closed, speaks the other protocol or says 404 gives no answer at all.
+    domain=$(sed -n 's/^DOMAIN=//p' .env | tail -n 1 | tr -d "\"' ")
+    resolve=(--resolve "$domain:8081:$address" --resolve "$domain:8443:$address")
+    for url in "https://$domain:8081" "http://$address:8081" "https://$domain:8443" "http://$address:8080"; do
+      until=$(curl --silent --fail --max-time 5 --noproxy '*' "${resolve[@]}" "$url/actuator/restarthold" |
         python3 -c 'import json, sys; hold = json.load(sys.stdin); print(hold.get("until", "") if hold.get("held") else "")' \
         2>/dev/null || true)
       if [ -n "$until" ]; then break; fi

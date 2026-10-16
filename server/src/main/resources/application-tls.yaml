@@ -1,0 +1,27 @@
+# The server's own TLS on the internet, without Caddy in front (docs/live-v2/server.md §2, docs/deploy.md «Без Caddy»).
+# deploy/compose.yaml turns it on with SPRING_PROFILES_INCLUDE=tls, next to whatever SPRING_PROFILES_ACTIVE says (empty,
+# `field` or `staging`), publishes 443/tcp to this port and mounts the certificate that lego keeps up to date
+# (deploy/hovanki-cert.sh) read-only at /etc/hovanki/tls. Local runs, e2e and the perf lab stay on plain HTTP 8080.
+
+server:
+  # Inside the container: the server is not root, so not 443 itself.
+  port: 8443
+  http2:
+    enabled: true
+  ssl:
+    bundle: hovanki
+  # Nothing in front any more: the address the server sees is the phone's own (Docker keeps the source address of a
+  # published port), and a forwarded header would be the phone's own word.
+  forward-headers-strategy: none
+
+spring:
+  ssl:
+    bundle:
+      pem:
+        hovanki:
+          # lego's deploy hook replaces both files; the server takes the new certificate after a quiet period (10 s),
+          # without a restart.
+          reload-on-update: true
+          keystore:
+            certificate: ${HOVANKI_TLS_DIR:/etc/hovanki/tls}/fullchain.pem
+            private-key: ${HOVANKI_TLS_DIR:/etc/hovanki/tls}/privkey.pem
