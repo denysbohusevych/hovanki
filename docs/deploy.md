@@ -392,7 +392,7 @@ docker compose up -d            # Caddy со своими старыми сер�
    echo "HOVANKI_LIVE_RESET_SECRET=$(openssl rand -base64 32)" >> .env
    ```
    С компьютера — новый `compose.yaml` (в нём `HOVANKI_LIVE_UDP_PUBLICPORT` и этот ключ): `scp -i ~/Downloads/hovanki.pem deploy/compose.yaml ubuntu@<IP>:/opt/hovanki/`, на машине `docker compose up -d server` (перезапуск: полминуты, игры обрываются).
-3. **Админка** → «Функции» → «Живой канал v2 по UDP» — включить, с причиной.
+3. **Админка** → «Возможности» → «Живой канал v2 по UDP» — включить, с причиной.
 4. **Проверка.** `docker compose logs server | grep "UDP listens"` — «The live channel's UDP listens on port 8443» (после первой игры с приложением на Android или сразу после старта, если флаг уже был включён). Сыграть с телефона на Android: игра идёт как обычно.
 
 **Выключить** — тот же флаг в админке: приложения на UDP откроют новую живую сессию и уйдут на WebSocket v2 со следующим `Up`. Порт остаётся открытым до перезапуска: сессиям, что ещё шли по UDP, сервер отвечает закрытием, незнакомым — RESET, остальное молча выбрасывает.
