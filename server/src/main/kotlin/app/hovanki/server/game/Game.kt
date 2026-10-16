@@ -1678,14 +1678,14 @@ class Game(
             finishedAtMillis = finished?.takeIf { atMillis >= it },
             players = players.values.map { player ->
                 val outThen = player.outAtMillis?.takeIf { it <= atMillis }
-                val points = player.replay.points().filter { it.atMillis <= atMillis }
+                val seen = player.replay.at(atMillis, trailMillis)
                 SpectatedPlayer(
                     id = player.id,
                     name = player.name,
                     role = player.role,
                     status = if (outThen != null) player.status else PlayerStatus.ACTIVE,
-                    location = points.lastOrNull(),
-                    trail = points.filter { it.atMillis > atMillis - trailMillis },
+                    location = seen.location,
+                    trail = seen.trail,
                     outAtMillis = outThen,
                     caughtBy = player.caughtBy.takeIf { outThen != null },
                 )

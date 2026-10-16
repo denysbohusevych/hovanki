@@ -5,6 +5,7 @@
 # straight to the server, http://server:8080, unless -Pperf.baseUrl says otherwise (Caddy: https://caddy:8443,…,8446).
 #   perf/gatling.sh app.hovanki.perf.Mix -Pperf.players=30000
 #   PERF_GATLING_HEAP=3g PERF_GATLING_CPUSET=4-9 perf/gatling.sh app.hovanki.perf.OrdinaryGames -Pperf.games=100
+#   perf/gatling.sh UdpGames -Pperf.games=100   # the live channel v2's UDP: a program of its own, not Gatling
 # Takes the same -Pperf.<name>=<value> as ./gradlew :perf:gatlingRun; reports land in perf/build/reports/gatling/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -15,6 +16,7 @@ if [[ $# -lt 1 || "$1" == -* ]]; then
 fi
 simulation="$1"
 shift
+[[ "$simulation" == *.* ]] || simulation="app.hovanki.perf.$simulation"
 
 properties=()
 for arg in "$@"; do
@@ -32,10 +34,17 @@ done
 
 ./gradlew -q :perf:gatlingClasspath
 
+# UdpGames is no Gatling simulation (Gatling has no UDP): its own main, its report in perf/build/reports/udp.
+if [[ "$simulation" == app.hovanki.perf.UdpGames ]]; then
+  main=(app.hovanki.perf.UdpGames)
+  properties+=("-Dhovanki.perf.reports=$PWD/perf/build/reports/udp")
+else
+  main=(io.gatling.app.Gatling -s "$simulation" -rf "$PWD/perf/build/reports/gatling")
+fi
+
 export PERF_REPO="$PWD"
 export PERF_GRADLE_HOME="${GRADLE_USER_HOME:-$HOME/.gradle}"
 # shellcheck disable=SC2086 # the options are words on purpose
 exec docker compose -f perf/compose.yaml --profile load run --rm --no-deps gatling \
   java -Xmx"${PERF_GATLING_HEAP:-3g}" -Xss512k -XX:+UseParallelGC --add-opens=java.base/java.lang=ALL-UNNAMED ${PERF_GATLING_JAVA_OPTS:-} \
-  "${properties[@]}" @perf/build/gatling-classpath.txt \
-  io.gatling.app.Gatling -s "$simulation" -rf "$PWD/perf/build/reports/gatling"
+  "${properties[@]}" @perf/build/gatling-classpath.txt "${main[@]}"

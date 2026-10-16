@@ -150,7 +150,7 @@ services:
     sysctls:
       net.ipv4.ip_local_port_range: "1024 65535"
     ulimits:
-      nofile: 1048576
+      nofile: ${PERF_GATLING_NOFILE:-1048576}
     working_dir: ${PERF_REPO:-/repo}
     volumes:
       - ${PERF_REPO:-.}:${PERF_REPO:-/repo}

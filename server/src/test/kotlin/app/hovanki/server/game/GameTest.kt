@@ -1,6 +1,7 @@
 package app.hovanki.server.game
 
 import app.hovanki.shared.debug.DebugBuildings
+import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.geo.moveBy
 import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsState
@@ -435,8 +436,14 @@ class GameTest {
         assertEquals(caughtAt, hiderTrack.last().atMillis, "nothing after the catch")
         assertEquals(11, hiderTrack.size, "10 of 30 fixes while hiding, 1 while seeking")
         hiderTrack.zipWithNext { a, b -> assertTrue(b.atMillis - a.atMillis >= 5_000, "thinned to 5 s") }
-        assertEquals(center.moveBy(62.0, 0.0), hiderTrack.last().point)
-        assertEquals(center.moveBy(95.0, 0.0), trackOf(seeker).last().point, "seekers play to the end")
+        // The replay keeps points to 1e-7 degree: about a centimetre.
+        assertEquals(0.0, center.moveBy(62.0, 0.0).distanceTo(hiderTrack.last().point), 0.02)
+        assertEquals(
+            0.0,
+            center.moveBy(95.0, 0.0).distanceTo(trackOf(seeker).last().point),
+            0.02,
+            "seekers play to the end",
+        )
         assertEquals(emptyList(), trackOf(host), "no fixes, no track")
     }
 

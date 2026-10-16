@@ -31,6 +31,20 @@ tasks.named<io.gatling.gradle.GatlingRunTask>("gatlingRun") {
     outputs.upToDateWhen { false }
 }
 
+// `./gradlew :perf:udpRun -Pperf.games=100`: UdpGames, OrdinaryGames over the live channel v2's UDP (docs/perf.md,
+// «UDP»), a program of its own on the simulations' classpath: Gatling has no UDP. Its report: perf/build/reports/udp/.
+tasks.register<JavaExec>("udpRun") {
+    group = "perf"
+    description = "Runs UdpGames: ordinary games whose phones sync over the live channel v2's UDP."
+    classpath = sourceSets["gatling"].runtimeClasspath
+    mainClass = "app.hovanki.perf.UdpGames"
+    jvmArgs("-Xmx3g", "-XX:+UseParallelGC")
+    systemProperties = labProperties + mapOf(
+        "hovanki.perf.reports" to layout.buildDirectory.dir("reports/udp").get().asFile.absolutePath,
+    )
+    outputs.upToDateWhen { false }
+}
+
 // `./gradlew :perf:gatlingClasspath`: the simulations' classpath as a java argument file
 // (perf/build/gatling-classpath.txt), for perf/gatling.sh, which runs Gatling inside the lab's Docker network.
 tasks.register("gatlingClasspath") {
