@@ -11,6 +11,28 @@ class LiveProperties(
      * Empty: a random one at every start; a phone then waits for its Ups to go unanswered instead. Never logged.
      */
     val resetSecret: String = "",
+    /** The UDP of the live channel v2 (docs/live-v2/spec.md §5, server.md §4.3), used while `LIVE_UDP` is on. */
+    val udp: Udp = Udp(),
 ) {
-    override fun toString(): String = "LiveProperties(resetSecret=${if (resetSecret.isEmpty()) "" else "***"})"
+    class Udp(
+        /**
+         * The port the server listens on, on every address of the machine, from the first open that offers UDP while
+         * `LIVE_UDP` is on; 0: any free one (the tests). compose publishes 443/udp to it.
+         */
+        val port: Int = 8443,
+        /** The host the open hands the phones; empty: the one the phone asked the open of (its `Host`). */
+        val host: String = "",
+        /**
+         * The port the open hands the phones; 0: [port] as it was bound. Production's is 443 (env
+         * `HOVANKI_LIVE_UDP_PUBLICPORT`), the one compose publishes to [port].
+         */
+        val publicPort: Int = 0,
+        /** The threads that take the datagrams in; each takes its Up to the end, the game's sync and the Down. */
+        val threads: Int = 2,
+    ) {
+        override fun toString(): String = "Udp(port=$port, host=$host, publicPort=$publicPort, threads=$threads)"
+    }
+
+    override fun toString(): String =
+        "LiveProperties(resetSecret=${if (resetSecret.isEmpty()) "" else "***"}, udp=$udp)"
 }

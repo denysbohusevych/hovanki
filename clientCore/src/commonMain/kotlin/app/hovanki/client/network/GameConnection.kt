@@ -76,6 +76,6 @@ enum class EndReason {
 
 /**
  * How the syncs go: `POST /sync` every few seconds, frames over the live channel's socket, or the live channel v2's
- * binary frames over its WebSocket (docs/live-v2/spec.md §6).
+ * binary frames over its WebSocket (docs/live-v2/spec.md §6) or its UDP datagrams (§5).
  */
-enum class Transport { POLLING, SOCKET, LIVE_WS }
+enum class Transport { POLLING, SOCKET, LIVE_WS, LIVE_UDP }

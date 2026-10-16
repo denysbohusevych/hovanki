@@ -250,13 +250,14 @@ v2 ещё не ходит: открытия, транспортов и флаг�
 Телефон меняет адрес и порт при переходе Wi-Fi ↔ мобильная сеть, а оператор — при перестройке NAT. Сервер находит
 сессию по `session_id`, а не по адресу.
 
-- **Новый адрес.** Датаграмма с другого адреса принимается, только если расшифровалась, прошла окно повторов и её
-  `pn` больше всех виденных. Тогда сервер:
+- **Новый адрес** — и первый адрес сессии тоже. Датаграмма с другого адреса принимается, только если
+  расшифровалась, прошла окно повторов и её `pn` больше всех виденных. Тогда сервер:
   - отвечает уже на новый адрес;
   - кладёт в `Down` 8 случайных байт `path_challenge`;
-  - пока адрес не подтверждён, шлёт на него не больше чем втрое больше байт, чем получил с него (RFC 9000 §8).
-    Если дельта в этот предел не влезает, `Down` уходит без состояния: только `ack_up` и `path_challenge`.
-    Состояние подождёт подтверждения.
+  - пока адрес не подтверждён, шлёт на него не больше чем втрое больше байт, чем получил с него (RFC 9000 §8), и
+    `Down` без состояния: только `reply_to`, `ack_up`, `server_time_ms` и `path_challenge`. Состояние подождёт
+    подтверждения: это один круг, а мерить дельту под предел не надо.
+- **Телефон** на `Down` с `path_challenge` и без состояния снимок не показывает и сразу шлёт следующий `Up`.
 - **Подтверждение.** Телефон возвращает те же байты в `path_response` следующего `Up`. С этого момента адрес
   подтверждён, старый забыт.
 - **Push** идёт только на подтверждённый адрес.
@@ -804,7 +805,7 @@ reset_tag = 5db9c3d4b54d3a1a55839d6ff976fe7d
 | `XxHash64` | хеш секций | §8.2 |
 | `LiveUplink` | `Up` из того, что сейчас несёт `SyncRequest`, и обратно на сервере | §7.1, §10 |
 | `LiveDownlink` | чат `Down` с пределом в байтах, ошибки | §11, §13 |
-| `LiveDatagrams`, `LiveReassembler`, `LiveReplayWindow`, `LiveAead` | датаграммы, куски, окно повторов, RESET, `sessionId` текстом; шифрование — интерфейс, реализации платформ — шаг 4 | §4, §5 |
+| `LiveDatagrams`, `LiveReassembler`, `LiveReplayWindow`, `LiveAead` | датаграммы, куски, окно повторов, RESET, `sessionId` текстом; шифрование — интерфейс, реализации у платформ | §4, §5 |
 
 Сервер, пакет `app.hovanki.server.live.v2` (подробно — [server.md](server.md), §4.7):
 
@@ -815,6 +816,7 @@ reset_tag = 5db9c3d4b54d3a1a55839d6ff976fe7d
 | `LiveExchange` | `Up` → `sync` v1 → `Down`; push; ошибки и закрытия | §7, §8, §11, §13 |
 | `LivePushes`, `LivePokeSink` | толчки игры → push | §8.7, §11 |
 | `LiveWsHandler` | WebSocket v2 | §6 |
+| `LiveUdpServer` | UDP: приём, проверка адреса, RESET, отправка кусками, AES-GCM JDK ([server.md](server.md), §4.8) | §5 |
 
 Приложение, пакет `app.hovanki.client.network.live` в `:clientCore` (подробно — [client.md](client.md), §10):
 
@@ -824,6 +826,7 @@ reset_tag = 5db9c3d4b54d3a1a55839d6ff976fe7d
 | `LiveSocket`, `LiveSocketOpener`, `KtorLiveSocketOpener` | WebSocket v2: бинарные кадры, подпротокол, коды закрытия | §6 |
 | `LiveGameConnection` | `Up` по расписанию, `Down` и push → те же `ConnectionEvent`, что у v1; точки до `ack_up`, отчёт до подтверждения, новая сессия до срока | §7, §8.3, §8.6, §11, §13 |
 | `LiveFirstGameConnection` | v2, пока сервер его включил и он работает, иначе v1 | §3, §13 |
+| `LiveUdp`, `UdpLiveSocket`, `KtorLiveDatagramOpener`, `JdkLiveAeads`, `NetworkChanges` | UDP за тем же швом `LiveSocket`; потерянные `Up`, новый порт, уход на WebSocket v2 и возврат ([client.md](client.md), §11) | §5 |
 
 Протокол JSON открытия — `shared/.../protocol/Live.kt` (`LiveOpenRequest`, `LiveOpenResponse`, `LiveWs`), маршруты —
-`ApiRoutes.LIVE_OPEN`, `ApiRoutes.LIVE_WS`, флаг — `ServerFeature.LIVE_V2`.
+`ApiRoutes.LIVE_OPEN`, `ApiRoutes.LIVE_WS`, флаги — `ServerFeature.LIVE_V2` и `ServerFeature.LIVE_UDP`.

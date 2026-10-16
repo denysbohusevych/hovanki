@@ -10,8 +10,10 @@ import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.LiveOpenRequest
 import app.hovanki.shared.protocol.LiveOpenResponse
+import app.hovanki.shared.protocol.LiveTransports
 import app.hovanki.shared.protocol.ServerFeature
 import app.hovanki.shared.protocol.protocolJson
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
@@ -22,11 +24,13 @@ import java.util.Base64
 /**
  * Opens a live session of the live channel v2 ([ApiRoutes.LIVE_OPEN], docs/live-v2/spec.md §4) with the player's game
  * token. While the server has [ServerFeature.LIVE_V2] off: 404 with [ErrorReason.FEATURE_DISABLED] before the token or
- * the body are looked at, and the app stays on v1. No UDP yet: `udp` is null, the session goes over the WebSocket v2.
+ * the body are looked at, and the app stays on v1. The UDP address (`udp`) only for a phone that offers UDP while the
+ * server has [ServerFeature.LIVE_UDP] on and its UDP socket open ([LiveUdpServer]); else null: the WebSocket v2 only.
  */
 @RestController
 class LiveOpenController(
     private val sessions: LiveSessions,
+    private val udp: LiveUdpServer,
     private val registry: GameRegistry,
     private val features: FeatureFlags,
     private val metrics: LiveMetrics,
@@ -44,8 +48,10 @@ class LiveOpenController(
             metrics.opened("rejected")
             throw GameException(ErrorCode.UNAUTHORIZED, "Unknown or expired token")
         }
-        // What the phone can do, for later (UDP): read only to refuse what isn't a request at all.
-        if (!body.isNullOrBlank()) {
+        // What the phone can do: the transports it offers. No body: an app that says nothing offers both.
+        val request = if (body.isNullOrBlank()) {
+            LiveOpenRequest()
+        } else {
             try {
                 protocolJson.decodeFromString(LiveOpenRequest.serializer(), body)
             } catch (e: IllegalArgumentException) {
@@ -63,13 +69,18 @@ class LiveOpenController(
             throw e
         }
         metrics.opened("ok")
+        val endpoint = if (LiveTransports.UDP in request.transports) {
+            udp.endpoint(webRequest.getNativeRequest(HttpServletRequest::class.java)?.serverName.orEmpty())
+        } else {
+            null
+        }
         val base64 = Base64.getEncoder()
         return LiveOpenResponse(
             sessionId = LiveDatagrams.sessionIdText(session.id),
             upKey = base64.encodeToString(session.upKey.encoded),
             downKey = base64.encodeToString(session.downKey.encoded),
             resetToken = base64.encodeToString(sessions.resetToken(session)),
-            udp = null,
+            udp = endpoint,
             wsPath = ApiRoutes.LIVE_WS,
             expiresAtMillis = session.expiresAtMillis,
             serverTimeMillis = clock.millis(),

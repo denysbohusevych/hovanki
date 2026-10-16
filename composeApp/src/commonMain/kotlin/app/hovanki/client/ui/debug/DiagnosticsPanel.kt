@@ -338,7 +338,13 @@ private fun GameCard(session: SessionState, measured: DiagnosticsState, now: Lon
                 Line("server's radar: ${contacts.ifEmpty { "nobody" }}")
             }
         }
-        val via = measured.transport?.let { if (it == Transport.SOCKET) " by socket" else " by polling" }.orEmpty()
+        val via = when (measured.transport) {
+            null -> ""
+            Transport.POLLING -> " by polling"
+            Transport.SOCKET -> " by socket"
+            Transport.LIVE_WS -> " by ws2"
+            Transport.LIVE_UDP -> " by udp"
+        }
         Line("${measured.syncs} syncs$via, ${measured.syncFailures} failed")
         measured.lastSync?.let { sync ->
             val took = sync.durationMillis?.let { "$it ms" } ?: "—"

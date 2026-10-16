@@ -16,12 +16,13 @@ import java.util.function.Supplier
 
 /**
  * How a phone asks [app.hovanki.server.game.GameService.sync]: a request of its own, a frame of its live channel, or an
- * Up of the live channel v2 over its WebSocket (docs/live-v2/server.md §5).
+ * Up of the live channel v2 over its WebSocket or over UDP (docs/live-v2/server.md §5).
  */
 enum class SyncTransport(val tag: String) {
     POLL("poll"),
     SOCKET("socket"),
     WS2("ws2"),
+    UDP("udp"),
 }
 
 /**

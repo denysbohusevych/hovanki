@@ -7,6 +7,7 @@ import app.hovanki.server.testing.TestPostgres
 import org.junit.jupiter.api.Assumptions
 import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.context.ConfigurableApplicationContext
+import java.net.DatagramSocket
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
@@ -46,7 +47,9 @@ object E2eServer {
  * database, in this JVM. [restart] keeps the port and the database, like a real server restart: accounts stay, the
  * games (in memory) are gone.
  */
-class DedicatedServer(private val properties: Map<String, String> = emptyMap()) : AutoCloseable {
+class DedicatedServer(properties: Map<String, String> = emptyMap()) : AutoCloseable {
+    // The live channel's UDP port stays through a restart too, as the real server's.
+    private val properties = mapOf(UDP_PORT to freeUdpPort().toString()) + properties
     private val database = TestPostgres.start()
     private var context: ConfigurableApplicationContext? = try {
         startServer(database, port = 0, properties)
@@ -117,13 +120,18 @@ private fun startServer(
     port: Int,
     properties: Map<String, String> = emptyMap(),
 ): ConfigurableApplicationContext = synchronized(serverStart) {
-    // As command line arguments: they win over application.yaml, unlike the builder's default properties.
-    val settings = database.springProperties() + properties +
+    // As command line arguments: they win over application.yaml, unlike the builder's default properties. The live
+    // channel's UDP takes any free port: servers in one JVM.
+    val settings = database.springProperties() + mapOf(UDP_PORT to "0") + properties +
         mapOf("server.port" to port.toString(), "spring.main.banner-mode" to "off")
     SpringApplicationBuilder(HovankiServerApplication::class.java)
         .profiles("e2e")
         .run(*settings.map { (key, value) -> "--$key=$value" }.toTypedArray())
 }
+
+private const val UDP_PORT = "hovanki.live.udp.port"
+
+private fun freeUdpPort(): Int = DatagramSocket(0).use { it.localPort }
 
 private fun ConfigurableApplicationContext.port(): Int =
     checkNotNull(environment.getProperty("local.server.port")) { "Server port unknown" }.toInt()

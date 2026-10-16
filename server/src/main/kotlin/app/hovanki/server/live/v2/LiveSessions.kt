@@ -54,14 +54,16 @@ class LiveSessions(
     @Volatile private var running = false
 
     init {
-        Gauge.builder(SESSIONS_GAUGE, byId) { sessions -> sessions.values.count { it.link != null }.toDouble() }
-            .description("Live sessions of the live channel v2 (docs/live-v2/server.md §5), by the link they are on")
-            .tag("transport", LiveMetrics.WS2)
-            .register(meters)
-        Gauge.builder(SESSIONS_GAUGE, byId) { sessions -> sessions.values.count { it.link == null }.toDouble() }
-            .description("Live sessions of the live channel v2 (docs/live-v2/server.md §5), by the link they are on")
-            .tag("transport", "none")
-            .register(meters)
+        for (transport in listOf(LiveMetrics.WS2, LiveMetrics.UDP, NONE)) {
+            Gauge.builder(SESSIONS_GAUGE, byId) { sessions ->
+                sessions.values.count { (it.link?.transport ?: NONE) == transport }.toDouble()
+            }
+                .description(
+                    "Live sessions of the live channel v2 (docs/live-v2/server.md §5), by the link they are on",
+                )
+                .tag("transport", transport)
+                .register(meters)
+        }
     }
 
     /**
@@ -110,6 +112,9 @@ class LiveSessions(
     /** The live session [text] names ([LiveDatagrams.sessionIdText]); null: no such session, or it is over. */
     fun get(text: String): LiveSession? = LiveDatagrams.sessionIdOf(text)?.let(byId::get)
 
+    /** The live session with the id [id] (a datagram's header); null: no such session, or it is over. */
+    fun get(id: Long): LiveSession? = byId[id]
+
     /** The live sessions of [gameId]'s players. */
     fun ofGame(gameId: GameId): Collection<LiveSession> = byGame[gameId].orEmpty()
 
@@ -117,18 +122,29 @@ class LiveSessions(
     fun count(): Int = byId.size
 
     /** The tag of the session's RESET (spec §5.5): HMAC-SHA256 of its id under the reset secret, the first 16 bytes. */
-    fun resetToken(session: LiveSession): ByteArray {
-        val id = ByteBuffer.allocate(LiveDatagrams.SESSION_ID_BYTES).putLong(session.id).array()
+    fun resetToken(session: LiveSession): ByteArray = resetToken(session.id)
+
+    /** The RESET tag of the session with the id [sessionId], known or not (one that is gone: a RESET answers it). */
+    fun resetToken(sessionId: Long): ByteArray {
+        val id = ByteBuffer.allocate(LiveDatagrams.SESSION_ID_BYTES).putLong(sessionId).array()
         return Mac.getInstance(HMAC).apply { init(resetKey) }.doFinal(id).copyOf(LiveDatagrams.RESET_TAG_BYTES)
     }
 
     /** [link] carries [session] from now on: pushes go to it, the link before it closes (the phone left it). */
     fun attach(session: LiveSession, link: LiveLink) {
         var over = false
+        var moved = false
         val before = session.locked {
             over = session.closed
-            if (over) null else session.link.also { session.link = link }
+            if (over) {
+                null
+            } else {
+                moved = session.lastTransport.let { it != null && it != link.transport }
+                session.lastTransport = link.transport
+                session.link.also { session.link = link }
+            }
         }
+        if (moved) metrics.switched(link.transport)
         // Closed outside the lock: a link may tell its handler it closed on this very thread.
         if (over) {
             link.close(CloseReason.CLOSE_REOPEN)
@@ -155,7 +171,12 @@ class LiveSessions(
             sessions.takeUnless { it.isEmpty() }
         }
         metrics.closed(reason)
-        link?.close(reason)
+        if (link != null) {
+            link.close(reason)
+        } else {
+            // No link: a phone on UDP may still be confirming its address (spec §5.6). Its close goes there.
+            session.udp?.link?.close(reason)
+        }
     }
 
     /**
@@ -164,9 +185,17 @@ class LiveSessions(
      */
     fun refusal(session: LiveSession, now: Long): CloseReason? = when {
         !features.isEnabled(ServerFeature.LIVE_V2) -> CloseReason.CLOSE_FALLBACK_V1
+
+        // UDP off: a session on UDP opens anew, and the open sends it to the WebSocket v2 (server.md §4.2).
+        session.link?.transport == LiveMetrics.UDP && !features.isEnabled(ServerFeature.LIVE_UDP) ->
+            CloseReason.CLOSE_REOPEN
+
         registry.get(session.ref.gameId) == null -> CloseReason.CLOSE_GAME_NOT_FOUND
+
         registry.resolveToken(session.token) != session.ref -> CloseReason.CLOSE_SESSION_REJECTED
+
         now >= session.expiresAtMillis -> CloseReason.CLOSE_REOPEN
+
         else -> null
     }
 
@@ -205,6 +234,7 @@ class LiveSessions(
         const val HMAC = "HmacSHA256"
         const val OPEN_WINDOW_MILLIS = 60_000L
         const val SESSIONS_GAUGE = "hovanki.live.sessions"
+        const val NONE = "none"
 
         fun resetSecret(configured: String): ByteArray {
             if (configured.isBlank()) return ByteArray(RESET_SECRET_BYTES).also(SecureRandom()::nextBytes)

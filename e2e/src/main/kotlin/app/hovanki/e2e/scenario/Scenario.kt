@@ -322,10 +322,30 @@ class Scenario(val name: String, val serverUrl: String) {
         log("flaky network: ${(rate * 100).roundToInt()} % of requests fail")
     }
 
+    /** A network that lets no UDP through (a strict firewall): the live channel v2 goes over its WebSocket. */
+    fun BotPlayer.networkBlocksUdp(blocked: Boolean = true) {
+        network.blocksUdp = blocked
+        log(if (blocked) "is on a network that blocks UDP" else "is on a network that lets UDP through")
+    }
+
+    /** [rate] of the live channel's datagrams are lost both ways. */
+    fun BotPlayer.losesDatagrams(rate: Double, seed: Long = name.hashCode().toLong()) {
+        network.loseDatagrams(rate, seed)
+        log("loses ${(rate * 100).roundToInt()} % of the datagrams")
+    }
+
+    /** The phone's address changes under its UDP socket, as a NAT's mapping does. */
+    fun BotPlayer.changesAddress() {
+        network.changeAddress()
+        log("gets a new address")
+    }
+
     /** No latency and no failures any more. */
     fun BotPlayer.hasGoodNetwork() {
         network.latency = Duration.ZERO
         network.failRequests(0.0)
+        network.loseDatagrams(0.0)
+        network.blocksUdp = false
         log("good network again")
     }
 
@@ -539,6 +559,6 @@ class Scenario(val name: String, val serverUrl: String) {
         val POLL = 250.milliseconds
 
         /** The ways the phones sync: the run decides them ([E2eTransport]), not a scenario's features. */
-        val LIVE_CHANNELS = setOf(ServerFeature.LIVE_SOCKET, ServerFeature.LIVE_V2)
+        val LIVE_CHANNELS = setOf(ServerFeature.LIVE_SOCKET, ServerFeature.LIVE_V2, ServerFeature.LIVE_UDP)
     }
 }

@@ -109,7 +109,7 @@ class LiveV2Test(
         assertEquals(16, Base64.getDecoder().decode(opened.downKey).size)
         assertTrue(opened.upKey != opened.downKey)
         assertEquals(16, Base64.getDecoder().decode(opened.resetToken).size)
-        assertNull(opened.udp, "no UDP yet: the WebSocket v2 only")
+        assertNull(opened.udp, "UDP off (LIVE_UDP): the WebSocket v2 only")
         assertEquals(ApiRoutes.LIVE_WS, opened.wsPath)
         val age = opened.expiresAtMillis - opened.serverTimeMillis
         assertTrue(age in LiveLimits.SESSION_MAX_AGE_MILLIS - 1_000..LiveLimits.SESSION_MAX_AGE_MILLIS, "$age")

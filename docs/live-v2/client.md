@@ -26,12 +26,12 @@
 | `:shared` | `src/commonMain/proto/live_v2.proto` | схема; Wire генерирует классы в `app.hovanki.shared.live.v2` |
 | `:shared` | `protocol/Live.kt` | `LiveOpenRequest`, `LiveOpenResponse`, `LiveUdpEndpoint` (JSON); `ApiRoutes.LIVE_OPEN`, `ApiRoutes.LIVE_WS`; `ServerFeature.LIVE_V2`, `LIVE_UDP` |
 | `:shared` | `live/` (**уже в коде**, шаг 2) | `LiveLimits` (спека, §14); `LiveClientStates` (до 8 состояний телефона, применение `Down`, §8.6) поверх `LiveStates.apply`; `LiveSnapshots` (состояние → `GameSnapshot`, §9) и обратный ему `LiveSections.fromSnapshot` (им пользуется сервер); `LiveUplink` (кусок `SyncRequest` → `Up`, §7.1, §10); `LiveDownlink` (чат и ошибки `Down`, §11, §13); `LiveDatagrams`, `LiveReassembler`, `LiveReplayWindow` (заголовок, куски, окно повторов, §5); интерфейс `LiveAead`. Серверное (`LiveDelta`, `LiveServerStates`) телефону не нужно. Полная таблица — спека, §19 |
-| `:clientCore` | `network/live/` | **сделано (шаг 3b, §10):** `LiveApi`/`HttpLiveApi` (открытие по HTTPS); `LiveSocket`, `LiveSocketOpener`, `KtorLiveSocketOpener` (WebSocket v2); `LiveGameConnection : GameConnection`; `LiveFirstGameConnection`; `LiveChannelException`. **Впереди (UDP):** `UdpLiveTransport`, `NetworkChanges` |
-| `:clientCore` | `jvmMain`, `androidMain` | `JdkAesGcm : LiveAead` |
-| `:clientCore` | `iosMain` | `IosAesGcm : LiveAead` поверх моста `LiveCryptoBridge` |
+| `:clientCore` | `network/live/` | **сделано (шаг 3b, §10):** `LiveApi`/`HttpLiveApi` (открытие по HTTPS); `LiveSocket`, `LiveSocketOpener`, `KtorLiveSocketOpener` (WebSocket v2); `LiveGameConnection : GameConnection`; `LiveFirstGameConnection`; `LiveChannelException`. **Сделано (шаг 4, §11):** `LiveUdp`, `UdpLiveSocket`, `KtorLiveDatagramOpener`, `NetworkChanges` |
+| `:clientCore` | `jvmMain`, `androidMain` | `JdkLiveAeads` (**сделано**) |
+| `:clientCore` | `iosMain` | `IosAesGcm : LiveAead` поверх моста `LiveCryptoBridge` (впереди) |
 | `iosApp` | `LiveCrypto.swift` | реализация моста на CryptoKit |
-| `:composeApp` | `di/Koin.kt` | новая привязка `GameConnection` (§5), **сделано** |
-| `e2e` | `bot/`, `scenario/` | **сделано:** `FakeNetwork.liveSockets`, `-Pe2e.transport=v2ws`, `LiveV2Test`; **с UDP:** датаграммы в `FakeNetwork`, `-Pe2e.transport=v2` |
+| `:composeApp` | `di/Koin.kt`, `di/PlatformModule.android.kt` | новая привязка `GameConnection` (§5), **сделано**; `LiveUdp` на Android с `AndroidNetworkChanges` (**сделано**) |
+| `e2e` | `bot/`, `scenario/` | **сделано:** `FakeNetwork.liveSockets`, `FakeNetwork.liveDatagrams`, `-Pe2e.transport=v2ws` и `v2`, `LiveV2Test` |
 
 Почему состояние и сборка снимка в `:shared`, а не в `:clientCore`: тест равенства на сервере (спека, §18)
 собирает снимок тем же кодом, что телефон. Сервер и приложение не могут разойтись молча.
@@ -277,8 +277,8 @@ final class LiveCrypto: NSObject, LiveCryptoBridge {
 - **Датаграммы.** `FakeNetwork` получает `datagrams`: потеря, задержка, перестановка, повтор, смена адреса (как
   переход Wi-Fi → LTE) и «UDP закрыт».
 - **Транспорт ботов.** Боты связаны как приложение (`LiveFirstGameConnection`), выбор — на весь прогон:
-  `-Pe2e.transport=v2ws` (сделано) гоняет все сценарии на WebSocket v2, `-Pe2e.transport=v2` — на UDP с запасными
-  путями (с шагом 4).
+  `-Pe2e.transport=v2ws` гоняет все сценарии на WebSocket v2, `-Pe2e.transport=v2` — на UDP с запасными путями
+  (оба сделаны).
 - **Проверка видимости.** `SnapshotAudit` проверяет снимки, собранные из v2, теми же правилами.
 - **Новый сценарий** `LiveV2Test`:
   - потеря 5 % датаграмм;
@@ -298,7 +298,8 @@ final class LiveCrypto: NSObject, LiveCryptoBridge {
    - e2e на `-Pe2e.transport=v2ws`.
 
    Это первый релиз: v2 по WebSocket.
-3. **UDP:** `UdpLiveTransport`, `LiveAead` для JVM и Android, мост iOS, `NetworkChanges`, тесты, e2e на `V2`.
+3. **UDP:** **сделано 16.10** для Android и ботов (шаг 4, §11): `UdpLiveSocket`, `JdkLiveAeads`, `NetworkChanges`,
+   тесты, e2e на `v2`. Мост iOS — впереди.
 4. **Полевой журнал:** новые значения `SyncFields`; диагностика — «by udp», «by ws2».
 
 Перед PR:
@@ -325,7 +326,7 @@ final class LiveCrypto: NSObject, LiveCryptoBridge {
 
 | класс | что |
 |---|---|
-| `LiveApi`, `HttpLiveApi` | `POST /api/v2/live/open`; в запросе `transports = ["ws"]`, пока нет UDP |
+| `LiveApi`, `HttpLiveApi` | `POST /api/v2/live/open`; в запросе `transports = ["ws"]`, с шагом 4 `["udp", "ws"]`, где у платформы есть UDP |
 | `LiveSocket`, `LiveSocketOpener`, `KtorLiveSocketOpener` | шов WebSocket v2, как `GameSocket` v1: бинарные кадры, `Authorization`, подпротокол `hovanki.live.v2`, адрес из `wsPath` ответа (только путь этого сервера) |
 | `LiveGameConnection` | живая сессия: открытие, `Up` по расписанию, `Down` → `ConnectionEvent`, переподключение, новая сессия |
 | `LiveFirstGameConnection` | v2 или v1 (§5) |
@@ -368,3 +369,47 @@ final class LiveCrypto: NSObject, LiveCryptoBridge {
 - **e2e.** `-Pe2e.transport=v2ws` включает `LIVE_V2` на всех сценариях. `FakeNetwork.liveSockets` — WebSocket v2 через
   ту же сеть, что сокет v1 (обрывы, задержка, потери); по его `Down` сеть собирает снимок тем же кодом, что телефон, и
   отдаёт боту на аудит приватности каждый снимок — и ответ, и push. `LiveV2Test`: push, сеть, выключение флага.
+
+## 11. Как сделано (шаг 4, UDP) и чем отличается
+
+Тот же пакет `app.hovanki.client.network.live`. UDP встал за швом `LiveSocket` (§10): `LiveGameConnection` не знает
+о датаграммах, он только ждёт ответа меньше и считает потерянные `Up`.
+
+| класс | что |
+|---|---|
+| `LiveUdp` | UDP этого телефона: `LiveDatagramOpener`, `LiveAeads`, `NetworkChanges`. Нет его — в открытии только `ws` |
+| `LiveDatagramSocket`, `LiveDatagramOpener`, `KtorLiveDatagramOpener` | шов датаграмм: «подключённый» UDP-сокет Ktor (`ktor-network`), один селектор на приложение |
+| `LiveAeads`, `JdkLiveAeads` | AES-128-GCM платформы: `javax.crypto` в `jvmMain` и `androidMain` (две копии) |
+| `NetworkChanges`, `AndroidNetworkChanges` | смена сети по умолчанию: `ConnectivityManager.registerDefaultNetworkCallback` (`composeApp`, разрешение `ACCESS_NETWORK_STATE`) |
+| `UdpSession` | UDP одной живой сессии: ключи, `pn`, номера сообщений, окно и куски — одни на все её сокеты |
+| `UdpLiveSocket` | `LiveSocket` поверх датаграмм: `Up` → куски → `seal`; `Down` ← `open` → окно → куски; RESET и исчерпанный ключ → код 4410; `renew()` — новый порт |
+
+Как работает:
+
+- **Выбор пути** — на каждую ссылку сессии: UDP, если у телефона есть `LiveUdp`, сервер дал адрес и UDP не отложен;
+  иначе WebSocket v2. Отказ от UDP не открывает новую сессию: та же сессия идёт по WebSocket v2, её состояния и
+  номера `Up` сохраняются.
+- **Ответ по UDP ждётся 1,5 с** (`OPEN_UDP_GAP_MILLIS`). Нет ответа — `Up` потерян, следующий уходит сразу, точки
+  в нём те же. Второй потерянный подряд — сначала новый сокет (NAT мог забыть порт), третий — UDP откладывается на
+  10 минут или до смены сети, дальше WebSocket v2. Любой `Down` обнуляет счёт. Так и при открытии: три `Up` за 4,5 с
+  без ответа — WebSocket v2.
+- **Проверка адреса.** Сервер проверяет и первый адрес сессии: ответ на первый `Up` — только `path_challenge`.
+  Телефон не показывает по нему снимок и сразу шлёт следующий `Up` с `path_response`; ответ на него несёт состояние.
+  То же после смены сети или порта.
+- **Смена сети** (Android): перед `Up` телефон сравнивает поколение сети с тем, на котором открыт сокет, и при
+  изменении берёт новый сокет. На WebSocket v2 смена сети снимает отсрочку UDP.
+- **Возврат на UDP** — перед очередным `Up` по WebSocket v2, когда отсрочка кончилась: телефон сам закрывает
+  WebSocket, сервер переводит сессию на UDP по первому `Up` с проверенного адреса.
+- **Ошибки сокета UDP** (ICMP «порт закрыт», нет сети) — это потеря, а не обрыв: экран не видит `Problem`, счёт
+  `Up` решает. RESET своей сессии — новая сессия без события, чужой или поддельный — выбрасывается.
+- **Сессия пропала сразу после отказа от UDP** (сервер перезапустился без `reset_secret`: `Up` по UDP пропадали, а
+  WebSocket ответил 4410, не дав ни одного `Down`) — отсрочка снимается: новая сессия снова пробует UDP.
+- **iOS** пока без UDP: в Koin его `LiveUdp` нет, приложение просит только `ws`. `ktor-network` в `commonMain` уже
+  есть, не хватает моста CryptoKit (§6).
+- **Полевой журнал и диагностика:** `Transport.LIVE_UDP` пишется как `udp` (`SyncFields.LIVE_UDP`), в диагностике —
+  «by udp»; сервер считает `udp_p50`/`udp_p95` в `srv`.
+- **Тесты:** `LiveUdpConnectionTest` на `FakeLiveServer` с UDP (`FakeUdpPath` проверяет адрес как сервер,
+  `TestAeads` вместо AES-GCM, чтобы тест шёл и на iOS): путь UDP с проверкой и длинным `Down`, без адреса — WebSocket,
+  потери → новый порт → WebSocket → UDP через 10 минут, новая сеть → новый порт, RESET и поддельный RESET, `close`
+  по UDP, снятие отсрочки после пропавшей сессии. `JdkLiveAeadsTest` (JVM). e2e — `LiveV2Test` и
+  `-Pe2e.transport=v2` ([server.md](server.md), §8).

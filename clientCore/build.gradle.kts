@@ -39,6 +39,8 @@ kotlin {
             api(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.client.logging)
+            // The live channel v2's UDP (docs/live-v2/client.md §4.1).
+            implementation(libs.ktor.network)
             implementation(libs.ktor.serialization.kotlinx.json)
         }
         commonTest.dependencies {

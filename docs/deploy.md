@@ -51,7 +51,7 @@
    - Application and OS Images: Ubuntu Server 24.04 LTS, 64-bit (x86): образ сервера собирается под amd64.
    - Instance type: `t3.micro`.
    - Key pair: Create new key pair → `hovanki`, ED25519, `.pem`. Скачать файл и выполнить `chmod 400 ~/Downloads/hovanki.pem`.
-   - Network settings: Create security group. SSH — только с **My IP**; отметить «Allow HTTPS traffic from the internet». HTTP (порт 80) не нужен: Let's Encrypt проверяет имя через DNS (DuckDNS). 443/udp для живого канала v2 добавить потом, когда до него дойдёт ([Без Caddy](#без-caddy)).
+   - Network settings: Create security group. SSH — только с **My IP**; отметить «Allow HTTPS traffic from the internet». HTTP (порт 80) не нужен: Let's Encrypt проверяет имя через DNS (DuckDNS). 443/udp для живого канала v2 добавить потом, перед тем как включить его UDP ([UDP живого канала](#udp-живого-канала)).
    - Configure storage: 10 GiB, gp3.
    - Advanced details → User data: вставить содержимое [`deploy/aws-user-data.sh`](../deploy/aws-user-data.sh). Он ставит Docker, кладёт в `/opt/hovanki/rds-ca.pem` сертификаты RDS, заводит папку `/etc/hovanki/tls` для сертификата сервера и поднимает лимиты ядра под много соединений.
    - Launch instance.
@@ -112,8 +112,9 @@
 | `HOVANKI_ADMIN_SECRET_KEY` | Ключ админки: base64 от 32 случайных байт ([Админка](#админка)). Пусто или нет — админка выключена |
 | `DATABASE_NAME`, `DATABASE_USER` | Только для [staging](#staging): база и роль на RDS (`hovanki_staging`). По умолчанию `hovanki` и `hovanki` — на основной машине их не задают |
 | `SPRING_PROFILES_ACTIVE` | Обычно не задают. `field` — на основной машине в дни полевого теста ([Полевой тест на основном сервере](#полевой-тест-на-основном-сервере)); `staging` — на staging |
-| `SERVER_MEM_LIMIT` | Лимит памяти контейнера сервера, куча — 55 % от него, остальное — память JVM вне кучи. По умолчанию `640m` (машина в 1 ГБ); в день полевого теста на `t3.small` — `1g`; на staging `1g` или `2g` |
+| `SERVER_MEM_LIMIT` | Лимит памяти контейнера сервера, куча — 55 % от него, остальное — память JVM вне кучи. По умолчанию `890m`: машина в 1 ГБ без Caddy, ~130 МБ системе. С Caddy впереди ([откат](#откат-на-caddy)) — `640m`, остальное Caddy. В день полевого теста на `t3.small` — `1g`; на staging `1g` или `2g` |
 | `SENTRY_DSN` | Только для staging, необязательно: DSN Sentry сервера. На основной машине не задают |
+| `HOVANKI_LIVE_RESET_SECRET` | Необязательно: base64 от 32 случайных байт (`openssl rand -base64 32`), ключ RESET живого канала v2 по UDP. Один и тот же через перезапуски: после падения сервера телефоны сразу узнают, что их живых сессий нет. Пусто — новый при каждом старте, телефоны узнают на несколько секунд позже ([UDP живого канала](#udp-живого-канала)) |
 | `HOVANKI_TLS`, `HOVANKI_PUBLISH`, `COMPOSE_PROFILES` | Только для отката на Caddy ([Без Caddy](#без-caddy)): `HOVANKI_TLS=` (пусто) — сервер на обычном HTTP 8080, `HOVANKI_PUBLISH=127.0.0.1:8443` — 443 свободен для Caddy, `COMPOSE_PROFILES=caddy` — Caddy запущен. Без них сервер сам на 443 |
 
 `compose.yaml` передаёт их серверу как `SPRING_DATASOURCE_*` (база `hovanki`, пользователь `hovanki`, TLS с проверкой сертификата по `rds-ca.pem`), `SPRING_MAIL_*` и `HOVANKI_MAIL_FROM` и включает настоящую отправку писем (`HOVANKI_MAIL_SENDER=smtp`) и HTTPS сервера (профиль `tls`, `SPRING_PROFILES_INCLUDE`). Без `DOMAIN`, `DATABASE_HOST`, `DATABASE_PASSWORD`, `SPRING_MAIL_HOST` или `HOVANKI_MAIL_FROM` `docker compose` не запускается и пишет, какой переменной не хватает; без файла `rds-ca.pem` рядом или без папки `/etc/hovanki/tls` не запускается сервер. Проверить `.env`, ничего не запуская: `docker compose config --quiet` (молчит, если всё на месте). После правки `.env` — `docker compose up -d`.
@@ -300,7 +301,7 @@ docker compose down postgres
 
 ## Без Caddy
 
-С шага 1 живого канала v2 ([план](live-v2/plan.md), [server.md, §2](live-v2/server.md#2-без-caddy)) сервер сам отвечает на 443 по TLS и HTTP/2: профиль Spring `tls` ([`application-tls.yaml`](../server/src/main/resources/application-tls.yaml)), который `compose.yaml` включает рядом с `SPRING_PROFILES_ACTIVE` (`field` и `staging` с ним работают). Внутри контейнера сервер слушает 8443 (он не root), compose публикует его как 443/tcp и 443/udp. UDP пока никто не слушает: он для живого канала v2, когда до него дойдёт ([план](live-v2/plan.md), шаги 0 и 4). Локальный запуск, e2e и стенд остаются на обычном HTTP 8080.
+С шага 1 живого канала v2 ([план](live-v2/plan.md), [server.md, §2](live-v2/server.md#2-без-caddy)) сервер сам отвечает на 443 по TLS и HTTP/2: профиль Spring `tls` ([`application-tls.yaml`](../server/src/main/resources/application-tls.yaml)), который `compose.yaml` включает рядом с `SPRING_PROFILES_ACTIVE` (`field` и `staging` с ним работают). Внутри контейнера сервер слушает 8443 (он не root), compose публикует его как 443/tcp и 443/udp. UDP слушает живой канал v2, пока в админке включён его UDP ([UDP живого канала](#udp-живого-канала)). Локальный запуск, e2e и стенд остаются на обычном HTTP 8080.
 
 Сертификат Let's Encrypt получает и продлевает [lego](https://go-acme.github.io/lego/) по DNS-01 через DuckDNS:
 
@@ -349,7 +350,7 @@ docker compose down postgres
    ```bash
    scp -i ~/Downloads/hovanki.pem deploy/compose.yaml ubuntu@<IP>:/opt/hovanki/
    ```
-   На машине:
+   На машине: в `.env` не должно быть `SERVER_MEM_LIMIT` (кроме дня полевого теста), тогда сервер получает 890 МБ: память Caddy отходит ему. Затем:
    ```bash
    docker compose config --quiet                 # молчит, если всё на месте
    docker compose --profile caddy stop caddy     # освобождает 80 и 443
@@ -357,11 +358,11 @@ docker compose down postgres
    docker compose up -d
    ```
 7. **Проверка.**
-   - На машине: `docker compose ps` — только `server`, порты `0.0.0.0:443->8443/tcp` и `/udp`; `docker compose logs server | grep -iE 'profile|Tomcat started'` — профиль `tls` и `Tomcat started on port 8443 (https)`.
+   - На машине: `docker compose ps` — только `server`, порты `0.0.0.0:443->8443/tcp` и `/udp`; `docker compose logs server | grep -iE 'profile|Tomcat started'` — профиль `tls` и `Tomcat started on port 8443 (https)`; `docker stats --no-stream server` — лимит `890MiB`: память Caddy теперь у сервера (замер стенда 16.10: 2 385 игроков против 1 935 с Caddy; с прежними 640 МБ было бы 1 647).
    - С компьютера: `curl -s https://hovanki.duckdns.org/actuator/health` → `UP`; `curl -sI https://hovanki.duckdns.org/api/v1/time | head -1` → `HTTP/2 200`; `echo | openssl s_client -connect hovanki.duckdns.org:443 -servername hovanki.duckdns.org 2>/dev/null | openssl x509 -noout -issuer -enddate` — Let's Encrypt и дата через ~90 дней.
    - Приложение на телефоне: войти, создать игру, открыть админку `https://hovanki.duckdns.org/admin`.
    - `systemctl list-timers hovanki-cert.timer` — следующий запуск есть.
-8. **Группа безопасности** (EC2 → Security Groups → группа машины → Edit inbound rules): правило HTTP (80) можно удалить. 443/udp (Custom UDP, 443, `0.0.0.0/0`) — добавить, когда дойдёт до UDP.
+8. **Группа безопасности** (EC2 → Security Groups → группа машины → Edit inbound rules): правило HTTP (80) можно удалить. 443/udp (Custom UDP, 443, `0.0.0.0/0`) — добавить перед тем, как включить UDP ([UDP живого канала](#udp-живого-канала)).
 9. **Кредиты процессора.** TLS теперь считает сам сервер. EC2 → Instances → `hovanki` → Actions → Instance settings → Change credit specification: должно быть `unlimited` (у `t3` так по умолчанию). На `standard` машина без кредитов падает до 10 % ядра.
 
 ### Откат на Caddy
@@ -371,13 +372,31 @@ docker compose down postgres
 COMPOSE_PROFILES=caddy
 HOVANKI_TLS=
 HOVANKI_PUBLISH=127.0.0.1:8443
+SERVER_MEM_LIMIT=640m
 ```
 Затем:
 ```bash
 docker compose up -d server     # сервер на HTTP 8080, 443 свободен
 docker compose up -d            # Caddy со своими старыми сертификатами
 ```
-Проверка: `docker compose ps` — `server` и `caddy`. Если правило 80 в группе безопасности удалено, Caddy продлевает сертификат через 443 (TLS-ALPN); вернуть правило не обязательно. `hovanki-cert.timer` можно не трогать: он продолжает держать сертификат в `/etc/hovanki/tls` для возврата. Вернуться без Caddy: убрать три строки из `.env`, `docker compose --profile caddy stop caddy`, `docker compose up -d`.
+Перед откатом выключить в админке «Живой канал v2 по UDP»: через Caddy датаграммы до сервера не доходят. Проверка: `docker compose ps` — `server` и `caddy`. Если правило 80 в группе безопасности удалено, Caddy продлевает сертификат через 443 (TLS-ALPN); вернуть правило не обязательно. `hovanki-cert.timer` можно не трогать: он продолжает держать сертификат в `/etc/hovanki/tls` для возврата. Последняя строка отдаёт Caddy память, которую без него берёт сервер. Вернуться без Caddy: убрать четыре строки из `.env`, `docker compose --profile caddy stop caddy`, `docker compose up -d`.
+
+### UDP живого канала
+
+Живой канал v2 ([ADR 0026](adr/0026-live-v2.md), [server.md, §4.3](live-v2/server.md#43-udp)) может идти датаграммами: приложение на Android шлёт `Up` на 443/udp, сервер отвечает оттуда же. Это дешевле WebSocket и не рвётся при смене сети. Где сеть UDP не пропускает, приложение само уходит на WebSocket v2 той же сессии. iPhone пока всегда на WebSocket v2: ему нужен мост к CryptoKit ([client.md, §6](live-v2/client.md#6-ios)).
+
+Включать только на сервере [без Caddy](#без-caddy), когда работает «Живой канал v2»:
+
+1. **Группа безопасности:** правило Custom UDP, порт 443, `0.0.0.0/0`.
+2. **Ключ RESET** (необязательно, но лучше): на машине, в `/opt/hovanki`:
+   ```bash
+   echo "HOVANKI_LIVE_RESET_SECRET=$(openssl rand -base64 32)" >> .env
+   ```
+   С компьютера — новый `compose.yaml` (в нём `HOVANKI_LIVE_UDP_PUBLICPORT` и этот ключ): `scp -i ~/Downloads/hovanki.pem deploy/compose.yaml ubuntu@<IP>:/opt/hovanki/`, на машине `docker compose up -d server` (перезапуск: полминуты, игры обрываются).
+3. **Админка** → «Возможности» → «Живой канал v2 по UDP» — включить, с причиной.
+4. **Проверка.** `docker compose logs server | grep "UDP listens"` — «The live channel's UDP listens on port 8443» (после первой игры с приложением на Android или сразу после старта, если флаг уже был включён). Сыграть с телефона на Android: игра идёт как обычно.
+
+**Выключить** — тот же флаг в админке: приложения на UDP откроют новую живую сессию и уйдут на WebSocket v2 со следующим `Up`. Порт остаётся открытым до перезапуска: сессиям, что ещё шли по UDP, сервер отвечает закрытием, незнакомым — RESET, остальное молча выбрасывает.
 
 ## Полевой тест на основном сервере
 
