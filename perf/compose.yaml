@@ -95,8 +95,9 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hovanki
       # Tomcat's default, as production. perf/run.sh --lift raises it to check that the generator reaches a level.
       SERVER_TOMCAT_MAX_CONNECTIONS: ${PERF_MAX_CONNECTIONS:-8192}
-      # The Dockerfile's heap share (PERF_HEAP_PERCENT), plus PERF_SERVER_JAVA_OPTS for one run (e.g. -XX:NativeMemoryTracking=summary).
-      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=${PERF_HEAP_PERCENT:-55} ${PERF_SERVER_JAVA_OPTS:-}
+      # The Dockerfile's heap share (PERF_HEAP_PERCENT) and collector (PERF_GC: G1, Serial, Parallel, Shenandoah, Z), plus
+      # PERF_SERVER_JAVA_OPTS for one run (e.g. -XX:NativeMemoryTracking=summary). Two collectors at once stop the JVM.
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=${PERF_HEAP_PERCENT:-55} -XX:+Use${PERF_GC:-G1}GC ${PERF_SERVER_JAVA_OPTS:-}
       # glibc's malloc arenas (one per thread by default, up to 8 per CPU): PERF_MALLOC_ARENA_MAX caps them for a run.
       MALLOC_ARENA_MAX: ${PERF_MALLOC_ARENA_MAX:-0}
       # The map: the e2e profile's fake buildings, streets and ground, or with PERF_MAP=tiles the real ones of the tiles
