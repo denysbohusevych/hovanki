@@ -38,15 +38,22 @@ import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
+import okio.ByteString
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 /**
- * The live channel v2 over its WebSocket (docs/live-v2/spec.md, client.md §3): a live session opened over HTTPS
- * ([LiveApi]), then one `Up` at the game's pace answered with a `Down` that carries only what changed since the state
- * this phone acknowledged, and the server's pushes in between. The phone puts the same [GameSnapshot] v1 gives together
- * from the states ([LiveClientStates], [LiveSnapshots]), so the screens see no difference.
+ * The live channel v2 (docs/live-v2/spec.md, client.md §3): a live session opened over HTTPS ([LiveApi]), then one
+ * `Up` at the game's pace answered with a `Down` that carries only what changed since the state this phone
+ * acknowledged, and the server's pushes in between. The phone puts the same [GameSnapshot] v1 gives together from the
+ * states ([LiveClientStates], [LiveSnapshots]), so the screens see no difference.
+ *
+ * - **The way:** UDP when this phone has it ([udp]) and the server gave the session an address, else the WebSocket
+ *   v2. Over UDP an Up unanswered for [LiveLimits.OPEN_UDP_GAP_MILLIS] is lost and the next one goes at once; the
+ *   second lost in a row takes a new socket, the third ([LiveLimits.UDP_LOST_AFTER_UPS]) the WebSocket v2 of the same
+ *   session, until [LiveLimits.UDP_RETRY_MILLIS] pass or the network changes (spec §5.7). A new network takes a new
+ *   UDP socket, and the server checks the new address with a `path_challenge` the next Up echoes (§5.6).
  *
  * - **Fixes** stay this connection's until a Down acknowledges the Up that carried them (`ack_up`), and go in every Up
  *   until then, the newest [LiveLimits.MAX_FIXES_PER_UP]; when the connection ends they go back to the [LocationOutbox].
@@ -64,7 +71,9 @@ class LiveGameConnection(
     private val serverTime: () -> Long,
     private val appVersion: String = "",
     private val timeSource: TimeSource = TimeSource.Monotonic,
+    private val udp: LiveUdp? = null,
 ) : GameConnection {
+    private val startedAt = timeSource.markNow()
     override fun connect(
         session: PlayerSession,
         outbox: LocationOutbox,
@@ -104,7 +113,14 @@ class LiveGameConnection(
                             return@flow
                         }
 
-                        Outcome.Reopen -> break@links
+                        Outcome.Reopen -> {
+                            // UDP given up just before the session turned out gone (a restart without the reset
+                            // secret, spec §5.5): it was the session, not the UDP. The new one tries UDP again.
+                            if (run.udpGivenUp && run.downs == run.downsWhenUdpGivenUp) conn.udpBlockedUntil = null
+                            break@links
+                        }
+
+                        Outcome.Relink -> continue@links
 
                         Outcome.Fallback -> {
                             fallBack()
@@ -135,7 +151,8 @@ class LiveGameConnection(
     }
 
     private suspend fun open(conn: Connection): Opened = try {
-        Opened.Session(api.open(conn.session, LiveOpenRequest(appVersion, listOf(LiveTransports.WS))))
+        val transports = if (udp != null) listOf(LiveTransports.UDP, LiveTransports.WS) else listOf(LiveTransports.WS)
+        Opened.Session(api.open(conn.session, LiveOpenRequest(appVersion, transports)))
     } catch (e: CancellationException) {
         throw e
     } catch (e: ApiException) {
@@ -164,28 +181,15 @@ class LiveGameConnection(
         )
     }
 
-    /** One WebSocket of [run]'s session, from opening to its end. */
+    /** One way of [run]'s session, UDP or a WebSocket, from opening to its end. */
     private suspend fun FlowCollector<ConnectionEvent>.runLink(conn: Connection, run: Run): Outcome {
-        // Ktor's HttpTimeout does not cover the upgrade, so a hanging one is cut here.
-        val socket = try {
-            withTimeoutOrNull(SocketLimits.OPEN_TIMEOUT_MILLIS) { opener.open(conn.session, run.live) }
-                ?: return Outcome.Broken(
-                    LiveChannelException(
-                        "The WebSocket v2 did not open within ${SocketLimits.OPEN_TIMEOUT_MILLIS} ms",
-                        answered = conn.answered,
-                    ),
-                )
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            return Outcome.Broken(
-                LiveChannelException(
-                    "The WebSocket v2 did not open: ${e.message}",
-                    answered = conn.answered,
-                    cause = e,
-                ),
-            )
+        val udpSocket = openUdp(conn, run)
+        val socket = udpSocket ?: try {
+            openWebSocket(conn, run)
+        } catch (e: LiveChannelException) {
+            return Outcome.Broken(e)
         }
+        run.transport = if (udpSocket != null) Transport.LIVE_UDP else Transport.LIVE_WS
         try {
             var errorPauseMillis = PollingGameConnection.MIN_BACKOFF_MILLIS
             while (true) {
@@ -193,6 +197,11 @@ class LiveGameConnection(
                     socket.close()
                     return Outcome.Reopen
                 }
+                if (udpSocket == null && udpAgain(conn, run)) {
+                    socket.close()
+                    return Outcome.Relink
+                }
+                udpSocket?.followNetwork()
                 val up = buildUp(conn, run)
                 // A socket the server closed can hold a send up for good, without a close to read.
                 withTimeoutOrNull(SocketLimits.REPLY_TIMEOUT_MILLIS) { socket.send(Up.ADAPTER.encode(up)) }
@@ -202,16 +211,35 @@ class LiveGameConnection(
                     )
                 // The waits only read: a Down is handled (and its events emitted) after its wait. An emit that a
                 // timeout cuts short breaks the flow for good (exception transparency), and the app with it.
-                val replyBy = timeSource.markNow() + SocketLimits.REPLY_TIMEOUT_MILLIS.milliseconds
+                val replyMillis = if (udpSocket != null) UDP_REPLY_MILLIS else SocketLimits.REPLY_TIMEOUT_MILLIS
+                val replyBy = timeSource.markNow() + replyMillis.milliseconds
                 var reply: Handled? = null
                 while (reply == null) {
-                    val (down, bytes) = withTimeoutOrNull(-replyBy.elapsedNow()) { nextDown(socket) }
-                        ?: throw LiveChannelException(
-                            "No answer within ${SocketLimits.REPLY_TIMEOUT_MILLIS} ms",
-                            answered = conn.answered,
-                        )
+                    val received = withTimeoutOrNull(-replyBy.elapsedNow()) { nextDown(socket) }
+                    if (received == null) {
+                        if (udpSocket == null) {
+                            throw LiveChannelException(
+                                "No answer within ${SocketLimits.REPLY_TIMEOUT_MILLIS} ms",
+                                answered = conn.answered,
+                            )
+                        }
+                        break
+                    }
+                    val (down, bytes) = received
                     val handled = handle(conn, run, down, bytes)
                     if (down.reply_to == up.seq) reply = handled
+                }
+                if (reply == null && udpSocket != null) {
+                    // The Up or its answer is lost (spec §5.7): the next Up goes at once.
+                    conn.lostUps++
+                    if (conn.lostUps >= LiveLimits.UDP_LOST_AFTER_UPS) {
+                        giveUpUdp(conn, run)
+                        socket.close()
+                        return Outcome.Relink
+                    }
+                    // The NAT may have forgotten this port: a new one before the last try.
+                    if (conn.lostUps == LiveLimits.UDP_LOST_AFTER_UPS - 1) udpSocket.renew()
+                    continue
                 }
                 val pauseMillis = when (val answer = reply) {
                     is Handled.Refused -> {
@@ -221,6 +249,9 @@ class LiveGameConnection(
                         emit(ConnectionEvent.Problem(answer.error, pause))
                         pause
                     }
+
+                    // The new address is checked: the echo goes at once.
+                    Handled.Challenge -> 0
 
                     else -> {
                         errorPauseMillis = PollingGameConnection.MIN_BACKOFF_MILLIS
@@ -234,7 +265,8 @@ class LiveGameConnection(
                 while (true) {
                     val (down, bytes) = withTimeoutOrNull(-pauseEnds.elapsedNow()) { nextDown(socket) } ?: break
                     val handled = handle(conn, run, down, bytes)
-                    if (handled == Handled.Dropped || (handled is Handled.State && handled.chatMore)) break
+                    val now = handled == Handled.Dropped || handled == Handled.Challenge
+                    if (now || (handled is Handled.State && handled.chatMore)) break
                 }
             }
         } catch (e: CancellationException) {
@@ -254,9 +286,65 @@ class LiveGameConnection(
         } catch (e: Exception) {
             socket.close()
             return Outcome.Broken(
-                LiveChannelException("The WebSocket v2 failed: ${e.message}", answered = conn.answered, cause = e),
+                LiveChannelException("The live channel v2 failed: ${e.message}", answered = conn.answered, cause = e),
             )
         }
+    }
+
+    /** The WebSocket v2 of [run]'s session; throws [LiveChannelException] when it does not open. */
+    private suspend fun openWebSocket(conn: Connection, run: Run): LiveSocket = try {
+        // Ktor's HttpTimeout does not cover the upgrade, so a hanging one is cut here.
+        withTimeoutOrNull(SocketLimits.OPEN_TIMEOUT_MILLIS) { opener.open(conn.session, run.live) }
+            ?: throw LiveChannelException(
+                "The WebSocket v2 did not open within ${SocketLimits.OPEN_TIMEOUT_MILLIS} ms",
+                answered = conn.answered,
+            )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: LiveChannelException) {
+        throw e
+    } catch (e: Exception) {
+        throw LiveChannelException("The WebSocket v2 did not open: ${e.message}", answered = conn.answered, cause = e)
+    }
+
+    /** A UDP socket of [run]'s session, when this phone has UDP, the server gave an address and UDP is not given up. */
+    private suspend fun openUdp(conn: Connection, run: Run): UdpLiveSocket? {
+        val udp = udp ?: return null
+        if (run.live.udp == null || !udpAllowed(conn, udp)) return null
+        val session = run.udpSession(udp) ?: return null
+        return try {
+            UdpLiveSocket.open(session, udp, run.live) { startedAt.elapsedNow().inWholeMilliseconds }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // No UDP socket on this network: the WebSocket v2 for a while.
+            giveUpUdp(conn, run)
+            null
+        }
+    }
+
+    /** The WebSocket v2 carries a session that could go over UDP again: the wait is over or the network changed. */
+    private fun udpAgain(conn: Connection, run: Run): Boolean {
+        val udp = udp ?: return false
+        return run.live.udp != null && run.udpSession(udp) != null && udpAllowed(conn, udp)
+    }
+
+    private fun udpAllowed(conn: Connection, udp: LiveUdp): Boolean {
+        val until = conn.udpBlockedUntil ?: return true
+        if (until.hasPassedNow() || udp.network.generation() != conn.udpBlockedOnNetwork) {
+            conn.udpBlockedUntil = null
+            return true
+        }
+        return false
+    }
+
+    /** UDP doesn't go through (spec §5.7): the WebSocket v2 of the same session, UDP again later. */
+    private fun giveUpUdp(conn: Connection, run: Run) {
+        conn.udpBlockedUntil = timeSource.markNow() + LiveLimits.UDP_RETRY_MILLIS.milliseconds
+        conn.udpBlockedOnNetwork = udp?.network?.generation() ?: 0L
+        conn.lostUps = 0
+        run.udpGivenUp = true
+        run.downsWhenUdpGivenUp = run.downs
     }
 
     /** The next Up of [run] (spec §7.1). */
@@ -270,6 +358,9 @@ class LiveGameConnection(
             run.deviceSent = report
             run.deviceSentSeq = seq
         }
+        // The echo of the server's check of this address goes once: a lost one, and the server asks again.
+        val pathResponse = run.pathChallenge
+        run.pathChallenge = ByteString.EMPTY
         return LiveUplink.up(
             seq = seq,
             ackState = run.states.ackState,
@@ -278,6 +369,7 @@ class LiveGameConnection(
             nearby = nearby,
             device = report,
             chatAfter = conn.chatAfter(),
+            pathResponse = pathResponse,
             full = run.states.needFull,
         )
     }
@@ -291,7 +383,10 @@ class LiveGameConnection(
     ): Handled {
         conn.answered = true
         conn.resetBackoff()
+        conn.lostUps = 0
+        run.downs++
         down.close?.let { throw Closing(outcomeOf(it.reason, conn)) }
+        if (down.path_challenge.size > 0) run.pathChallenge = down.path_challenge
         if (down.ack_up > 0) {
             conn.fixes.acknowledge(down.ack_up)
             run.acknowledgeDevice(down.ack_up)
@@ -304,6 +399,8 @@ class LiveGameConnection(
                 retryAfter?.times(MILLIS_PER_SECOND),
             )
         }
+        // A new address is not trusted with the state yet (spec §5.6): the answer is the check only.
+        if (down.path_challenge.size > 0 && down.state_id == 0) return Handled.Challenge
         val applied = run.states.apply(down.state_id, down.base_state_id, down.state)
         val chat = down.chat.map(LiveDownlink::chatMessage)
         if (down.chat_push) {
@@ -321,7 +418,7 @@ class LiveGameConnection(
             )
             conn.lastEmittedMillis = down.server_time_ms
             conn.last = snapshot
-            emit(ConnectionEvent.Snapshot(snapshot, Transport.LIVE_WS, bytes))
+            emit(ConnectionEvent.Snapshot(snapshot, run.transport, bytes))
         }
         return Handled.State(chatMore = down.chat_more)
     }
@@ -341,7 +438,7 @@ class LiveGameConnection(
         }
     }
 
-    /** The socket is closed: the server's close code says what next (spec §6). */
+    /** The socket is closed: the server's close code says what next (spec §6); a UDP one closes on a RESET only. */
     private suspend fun closed(socket: LiveSocket, conn: Connection): Outcome = when (val code = socket.closeCode()) {
         SocketClose.SESSION_REJECTED -> Outcome.Ended(EndReason.SESSION_REJECTED)
 
@@ -357,11 +454,11 @@ class LiveGameConnection(
         )
 
         else -> Outcome.Broken(
-            LiveChannelException("The WebSocket v2 closed (${code ?: "no code"})", code, conn.answered),
+            LiveChannelException("The live channel v2 closed (${code ?: "no code"})", code, conn.answered),
         )
     }
 
-    /** A Down's `close` (spec §13), as UDP will send it; the WebSocket v2 closes with a code instead. */
+    /** A Down's `close` (spec §13), as UDP sends it; the WebSocket v2 closes with a code instead. */
     private fun outcomeOf(reason: CloseReason, conn: Connection): Outcome = when (reason) {
         CloseReason.CLOSE_SESSION_REJECTED -> Outcome.Ended(EndReason.SESSION_REJECTED)
 
@@ -407,6 +504,13 @@ class LiveGameConnection(
         var last: GameSnapshot? = null
         var lastEmittedMillis = Long.MIN_VALUE
 
+        /** Ups over UDP in a row without any Down since. */
+        var lostUps = 0
+
+        /** UDP given up until then, or until the network changes from [udpBlockedOnNetwork]; null: not given up. */
+        var udpBlockedUntil: TimeMark? = null
+        var udpBlockedOnNetwork = 0L
+
         private var backoffMillis = PollingGameConnection.MIN_BACKOFF_MILLIS
 
         fun nextBackoff(): Long = backoffMillis.also {
@@ -418,7 +522,7 @@ class LiveGameConnection(
         }
     }
 
-    /** One live session: its states, its Ups' numbers, the report the server has. */
+    /** One live session: its states, its Ups' numbers, the report the server has, its UDP. */
     private class Run(val live: LiveOpenResponse, private val openedAt: TimeMark) {
         val states = LiveClientStates()
         val snapshots = LiveSnapshots()
@@ -426,6 +530,29 @@ class LiveGameConnection(
         var deviceAcked: DeviceReport? = null
         var deviceSent: DeviceReport? = null
         var deviceSentSeq = 0
+
+        /** The way its snapshots come now. */
+        var transport = Transport.LIVE_WS
+
+        /** The server's check of a new UDP address, for the next Up to echo; empty: none. */
+        var pathChallenge: ByteString = ByteString.EMPTY
+
+        /** Downs of this session, and their number when it gave UDP up. */
+        var downs = 0
+        var udpGivenUp = false
+        var downsWhenUdpGivenUp = 0
+
+        private var udpSession: UdpSession? = null
+        private var udpKeysUnread = false
+
+        /** This session's UDP numbers and keys, the same through all its sockets; null when its keys don't read. */
+        fun udpSession(udp: LiveUdp): UdpSession? {
+            if (udpKeysUnread) return null
+            return udpSession ?: UdpSession.of(live, udp.aeads).also {
+                udpSession = it
+                udpKeysUnread = it == null
+            }
+        }
 
         /** The server's lifetime of the session, on this phone's monotonic clock: a wrong device clock can't cut it. */
         private val renewAfter = (live.expiresAtMillis - live.serverTimeMillis - LiveLimits.REOPEN_BEFORE_MILLIS)
@@ -487,6 +614,9 @@ class LiveGameConnection(
         /** A new live session. */
         data object Reopen : Outcome
 
+        /** The same session on the other way: UDP given up, or UDP again. */
+        data object Relink : Outcome
+
         /** Back to v1 for a while. */
         data object Fallback : Outcome
 
@@ -502,10 +632,13 @@ class LiveGameConnection(
         /** A state whose base is gone: the next Up asks for a full one. */
         data object Dropped : Handled
 
+        /** The server checks a new UDP address (spec §5.6): the next Up echoes it at once. */
+        data object Challenge : Handled
+
         data class Refused(val error: ApiException, val retryAfterMillis: Long?) : Handled
     }
 
-    private class LinkClosed : Exception("The WebSocket v2 closed")
+    private class LinkClosed : Exception("The live channel v2 closed")
 
     private class Closing(val outcome: Outcome) : Exception("The live session closed")
 
@@ -517,6 +650,9 @@ class LiveGameConnection(
 
         /** A session the server gives less than this is still used this long. */
         const val MIN_SESSION_MILLIS = 60_000L
+
+        /** An Up over UDP unanswered this long is lost (spec §5.7). */
+        const val UDP_REPLY_MILLIS = LiveLimits.OPEN_UDP_GAP_MILLIS
     }
 }
 

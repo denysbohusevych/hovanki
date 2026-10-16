@@ -31,9 +31,12 @@ import app.hovanki.client.network.Transport
 import app.hovanki.client.network.WebSocketGameConnection
 import app.hovanki.client.network.createHttpClient
 import app.hovanki.client.network.live.HttpLiveApi
+import app.hovanki.client.network.live.JdkLiveAeads
+import app.hovanki.client.network.live.KtorLiveDatagramOpener
 import app.hovanki.client.network.live.KtorLiveSocketOpener
 import app.hovanki.client.network.live.LiveFirstGameConnection
 import app.hovanki.client.network.live.LiveGameConnection
+import app.hovanki.client.network.live.LiveUdp
 import app.hovanki.client.session.CatchCode
 import app.hovanki.client.session.ChatLine
 import app.hovanki.client.session.DraftZone
@@ -1012,6 +1015,8 @@ class BotPlayer(
                     network.liveSockets(KtorLiveSocketOpener(httpClient, url)),
                     serverTime = serverClock::now,
                     appVersion = "e2e",
+                    // As Android's: UDP whenever the server gives the session an address, through this phone's network.
+                    udp = LiveUdp(network.liveDatagrams(SHARED_DATAGRAMS), JdkLiveAeads),
                 ),
                 AdaptiveGameConnection(
                     WebSocketGameConnection(network.sockets(KtorGameSocketOpener(httpClient, url))),
@@ -1248,3 +1253,9 @@ private class OnThread(private val trace: RadarTrace, private val scope: Corouti
         scope.launch { trace.air(second) }
     }
 }
+
+/**
+ * The bots' UDP sockets, all on one selector as one app's would be: a selector each would hold a thread of the IO
+ * dispatcher each, and a big game's bots would starve it.
+ */
+private val SHARED_DATAGRAMS = KtorLiveDatagramOpener()

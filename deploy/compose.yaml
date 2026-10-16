@@ -47,6 +47,14 @@ services:
       # The server's own TLS on 8443 (application-tls.yaml), next to the profiles above. HOVANKI_TLS= (empty) in .env
       # puts it back on plain HTTP 8080 behind Caddy (the way back, docs/deploy.md).
       SPRING_PROFILES_INCLUDE: ${HOVANKI_TLS-tls}
+      # The live channel v2's UDP (docs/live-v2/server.md §4.3), used once LIVE_UDP is on in the admin: the server
+      # listens on 8443/udp, the phones send to the 443/udp published below. Behind Caddy nothing reaches it: keep
+      # LIVE_UDP off there.
+      HOVANKI_LIVE_UDP_PUBLICPORT: "443"
+      # 32 random bytes in base64 (openssl rand -base64 32), the same through restarts: after a crash the phones learn
+      # at once that their live sessions are gone (RESET). Empty: a new one at each start, and they find out a few
+      # seconds later. Never logged.
+      HOVANKI_LIVE_RESETSECRET: ${HOVANKI_LIVE_RESET_SECRET:-}
     ports:
       # The phones and the admin straight to the server: HTTPS, and UDP for the live channel v2 (docs/live-v2/server.md).
       # Docker keeps the phone's address as the source. Behind Caddy: HOVANKI_PUBLISH=127.0.0.1:8443 in .env.

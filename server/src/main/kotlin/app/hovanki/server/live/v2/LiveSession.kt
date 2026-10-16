@@ -11,11 +11,20 @@ import java.util.concurrent.TimeUnit
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Where a live session's [app.hovanki.shared.live.v2.Down]s go now (docs/live-v2/spec.md §6): its WebSocket v2, later also its UDP address. Thread
- * safe; a send never waits long for a slow phone.
+ * Where a live session's [app.hovanki.shared.live.v2.Down]s go now (docs/live-v2/spec.md §5–6): its WebSocket v2 or
+ * the phone's UDP address. Thread safe; a send never waits long for a slow phone.
  */
 interface LiveLink {
-    /** Sends one encoded [Down]; false: it could not, and the link is closing. */
+    /** [LiveMetrics.WS2] or [LiveMetrics.UDP]: the meters' tag, and the sync's transport. */
+    val transport: String
+
+    /**
+     * Not null: the link is a UDP address the phone has not confirmed yet (spec §5.6). The answer to an Up says only
+     * this challenge and the acknowledgement, no state, until the phone echoes it.
+     */
+    val pathChallenge: ByteArray? get() = null
+
+    /** Sends one encoded [Down]; false: it could not (the link is closing, or the Down may not go there). */
     fun send(down: ByteArray): Boolean
 
     /**
@@ -66,6 +75,13 @@ class LiveSession(
     /** Where pushes go; null between links (a WebSocket dropped, the phone not back yet). */
     @Volatile
     var link: LiveLink? = null
+
+    /** The transport of the last link, for the meter of the sessions that move between UDP and the WebSocket. */
+    var lastTransport: String? = null
+
+    /** The session's UDP, once a datagram of it came ([LiveUdpServer]); created under [locked]. */
+    @Volatile
+    var udp: LiveUdpServer.LiveUdpPath? = null
 
     /** The server time of the last Up: a session silent for [LiveLimits.SESSION_IDLE_MILLIS] is forgotten. */
     @Volatile

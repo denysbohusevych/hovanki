@@ -59,6 +59,14 @@ enum class ServerFeature {
     LIVE_V2,
 
     /**
+     * The live channel v2 over UDP (docs/adr/0026-live-v2.md, docs/live-v2/spec.md §5): the open hands the apps that
+     * offer it the server's UDP address, and their sessions go as encrypted datagrams, the WebSocket v2 their fallback;
+     * off, the open gives no address and the sessions on UDP open anew on the WebSocket v2. Needs [LIVE_V2]. Not a
+     * game's choice: every game on the server.
+     */
+    LIVE_UDP,
+
+    /**
      * The radio lab's runs on the server (docs/adr/0017-radar-techniques-and-big-run.md §5): test phones of the debug
      * build join a run by its code and upload their lab logs ([ApiRoutes.LAB_RUNS]); off, those routes answer 404. Not
      * a game's choice: it changes nothing in a game.

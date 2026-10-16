@@ -810,6 +810,7 @@ class FieldSession(
             Transport.POLLING -> SyncFields.POLL
             Transport.SOCKET -> SyncFields.SOCKET
             Transport.LIVE_WS -> SyncFields.LIVE_WS
+            Transport.LIVE_UDP -> SyncFields.LIVE_UDP
         }
 
     companion object {

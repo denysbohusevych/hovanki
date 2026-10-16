@@ -22,9 +22,9 @@ on:
         description: Headless bots per device game
         default: "3"
       transport:
-        description: How the e2e bots sync (socket = the live channel on, docs/adr/0015-websockets.md)
+        description: How the e2e bots sync (socket = the live channel on, docs/adr/0015-websockets.md; v2ws, v2 = the live channel v2 over its WebSocket, over UDP, docs/live-v2/)
         type: choice
-        options: [polling, socket]
+        options: [polling, socket, v2ws, v2]
         default: polling
       device_location:
         description: Where the emulators and the simulator are (LAT,LON); the games are created there

@@ -85,7 +85,7 @@ class LiveWsHandler(
         val link = ws.attributes[LINK] as WsLink? ?: return
         val session = ws.attributes[LIVE_SESSION] as LiveSession? ?: return
         val bytes = link.assemble(message.payload, message.isLast) ?: return
-        metrics.up(bytes.size)
+        metrics.up(bytes.size, LiveMetrics.WS2)
         val up = try {
             Up.ADAPTER.decode(bytes)
         } catch (e: Exception) {
@@ -105,6 +105,8 @@ class LiveWsHandler(
     /** One WebSocket v2 as a session's link. Tomcat hands one socket's pieces in turn: no lock for [assemble]. */
     private inner class WsLink(private val ws: WebSocketSession) : LiveLink {
         private var pieces: ByteArrayOutputStream? = null
+
+        override val transport: String get() = LiveMetrics.WS2
 
         /** The whole frame once its last piece is in; null before, or when it grew over the limit (closed: 1009). */
         fun assemble(piece: ByteBuffer, last: Boolean): ByteArray? {

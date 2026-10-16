@@ -9,6 +9,10 @@ hovanki:
     streets: fake
     # Built-up ground everywhere: a zone fits one player per 1 000 m².
     terrain: fake
+  # The live channel v2's UDP on any free port, not production's 8443: contexts of the tests run side by side.
+  live:
+    udp:
+      port: 0
   # Emails stay in memory (RecordingEmailSender); tests read the codes there.
   mail:
     sender: recording

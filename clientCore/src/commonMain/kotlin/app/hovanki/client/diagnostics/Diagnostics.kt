@@ -143,6 +143,7 @@ class Diagnostics(
             Transport.POLLING -> ""
             Transport.SOCKET -> " by socket"
             Transport.LIVE_WS -> " by ws2"
+            Transport.LIVE_UDP -> " by udp"
         }
         log(DiagnosticsKind.SYNC, "sync $took$heard$via", now)
     }

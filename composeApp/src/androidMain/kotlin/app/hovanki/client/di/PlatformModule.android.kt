@@ -9,6 +9,10 @@ import app.hovanki.client.lab.AppPermissions
 import app.hovanki.client.lab.LabFiles
 import app.hovanki.client.location.AndroidLocationProvider
 import app.hovanki.client.location.LocationProvider
+import app.hovanki.client.network.AndroidNetworkChanges
+import app.hovanki.client.network.live.JdkLiveAeads
+import app.hovanki.client.network.live.KtorLiveDatagramOpener
+import app.hovanki.client.network.live.LiveUdp
 import app.hovanki.client.share.AndroidShareSheet
 import app.hovanki.client.share.AndroidStoryShare
 import app.hovanki.client.share.ShareSheet
@@ -55,6 +59,8 @@ import org.koin.dsl.module
 actual val platformModule: Module = module {
     single<BuildInfo> { androidBuildInfo(androidContext()) }
     single<HttpClientEngine> { OkHttp.create() }
+    // The live channel v2's UDP (docs/live-v2/client.md §4.1, §7): AES-GCM of javax.crypto, the default network's changes.
+    single { LiveUdp(KtorLiveDatagramOpener(), JdkLiveAeads, AndroidNetworkChanges(androidContext())) }
     single<SecureStore> { AndroidSecureStore(androidContext()) }
     single<LocationProvider> { AndroidLocationProvider(androidContext()) }
     single<AppPermissions> { AndroidAppPermissions(androidContext()) }

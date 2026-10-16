@@ -18,6 +18,8 @@ import app.hovanki.shared.protocol.ErrorCode
 import app.hovanki.shared.protocol.ErrorReason
 import app.hovanki.shared.protocol.GameSnapshot
 import app.hovanki.shared.protocol.SyncRequest
+import okio.ByteString
+import okio.ByteString.Companion.toByteString
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.time.Clock
@@ -39,8 +41,13 @@ class LiveExchange(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    /** The phone's [up] of [session], come over [link]: synced, and the Down sent back on the same link. */
+    /**
+     * The phone's [up] of [session], come over [link]: synced, and the Down sent back on the same link. A link whose
+     * address the phone has not confirmed ([LiveLink.pathChallenge], spec §5.6) gets the acknowledgement and the
+     * challenge only: the state waits for the echo.
+     */
     fun up(session: LiveSession, up: Up, link: LiveLink) {
+        val udp = link.transport == LiveMetrics.UDP
         session.locked {
             if (session.closed) return
             val now = clock.millis()
@@ -58,6 +65,8 @@ class LiveExchange(
             if (up.full) session.states.forgetAcknowledged()
             val wait = session.countUp(System.nanoTime())
             if (wait > 0) {
+                // Over UDP the extra Ups are dropped without a word (server.md §4.6).
+                if (udp) return
                 val error = ApiError(ErrorCode.BAD_REQUEST, "Too many Ups", ErrorReason.TOO_MANY_REQUESTS)
                 refuse(session, link, up.seq, now, error, retryAfterSeconds = (wait + 999) / 1000)
                 return
@@ -65,7 +74,7 @@ class LiveExchange(
             up.device?.let { session.device = LiveUplink.deviceReport(it) }
             val request = SyncRequest(LiveUplink.samples(up), up.chat_after, LiveUplink.nearby(up), session.device)
             val snapshot = try {
-                games.sync(session.ref, session.ref.gameId, request, SyncTransport.WS2)
+                games.sync(session.ref, session.ref.gameId, request, if (udp) SyncTransport.UDP else SyncTransport.WS2)
             } catch (e: GameException) {
                 val reason = closeReason(session, e)
                 if (reason != null) {
@@ -81,6 +90,16 @@ class LiveExchange(
                 return
             }
             session.lastSeq = up.seq
+            link.pathChallenge?.let { challenge ->
+                val down = Down(
+                    reply_to = up.seq,
+                    ack_up = session.lastSeq,
+                    server_time_ms = snapshot.serverTimeMillis,
+                    path_challenge = challenge.toByteString(),
+                )
+                send(link, down, DownKind.REPLY)
+                return
+            }
             val chat = LiveDownlink.fitChat(snapshot.chat)
             send(link, stateDown(session, snapshot, up.seq, push = false, chat.messages, chat.more), DownKind.REPLY)
         }
@@ -160,13 +179,14 @@ class LiveExchange(
             ack_up = session.lastSeq,
             server_time_ms = now,
             error = LiveDownlink.error(error, retryAfterSeconds),
+            path_challenge = link.pathChallenge?.toByteString() ?: ByteString.EMPTY,
         )
         send(link, down, DownKind.REPLY)
     }
 
     private fun send(link: LiveLink, down: Down, kind: DownKind) {
         val bytes = Down.ADAPTER.encode(down)
-        if (link.send(bytes)) metrics.down(kind, down, bytes.size)
+        if (link.send(bytes)) metrics.down(kind, down, bytes.size, link.transport)
     }
 
     /**

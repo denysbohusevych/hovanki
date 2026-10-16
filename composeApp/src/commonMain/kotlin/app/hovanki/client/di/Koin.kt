@@ -54,6 +54,7 @@ import app.hovanki.client.network.live.HttpLiveApi
 import app.hovanki.client.network.live.KtorLiveSocketOpener
 import app.hovanki.client.network.live.LiveFirstGameConnection
 import app.hovanki.client.network.live.LiveGameConnection
+import app.hovanki.client.network.live.LiveUdp
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.app_name
 import app.hovanki.client.resources.hud_radar_burning
@@ -155,6 +156,8 @@ val commonModule: Module = module {
                 KtorLiveSocketOpener(get(), get()),
                 serverTime = get<ServerClock>()::now,
                 appVersion = get<BuildInfo>().version,
+                // UDP where the platform binds it (Android); iOS goes over the WebSocket v2 until its AES-GCM bridge.
+                udp = getOrNull<LiveUdp>(),
             ),
             AdaptiveGameConnection(
                 WebSocketGameConnection(KtorGameSocketOpener(get(), get())),
