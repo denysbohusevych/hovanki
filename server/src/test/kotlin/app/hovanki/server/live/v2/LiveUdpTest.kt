@@ -262,11 +262,11 @@ class LiveUdpTest(
         val host = create()
         val guest = join(host)
         val phone = UdpPhone(guest.session).apply { confirm() }
-        val ws = connect(guest.session.token, phone.sessionIdText)
-        // The WebSocket took the session: pushes go there.
         val switchesBefore = switches(LiveMetrics.WS2)
-        waitFor { sessions.get(phone.sessionIdText)?.link?.transport == LiveMetrics.WS2 }
-        assertEquals(1.0, switches(LiveMetrics.WS2) - switchesBefore)
+        val ws = connect(guest.session.token, phone.sessionIdText)
+        // The WebSocket took the session: pushes go there. The switch is counted after the link is set.
+        waitFor { switches(LiveMetrics.WS2) - switchesBefore == 1.0 }
+        assertEquals(LiveMetrics.WS2, sessions.get(phone.sessionIdText)?.link?.transport)
         setRoles(host, listOf(guest))
         assertNotNull(ws.poll(3_000), "a push on the WebSocket")
         assertNull(phone.poll(timeoutMillis = 300), "none over UDP")
