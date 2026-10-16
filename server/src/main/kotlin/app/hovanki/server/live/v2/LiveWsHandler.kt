@@ -43,7 +43,9 @@ class LiveWsHandler(
     SubProtocolCapable {
     override fun getSubProtocols(): List<String> = listOf(LiveWs.SUBPROTOCOL)
 
-    /** Frames come in pieces of Tomcat's buffer (8 KB): [WsLink.assemble] puts a longer one together. */
+    /**
+     * Frames come in pieces of Tomcat's buffer (2 KB, `SocketBuffers`): [WsLink.assemble] puts a longer one together.
+     */
     override fun supportsPartialMessages(): Boolean = true
 
     override fun afterConnectionEstablished(ws: WebSocketSession) {
