@@ -99,6 +99,15 @@ services:
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=${PERF_HEAP_PERCENT:-55} ${PERF_SERVER_JAVA_OPTS:-}
       # glibc's malloc arenas (one per thread by default, up to 8 per CPU): PERF_MALLOC_ARENA_MAX caps them for a run.
       MALLOC_ARENA_MAX: ${PERF_MALLOC_ARENA_MAX:-0}
+      # The map: the e2e profile's fake buildings, streets and ground, or with PERF_MAP=tiles the real ones of the tiles
+      # perf/tiles.py records and replays on this machine (docs/perf.md, «Настоящие здания»).
+      HOVANKI_BUILDINGS_SOURCE: ${PERF_MAP:-fake}
+      HOVANKI_MAP_STREETS: ${PERF_MAP:-fake}
+      HOVANKI_MAP_TERRAIN: ${PERF_MAP:-fake}
+      HOVANKI_MAP_TILES_URL: ${PERF_TILES_URL:-http://host.docker.internal:8090/planet}
+    # This machine, where perf/tiles.py runs (Docker Desktop has the name already, Linux needs it).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:8080:8080"
     # perf/up.sh --container returns once the server answers.

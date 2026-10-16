@@ -8,6 +8,8 @@ import app.hovanki.shared.protocol.GameRules
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.Passage
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -179,6 +181,33 @@ class BuildingsTest {
         assertTrue(BuildingRules.hasLeft(out, buildings, rules), "three fixes outside")
         assertFalse(BuildingRules.hasLeft(byTheWindow, buildings, rules), "a dot at the wall is not out yet")
         assertFalse(BuildingRules.hasLeft(out.take(2), buildings, rules), "too few fixes")
+    }
+
+    @Test
+    fun theSpotsJudgedOnceDecideAsTheRuleItself() {
+        val buildings = map(listOf(house))
+        // In and out of the house and along its walls, coarse and mocked fixes among them, once a second and, past
+        // the spots kept, twice a second: every window decides the same as the rule judging each fix anew.
+        for (stepMillis in listOf(1_000L, 500L)) {
+            val spots = BuildingSpots(buildings, rules)
+            val walk = List(160) { i ->
+                // Half a minute in the house, half a minute out, now and then by a wall.
+                val east = if (i % 7 == 0) 1.0 else 20.0 + 8.0 * sin(i.toDouble())
+                val north = (if (i / 30 % 2 == 0) 20.0 else -20.0) + 8.0 * cos(i.toDouble())
+                fix(east, north, accuracy = if (i % 9 == 0) 60.0 else 5.0, time = i * stepMillis, isMock = i % 13 == 0)
+            }
+            val decided = mutableSetOf<Pair<Boolean, Boolean>>()
+            for (end in 1..walk.size) {
+                val window = walk.subList(0, end).filter { it.timestampMillis > (end - 1) * stepMillis - 20_000 }
+                val inside = BuildingRules.isConfidentlyInside(window, buildings, rules)
+                val left = BuildingRules.hasLeft(window, buildings, rules)
+                assertEquals(inside, BuildingRules.isConfidentlyInside(window, spots, rules), "inside at $end")
+                assertEquals(left, BuildingRules.hasLeft(window, spots, rules), "left at $end, every $stepMillis ms")
+                decided += inside to left
+            }
+            // The walk does get inside and out again.
+            assertTrue(decided.any { it.first } && decided.any { it.second }, "$decided every $stepMillis ms")
+        }
     }
 
     @Test

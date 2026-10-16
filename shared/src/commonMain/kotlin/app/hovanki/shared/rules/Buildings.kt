@@ -267,31 +267,88 @@ object BuildingRules {
     }
 
     /** Enough recent fixes, and at least [GameRules.buildingInsideShare] of them inside a building. */
-    fun isConfidentlyInside(recentFixes: List<LocationSample>, buildings: BuildingMap, rules: GameRules): Boolean {
+    fun isConfidentlyInside(recentFixes: List<LocationSample>, buildings: BuildingMap, rules: GameRules): Boolean =
+        isConfidentlyInside(recentFixes, rules) { spotOf(it, buildings, rules) }
+
+    /** [isConfidentlyInside] with every fix judged once ([BuildingSpots]). */
+    fun isConfidentlyInside(recentFixes: List<LocationSample>, spots: BuildingSpots, rules: GameRules): Boolean =
+        isConfidentlyInside(recentFixes, rules, spots::spotOf)
+
+    /**
+     * Out again after a warning: the latest [GameRules.minFixesForDecision] fixes are all outside. One fix that jumps
+     * out resets nothing, and neither does a dot at a wall: that is where a player by a window is, too.
+     */
+    fun hasLeft(recentFixes: List<LocationSample>, buildings: BuildingMap, rules: GameRules): Boolean =
+        hasLeft(recentFixes, rules) { spotOf(it, buildings, rules) }
+
+    /** [hasLeft] with every fix judged once ([BuildingSpots]). */
+    fun hasLeft(recentFixes: List<LocationSample>, spots: BuildingSpots, rules: GameRules): Boolean =
+        hasLeft(recentFixes, rules, spots::spotOf)
+
+    private inline fun isConfidentlyInside(
+        recentFixes: List<LocationSample>,
+        rules: GameRules,
+        spotOf: (LocationSample) -> Spot?,
+    ): Boolean {
         // Counted in one pass, by index: the server asks this for every hider many times a second.
         var spots = 0
         var inside = 0
         for (index in recentFixes.indices) {
-            val spot = spotOf(recentFixes[index], buildings, rules) ?: continue
+            val spot = spotOf(recentFixes[index]) ?: continue
             spots++
             if (spot == Spot.INSIDE) inside++
         }
         return spots >= rules.minFixesForDecision && inside >= spots * rules.buildingInsideShare
     }
 
-    /**
-     * Out again after a warning: the latest [GameRules.minFixesForDecision] fixes are all outside. One fix that jumps
-     * out resets nothing, and neither does a dot at a wall: that is where a player by a window is, too.
-     */
-    fun hasLeft(recentFixes: List<LocationSample>, buildings: BuildingMap, rules: GameRules): Boolean {
+    private inline fun hasLeft(
+        recentFixes: List<LocationSample>,
+        rules: GameRules,
+        spotOf: (LocationSample) -> Spot?,
+    ): Boolean {
         // From the latest fix back, the fixes the rule can judge, until there are enough of them.
         var outside = 0
         for (index in recentFixes.lastIndex downTo 0) {
             if (outside >= rules.minFixesForDecision) break
-            val spot = spotOf(recentFixes[index], buildings, rules) ?: continue
+            val spot = spotOf(recentFixes[index]) ?: continue
             if (spot != Spot.OUTSIDE) return false
             outside++
         }
         return outside >= rules.minFixesForDecision
+    }
+}
+
+/**
+ * The spots of one player's fixes on one [map] under one set of [rules], each fix judged once. The server asks the rule
+ * for every hider at every sync of the game, many times a second, over the same window of fixes: in a city's center,
+ * where a dot is tested against hundreds of houses, judging them again was a fifth of the server's CPU. A fix's spot
+ * never changes, and a fix is known by its time: a track holds at most one fix a millisecond. The latest [CAPACITY] fixes
+ * are kept, a decision window's at one fix a second; an older one is judged again.
+ */
+class BuildingSpots(val map: BuildingMap, val rules: GameRules) {
+    private val times = LongArray(CAPACITY) { Long.MIN_VALUE }
+    private val spots = ByteArray(CAPACITY)
+    private var next = 0
+
+    fun spotOf(fix: LocationSample): BuildingRules.Spot? {
+        val time = fix.timestampMillis
+        for (index in times.indices) {
+            if (times[index] == time) return decode(spots[index])
+        }
+        val spot = BuildingRules.spotOf(fix, map, rules)
+        times[next] = time
+        spots[next] = encode(spot)
+        next = (next + 1) % CAPACITY
+        return spot
+    }
+
+    private companion object {
+        const val CAPACITY = 24
+        const val NONE: Byte = -1
+
+        fun encode(spot: BuildingRules.Spot?): Byte = spot?.ordinal?.toByte() ?: NONE
+
+        fun decode(code: Byte): BuildingRules.Spot? =
+            if (code == NONE) null else BuildingRules.Spot.entries[code.toInt()]
     }
 }

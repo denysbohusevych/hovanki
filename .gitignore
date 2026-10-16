@@ -39,3 +39,5 @@ keystore.properties
 
 # The performance lab's runs (perf/run.sh, docs/perf.md): local only
 perf/runs/
+# The map tiles perf/tiles.py recorded
+perf/tiles/

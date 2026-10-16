@@ -1,0 +1,21 @@
+# The server's own TLS in the lab, as on production since live channel v2's step 1 (docs/live-v2/server.md §2): the
+# profile `tls` with the test certificate of server/src/test/resources/tls (EC P-256, as lego's, for localhost), on the
+# host's 8443–8446 instead of Caddy (perf/up.sh --container --tls). The management port answers plain HTTP on 8080, so
+# Prometheus and the healthcheck stay as they are. The run's admin goes to the server's TLS too:
+#   perf/run.sh OrdinaryGames -Pperf.baseUrl=https://localhost:8443 -Pperf.adminUrl=https://localhost:8443
+services:
+  server:
+    environment:
+      SPRING_PROFILES_INCLUDE: tls
+      HOVANKI_TLS_DIR: /etc/hovanki/tls
+      MANAGEMENT_SERVER_PORT: "8080"
+      MANAGEMENT_SERVER_SSL_ENABLED: "false"
+    volumes:
+      - ../server/src/test/resources/tls/fullchain1.pem:/etc/hovanki/tls/fullchain.pem:ro
+      - ../server/src/test/resources/tls/key1.pem:/etc/hovanki/tls/privkey.pem:ro
+    # Four ports to the same one, as Caddy's: from one address to one port fit about 28 000 connections.
+    ports:
+      - "127.0.0.1:8443:8443"
+      - "127.0.0.1:8444:8443"
+      - "127.0.0.1:8445:8443"
+      - "127.0.0.1:8446:8443"

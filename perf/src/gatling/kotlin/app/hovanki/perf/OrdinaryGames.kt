@@ -45,7 +45,9 @@ import kotlin.random.Random
  * `perf.targetMs`, or failures), saying at how many players.
  *
  * `./gradlew :perf:gatlingRun --simulation app.hovanki.perf.OrdinaryGames -Pperf.games=20 -Pperf.steps=10`
- * - `perf.games` (10): games of a level, 2 km apart; their players come in over `perf.rampSeconds` (60), game after game;
+ * - `perf.games` (10): games of a level, in rows of ten `perf.spacing` metres (2 000) apart from `perf.origin` (Mariinskyi
+ *   Park, Kyiv, as `<lat>,<lon>`); their players come in over `perf.rampSeconds` (60), game after game. With the real map
+ *   (`PERF_MAP=tiles`, perf/tiles.py) the place decides how many buildings a game has: hundreds in a city's center;
  * - `perf.players` (30, production's limit of an ordinary game): players per game, a tenth of them seekers;
  * - `perf.minutes` (5): how long a level holds after its players came; everybody plays until the run's end;
  * - `perf.steps` (1): levels; the whole ladder has to fit the longest search, 90 minutes;
@@ -59,6 +61,9 @@ class OrdinaryGames : Simulation() {
     private val minutes = LabConfig.int("minutes", 5)
     private val steps = LabConfig.int("steps", 1)
     private val targetMillis = LabConfig.int("targetMs", 50).toLong()
+    private val origin = LabConfig.string("origin", "50.4476,30.5396").split(',').map { it.trim().toDouble() }
+        .let { (lat, lon) -> GeoPoint(lat, lon) }
+    private val spacingMeters = LabConfig.int("spacing", 2_000).toDouble()
     private val seekers = (players / 10).coerceAtLeast(1)
 
     /** A level: its players come in, then it holds. */
@@ -85,7 +90,8 @@ class OrdinaryGames : Simulation() {
 
     /** One game's meeting point: the host leaves the code there, the players their ids. */
     private inner class Table(index: Int) {
-        val center: GeoPoint = ORIGIN.moveBy(eastMeters = index % 10 * 2_000.0, northMeters = index / 10 * 2_000.0)
+        val center: GeoPoint =
+            origin.moveBy(eastMeters = index % 10 * spacingMeters, northMeters = index / 10 * spacingMeters)
 
         @Volatile
         var joinCode: String? = null
@@ -242,8 +248,6 @@ class OrdinaryGames : Simulation() {
     private fun Session.name(): String = "G${getInt("game")}P${getInt("seat")}"
 
     private companion object {
-        /** Mariinskyi Park, Kyiv, like the e2e games; the fake buildings and streets are laid around every center. */
-        val ORIGIN = GeoPoint(50.4476, 30.5396)
         const val ZONE_RADIUS_METERS = 500
         const val START_PATIENCE_SECONDS = 30
         const val SYNC_STARTED = "syncStarted"

@@ -20,6 +20,7 @@ import app.hovanki.shared.protocol.QuestKind
 import app.hovanki.shared.protocol.QuestStatus
 import app.hovanki.shared.protocol.Role
 import app.hovanki.shared.protocol.UserId
+import app.hovanki.shared.rules.BuildingSpots
 import app.hovanki.shared.rules.LocationTrack
 import app.hovanki.shared.rules.QuestSpec
 import app.hovanki.shared.rules.RouteRecorder
@@ -49,6 +50,9 @@ internal class Player(
     var lastFixReceivedMillis: Long? = null
     var outOfZoneSinceMillis: Long? = null
     var insideBuildingSinceMillis: Long? = null
+
+    /** The spots of this player's fixes on the game's buildings, each judged once (the rule runs at every sync). */
+    var buildingSpots: BuildingSpots? = null
 
     /** Left the game for good (the leave button, or joining another game). */
     var left = false

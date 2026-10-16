@@ -26,12 +26,18 @@ import app.hovanki.shared.protocol.VerifyEmailRequest
 import app.hovanki.shared.protocol.protocolJson
 import app.hovanki.shared.totp.Totp
 import java.io.ByteArrayOutputStream
+import java.net.Socket
 import java.net.URI
 import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.security.cert.X509Certificate
 import java.time.Duration
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLEngine
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509ExtendedTrustManager
 
 /**
  * What a simulation prepares before its players come (Gatling's `before`), outside the measurement: an admin of the
@@ -39,7 +45,9 @@ import java.time.Duration
  * them; the codes a person reads in their email come from the observer of the `e2e` profile.
  */
 class LabAdmin private constructor(private val email: String) {
-    private val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
+    private val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
+        .apply { if (LabConfig.adminUrl.startsWith("https://")) sslContext(labCertificates()) }
+        .build()
 
     /** The admin's session cookie: `Secure`, so kept by hand over the lab's plain HTTP. */
     private var session: String? = null
@@ -161,4 +169,28 @@ class LabAdmin private constructor(private val email: String) {
             return out.toByteArray()
         }
     }
+}
+
+/**
+ * The server's own TLS in the lab (perf/compose.tls.yaml: the profile `tls` with the test certificate of
+ * server/src/test/resources/tls): its certificate taken as it is, for any of the lab's names (`localhost`, `server` in
+ * the lab's network), as Gatling's players take any. The lab only, never a real server.
+ */
+private fun labCertificates(): SSLContext = SSLContext.getInstance("TLS").apply {
+    val anyCertificate = object : X509ExtendedTrustManager() {
+        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) = Unit
+
+        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String, socket: Socket) = Unit
+
+        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String, engine: SSLEngine) = Unit
+
+        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) = Unit
+
+        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String, socket: Socket) = Unit
+
+        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String, engine: SSLEngine) = Unit
+
+        override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+    }
+    init(null, arrayOf<TrustManager>(anyCertificate), null)
 }
