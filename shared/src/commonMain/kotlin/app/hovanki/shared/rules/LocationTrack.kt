@@ -24,6 +24,9 @@ class LocationTrack(private val rules: GameRules, private val retentionMillis: L
     /** The older fixes within [retentionMillis], in time order, all before [recent]'s. */
     private val older = PackedFixes()
 
+    /** What [recentFixes] returns while the window is a run of [recent]: one view a track, moved by each call. */
+    private val window = Window()
+
     /** [older]'s last usable fix as an object, made once per change of [older]; null while unknown. */
     private var olderUsable: LocationSample? = null
     private var olderUsableKnown = true
@@ -70,7 +73,8 @@ class LocationTrack(private val rules: GameRules, private val retentionMillis: L
 
     /**
      * Accepted fixes of any accuracy within the decision window that ends at [nowMillis]. A view of the track, not a
-     * copy (the rules ask for it many times a second): valid until the next [add], so read it, never keep it.
+     * copy, and the same view each time (the rules of every hider ask for it on most requests of a round): valid until
+     * the next [add], [recentFixes] or [recentUsableFixes] of this track, so read it, never keep it.
      */
     fun recentFixes(nowMillis: Long): List<LocationSample> {
         val since = nowMillis - rules.decisionWindowSeconds * 1000L
@@ -79,7 +83,7 @@ class LocationTrack(private val rules: GameRules, private val retentionMillis: L
         while (end > 0 && recent[end - 1].timestampMillis > nowMillis) end--
         var start = end
         while (start > 0 && recent[start - 1].timestampMillis >= since) start--
-        if (start > 0 || older.size == 0 || older.timestampAt(older.size - 1) < since) return recent.subList(start, end)
+        if (start > 0 || older.size == 0 || older.timestampAt(older.size - 1) < since) return window.over(start, end)
         // A window that ends before the latest fix's (a phone whose clock ran ahead) can reach the packed ones.
         var first = older.size
         while (first > 0 && older.timestampAt(first - 1) >= since) first--
@@ -95,7 +99,10 @@ class LocationTrack(private val rules: GameRules, private val retentionMillis: L
     fun recentUsableFixes(nowMillis: Long): List<LocationSample> {
         val recent = recentFixes(nowMillis)
         // Mostly every fix is usable: then the window itself, else a list of the usable ones.
-        return if (recent.all { it.isUsable(rules) }) recent else recent.filter { it.isUsable(rules) }
+        for (index in recent.indices) {
+            if (!recent[index].isUsable(rules)) return recent.filter { it.isUsable(rules) }
+        }
+        return recent
     }
 
     /** Mocked fixes never reach [older]: a packed fix is usable by its accuracy alone. */
@@ -113,6 +120,24 @@ class LocationTrack(private val rules: GameRules, private val retentionMillis: L
         val seconds = (to.timestampMillis - from.timestampMillis) / 1000.0
         val slack = from.accuracyMeters + to.accuracyMeters
         return from.point.distanceTo(to.point) - slack <= rules.maxPlausibleSpeedMetersPerSecond * seconds
+    }
+
+    private inner class Window : AbstractList<LocationSample>() {
+        private var start = 0
+        private var count = 0
+
+        override val size: Int get() = count
+
+        fun over(start: Int, end: Int): Window {
+            this.start = start
+            count = end - start
+            return this
+        }
+
+        override fun get(index: Int): LocationSample {
+            if (index !in 0..<count) throw IndexOutOfBoundsException("Index $index, size $count")
+            return recent[start + index]
+        }
     }
 }
 
