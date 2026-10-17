@@ -4,7 +4,8 @@
 #   perf/server.sh
 #   PERF_JAVA_OPTS="-Xmx2g" perf/server.sh      other JVM options
 #   PERF_MAP=tiles perf/server.sh                the real buildings, streets and ground of the tiles perf/tiles.py serves
-# By default the JVM is sized like production's container (2 CPUs, a heap of 352 MB, G1 as server/Dockerfile names it).
+# By default the JVM is sized like production's container (2 CPUs, a heap of 352 MB, G1 with a pause goal of 20 ms as
+# server/Dockerfile names them).
 # The server still uses every core of this machine; for production's 2 CPUs use perf/up.sh --container.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -17,5 +18,5 @@ fi
 
 ./gradlew :server:bootJar
 # shellcheck disable=SC2086 # the options are words on purpose
-exec java ${PERF_JAVA_OPTS:--Xmx352m -XX:+UseG1GC -XX:ActiveProcessorCount=2} \
+exec java ${PERF_JAVA_OPTS:--Xmx352m -XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:ActiveProcessorCount=2} \
   -jar server/build/libs/hovanki-server.jar --spring.profiles.active=e2e,perf ${map[@]+"${map[@]}"}

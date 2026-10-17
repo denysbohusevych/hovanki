@@ -26,5 +26,8 @@ ENV HOVANKI_REVISION=$REVISION
 # full collection that stops the server for 300–500 ms once the heap fills. G1 cleans it in parts: on the live channel
 # v2's UDP at 890 MB it holds 18 000 players against Serial's 12 000, on the socket with its own TLS 2 400 against
 # 1 800, for 10–25 % more CPU a sync and ~35 MB more outside the heap (perf/results/2026-10-16-gc.md).
-ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=55 -XX:+UseG1GC"
+# A pause goal of 20 ms (G1's own is 200): G1 keeps the young generation as small as its collection fits in 20 ms. With
+# the default the young pauses over UDP reach 35–56 ms and the datagrams queue behind them; with the goal they stay
+# under ~30 ms, and at 18 000 players a sync's p95/p99 go from 14/32 to 8/20 ms (perf/results/2026-10-17-g1-pause.md).
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=55 -XX:+UseG1GC -XX:MaxGCPauseMillis=20"
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
