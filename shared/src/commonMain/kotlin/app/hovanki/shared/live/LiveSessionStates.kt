@@ -12,7 +12,7 @@ class LiveServerStates(private val kept: Int = LiveLimits.SERVER_STATES_KEPT) {
     /** The state a Down brings: [stateId], a delta against [baseStateId] (0: a full state). */
     class Next(val stateId: Int, val baseStateId: Int, val state: State)
 
-    private val sent = ArrayDeque<Sent>()
+    private val sent = ArrayDeque<Sent>(kept + 1)
     private var nextId = 1
     private var lastSentId = 0
 
@@ -37,7 +37,7 @@ class LiveServerStates(private val kept: Int = LiveLimits.SERVER_STATES_KEPT) {
      */
     fun next(current: State, push: Boolean = false): Next? {
         val base = sent.firstOrNull { it.id == ackedId }
-        val result = LiveDelta.between(current, base?.digest)
+        val result = LiveDelta.between(current, base?.digest, sent.lastOrNull()?.digest)
         if (base != null && result.isEmpty && lastSentId == base.id) return null
         if (push &&
             sent.lastOrNull()?.let { it.id == lastSentId && it.digest.sameAs(result.digest) } == true

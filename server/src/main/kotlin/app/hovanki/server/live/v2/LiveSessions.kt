@@ -5,6 +5,7 @@ import app.hovanki.server.game.GameException
 import app.hovanki.server.game.GameRegistry
 import app.hovanki.server.game.PlayerRef
 import app.hovanki.shared.live.LiveDatagrams
+import app.hovanki.shared.live.LiveJson
 import app.hovanki.shared.live.LiveLimits
 import app.hovanki.shared.live.v2.CloseReason
 import app.hovanki.shared.protocol.GameId
@@ -44,7 +45,13 @@ class LiveSessions(
     private val random = SecureRandom()
     private val serials = AtomicLong()
     private val byId = ConcurrentHashMap<Long, LiveSession>()
-    private val byGame = ConcurrentHashMap<GameId, MutableSet<LiveSession>>()
+    private val byGame = ConcurrentHashMap<GameId, GameSessions>()
+
+    /** The live sessions of one game, and the JSON of the game's kinds they share (server.md §3.4). */
+    private class GameSessions {
+        val sessions: MutableSet<LiveSession> = ConcurrentHashMap.newKeySet()
+        val json = LiveJson.Game()
+    }
 
     /** The times of each player's recent opens: [LiveLimits.MAX_OPENS_PER_MINUTE]. */
     private val opens = ConcurrentHashMap<PlayerRef, ArrayDeque<Long>>()
@@ -73,6 +80,7 @@ class LiveSessions(
     fun open(ref: PlayerRef, token: String): LiveSession {
         val now = clock.millis()
         countOpen(ref, now)
+        val game = byGame.computeIfAbsent(ref.gameId) { GameSessions() }
         val session = generateSequence { random.nextLong() }
             .map { id ->
                 LiveSession(
@@ -84,13 +92,15 @@ class LiveSessions(
                     downKey = ByteArray(KEY_BYTES).also(random::nextBytes),
                     openedAtMillis = now,
                     expiresAtMillis = now + LiveLimits.SESSION_MAX_AGE_MILLIS,
+                    json = LiveJson(game.json),
                 )
             }
             .first { byId.putIfAbsent(it.id, it) == null }
-        // Added inside the map's own step: a set the last session's end takes out meanwhile would lose it.
-        val ofGame = byGame.compute(ref.gameId) { _, sessions ->
-            (sessions ?: ConcurrentHashMap.newKeySet()).also { it += session }
-        }!!
+        // Added inside the map's own step: a set the last session's end takes out meanwhile would lose it. Taken out
+        // meanwhile, the same one goes back, with its JSON.
+        val ofGame = byGame.compute(ref.gameId) { _, current ->
+            (current ?: game).also { it.sessions += session }
+        }!!.sessions
         ofGame.filter { it.ref == ref }
             .sortedBy { it.serial }
             .dropLast(LiveLimits.MAX_SESSIONS_PER_PLAYER)
@@ -116,7 +126,7 @@ class LiveSessions(
     fun get(id: Long): LiveSession? = byId[id]
 
     /** The live sessions of [gameId]'s players. */
-    fun ofGame(gameId: GameId): Collection<LiveSession> = byGame[gameId].orEmpty()
+    fun ofGame(gameId: GameId): Collection<LiveSession> = byGame[gameId]?.sessions.orEmpty()
 
     /** Live sessions now; for the tests. */
     fun count(): Int = byId.size
@@ -166,9 +176,9 @@ class LiveSessions(
             session.link.also { session.link = null }
         }
         byId.remove(session.id, session)
-        byGame.computeIfPresent(session.ref.gameId) { _, sessions ->
-            sessions -= session
-            sessions.takeUnless { it.isEmpty() }
+        byGame.computeIfPresent(session.ref.gameId) { _, game ->
+            game.sessions -= session
+            game.takeUnless { it.sessions.isEmpty() }
         }
         metrics.closed(reason)
         if (link != null) {
