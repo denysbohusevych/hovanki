@@ -158,6 +158,7 @@ val commonModule: Module = module {
                 appVersion = get<BuildInfo>().version,
                 // UDP where the platform binds it: Android, and iOS once its CryptoKit bridge passed the check at start.
                 udp = getOrNull<LiveUdp>(),
+                errors = get(),
             ),
             AdaptiveGameConnection(
                 WebSocketGameConnection(KtorGameSocketOpener(get(), get())),

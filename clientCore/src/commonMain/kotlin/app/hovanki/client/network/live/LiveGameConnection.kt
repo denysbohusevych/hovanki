@@ -1,5 +1,7 @@
 package app.hovanki.client.network.live
 
+import app.hovanki.client.errors.ErrorReporter
+import app.hovanki.client.errors.NoopErrorReporter
 import app.hovanki.client.network.ApiException
 import app.hovanki.client.network.ConnectionEvent
 import app.hovanki.client.network.EndReason
@@ -53,7 +55,8 @@ import kotlin.time.TimeSource
  *   v2. Over UDP an Up unanswered for [LiveLimits.OPEN_UDP_GAP_MILLIS] is lost and the next one goes at once; the
  *   second lost in a row takes a new socket, the third ([LiveLimits.UDP_LOST_AFTER_UPS]) the WebSocket v2 of the same
  *   session, until [LiveLimits.UDP_RETRY_MILLIS] pass or the network changes (spec §5.7). A new network takes a new
- *   UDP socket, and the server checks the new address with a `path_challenge` the next Up echoes (§5.6).
+ *   UDP socket, and the server checks the new address with a `path_challenge` the next Up echoes (§5.6). A UDP
+ *   socket that doesn't open at all is no lost Up but the phone's own failure: it goes to [errors] too.
  *
  * - **Fixes** stay this connection's until a Down acknowledges the Up that carried them (`ack_up`), and go in every Up
  *   until then, the newest [LiveLimits.MAX_FIXES_PER_UP]; when the connection ends they go back to the [LocationOutbox].
@@ -72,6 +75,7 @@ class LiveGameConnection(
     private val appVersion: String = "",
     private val timeSource: TimeSource = TimeSource.Monotonic,
     private val udp: LiveUdp? = null,
+    private val errors: ErrorReporter = NoopErrorReporter,
 ) : GameConnection {
     private val startedAt = timeSource.markNow()
     override fun connect(
@@ -318,6 +322,7 @@ class LiveGameConnection(
             throw e
         } catch (e: Exception) {
             // No UDP socket on this network: the WebSocket v2 for a while.
+            errors.capture(e)
             giveUpUdp(conn, run)
             null
         }

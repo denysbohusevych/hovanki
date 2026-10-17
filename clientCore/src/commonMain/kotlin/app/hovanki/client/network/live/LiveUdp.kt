@@ -74,9 +74,29 @@ class KtorLiveDatagramOpener(private val dispatcher: CoroutineDispatcher = Dispa
 
     override suspend fun open(live: LiveOpenResponse): LiveDatagramSocket {
         val udp = requireNotNull(live.udp) { "The live session has no UDP address" }
+        val remote = InetSocketAddress(udp.host, udp.port)
         // The name is resolved here, which may block: on the dispatcher, never the caller's thread.
-        val socket = withContext(dispatcher) { aSocket(selector).udp().connect(InetSocketAddress(udp.host, udp.port)) }
+        val socket = withContext(dispatcher) {
+            try {
+                aSocket(selector).udp().connect(remote)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Ktor's POSIX socket (iOS) is an IPv4 one unless told otherwise, and connecting it to an IPv6 address
+                // fails: `localhost` (::1 first) or a phone on an IPv6-only network with NAT64, where the server's
+                // IPv4 address comes back synthesized as IPv6. Then an IPv6 socket. The JVM's is dual-stack.
+                try {
+                    aSocket(selector).udp().connect(remote, InetSocketAddress(ANY_IPV6, 0))
+                } catch (again: Exception) {
+                    throw again.apply { addSuppressed(e) }
+                }
+            }
+        }
         return KtorDatagramSocket(socket)
+    }
+
+    private companion object {
+        const val ANY_IPV6 = "::"
     }
 }
 
