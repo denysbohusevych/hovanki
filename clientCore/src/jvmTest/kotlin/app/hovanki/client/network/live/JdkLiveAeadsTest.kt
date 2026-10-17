@@ -1,10 +1,12 @@
 package app.hovanki.client.network.live
 
+import app.hovanki.shared.live.LiveAeadCheck
 import app.hovanki.shared.live.LiveDatagrams
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /** The JVM's and Android's AES-128-GCM of the live channel v2 (docs/live-v2/spec.md §5.2). */
 class JdkLiveAeadsTest {
@@ -21,6 +23,11 @@ class JdkLiveAeadsTest {
         assertNull(LiveDatagrams.open(JdkLiveAeads.forKey(key), changed), "changed on the way")
         val header = datagram.copyOf().also { it[12] = 2 }
         assertNull(LiveDatagrams.open(JdkLiveAeads.forKey(key), header), "another packet number")
+    }
+
+    @Test
+    fun passesTheCheckTheIphoneRunsOnItsBridge() {
+        assertTrue(LiveAeadCheck.passes(JdkLiveAeads::forKey))
     }
 
     @Test

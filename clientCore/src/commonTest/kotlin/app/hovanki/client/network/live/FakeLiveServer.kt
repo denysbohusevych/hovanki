@@ -45,6 +45,9 @@ class FakeLiveServer :
     /** Thrown by the next opens instead of opening a session. */
     var openError: Exception? = null
 
+    /** Thrown by the phone's next UDP sockets instead of opening, as by a socket the platform can't connect. */
+    var udpOpenError: Exception? = null
+
     /** The WebSocket does not open. */
     var refuseSockets = false
 
@@ -84,6 +87,7 @@ class FakeLiveServer :
     }
 
     override suspend fun open(live: LiveOpenResponse): LiveDatagramSocket {
+        udpOpenError?.let { throw it }
         val owner = sessions.first { LiveDatagrams.sessionIdText(it.id) == live.sessionId }
         return FakeDatagramSocket(this, owner.udp).also { datagramSockets += it }
     }

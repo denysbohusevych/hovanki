@@ -10,7 +10,9 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * The encrypted datagrams of docs/live-v2/spec.md §18 with the JDK's AES-GCM (the server's and Android's) and the
@@ -67,6 +69,24 @@ class LiveAeadVectorsTest {
             val changed = datagram.copyOf().also { it[at] = (it[at].toInt() xor 1).toByte() }
             assertNull(LiveDatagrams.open(upKey, changed), "byte $at")
         }
+    }
+
+    @Test
+    fun theJdkPassesTheCheckOfAPlatformsAead() {
+        assertTrue(LiveAeadCheck.passes(::JdkAead))
+    }
+
+    @Test
+    fun theCheckFailsAnotherKeyOrAnAeadThatOpensAnything() {
+        assertFalse(LiveAeadCheck.passes { JdkAead(ByteArray(16)) }, "sealed with another key")
+        val opensAnything = { key: ByteArray ->
+            val jdk = JdkAead(key)
+            object : LiveAead by jdk {
+                override fun open(nonce: ByteArray, aad: ByteArray, ciphertextAndTag: ByteArray): ByteArray? =
+                    jdk.open(nonce, aad, ciphertextAndTag) ?: ByteArray(ciphertextAndTag.size - 16)
+            }
+        }
+        assertFalse(LiveAeadCheck.passes(opensAnything), "a changed datagram opened")
     }
 
     @Test

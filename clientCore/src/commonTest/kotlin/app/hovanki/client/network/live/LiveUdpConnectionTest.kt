@@ -2,6 +2,8 @@ package app.hovanki.client.network.live
 
 import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
+import app.hovanki.client.errors.ErrorReporter
+import app.hovanki.client.errors.NoopErrorReporter
 import app.hovanki.client.network.ConnectionEvent
 import app.hovanki.client.network.EndReason
 import app.hovanki.client.network.LocationOutbox
@@ -73,6 +75,26 @@ class LiveUdpConnectionTest {
             assertEquals(listOf(LiveTransports.UDP, LiveTransports.WS), server.opens.single().transports)
             socket.answer(socket.awaitUp(), seeking)
             assertEquals(Transport.LIVE_WS, awaitSnapshot().transport)
+            assertTrue(server.datagramSockets.isEmpty())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun aUdpSocketThatDoesNotOpenIsReportedAndTheSessionGoesOverTheWebSocket() = runTest {
+        val failure = IllegalStateException("Network is unreachable")
+        val server = udpServer().apply { udpOpenError = failure }
+        val reported = mutableListOf<Throwable>()
+        val errors = ErrorReporter {
+            reported += it
+            null
+        }
+        connection(server, errors = errors).connect(testSession, LocationOutbox()).test {
+            val socket = server.awaitSocket(0)
+            socket.answer(socket.awaitUp(), seeking)
+            assertEquals(Transport.LIVE_WS, awaitSnapshot().transport)
+            assertEquals(listOf<Throwable>(failure), reported)
+            assertEquals(1, server.sessions.size, "the same session")
             assertTrue(server.datagramSockets.isEmpty())
             cancelAndIgnoreRemainingEvents()
         }
@@ -193,12 +215,14 @@ class LiveUdpConnectionTest {
     private fun TestScope.connection(
         server: FakeLiveServer,
         network: NetworkChanges = NetworkChanges.None,
+        errors: ErrorReporter = NoopErrorReporter,
     ): LiveGameConnection = LiveGameConnection(
         server,
         server,
         serverTime = { currentTime },
         timeSource = testScheduler.timeSource,
         udp = LiveUdp(server, TestAeads, network),
+        errors = errors,
     )
 
     private suspend fun ReceiveTurbine<ConnectionEvent>.awaitSnapshot() =
