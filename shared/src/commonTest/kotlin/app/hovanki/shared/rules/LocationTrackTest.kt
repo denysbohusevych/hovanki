@@ -8,6 +8,8 @@ import app.hovanki.shared.protocol.LocationSample
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 
 class LocationTrackTest {
     private val rules = GameRules()
@@ -41,6 +43,20 @@ class LocationTrackTest {
         assertEquals(12.0, track.latest?.accuracyMeters)
         assertEquals(listOf(8.0, 12.0), track.recentUsableFixes(nowMillis = 10_000).map { it.accuracyMeters })
         assertEquals(listOf(12.0), track.recentUsableFixes(nowMillis = 25_000).map { it.accuracyMeters })
+    }
+
+    @Test
+    fun theWindowIsOneViewMovedByEachCall() {
+        val track = LocationTrack(rules)
+        (0..60 step 5).forEach { track.add(fix(start, atSeconds = it)) }
+        // The rules ask on most requests of a round: no new list each time, the next call moves the same one.
+        val early = track.recentFixes(nowMillis = 57_000)
+        val earlyTimes = early.map { it.timestampMillis }
+        val late = track.recentFixes(nowMillis = 60_000)
+        assertSame(early, late)
+        assertEquals(listOf(40_000L, 45_000L, 50_000L, 55_000L), earlyTimes)
+        assertEquals(listOf(40_000L, 45_000L, 50_000L, 55_000L, 60_000L), late.map { it.timestampMillis })
+        assertFailsWith<IndexOutOfBoundsException> { late[late.size] }
     }
 
     @Test
