@@ -12,6 +12,11 @@ import app.hovanki.client.lab.LabFiles
 import app.hovanki.client.lab.LabRangeTrace
 import app.hovanki.client.location.IosLocationProvider
 import app.hovanki.client.location.LocationProvider
+import app.hovanki.client.network.IosLiveAeads
+import app.hovanki.client.network.IosNetworkChanges
+import app.hovanki.client.network.LiveCryptoBridges
+import app.hovanki.client.network.live.KtorLiveDatagramOpener
+import app.hovanki.client.network.live.LiveUdp
 import app.hovanki.client.resources.Res
 import app.hovanki.client.resources.alert_seeker_near_text
 import app.hovanki.client.resources.alert_seeker_near_title
@@ -71,6 +76,12 @@ actual val platformModule: Module = module {
     single<BackgroundTracker> { IosBackgroundTracker() }
     single<ShareSheet> { IosShareSheet() }
     single<StoryShare> { IosStoryShare(BuildConstants.FACEBOOK_APP_ID) }
+    // The live channel v2's UDP (docs/live-v2/client.md §6): AES-GCM by CryptoKit through the Swift bridge the app
+    // installs before `mainViewController()`, which builds this module. Without a bridge that passed the spec's check
+    // there is no `LiveUdp`, and the phone goes over the WebSocket v2.
+    LiveCryptoBridges.installed?.let { bridge ->
+        single { LiveUdp(KtorLiveDatagramOpener(), IosLiveAeads(bridge), IosNetworkChanges()) }
+    }
     // The radar by Bluetooth LE (docs/adr/0012-nearby-radar.md): the game's channels on the iPhone's host (ADR 0017
     // §2.2), traced into the radio lab's log; the game's precision radar by UWB stays a no-op (the lab has its own).
     single<AirHost> { IosAirHost() }

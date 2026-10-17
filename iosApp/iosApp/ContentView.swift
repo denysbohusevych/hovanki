@@ -6,6 +6,7 @@ import UIKit
 struct ComposeView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
         installLiveActivityHost()
+        installLiveCrypto()
         // Also initializes DI on the Kotlin side.
         return MainViewControllerKt.mainViewController()
     }
@@ -19,6 +20,14 @@ struct ComposeView: UIViewControllerRepresentable {
               let host = type.init() as? LiveActivityBridgeHost
         else { return }
         LiveActivityBridgeKt.installLiveActivityHost(host: host)
+    }
+
+    /// AES-GCM for the live channel v2's UDP (docs/live-v2/client.md §6), before Kotlin's DI is built: Kotlin checks
+    /// it against the spec and offers UDP only when it passes, else the phone keeps to the WebSocket v2.
+    private func installLiveCrypto() {
+        if !LiveCryptoBridgeKt.installLiveCryptoBridge(bridge: LiveCrypto()) {
+            NSLog("Hovanki: the CryptoKit bridge failed the live channel's check, UDP is off")
+        }
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}

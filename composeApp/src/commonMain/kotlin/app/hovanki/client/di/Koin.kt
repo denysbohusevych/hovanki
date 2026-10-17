@@ -156,7 +156,7 @@ val commonModule: Module = module {
                 KtorLiveSocketOpener(get(), get()),
                 serverTime = get<ServerClock>()::now,
                 appVersion = get<BuildInfo>().version,
-                // UDP where the platform binds it (Android); iOS goes over the WebSocket v2 until its AES-GCM bridge.
+                // UDP where the platform binds it: Android, and iOS once its CryptoKit bridge passed the check at start.
                 udp = getOrNull<LiveUdp>(),
             ),
             AdaptiveGameConnection(

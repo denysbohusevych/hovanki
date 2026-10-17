@@ -25,8 +25,8 @@ import okio.ByteString.Companion.decodeBase64
 
 /**
  * The live channel v2's UDP on this phone (docs/live-v2/spec.md §5, client.md §4.1): the sockets, the platform's
- * AES-128-GCM and the network's changes. A phone without it (iOS until its CryptoKit bridge) offers the WebSocket v2
- * only.
+ * AES-128-GCM and the network's changes. A phone without it (an iPhone whose CryptoKit bridge is missing or failed its
+ * check at start) offers the WebSocket v2 only.
  */
 class LiveUdp(val opener: LiveDatagramOpener, val aeads: LiveAeads, val network: NetworkChanges = NetworkChanges.None)
 
