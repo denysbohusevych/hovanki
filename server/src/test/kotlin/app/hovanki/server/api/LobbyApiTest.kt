@@ -7,6 +7,7 @@ import app.hovanki.server.account.PasswordHasher
 import app.hovanki.server.account.UserRepository
 import app.hovanki.server.game.GameRegistry
 import app.hovanki.server.game.IdGenerator
+import app.hovanki.server.game.asKept
 import app.hovanki.server.social.TestUser
 import app.hovanki.server.social.TestUsers
 import app.hovanki.shared.debug.DebugBuildings
@@ -141,7 +142,7 @@ class LobbyApiTest(
         assertEquals(0, snapshot.mapRevision, "nothing to load again")
         val buildings = get(ApiRoutes.buildings(anna.gameId), anna.token).ok<BuildingsResponse>()
         assertEquals(emptyList(), buildings.buildings)
-        assertEquals(DebugBuildings.around(park).buildings, buildings.open)
+        assertEquals(DebugBuildings.around(park).buildings.asKept(), buildings.open)
 
         val tooMany = List(SettingsLimits.MAX_OPEN_BUILDINGS + 1) { park.moveBy(it * 5.0, 0.0) }
         post(

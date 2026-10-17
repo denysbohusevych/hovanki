@@ -1,5 +1,6 @@
 package app.hovanki.shared.rules
 
+import app.hovanki.shared.geo.distanceTo
 import app.hovanki.shared.geo.moveBy
 import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsResponse
@@ -9,12 +10,14 @@ import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.Passage
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class BuildingsTest {
@@ -232,6 +235,55 @@ class BuildingsTest {
         assertEquals(listOf(house, shed), split.forbidden)
         assertEquals(listOf(house), OpenBuildings.split(listOf(house), emptyList()).forbidden)
         assertEquals(1, OpenBuildings.openCount(listOf(at(150.0, 10.0), at(120.0, 5.0)), listOf(house, row)))
+    }
+
+    /** To 10⁻⁷ of a degree, about a centimeter: as the map keeps a point. */
+    private fun kept(points: List<GeoPoint>) =
+        points.map { GeoPoint((it.lat * 1e7).roundToInt() / 1e7, (it.lon * 1e7).roundToInt() / 1e7) }
+
+    private fun kept(area: BuildingArea) = BuildingArea(kept(area.outline), area.holes.map(::kept))
+
+    @Test
+    fun theMapGivesItsBuildingsAndPassagesBackToTheCentimeter() {
+        val block = BuildingArea(rect(0.0, 100.0, 60.0, 160.0), holes = listOf(rect(20.0, 120.0, 40.0, 140.0)))
+        val arch = Passage(listOf(at(10.0, -5.0), at(10.0, 45.0)), widthMeters = 4.0)
+        // A line is no building, a passage of no width no way through: nothing to judge by, nothing to draw.
+        val line = BuildingArea(listOf(at(200.0, 0.0), at(210.0, 0.0)))
+        val buildings = map(listOf(house, line, block), listOf(arch, Passage(listOf(at(0.0, 0.0), at(1.0, 1.0)), 0.0)))
+
+        assertEquals(listOf(kept(house), kept(block)), buildings.forbiddenAreas())
+        assertEquals(listOf(Passage(kept(arch.path), 4.0)), buildings.passages())
+        assertEquals(emptyList(), buildings.openAreas())
+        assertEquals(2, buildings.forbiddenCount)
+        val moved = buildings.forbiddenAreas().first().outline.zip(house.outline).maxOf { (a, b) -> a.distanceTo(b) }
+        assertTrue(moved < 0.01, "$moved m")
+        assertEquals(buildings.forbiddenAreas(), map(buildings.forbiddenAreas()).forbiddenAreas(), "kept as given")
+    }
+
+    @Test
+    fun anOpenBuildingIsLeftAloneAsTheSplitOpensIt() {
+        val row = BuildingArea(rect(100.0, 0.0, 160.0, 20.0))
+        val shed = BuildingArea(rect(0.0, 100.0, 10.0, 110.0))
+        val all = map(listOf(house, row, shed))
+        val points = listOf(at(150.0, 10.0), at(500.0, 500.0))
+
+        val opened = all.withOpen(points)
+        val split = OpenBuildings.split(listOf(house, row, shed).map(::kept), points)
+        assertEquals(split.open, opened.openAreas())
+        assertEquals(split.forbidden, opened.forbiddenAreas())
+        assertEquals(2, opened.forbiddenCount)
+        assertNull(opened.depthInsideMeters(at(130.0, 10.0)), "in the open row")
+        assertEquals(10.0, assertNotNull(all.depthInsideMeters(at(130.0, 10.0))), 0.1, "the map itself is as it was")
+        assertEquals(20.0, assertNotNull(opened.depthInsideMeters(at(20.0, 20.0))), 0.1, "the house is still forbidden")
+        // Nothing changes, the same map: the hiders' spots judged on it stay.
+        assertSame(opened, opened.withOpen(listOf(at(120.0, 5.0))))
+        assertSame(all, all.withOpen(emptyList()))
+        assertEquals(
+            listOf(house, row, shed).map(::kept),
+            opened.withOpen(emptyList()).forbiddenAreas(),
+            "closed again",
+        )
+        assertTrue(all.withOpen(listOf(at(5.0, 5.0), at(130.0, 10.0), at(5.0, 105.0))).isEmpty, "every building open")
     }
 
     @Test
