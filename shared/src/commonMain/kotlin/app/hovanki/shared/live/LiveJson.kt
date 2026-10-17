@@ -19,7 +19,8 @@ import kotlin.concurrent.Volatile
  * that did not change is neither encoded again on the server nor decoded again on the phone.
  *
  * The kinds every player of a game sees alike are in [game]: the server gives the sessions of one game the same one,
- * so their bytes are kept once per game and not once per player (docs/live-v2/server.md §3.4).
+ * so their bytes are kept once per game and not once per player (docs/live-v2/server.md §3.4). So are the players'
+ * rosters, built once per game and not once per viewer and sync ([LivePlayers], server.md §3.6).
  */
 class LiveJson(val game: Game = Game()) {
     val settings: Codec<GameSettings> get() = game.settings
@@ -31,11 +32,12 @@ class LiveJson(val game: Game = Game()) {
     val quests = Codec(QUESTS)
     val perks = Codec(PERKS)
 
-    /** The kinds of a whole game: settings, capacity, big game. */
+    /** The kinds of a whole game: settings, capacity, big game; and its players' rosters ([LivePlayers]). */
     class Game {
         val settings = Codec(GameSettings.serializer())
         val capacity = Codec(ZoneCapacity.serializer())
         val bigGame = Codec(BigGameInfo.serializer())
+        val players = LivePlayers()
     }
 
     /**

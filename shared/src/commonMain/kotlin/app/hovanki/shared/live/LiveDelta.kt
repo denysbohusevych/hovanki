@@ -87,9 +87,15 @@ class LiveDeltaResult(
 object LiveDelta {
     /**
      * [current] against [base] (null: a full state). The new digest takes its arrays from [base] or [last] (the state
-     * sent last) where they are equal, so the states kept do not each hold a copy.
+     * sent last) where they are equal, so the states kept do not each hold a copy. [rosters]: the game's, which
+     * [current] was cut with ([LiveSections.fromSnapshot]); its rosters come with their hashes.
      */
-    fun between(current: State, base: LiveDigest?, last: LiveDigest? = null): LiveDeltaResult {
+    fun between(
+        current: State,
+        base: LiveDigest?,
+        last: LiveDigest? = null,
+        rosters: LivePlayers? = null,
+    ): LiveDeltaResult {
         val hasher = LiveHasher()
         val whole = LongArray(WHOLE_SECTIONS)
         var changed = false
@@ -114,7 +120,7 @@ object LiveDelta {
         val perks = section(PERKS, current.perks, PerksSection.ADAPTER)
         val counts = section(COUNTS, current.counts, CountsSection.ADAPTER)
 
-        val players = players(current.players?.upsert.orEmpty(), base?.players, last?.players, hasher)
+        val players = players(current.players?.upsert.orEmpty(), base?.players, last?.players, hasher, rosters)
         val catches = keyed(
             current.catches?.upsert.orEmpty(),
             base?.catches,
@@ -173,6 +179,7 @@ object LiveDelta {
         base: LiveDigest.Keyed?,
         last: LiveDigest.Keyed?,
         hasher: LiveHasher,
+        rosters: LivePlayers?,
     ): KeyedResult<PlayerItem> {
         val ids = Array(items.size) { items[it].id }
         val hashes = LongArray(items.size)
@@ -181,7 +188,10 @@ object LiveDelta {
         var positions: Map<String, Int>? = null
         val lookup = { positions ?: base!!.positions().also { positions = it } }
         items.forEachIndexed { i, item ->
-            val roster = hasher.hash(Roster.ADAPTER, item.roster ?: NO_ROSTER)
+            val kept = rosters?.keptAt(i)?.takeIf { it.roster === item.roster }
+            // A roster kept for the game comes with its hash. Not `kept?.rosterHash ?: …`: that boxes a Long per player.
+            val roster =
+                if (kept != null) kept.rosterHash else hasher.hash(Roster.ADAPTER, item.roster ?: NO_ROSTER)
             val presence = hasher.hash(Presence.ADAPTER, item.presence ?: CONNECTED)
             val hasPresence = hasher.size > 0
             hashes[i] = roster * MIX + presence

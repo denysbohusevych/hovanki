@@ -55,18 +55,21 @@ class GameLiveV2Test {
     private var now = 1_700_000_000_000L
     private var secrets = 0
 
-    /** One player's live session: the server's side and the phone's, with the Down as bytes in between. */
-    private class Session {
+    /**
+     * One player's live session: the server's side and the phone's, with the Down as bytes in between. [game]: what the
+     * game's sessions share, as the server gives it (`LiveSessions`): the JSON of the game's kinds, the rosters.
+     */
+    private class Session(game: LiveJson.Game) {
         val server = LiveServerStates()
         val phone = LiveClientStates()
-        val json = LiveJson()
+        val json = LiveJson(game)
         val snapshots = LiveSnapshots()
         var seq = 0
 
         fun exchange(snapshot: GameSnapshot): Pair<Int, GameSnapshot> {
             seq++
             server.acknowledge(phone.ackState)
-            val next = server.next(LiveSections.fromSnapshot(snapshot, json))
+            val next = server.next(LiveSections.fromSnapshot(snapshot, json), rosters = json.game.players)
             val bytes =
                 Down.ADAPTER.encode(
                     Down(
@@ -172,6 +175,7 @@ class GameLiveV2Test {
         val seekers = ids.take(maxOf(1, players / 4)).toSet()
         val game = Game(GameId("g"), "ABC234", host, settings, now)
         val sessions = HashMap<PlayerId, Session>()
+        val shared = LiveJson.Game()
         val positions = HashMap<PlayerId, GeoPoint>()
         val bytes = Bytes()
         // One player goes silent for a while in every phase: the others see them offline, then back.
@@ -193,7 +197,7 @@ class GameLiveV2Test {
             }
             game.advance(now)
             val snapshot = game.snapshotFor(player, now)
-            val (downBytes, received) = sessions.getOrPut(player, ::Session).exchange(snapshot)
+            val (downBytes, received) = sessions.getOrPut(player) { Session(shared) }.exchange(snapshot)
             assertEquals(v1(snapshot), received, "${snapshot.phase}, ${player.value} at $now")
             bytes.add(snapshot.phase, protocolJson.encodeToString(snapshot).length, downBytes)
         }
