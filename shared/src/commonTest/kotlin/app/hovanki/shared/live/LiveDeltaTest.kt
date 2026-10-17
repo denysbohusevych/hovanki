@@ -139,7 +139,8 @@ class LiveDeltaTest {
         val moved = LiveDelta.between(state(50.46), first).digest
         assertSame(first.whole, moved.whole)
         assertSame(first.players.ids, moved.players.ids)
-        assertNotSame(first.players.hashes, moved.players.hashes)
+        assertSame(first.players.hashes, moved.players.hashes, "the rosters did not change")
+        assertNotSame(first.players.locations, moved.players.locations)
         assertSame(first.catches, moved.catches, "an empty section is one for all")
         val again = LiveDelta.between(state(50.46), first, last = moved).digest
         assertSame(moved.players, again.players)
