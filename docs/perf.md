@@ -98,7 +98,8 @@ PERF_GATLING=docker perf/run.sh UdpGames -Pperf.games=100 -Pperf.steps=10
 
 Параметры — как у `OrdinaryGames`, плюс:
 - `perf.workers` — потоки телефонов, по умолчанию все CPU контейнера;
-- `perf.phonesPerSocket` (1) — сколько сессий делят один сокет. Нужен машине, где лимит открытых файлов меньше числа телефонов. В облачной песочнице он 20 000: `PERF_GATLING_NOFILE=20000` и `-Pperf.phonesPerSocket=2` для 30 000. Сервер находит сессию по её id, а не по адресу, так что для него это телефоны за одним портом NAT.
+- `perf.phonesPerSocket` (1) — сколько сессий делят один сокет. Нужен машине, где лимит открытых файлов меньше числа телефонов. В облачной песочнице он 20 000: `PERF_GATLING_NOFILE=20000` и `-Pperf.phonesPerSocket=2` для 30 000. Сервер находит сессию по её id, а не по адресу, так что для него это телефоны за одним портом NAT;
+- `perf.wsPercent` (0) — доля телефонов на WebSocket v2 вместо UDP ([спецификация](live-v2/spec.md), §6), как iPhone, пока у него нет моста AES-GCM: открытие просит только `ws`, телефон подключается к `wsPath` открытия, те же Up и Down идут бинарными кадрами. С `https`-адресом — через TLS сервера, как на проде: стенд `perf/up.sh --container --tls`, адреса `-Pperf.baseUrl=https://server:8443 -Pperf.adminUrl=https://server:8443`. Время подключения — строка `ws connect`, кадры и байты — в разделе «UDP за прогон».
 
 Вместо `simulation.log` генератор пишет `client.json` в `perf/build/reports/udp/udpgames-<время>/`: те же задержки по секундам и именам, `perf/report.py` читает его как журнал Gatling.
 - **Синхронизации** — строки `sync LOBBY/HIDING/SEEKING`: время от Up до Down, который на него ответил. Up без ответа за 10 с — ошибка `sync: no answer`.

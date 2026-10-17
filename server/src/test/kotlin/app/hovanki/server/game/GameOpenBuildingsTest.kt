@@ -105,13 +105,13 @@ class GameOpenBuildingsTest {
 
         assertEquals(revision, game.mapRevision)
         val buildings = game.buildingsFor(hider, now)
-        assertEquals(listOf(shed), buildings.buildings)
-        assertEquals(listOf(block), buildings.open)
-        assertEquals(quarter.passages, buildings.passages)
+        assertEquals(listOf(shed.asKept()), buildings.buildings)
+        assertEquals(listOf(block.asKept()), buildings.open)
+        assertEquals(quarter.passages.asKept(), buildings.passages)
         assertEquals(listOf(insideBlock), game.snapshotFor(hider, now).settings.openBuildings)
 
         open()
-        assertEquals(listOf(block, shed), game.buildingsFor(hider, now).buildings, "closed again")
+        assertEquals(listOf(block, shed).asKept(), game.buildingsFor(hider, now).buildings, "closed again")
         assertEquals(emptyList(), game.buildingsFor(hider, now).open)
     }
 
@@ -123,13 +123,13 @@ class GameOpenBuildingsTest {
         // An older app, or the host changing the time: no list in the request.
         game.updateSettings(host, settings.copy(seekingSeconds = 900), now)
         assertEquals(listOf(insideBlock), game.settings.openBuildings)
-        assertEquals(listOf(block), game.buildingsFor(hider, now).open)
+        assertEquals(listOf(block.asKept()), game.buildingsFor(hider, now).open)
 
         // A larger zone loads its buildings again; the point opens the same block in them.
         val larger = settings.copy(zone = shrinkingZone(center, initialRadiusMeters = 800.0, steps = 0))
         assertTrue(game.updateSettings(host, larger, now))
         game.onBuildingsLoaded(listOf(block, shed), quarter.passages)
-        assertEquals(listOf(block), game.buildingsFor(hider, now).open)
+        assertEquals(listOf(block.asKept()), game.buildingsFor(hider, now).open)
 
         // A zone two kilometers away: the block is not by it any more.
         val away = settings.copy(zone = shrinkingZone(center.moveBy(2_000.0, 0.0), steps = 0))

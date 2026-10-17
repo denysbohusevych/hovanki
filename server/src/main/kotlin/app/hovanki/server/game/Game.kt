@@ -89,7 +89,6 @@ import app.hovanki.shared.rules.CatchRules
 import app.hovanki.shared.rules.ChatRules
 import app.hovanki.shared.rules.Glow
 import app.hovanki.shared.rules.LocationTrack
-import app.hovanki.shared.rules.OpenBuildings
 import app.hovanki.shared.rules.PerkCatalog
 import app.hovanki.shared.rules.ProximityRules
 import app.hovanki.shared.rules.QuestCatalog
@@ -194,12 +193,12 @@ class Game(
     /** The "no hiding in buildings" rule (docs/adr/0003-map-and-buildings.md): on once the outlines are loaded. */
     var buildingsState: BuildingsState = BuildingsState.LOADING
         private set
-    private var buildings = BuildingsResponse()
-    private var buildingMap: BuildingMap? = null
 
-    /** Every building of the zone as loaded, open ones too: [splitBuildings] divides them by the host's points. */
-    private var loadedBuildings: List<BuildingArea> = emptyList()
-    private var loadedPassages: List<Passage> = emptyList()
+    /**
+     * Every building of the zone as loaded, the host's open ones marked ([splitBuildings]); the players get them from
+     * it too. Null until they are loaded.
+     */
+    private var buildingMap: BuildingMap? = null
 
     /**
      * Goes up whenever the host changes the zone in the lobby: the buildings and the zone by streets are loaded again,
@@ -330,8 +329,7 @@ class Game(
     fun onBuildingsLoaded(areas: List<BuildingArea>, passages: List<Passage>, revision: Int = mapRevision) {
         if (revision != mapRevision) return
         buildingsState = BuildingsState.READY
-        loadedBuildings = areas
-        loadedPassages = passages
+        buildingMap = BuildingMap(areas, passages, settings.zone.initial.center)
         splitBuildings()
         pokes.addEveryone()
     }
@@ -342,19 +340,14 @@ class Game(
      */
     private fun splitBuildings() {
         if (buildingsState != BuildingsState.READY) return
-        val split = OpenBuildings.split(loadedBuildings, settings.openBuildings.orEmpty())
-        buildings = BuildingsResponse(BuildingsState.READY, split.forbidden, loadedPassages, open = split.open)
-        buildingMap = BuildingMap(split.forbidden, loadedPassages, settings.zone.initial.center)
+        buildingMap = buildingMap?.withOpen(settings.openBuildings.orEmpty())
     }
 
     /** The zone's buildings can't be loaded: the game runs without the rule, and the players are told. */
     fun onBuildingsUnavailable(revision: Int = mapRevision) {
         if (revision != mapRevision) return
         buildingsState = BuildingsState.UNAVAILABLE
-        buildings = BuildingsResponse(BuildingsState.UNAVAILABLE)
         buildingMap = null
-        loadedBuildings = emptyList()
-        loadedPassages = emptyList()
         pokes.addEveryone()
     }
 
@@ -443,8 +436,16 @@ class Game(
     /** The buildings the rule judges by, for [viewerId] to draw exactly those on the map. */
     fun buildingsFor(viewerId: PlayerId, nowMillis: Long): BuildingsResponse {
         val viewer = player(viewerId)
-        if (buildingsState == BuildingsState.READY) viewer.buildingsLoadedAtMillis = nowMillis
-        return buildings.copy(state = buildingsState, mapRevision = mapRevision)
+        val map = buildingMap?.takeIf { buildingsState == BuildingsState.READY }
+            ?: return BuildingsResponse(buildingsState, mapRevision = mapRevision)
+        viewer.buildingsLoadedAtMillis = nowMillis
+        return BuildingsResponse(
+            BuildingsState.READY,
+            map.forbiddenAreas(),
+            map.passages(),
+            mapRevision,
+            open = map.openAreas(),
+        )
     }
 
     /**
@@ -562,10 +563,7 @@ class Game(
         if (mapChanged) {
             mapRevision++
             buildingsState = BuildingsState.LOADING
-            buildings = BuildingsResponse()
             buildingMap = null
-            loadedBuildings = emptyList()
-            loadedPassages = emptyList()
             // The draft the host looked at is saved: its zone by streets is there already, nothing to build.
             val built = draftZone?.takeIf { next.zoneShape == ZoneShape.STREETS && it.zone == next.zone }?.stages
             streetZone = built
@@ -1626,7 +1624,7 @@ class Game(
             zoneStartedAtMillis = moment.zoneStartedAtMillis,
             phaseEndsAtMillis = moment.phaseEndsAtMillis,
             streetZone = streetZone?.stages,
-            buildings = if (buildingsState == BuildingsState.READY) buildings.buildings else emptyList(),
+            buildings = buildingMap?.takeIf { buildingsState == BuildingsState.READY }?.forbiddenAreas().orEmpty(),
             players = moment.players,
             spectators = spectatorCount(nowMillis),
             zoneNow = zone?.current,
@@ -1707,7 +1705,7 @@ class Game(
         zoneRadiusMeters = settings.zone.initial.radiusMeters,
         chatMessages = lastChatSeq.toInt(),
         buildings = buildingsState,
-        buildingCount = buildings.buildings.size.takeIf { buildingsState == BuildingsState.READY },
+        buildingCount = buildingMap?.forbiddenCount?.takeIf { buildingsState == BuildingsState.READY },
         zoneShape = settings.zoneShape,
         streetZone = streetZoneState,
         capacity = capacity().players,
@@ -1760,7 +1758,7 @@ class Game(
             },
             mapRevision = mapRevision,
             rolesDrawnAtMillis = rolesDrawnAtMillis,
-            buildingCount = buildings.buildings.size,
+            buildingCount = buildingMap?.forbiddenCount ?: 0,
             capacity = capacity(),
             finishedAtMillis = finishedAtMillis,
             players = players.values.map { player ->

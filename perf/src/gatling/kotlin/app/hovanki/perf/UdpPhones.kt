@@ -10,18 +10,23 @@ import app.hovanki.shared.live.v2.Down
 import app.hovanki.shared.live.v2.Up
 import app.hovanki.shared.protocol.GamePhase
 import app.hovanki.shared.protocol.GameRules
+import app.hovanki.shared.protocol.LiveWs
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.SocketLimits
 import okio.ByteString
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.PortUnreachableException
+import java.net.http.WebSocket
 import java.nio.ByteBuffer
 import java.nio.channels.DatagramChannel
 import java.nio.channels.SelectionKey
 import java.nio.channels.Selector
 import java.security.GeneralSecurityException
 import java.util.PriorityQueue
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.LongAdder
@@ -32,14 +37,17 @@ import app.hovanki.shared.live.v2.GamePhase as WirePhase
 
 /**
  * A live session of the live channel v2 as the open hands it to a phone (docs/live-v2/spec.md §4): its id, its two
- * keys, its RESET's tag and where its datagrams go.
+ * keys, its RESET's tag and where its datagrams go, or the WebSocket v2 it talks over instead (spec §6).
  */
 class UdpLive(
     val sessionId: Long,
     upKey: ByteArray,
     downKey: ByteArray,
     val resetToken: ByteArray,
-    val address: InetSocketAddress,
+    /** Where its datagrams go; null while it talks over [ws]. */
+    val address: InetSocketAddress?,
+    /** Its WebSocket v2, connected with [UdpPhones.listener]: a frame is an Up or a Down as it is, TLS encrypts. */
+    val ws: WebSocket? = null,
 ) {
     internal val up: LiveAead = JceAead(SecretKeySpec(upKey, "AES"))
     internal val down: LiveAead = JceAead(SecretKeySpec(downKey, "AES"))
@@ -54,6 +62,8 @@ class UdpPhone(
     val name: String,
     val token: String,
     val isHost: Boolean,
+    /** The phone talks over the WebSocket v2 rather than UDP, as an iPhone without the AES-GCM bridge. */
+    val overWs: Boolean,
     /** The generator's own: what it needs of the phone's game. */
     val tag: Any?,
     private val walker: Walker,
@@ -96,8 +106,8 @@ class UdpPhone(
     }
 }
 
-/** One live session of a phone: what spec §5 keeps per session. Worker-only. */
-internal class PhoneSession(val live: UdpLive, val socket: PhoneSocket) {
+/** One live session of a phone: what spec §5 keeps per session; [socket] null over the WebSocket v2. Worker-only. */
+internal class PhoneSession(val live: UdpLive, val socket: PhoneSocket?) {
     var pn = 0
     var messageId = 0
     var seq = 0
@@ -106,6 +116,9 @@ internal class PhoneSession(val live: UdpLive, val socket: PhoneSocket) {
     val pieces = LiveReassembler()
     var pathResponse: ByteString = ByteString.EMPTY
     val pending = ArrayDeque<Pending>()
+
+    /** The WebSocket's send still going: it takes one at a time. */
+    var sending: CompletableFuture<WebSocket>? = null
 
     class Pending(val seq: Int, val sentNanos: Long, val sentMillis: Long, val phase: GamePhase)
 }
@@ -132,6 +145,10 @@ internal class PhoneSocket(val channel: DatagramChannel) {
  * share the phones: each owns its phones' sockets in its own selector and their next Ups in its own queue.
  * [phonesPerSocket] over 1 puts that many sessions on one socket, as phones behind one NAT's port would look, for a
  * machine whose limit of open files is below the phones (the server finds a session by its id, not by its address).
+ *
+ * A phone [UdpPhone.overWs] has its session on a WebSocket v2 instead (spec §6): the same Ups and Downs, each a binary
+ * frame, no datagrams, keys or address check. The WebSocket's frames come on the HTTP client's threads and go to the
+ * phone's worker, so a phone stays on one thread either way.
  */
 class UdpPhones(
     workers: Int,
@@ -173,6 +190,12 @@ class UdpPhones(
         val closes = LongAdder()
         val errors = LongAdder()
         val sockets = AtomicInteger()
+
+        /** The WebSocket v2's own: Ups (also in [ups]), frames' bytes, and connections open now. */
+        val wsUps = LongAdder()
+        val wsBytesOut = LongAdder()
+        val wsBytesIn = LongAdder()
+        val webSockets = AtomicInteger()
     }
 
     init {
@@ -181,8 +204,48 @@ class UdpPhones(
 
     /** Puts [phone] on [live]: a socket of its own (or a share of one), the first Up at once. From any thread. */
     fun add(phone: UdpPhone, live: UdpLive) {
+        all[workerOf(phone)].adopt(phone, live)
+    }
+
+    /**
+     * What a WebSocket v2 of [phone] hears, for its connect: every frame and its close go to the phone's worker. From
+     * the thread that will [add] the phone.
+     */
+    fun listener(phone: UdpPhone): WebSocket.Listener = WsListener(phone, all[workerOf(phone)])
+
+    private fun workerOf(phone: UdpPhone): Int {
         if (phone.worker < 0) phone.worker = Math.floorMod(next.getAndIncrement(), all.size)
-        all[phone.worker].adopt(phone, live)
+        return phone.worker
+    }
+
+    /** One message of a WebSocket v2, or its end ([bytes] null, [code] its close code, -1 an error). */
+    private class WsFrame(val phone: UdpPhone, val ws: WebSocket, val bytes: ByteArray?, val code: Int)
+
+    private class WsListener(private val phone: UdpPhone, private val worker: Worker) : WebSocket.Listener {
+        private var parts: ByteArrayOutputStream? = null
+
+        override fun onBinary(ws: WebSocket, data: ByteBuffer, last: Boolean): CompletionStage<*>? {
+            val bytes = ByteArray(data.remaining()).also(data::get)
+            val whole = if (last && parts == null) {
+                bytes
+            } else {
+                val all = parts ?: ByteArrayOutputStream().also { parts = it }
+                all.write(bytes)
+                if (last) all.toByteArray().also { parts = null } else null
+            }
+            if (whole != null) worker.deliver(WsFrame(phone, ws, whole, 0))
+            ws.request(1)
+            return null
+        }
+
+        override fun onClose(ws: WebSocket, statusCode: Int, reason: String): CompletionStage<*>? {
+            worker.deliver(WsFrame(phone, ws, null, statusCode))
+            return null
+        }
+
+        override fun onError(ws: WebSocket, error: Throwable) {
+            worker.deliver(WsFrame(phone, ws, null, -1))
+        }
     }
 
     /** The phone leaves: its session ends, it sends nothing more. From any thread. */
@@ -202,6 +265,10 @@ class UdpPhones(
         val thread = Thread(this, "udp-phones-${index + 1}").apply { isDaemon = true }
         private val selector: Selector = Selector.open()
         private val adopted = ConcurrentLinkedQueue<Pair<UdpPhone, UdpLive>>()
+        private val frames = ConcurrentLinkedQueue<WsFrame>()
+
+        /** Its phones' WebSockets open now, closed with the worker. */
+        private val webSockets = HashSet<WebSocket>()
 
         /** The phones' next Ups by time. A phone's [UdpPhone.dueNanos] is the truth: an older wake is skipped. */
         private val wakes = PriorityQueue<Wake>(compareBy { it.atNanos })
@@ -221,6 +288,11 @@ class UdpPhones(
             selector.wakeup()
         }
 
+        fun deliver(frame: WsFrame) {
+            frames.add(frame)
+            wake()
+        }
+
         override fun run() {
             try {
                 while (running) {
@@ -228,6 +300,7 @@ class UdpPhones(
                         val (phone, live) = adopted.poll() ?: break
                         open(phone, live)
                     }
+                    while (true) frame(frames.poll() ?: break)
                     sendDue()
                     val first = wakes.peek()
                     val waitMillis =
@@ -245,6 +318,7 @@ class UdpPhones(
                     }
                 }
             } finally {
+                (webSockets + adopted.mapNotNull { it.second.ws }).forEach(WebSocket::abort)
                 selector.keys().forEach { key ->
                     try {
                         key.channel().close()
@@ -258,7 +332,18 @@ class UdpPhones(
 
         private fun open(phone: UdpPhone, live: UdpLive) {
             phone.session?.let { leave(phone, it) }
-            if (phone.isOver) return
+            if (phone.isOver) {
+                live.ws?.abort()
+                return
+            }
+            if (live.ws != null) {
+                phone.session = PhoneSession(live, null)
+                webSockets += live.ws
+                counters.webSockets.incrementAndGet()
+                phone.fixes.forEach { it.firstSeq = 0 }
+                schedule(phone, System.nanoTime())
+                return
+            }
             val socket = try {
                 socketFor(live)
             } catch (e: IOException) {
@@ -279,7 +364,7 @@ class UdpPhones(
             val channel = DatagramChannel.open()
             try {
                 channel.configureBlocking(false)
-                channel.connect(live.address)
+                channel.connect(checkNotNull(live.address))
                 val socket = PhoneSocket(channel)
                 socket.key = channel.register(selector, SelectionKey.OP_READ, socket)
                 counters.sockets.incrementAndGet()
@@ -294,7 +379,17 @@ class UdpPhones(
         /** [phone]'s [session] ends here: off its socket, which closes once nobody is on it. */
         private fun leave(phone: UdpPhone, session: PhoneSession) {
             phone.session = null
-            val socket = session.socket
+            session.live.ws?.let { ws ->
+                webSockets -= ws
+                counters.webSockets.decrementAndGet()
+                try {
+                    ws.sendClose(WebSocket.NORMAL_CLOSURE, "")
+                } catch (e: IllegalStateException) {
+                    ws.abort()
+                }
+                return
+            }
+            val socket = checkNotNull(session.socket)
             socket.phones.remove(session.live.sessionId)
             if (socket.phones.isEmpty() && (socket.taken >= phonesPerSocket || socket !== filling)) {
                 socket.key.cancel()
@@ -345,11 +440,35 @@ class UdpPhones(
             )
             session.pathResponse = ByteString.EMPTY
             val message = Up.ADAPTER.encode(up)
+            val ws = session.live.ws
+            if (ws != null) {
+                frameUp(session, ws, message)
+            } else {
+                datagramsUp(session, message)
+            }
+            session.pending.addLast(PhoneSession.Pending(seq, nowNanos, nowMillis, phone.phase))
+            schedule(phone, nowNanos + paceNanos(phone.phase))
+        }
+
+        /** One Up as a frame: a WebSocket takes one send at a time, an Up behind one still going is lost. */
+        private fun frameUp(session: PhoneSession, ws: WebSocket, message: ByteArray) {
+            if (session.sending?.isDone == false) {
+                counters.sendFailed.increment()
+                return
+            }
+            session.sending = ws.sendBinary(ByteBuffer.wrap(message), true)
+            counters.ups.increment()
+            counters.wsUps.increment()
+            counters.wsBytesOut.add(message.size.toLong())
+        }
+
+        private fun datagramsUp(session: PhoneSession, message: ByteArray) {
+            val socket = checkNotNull(session.socket)
             session.messageId = (session.messageId + 1) and 0xffff
             for (plaintext in LiveDatagrams.plaintexts(message, session.messageId)) {
                 val datagram = LiveDatagrams.seal(session.live.up, session.live.sessionId, ++session.pn, plaintext)
                 try {
-                    if (session.socket.channel.write(ByteBuffer.wrap(datagram)) == 0) counters.sendFailed.increment()
+                    if (socket.channel.write(ByteBuffer.wrap(datagram)) == 0) counters.sendFailed.increment()
                     counters.datagramsOut.increment()
                     counters.bytesOut.add(datagram.size.toLong())
                 } catch (e: IOException) {
@@ -357,8 +476,6 @@ class UdpPhones(
                 }
             }
             counters.ups.increment()
-            session.pending.addLast(PhoneSession.Pending(seq, nowNanos, nowMillis, phone.phase))
-            schedule(phone, nowNanos + paceNanos(phone.phase))
         }
 
         /** The Ups left without an answer too long: failed syncs. */
@@ -419,6 +536,26 @@ class UdpPhones(
 
         private fun dropped() {
             counters.dropped.increment()
+        }
+
+        /** A WebSocket v2's frame or end, for the session it belongs to; an older session's is late and dropped. */
+        private fun frame(frame: WsFrame) {
+            val phone = frame.phone
+            val session = phone.session?.takeIf { it.live.ws === frame.ws } ?: return
+            val bytes = frame.bytes
+            if (bytes == null) {
+                counters.closes.increment()
+                // CLOSE_REOPEN: a new session over HTTPS, as the UDP Close of the same name.
+                end(phone, session, if (frame.code == LiveWs.CLOSE_REOPEN) "close CLOSE_REOPEN" else "ws ${frame.code}")
+                return
+            }
+            counters.wsBytesIn.add(bytes.size.toLong())
+            val down = try {
+                Down.ADAPTER.decode(bytes)
+            } catch (e: IOException) {
+                return dropped()
+            }
+            down(phone, session, down)
         }
 
         private fun down(phone: UdpPhone, session: PhoneSession, down: Down) {

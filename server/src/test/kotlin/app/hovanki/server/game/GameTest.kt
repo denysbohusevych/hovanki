@@ -631,7 +631,7 @@ class GameTest {
 
         val buildings = game.buildingsFor(hider, now)
         assertEquals(BuildingsState.READY, buildings.state)
-        assertEquals(DebugBuildings.around(center).buildings, buildings.buildings)
+        assertEquals(DebugBuildings.around(center).buildings.asKept(), buildings.buildings)
         assertEquals(1, buildings.passages.size)
         assertEquals(now, game.debugState(now).players.single { it.id == hider }.buildingsLoadedAtMillis)
         assertNull(game.debugState(now).players.single { it.id == seeker }.buildingsLoadedAtMillis)

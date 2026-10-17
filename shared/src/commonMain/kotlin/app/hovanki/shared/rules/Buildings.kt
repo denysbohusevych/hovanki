@@ -1,15 +1,18 @@
 package app.hovanki.shared.rules
 
-import app.hovanki.shared.geo.offsetFrom
+import app.hovanki.shared.geo.EARTH_RADIUS_METERS
 import app.hovanki.shared.protocol.BuildingArea
 import app.hovanki.shared.protocol.BuildingsResponse
 import app.hovanki.shared.protocol.GameRules
 import app.hovanki.shared.protocol.GeoPoint
 import app.hovanki.shared.protocol.LocationSample
 import app.hovanki.shared.protocol.Passage
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /** Whether [point] lies in this building: inside its outline and not in one of its courtyards. */
@@ -79,84 +82,311 @@ fun BuildingsResponse.withOpenBuildings(points: List<GeoPoint>?): BuildingsRespo
 }
 
 /**
- * The buildings of one game, ready for point checks (docs/adr/0003-map-and-buildings.md): rings are projected to
- * meters on a local plane around [origin] (fine for a zone of a few kilometers) and bucketed into a grid, so a check
- * only looks at the buildings and passages nearby.
+ * The buildings of one game, ready for point checks (docs/adr/0003-map-and-buildings.md). A game in a city's center
+ * keeps thousands of outlines while it lasts, and the server keeps thousands of games, so the map is compact: every
+ * point is two ints of one array (degrees × 10⁷, about a centimeter), with no object for a point or a ring; a grid of
+ * cells finds the buildings and passages near a point, and a check projects only theirs to meters on a local plane
+ * around the origin it is given, the zone's center (fine for a zone of a few kilometers).
+ *
+ * The map keeps every building of the zone, the ones the host opened too ([withOpen]): the rule leaves those alone, and
+ * the players get all of them back as loaded, to the centimeter ([forbiddenAreas], [openAreas], [passages]).
  */
-class BuildingMap(buildings: List<BuildingArea>, passages: List<Passage>, private val origin: GeoPoint) {
-    private val shapes = buildings.filter { it.outline.size >= 3 }.map { area ->
-        Shape(project(area.outline), area.holes.filter { it.size >= 3 }.map(::project))
-    }
-    private val corridors = passages.filter { it.path.size >= 2 && it.widthMeters > 0 }.map { passage ->
-        Corridor(project(passage.path), passage.widthMeters / 2)
-    }
-    private val shapeCells = index(shapes.map { it.outline.bounds })
-    private val corridorCells = index(corridors.map { it.path.bounds.grownBy(it.halfWidth) })
+class BuildingMap private constructor(private val data: Packed, private val open: BooleanArray?) {
+    constructor(buildings: List<BuildingArea>, passages: List<Passage>, origin: GeoPoint) :
+        this(Packed(buildings, passages, origin), null)
 
-    val isEmpty: Boolean get() = shapes.isEmpty()
+    /** No building the rule judges by. */
+    val isEmpty: Boolean get() = forbiddenCount == 0
+
+    /** How many buildings the rule judges by: those not open. */
+    val forbiddenCount: Int = data.shapeCount - (open?.count { it } ?: 0)
+
+    /**
+     * This map with the buildings [points] lie in open (docs/adr/0014-settings-lobby-redesign-open-buildings.md), as
+     * [OpenBuildings.split] opens them; the outlines and the grid are this map's. This map itself when nothing changes.
+     */
+    fun withOpen(points: List<GeoPoint>): BuildingMap {
+        val opened = BooleanArray(data.shapeCount)
+        var any = false
+        for (point in points) {
+            val lat = point.lat * E7
+            val lon = point.lon * E7
+            data.shapeCells.forEach(cellKey(cell(data.east(lon)), cell(data.north(lat)))) { shape ->
+                if (data.shapeContains(shape, lat, lon)) {
+                    opened[shape] = true
+                    any = true
+                }
+            }
+        }
+        val next = opened.takeIf { any }
+        return when {
+            next == null && open == null -> this
+            next != null && open != null && next.contentEquals(open) -> this
+            else -> BuildingMap(data, next)
+        }
+    }
 
     /**
      * How deep [point] lies inside a building: the distance to its nearest wall, courtyard or passage. Null when it is
-     * not inside any building (outside, in a courtyard, in an arch or passage). Of overlapping buildings (a building
-     * and its part, a block of adjoining houses) the deepest counts.
+     * not inside any building (outside, in a courtyard, in an arch or passage, in an open building). Of overlapping
+     * buildings (a building and its part, a block of adjoining houses) the deepest counts.
      */
     fun depthInsideMeters(point: GeoPoint): Double? {
-        val offset = point.offsetFrom(origin)
-        val x = offset.eastMeters
-        val y = offset.northMeters
-        var depth: Double? = null
-        for (index in shapeCells[cellKey(cell(x), cell(y))]) {
-            val shape = shapes[index]
-            if (shape.contains(x, y)) depth = max(depth ?: 0.0, shape.distanceToEdge(x, y))
+        val lat = point.lat * E7
+        val lon = point.lon * E7
+        val x = data.east(lon)
+        val y = data.north(lat)
+        // Negative: in no building yet. Not a Double?, which boxes every value it takes.
+        var depth = -1.0
+        data.shapeCells.forEach(cellKey(cell(x), cell(y))) { shape ->
+            if ((open == null || !open[shape]) && data.shapeContains(shape, lat, lon)) {
+                depth = max(depth, data.shapeDistanceToEdge(shape, x, y))
+            }
         }
-        var inside = depth ?: return null
+        if (depth < 0) return null
+        var inside = depth
         // A passage within that distance is outdoors: the player is only as deep as the way out through it.
-        for (index in cellsAround(corridorCells, x, y, inside)) {
-            val corridor = corridors[index]
-            val toCorridor = corridor.path.distanceToPath(x, y, closed = false) - corridor.halfWidth
+        for (corridor in data.corridorsAround(x, y, inside)) {
+            val toCorridor = data.corridorDistance(corridor, x, y) - data.halfWidths[corridor]
             if (toCorridor <= 0) return null
             inside = min(inside, toCorridor)
         }
         return inside
     }
 
-    private fun project(points: List<GeoPoint>): Ring {
-        val offsets = points.map { it.offsetFrom(origin) }
-        return Ring(
-            DoubleArray(offsets.size) { offsets[it].eastMeters },
-            DoubleArray(offsets.size) { offsets[it].northMeters },
-        )
+    /** The buildings the rule judges by, as the players draw them pink. */
+    fun forbiddenAreas(): List<BuildingArea> =
+        (0 until data.shapeCount).filter { open == null || !open[it] }.map(data::area)
+
+    /** The buildings the host opened for hiding. */
+    fun openAreas(): List<BuildingArea> {
+        val open = open ?: return emptyList()
+        return open.indices.filter { open[it] }.map(data::area)
     }
 
-    private fun index(bounds: List<Bounds>): Cells {
-        val cells = HashMap<Long, MutableList<Int>>()
-        bounds.forEachIndexed { index, box ->
-            for (cx in cell(box.minX)..cell(box.maxX)) {
-                for (cy in cell(box.minY)..cell(box.maxY)) cells.getOrPut(cellKey(cx, cy)) { ArrayList() } += index
-            }
-        }
-        return Cells(cells)
-    }
+    fun passages(): List<Passage> = (0 until data.corridorCount).map(data::passage)
 
-    private fun cellsAround(cells: Cells, x: Double, y: Double, radius: Double): Set<Int> {
-        val found = LinkedHashSet<Int>()
-        for (cx in cell(x - radius)..cell(x + radius)) {
-            for (cy in cell(y - radius)..cell(y + radius)) {
-                for (index in cells[cellKey(cx, cy)]) found += index
+    /**
+     * The outlines and the grid: buildings ("shapes": an outline and its courtyards) and passages ("corridors"), every
+     * one a ring or a few of [points].
+     */
+    private class Packed(buildings: List<BuildingArea>, passages: List<Passage>, origin: GeoPoint) {
+        /** Every ring's points one after another, two ints each: latitude and longitude in degrees × 10⁷. */
+        private val points: IntArray
+
+        /** Where each ring starts in [points], by point; the entry after the last closes it. */
+        private val ringStarts: IntArray
+
+        /** The rings of each building from its own entry to the next one's: the outline first, then the courtyards. */
+        private val shapeRings: IntArray
+
+        /** The outline's bounds of each building, four ints: south, north, west, east, in degrees × 10⁷. */
+        private val bounds: IntArray
+
+        /** The first passage's ring: the passages' rings follow the buildings' ones, one each. */
+        private val firstCorridorRing: Int
+
+        val shapeCount: Int
+        val corridorCount: Int
+        val halfWidths: DoubleArray
+        private val widths: DoubleArray
+
+        private val originLat = origin.lat * E7
+        private val originLon = origin.lon * E7
+        private val metersPerLat = EARTH_RADIUS_METERS * PI / 180 / E7
+        private val metersPerLon = metersPerLat * cos(origin.lat * PI / 180)
+
+        val shapeCells: Cells
+        private val corridorCells: Cells
+
+        init {
+            val shapes = buildings.filter { it.outline.size >= 3 }
+            val corridors = passages.filter { it.path.size >= 2 && it.widthMeters > 0 }
+            val rings = ArrayList<List<GeoPoint>>()
+            shapeRings = IntArray(shapes.size + 1)
+            shapes.forEachIndexed { index, shape ->
+                shapeRings[index] = rings.size
+                rings += shape.outline
+                shape.holes.filterTo(rings) { it.size >= 3 }
             }
+            shapeRings[shapes.size] = rings.size
+            firstCorridorRing = rings.size
+            corridors.mapTo(rings) { it.path }
+            ringStarts = IntArray(rings.size + 1)
+            points = IntArray(rings.sumOf { it.size } * 2)
+            var next = 0
+            rings.forEachIndexed { index, ring ->
+                ringStarts[index] = next
+                for (point in ring) {
+                    points[2 * next] = (point.lat * E7).roundToInt()
+                    points[2 * next + 1] = (point.lon * E7).roundToInt()
+                    next++
+                }
+            }
+            ringStarts[rings.size] = next
+            shapeCount = shapes.size
+            corridorCount = corridors.size
+            widths = DoubleArray(corridors.size) { corridors[it].widthMeters }
+            halfWidths = DoubleArray(corridors.size) { widths[it] / 2 }
+            bounds = IntArray(shapes.size * 4)
+            val shapeBoxes = DoubleArray(shapes.size * 4)
+            for (shape in 0 until shapeCount) {
+                val ring = shapeRings[shape]
+                var minLat = Int.MAX_VALUE
+                var maxLat = Int.MIN_VALUE
+                var minLon = Int.MAX_VALUE
+                var maxLon = Int.MIN_VALUE
+                for (point in ringStarts[ring] until ringStarts[ring + 1]) {
+                    minLat = min(minLat, points[2 * point])
+                    maxLat = max(maxLat, points[2 * point])
+                    minLon = min(minLon, points[2 * point + 1])
+                    maxLon = max(maxLon, points[2 * point + 1])
+                }
+                bounds[4 * shape] = minLat
+                bounds[4 * shape + 1] = maxLat
+                bounds[4 * shape + 2] = minLon
+                bounds[4 * shape + 3] = maxLon
+                shapeBoxes[4 * shape] = east(minLon.toDouble())
+                shapeBoxes[4 * shape + 1] = east(maxLon.toDouble())
+                shapeBoxes[4 * shape + 2] = north(minLat.toDouble())
+                shapeBoxes[4 * shape + 3] = north(maxLat.toDouble())
+            }
+            shapeCells = Cells.of(shapeBoxes)
+            val corridorBoxes = DoubleArray(corridorCount * 4)
+            for (corridor in 0 until corridorCount) {
+                val ring = firstCorridorRing + corridor
+                val grow = halfWidths[corridor]
+                var minX = Double.MAX_VALUE
+                var maxX = -Double.MAX_VALUE
+                var minY = Double.MAX_VALUE
+                var maxY = -Double.MAX_VALUE
+                for (point in ringStarts[ring] until ringStarts[ring + 1]) {
+                    minX = min(minX, x(point))
+                    maxX = max(maxX, x(point))
+                    minY = min(minY, y(point))
+                    maxY = max(maxY, y(point))
+                }
+                corridorBoxes[4 * corridor] = minX - grow
+                corridorBoxes[4 * corridor + 1] = maxX + grow
+                corridorBoxes[4 * corridor + 2] = minY - grow
+                corridorBoxes[4 * corridor + 3] = maxY + grow
+            }
+            corridorCells = Cells.of(corridorBoxes)
         }
-        return found
+
+        /** Meters east of the origin of a longitude in degrees × 10⁷. */
+        fun east(lon: Double): Double = (lon - originLon) * metersPerLon
+
+        /** Meters north of the origin of a latitude in degrees × 10⁷. */
+        fun north(lat: Double): Double = (lat - originLat) * metersPerLat
+
+        private fun x(point: Int): Double = east(points[2 * point + 1].toDouble())
+
+        private fun y(point: Int): Double = north(points[2 * point].toDouble())
+
+        /**
+         * Inside the outline of [shape] and in none of its courtyards. Even-odd rule on the degrees themselves: the
+         * projection to meters is linear on both axes, so inside and out are the same in either.
+         */
+        fun shapeContains(shape: Int, lat: Double, lon: Double): Boolean {
+            if (lat < bounds[4 * shape] || lat > bounds[4 * shape + 1]) return false
+            if (lon < bounds[4 * shape + 2] || lon > bounds[4 * shape + 3]) return false
+            val outline = shapeRings[shape]
+            if (!ringContains(outline, lat, lon)) return false
+            for (hole in outline + 1 until shapeRings[shape + 1]) {
+                if (ringContains(hole, lat, lon)) return false
+            }
+            return true
+        }
+
+        /** The nearest wall or courtyard of [shape] to the point [x], [y] in meters from the origin. */
+        fun shapeDistanceToEdge(shape: Int, x: Double, y: Double): Double {
+            var best = Double.MAX_VALUE
+            for (ring in shapeRings[shape] until shapeRings[shape + 1]) {
+                best = min(best, distanceToRing(ring, x, y, closed = true))
+            }
+            return best
+        }
+
+        /** From the point [x], [y] in meters to the middle line of [corridor]. */
+        fun corridorDistance(corridor: Int, x: Double, y: Double): Double =
+            distanceToRing(firstCorridorRing + corridor, x, y, closed = false)
+
+        /** The passages whose cells lie within [radius] meters of [x], [y]. */
+        fun corridorsAround(x: Double, y: Double, radius: Double): Set<Int> {
+            val found = LinkedHashSet<Int>()
+            for (cx in cell(x - radius)..cell(x + radius)) {
+                for (cy in cell(y - radius)..cell(y + radius)) corridorCells.forEach(cellKey(cx, cy)) { found += it }
+            }
+            return found
+        }
+
+        fun area(shape: Int): BuildingArea {
+            val outline = shapeRings[shape]
+            return BuildingArea(ringPoints(outline), (outline + 1 until shapeRings[shape + 1]).map(::ringPoints))
+        }
+
+        fun passage(corridor: Int): Passage = Passage(ringPoints(firstCorridorRing + corridor), widths[corridor])
+
+        private fun ringPoints(ring: Int): List<GeoPoint> =
+            (ringStarts[ring] until ringStarts[ring + 1]).map { GeoPoint(points[2 * it] / E7, points[2 * it + 1] / E7) }
+
+        /** Even-odd rule on degrees × 10⁷; the closing edge is implied. */
+        private fun ringContains(ring: Int, lat: Double, lon: Double): Boolean {
+            val from = ringStarts[ring]
+            val to = ringStarts[ring + 1]
+            var inside = false
+            var j = to - 1
+            for (i in from until to) {
+                val latI = points[2 * i].toDouble()
+                val lonI = points[2 * i + 1].toDouble()
+                val latJ = points[2 * j].toDouble()
+                val lonJ = points[2 * j + 1].toDouble()
+                if ((latI > lat) != (latJ > lat) && lon < (lonJ - lonI) * (lat - latI) / (latJ - latI) + lonI) {
+                    inside = !inside
+                }
+                j = i
+            }
+            return inside
+        }
+
+        /** In meters: to the nearest segment of a ring, with the edge from its last point to its first when [closed]. */
+        private fun distanceToRing(ring: Int, x: Double, y: Double, closed: Boolean): Double {
+            val from = ringStarts[ring]
+            val to = ringStarts[ring + 1]
+            var best = Double.MAX_VALUE
+            for (i in from until to - 1) best = min(best, segmentDistance(x, y, i, i + 1))
+            if (closed) best = min(best, segmentDistance(x, y, to - 1, from))
+            return best
+        }
+
+        private fun segmentDistance(x: Double, y: Double, from: Int, to: Int): Double {
+            val fromX = x(from)
+            val fromY = y(from)
+            val dx = x(to) - fromX
+            val dy = y(to) - fromY
+            val lengthSquared = dx * dx + dy * dy
+            val t = if (lengthSquared == 0.0) 0.0 else (((x - fromX) * dx + (y - fromY) * dy) / lengthSquared)
+            val along = t.coerceIn(0.0, 1.0)
+            val px = fromX + along * dx - x
+            val py = fromY + along * dy - y
+            return sqrt(px * px + py * py)
+        }
     }
 
     /**
-     * The grid: the indexes of what lies in each cell, by the cell's key. The keys are sorted in a [LongArray] and found
-     * by binary search: a map would box every key it is asked for, and it is asked for each fix of each hider.
+     * The grid: the indexes of what lies in each cell, by the cell's key, all in three arrays. The keys are sorted and
+     * found by binary search: a map would box every key it is asked for, and it is asked for each fix of each hider.
      */
-    private class Cells(byKey: Map<Long, List<Int>>) {
-        private val keys = byKey.keys.sorted().toLongArray()
-        private val indexes = Array(keys.size) { byKey.getValue(keys[it]).toIntArray() }
+    private class Cells(private val keys: LongArray, private val starts: IntArray, private val items: IntArray) {
+        /** Calls [action] with the index of everything in the cell of [key]. */
+        inline fun forEach(key: Long, action: (Int) -> Unit) {
+            val found = find(key)
+            if (found < 0) return
+            for (item in starts[found] until starts[found + 1]) action(items[item])
+        }
 
-        operator fun get(key: Long): IntArray {
+        fun find(key: Long): Int {
             var low = 0
             var high = keys.size - 1
             while (low <= high) {
@@ -165,73 +395,42 @@ class BuildingMap(buildings: List<BuildingArea>, passages: List<Passage>, privat
                 when {
                     found < key -> low = middle + 1
                     found > key -> high = middle - 1
-                    else -> return indexes[middle]
+                    else -> return middle
                 }
             }
-            return NONE
+            return -1
         }
 
-        private companion object {
-            val NONE = IntArray(0)
-        }
-    }
-
-    private class Bounds(val minX: Double, val maxX: Double, val minY: Double, val maxY: Double) {
-        fun contains(x: Double, y: Double) = x in minX..maxX && y in minY..maxY
-
-        fun grownBy(meters: Double) = Bounds(minX - meters, maxX + meters, minY - meters, maxY + meters)
-    }
-
-    /** A ring (closed polygon) or a path (open line) in local meters. */
-    private class Ring(val xs: DoubleArray, val ys: DoubleArray) {
-        val bounds = Bounds(xs.min(), xs.max(), ys.min(), ys.max())
-
-        /** Even-odd rule; the closing edge is implied. */
-        fun contains(x: Double, y: Double): Boolean {
-            if (!bounds.contains(x, y)) return false
-            var inside = false
-            var j = xs.size - 1
-            for (i in xs.indices) {
-                if ((ys[i] > y) != (ys[j] > y) && x < (xs[j] - xs[i]) * (y - ys[i]) / (ys[j] - ys[i]) + xs[i]) {
-                    inside = !inside
+        companion object {
+            /** The grid of items by their bounds in meters, four numbers each: west, east, south, north. */
+            fun of(boxes: DoubleArray): Cells {
+                val byKey = HashMap<Long, MutableList<Int>>()
+                for (index in 0 until boxes.size / 4) {
+                    for (cx in cell(boxes[4 * index])..cell(boxes[4 * index + 1])) {
+                        for (cy in cell(boxes[4 * index + 2])..cell(boxes[4 * index + 3])) {
+                            byKey.getOrPut(cellKey(cx, cy)) { ArrayList() } += index
+                        }
+                    }
                 }
-                j = i
+                val keys = byKey.keys.sorted().toLongArray()
+                val starts = IntArray(keys.size + 1)
+                val items = IntArray(byKey.values.sumOf { it.size })
+                var next = 0
+                keys.forEachIndexed { index, key ->
+                    starts[index] = next
+                    for (item in byKey.getValue(key)) items[next++] = item
+                }
+                starts[keys.size] = next
+                return Cells(keys, starts, items)
             }
-            return inside
-        }
-
-        fun distanceToPath(x: Double, y: Double, closed: Boolean): Double {
-            var best = Double.MAX_VALUE
-            for (i in 0 until xs.size - 1) best = min(best, segmentDistance(x, y, i, i + 1))
-            if (closed) best = min(best, segmentDistance(x, y, xs.size - 1, 0))
-            return best
-        }
-
-        private fun segmentDistance(x: Double, y: Double, from: Int, to: Int): Double {
-            val dx = xs[to] - xs[from]
-            val dy = ys[to] - ys[from]
-            val lengthSquared = dx * dx + dy * dy
-            val t = if (lengthSquared == 0.0) 0.0 else (((x - xs[from]) * dx + (y - ys[from]) * dy) / lengthSquared)
-            val along = t.coerceIn(0.0, 1.0)
-            val px = xs[from] + along * dx - x
-            val py = ys[from] + along * dy - y
-            return sqrt(px * px + py * py)
         }
     }
-
-    private class Shape(val outline: Ring, val holes: List<Ring>) {
-        fun contains(x: Double, y: Double) = outline.contains(x, y) && holes.none { it.contains(x, y) }
-
-        fun distanceToEdge(x: Double, y: Double): Double =
-            holes.fold(outline.distanceToPath(x, y, closed = true)) { best, hole ->
-                min(best, hole.distanceToPath(x, y, closed = true))
-            }
-    }
-
-    private class Corridor(val path: Ring, val halfWidth: Double)
 
     private companion object {
         const val CELL_METERS = 50.0
+
+        /** Degrees to the ints of [Packed]: 10⁻⁷ of a degree is about a centimeter. */
+        const val E7 = 1e7
 
         fun cell(meters: Double): Int = floor(meters / CELL_METERS).toInt()
 

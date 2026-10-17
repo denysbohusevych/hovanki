@@ -1,6 +1,7 @@
 package app.hovanki.server.api
 
 import app.hovanki.server.account.uniqueName
+import app.hovanki.server.game.asKept
 import app.hovanki.server.moderation.ReportRepository
 import app.hovanki.shared.debug.DebugBuildings
 import app.hovanki.shared.protocol.AccountSession
@@ -197,7 +198,7 @@ class GameApiTest(@Autowired private val mvc: MockMvc, @Autowired private val re
         }.andExpect { status { isOk() } }.andReturn().response.contentAsString
         val buildings = protocolJson.decodeFromString<BuildingsResponse>(response)
 
-        assertEquals(DebugBuildings.around(park).buildings, buildings.buildings)
+        assertEquals(DebugBuildings.around(park).buildings.asKept(), buildings.buildings)
         assertEquals(1, buildings.passages.size)
         mvc.get(ApiRoutes.buildings(created.session.gameId)).andExpect { status { isUnauthorized() } }
     }
