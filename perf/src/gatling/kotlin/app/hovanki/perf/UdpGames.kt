@@ -10,6 +10,7 @@ import app.hovanki.shared.protocol.JoinGameRequest
 import app.hovanki.shared.protocol.LiveOpenRequest
 import app.hovanki.shared.protocol.LiveOpenResponse
 import app.hovanki.shared.protocol.LiveTransports
+import app.hovanki.shared.protocol.LiveWs
 import app.hovanki.shared.protocol.PlayerId
 import app.hovanki.shared.protocol.PlayerSession
 import app.hovanki.shared.protocol.ServerFeature
@@ -37,6 +38,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.random.Random
@@ -56,7 +58,9 @@ import kotlin.system.exitProcess
  * `perf.targetMs`, `perf.origin`, `perf.spacing` and `perf.baseUrl` (its first address), and
  * - `perf.workers` (the machine's CPUs): threads that drive the phones' sockets;
  * - `perf.phonesPerSocket` (1): sessions sharing one socket, for a machine whose open files are fewer than the phones;
- * - `perf.httpThreads` (32): threads of the players' HTTP calls.
+ * - `perf.httpThreads` (32): threads of the players' HTTP calls;
+ * - `perf.wsPercent` (0): the share of phones on the WebSocket v2 instead (spec §6), as iPhones without the AES-GCM
+ *   bridge: the open asks for `ws` only, the phone connects to the open's `wsPath`; over TLS with an https `baseUrl`.
  */
 object UdpGames {
     @JvmStatic
@@ -84,6 +88,8 @@ private class UdpRun {
     private val workers = LabConfig.int("workers", Runtime.getRuntime().availableProcessors())
     private val phonesPerSocket = LabConfig.int("phonesPerSocket", 1).coerceAtLeast(1)
     private val baseUrl = LabConfig.baseUrls.first()
+    private val wsPercent = LabConfig.int("wsPercent", 0).coerceIn(0, 100)
+    private val wsBase = baseUrl.replaceFirst("http", "ws")
     private val seekers = (players / 10).coerceAtLeast(1)
     private val levelSeconds = rampSeconds + minutes * 60
     private val setup = GameSetup(
@@ -147,6 +153,7 @@ private class UdpRun {
         val udpWasOn = admin.setFeature(ServerFeature.LIVE_UDP, true, "perf: a UDP run")
         println(
             "${games * steps} games of $players over udp" +
+                (if (wsPercent > 0) ", $wsPercent % of the phones over the WebSocket v2" else "") +
                 (if (steps > 1) ", $steps levels of $games games, ${levelSeconds}s each" else ""),
         )
         val endsAt = startedAt + steps * levelSeconds * 1000L
@@ -204,6 +211,10 @@ private class UdpRun {
         put("reopens", reopens.get())
         put("workers", workers)
         put("phones_per_socket", phonesPerSocket)
+        put("ws_percent", wsPercent)
+        put("ws_ups", c.wsUps.sum())
+        put("ws_bytes_out", c.wsBytesOut.sum())
+        put("ws_bytes_in", c.wsBytesIn.sum())
     }
 
     private fun summary(): String {
@@ -212,7 +223,8 @@ private class UdpRun {
         return "UDP: ${c.ups.sum()} Ups, ${c.answers.sum()} answered, ${c.unanswered.sum()} unanswered, " +
             "${c.pushes.sum()} pushes, ${c.errors.sum()} errors, ${c.resets.sum()} resets, ${c.closes.sum()} closes; " +
             "${c.bytesOut.sum() / ups} B up and ${c.bytesIn.sum() / ups} B down per Up, " +
-            "${c.datagramsIn.sum()} datagrams in, ${c.dropped.sum()} dropped"
+            "${c.datagramsIn.sum()} datagrams in, ${c.dropped.sum()} dropped" +
+            (if (wsPercent > 0) "; ${c.wsUps.sum()} of the Ups over the WebSocket v2" else "")
     }
 
     /** A player comes: creates or joins the game, opens its live session, and its phone starts. */
@@ -247,7 +259,14 @@ private class UdpRun {
             return
         }
         val walker = Walker(table.center, ZONE_RADIUS_METERS * 0.6, seed = seat.game * players + seat.seat)
-        val phone = UdpPhone(name(seat), player.session.token, isHost = seat.seat == 0, tag = player, walker = walker)
+        val phone = UdpPhone(
+            name(seat),
+            player.session.token,
+            isHost = seat.seat == 0,
+            overWs = (seat.game * players + seat.seat) % 100 < wsPercent,
+            tag = player,
+            walker = walker,
+        )
         val live = open(phone)
         if (live == null) {
             stats.user(System.currentTimeMillis(), started = false)
@@ -263,18 +282,23 @@ private class UdpRun {
         }
     }
 
-    /** The live channel's open (spec §4) with the game's token, UDP only; null when it failed or gave no UDP. */
+    /**
+     * The live channel's open (spec §4) with the game's token, UDP only, or the WebSocket v2 only and its connect for a
+     * phone [UdpPhone.overWs]; null when it failed or gave no UDP.
+     */
     private fun open(phone: UdpPhone): UdpLive? {
+        val transport = if (phone.overWs) LiveTransports.WS else LiveTransports.UDP
         val response = try {
             call<LiveOpenResponse>(
                 "live open",
                 ApiRoutes.LIVE_OPEN,
-                json(LiveOpenRequest(appVersion = "perf", transports = listOf(LiveTransports.UDP))),
+                json(LiveOpenRequest(appVersion = "perf", transports = listOf(transport))),
                 token = phone.token,
             )
         } catch (e: CallFailed) {
             return null
         }
+        if (phone.overWs) return connect(phone, response)
         val udp = response.udp
         if (udp == null) {
             println("The open gave no UDP address: is LIVE_UDP on and the server's UDP port open?")
@@ -288,6 +312,37 @@ private class UdpRun {
             downKey = decoder.decode(response.downKey),
             resetToken = decoder.decode(response.resetToken),
             address = InetSocketAddress(address, udp.port),
+        )
+    }
+
+    /** The WebSocket v2 of the session [response] opened (spec §6), timed as `ws connect`; null when it failed. */
+    private fun connect(phone: UdpPhone, response: LiveOpenResponse): UdpLive? {
+        val uri = URI.create("$wsBase${response.wsPath}?${LiveWs.SESSION_PARAM}=${response.sessionId}")
+        val sent = System.currentTimeMillis()
+        val started = System.nanoTime()
+        val ws = try {
+            http.newWebSocketBuilder()
+                .header("Authorization", "${ApiRoutes.AUTH_SCHEME} ${phone.token}")
+                .subprotocols(LiveWs.SUBPROTOCOL)
+                .connectTimeout(Duration.ofSeconds(CALL_TIMEOUT_SECONDS))
+                .buildAsync(uri, phones.listener(phone))
+                .get(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        } catch (e: Exception) {
+            if (e is InterruptedException) Thread.currentThread().interrupt()
+            val why = (if (e is TimeoutException) e else e.cause ?: e).javaClass.simpleName
+            val tookMillis = (System.nanoTime() - started) / 1_000_000
+            stats.record(WS_CONNECT, sent, tookMillis, ok = false, message = "$WS_CONNECT: $why")
+            return null
+        }
+        stats.record(WS_CONNECT, sent, (System.nanoTime() - started) / 1_000_000, ok = true)
+        val decoder = Base64.getDecoder()
+        return UdpLive(
+            sessionId = checkNotNull(LiveDatagrams.sessionIdOf(response.sessionId)) { "A bad session id" },
+            upKey = decoder.decode(response.upKey),
+            downKey = decoder.decode(response.downKey),
+            resetToken = decoder.decode(response.resetToken),
+            address = null,
+            ws = ws,
         )
     }
 
@@ -385,6 +440,7 @@ private class UdpRun {
         const val JOIN_WAIT_MILLIS = 200L
         const val REOPEN_AFTER_MILLIS = 1_000L
         const val CALL_TIMEOUT_SECONDS = 30L
+        const val WS_CONNECT = "ws connect"
         const val TICK_MILLIS = 1_000L
         val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS")
     }
