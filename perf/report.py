@@ -1055,13 +1055,19 @@ class HistogramLog(ClientLog):
 
 
 def udp_numbers(udp: dict) -> dict:
-    """The UDP generator's counters with the bytes per Up both ways (a sync of v2 over UDP)."""
+    """The UDP generator's counters with the bytes per Up both ways (a sync of v2 over UDP), and over its WebSocket v2:
+    `ups` counts both, `ws_ups` the WebSocket's."""
     ups = udp.get("ups") or 0
+    ws_ups = udp.get("ws_ups") or 0
     out = dict(udp)
     if ups:
-        out["bytes_up_per_up"] = rnd(udp.get("bytes_out", 0) / ups)
-        out["bytes_down_per_up"] = rnd(udp.get("bytes_in", 0) / ups)
         out["unanswered_pct"] = rnd(udp.get("unanswered", 0) / ups * 100, 2)
+    if ups - ws_ups:
+        out["bytes_up_per_up"] = rnd(udp.get("bytes_out", 0) / (ups - ws_ups))
+        out["bytes_down_per_up"] = rnd(udp.get("bytes_in", 0) / (ups - ws_ups))
+    if ws_ups:
+        out["ws_bytes_up_per_up"] = rnd(udp.get("ws_bytes_out", 0) / ws_ups)
+        out["ws_bytes_down_per_up"] = rnd(udp.get("ws_bytes_in", 0) / ws_ups)
     return out
 
 
@@ -1854,7 +1860,13 @@ def summary_md(r: dict) -> str:
             f"закрытий {fmt(udp.get('closes'))}, новых сессий {fmt(udp.get('reopens'))}. На Up: "
             f"{fmt(udp.get('bytes_up_per_up'))} Б вверх, {fmt(udp.get('bytes_down_per_up'))} Б вниз. Датаграмм "
             f"отброшено {fmt(udp.get('dropped'))}, не ушло {fmt(udp.get('send_failed'))}, порт закрыт "
-            f"{fmt(udp.get('unreachable'))}.",
+            f"{fmt(udp.get('unreachable'))}."
+            + (
+                f" По WebSocket v2 ({fmt(udp.get('ws_percent'))} % телефонов) из них {fmt(udp.get('ws_ups'))} Up, на Up "
+                f"{fmt(udp.get('ws_bytes_up_per_up'))} Б вверх, {fmt(udp.get('ws_bytes_down_per_up'))} Б вниз без TLS."
+                if udp.get("ws_ups")
+                else ""
+            ),
             "",
         ]
     if client.get("requests"):
