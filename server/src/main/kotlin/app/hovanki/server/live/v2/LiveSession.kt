@@ -52,6 +52,8 @@ class LiveSession(
     downKey: ByteArray,
     val openedAtMillis: Long,
     val expiresAtMillis: Long,
+    /** The JSON of the sections: its game's kinds shared with the game's other sessions ([LiveSessions.open]). */
+    val json: LiveJson = LiveJson(),
 ) {
     /** The AES-128-GCM keys of the datagrams (spec §5.2); handed over once, at the open. */
     val upKey = SecretKeySpec(upKey, "AES")
@@ -61,7 +63,6 @@ class LiveSession(
 
     // Guarded by the lock.
     val states = LiveServerStates()
-    val json = LiveJson()
 
     /** The highest Up.seq processed: the next Down's `ack_up`. */
     var lastSeq = 0

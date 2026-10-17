@@ -17,7 +17,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -113,6 +115,34 @@ class LiveDeltaTest {
         assertNull(down.state?.game)
         assertNull(down.state?.settings)
         assertEquals(LiveFixtures.v1(moved), session.shown)
+    }
+
+    @Test
+    fun aPlayerFallingSilentBringsTheRosterWithThePresence() {
+        val session = Session()
+        session.exchange(lobby(player("p1"), player("p2")))
+        val silent = player("p2").copy(lastSeenMillis = now - LiveLimits.OFFLINE_AFTER_MILLIS - 1_000)
+        val snapshot = lobby(player("p1"), silent)
+        val item = assertNotNull(session.exchange(snapshot).state?.players).upsert.single()
+        // One hash for both (spec §8.5): either changed, both come.
+        assertEquals("p2", item.id)
+        assertNotNull(item.roster)
+        assertNotNull(item.presence)
+        assertNull(item.location)
+        assertEquals(LiveFixtures.v1(snapshot), session.shown)
+    }
+
+    @Test
+    fun theStatesKeptShareWhatDidNotChange() {
+        fun state(lat: Double) = LiveSections.fromSnapshot(lobby(player("p1"), player("p2", lat = lat)))
+        val first = LiveDelta.between(state(50.45), null).digest
+        val moved = LiveDelta.between(state(50.46), first).digest
+        assertSame(first.whole, moved.whole)
+        assertSame(first.players.ids, moved.players.ids)
+        assertNotSame(first.players.hashes, moved.players.hashes)
+        assertSame(first.catches, moved.catches, "an empty section is one for all")
+        val again = LiveDelta.between(state(50.46), first, last = moved).digest
+        assertSame(moved.players, again.players)
     }
 
     @Test

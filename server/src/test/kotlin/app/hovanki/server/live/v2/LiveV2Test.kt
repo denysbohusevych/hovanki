@@ -8,6 +8,7 @@ import app.hovanki.shared.live.LiveLimits
 import app.hovanki.shared.live.LiveSnapshots
 import app.hovanki.shared.live.LiveUplink
 import app.hovanki.shared.live.LiveValues
+import app.hovanki.shared.live.v2.CloseReason
 import app.hovanki.shared.live.v2.Down
 import app.hovanki.shared.live.v2.Up
 import app.hovanki.shared.protocol.ApiError
@@ -57,7 +58,9 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import app.hovanki.shared.live.v2.ErrorCode as WireErrorCode
 
@@ -323,6 +326,23 @@ class LiveV2Test(
         val tooMany = postRaw(ApiRoutes.LIVE_OPEN, "", host.session.token)
         assertEquals(429, tooMany.statusCode())
         assertTrue(tooMany.headers().firstValue("Retry-After").isPresent)
+    }
+
+    @Test
+    fun theSessionsOfAGameShareTheJsonOfItsSettings() {
+        val host = create()
+        val guest = join(host)
+        val elsewhere = create()
+        val (first, second, third) =
+            listOf(host, guest, elsewhere).map { assertNotNull(sessions.get(open(it.session).sessionId)) }
+        assertSame(first.json.game, second.json.game, "one game, its settings' JSON once")
+        assertNotSame(first.json.game, third.json.game)
+        assertNotSame(first.json.items, second.json.items, "the board's items are each player's own")
+        // The game's last session gone, the JSON goes with it: the next session starts anew.
+        sessions.end(first, CloseReason.CLOSE_REOPEN)
+        sessions.end(second, CloseReason.CLOSE_REOPEN)
+        val again = assertNotNull(sessions.get(open(host.session).sessionId))
+        assertNotSame(first.json.game, again.json.game)
     }
 
     @Test

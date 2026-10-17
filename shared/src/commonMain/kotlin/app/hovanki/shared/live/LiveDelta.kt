@@ -25,8 +25,9 @@ import com.squareup.wire.ProtoAdapter
 
 /**
  * The fingerprints of one state the server sent (docs/live-v2/spec.md §8.2): an xxHash64 of every whole section, and of
- * every part of every item of the keyed sections, with the items' ids in order. Never the content: the server keeps
- * these per live session and the phone keeps the states themselves.
+ * the parts of every item of the keyed sections, with the items' ids in order. Never the content: the server keeps
+ * these per live session and the phone keeps the states themselves. Arrays equal to those of the digest a delta was
+ * made against are that digest's own: the states a session keeps share what did not change (server.md §3.4).
  */
 class LiveDigest internal constructor(
     internal val whole: LongArray,
@@ -44,17 +45,19 @@ class LiveDigest internal constructor(
     internal class Keyed(val ids: Array<String>, val hashes: LongArray, val parts: Int) {
         fun sameAs(other: Keyed): Boolean = ids.contentEquals(other.ids) && hashes.contentEquals(other.hashes)
 
-        private var index: HashMap<String, Int>? = null
-
-        /** The item's position, or -1. Looks at [hint] first: the same id usually keeps its place. */
-        fun indexOf(id: String, hint: Int): Int {
-            if (hint < ids.size && ids[hint] == id) return hint
-            val byId =
-                index
-                    ?: HashMap<String, Int>(ids.size * 2).also { map -> ids.forEachIndexed { i, key -> map[key] = i } }
-            index = byId
-            return byId[id] ?: -1
+        /** The item's position, or -1. Looks near [hint] first: an id usually keeps its place, or moves by one. */
+        fun indexOf(id: String, hint: Int, positions: () -> Map<String, Int>): Int {
+            if (at(hint, id)) return hint
+            if (at(hint + 1, id)) return hint + 1
+            if (at(hint - 1, id)) return hint - 1
+            return positions()[id] ?: -1
         }
+
+        private fun at(index: Int, id: String): Boolean = index in ids.indices && ids[index] == id
+
+        /** The positions of the ids, for [indexOf]: made by the delta that needs them and not kept. */
+        fun positions(): Map<String, Int> =
+            HashMap<String, Int>(ids.size * 2).also { map -> ids.forEachIndexed { i, key -> map[key] = i } }
     }
 }
 
@@ -73,7 +76,11 @@ class LiveDeltaResult(
  * section; the phone applies it to [LiveStates.EMPTY].
  */
 object LiveDelta {
-    fun between(current: State, base: LiveDigest?): LiveDeltaResult {
+    /**
+     * [current] against [base] (null: a full state). The new digest takes its arrays from [base] or [last] (the state
+     * sent last) where they are equal, so the states kept do not each hold a copy.
+     */
+    fun between(current: State, base: LiveDigest?, last: LiveDigest? = null): LiveDeltaResult {
         val whole = LongArray(WHOLE_SECTIONS)
         var changed = false
 
@@ -98,11 +105,11 @@ object LiveDelta {
         val perks = section(PERKS, current.perks, PerksSection.ADAPTER)
         val counts = section(COUNTS, current.counts, CountsSection.ADAPTER)
 
-        val players = players(current.players?.upsert.orEmpty(), base?.players)
+        val players = players(current.players?.upsert.orEmpty(), base?.players, last?.players)
         val catches =
-            keyed(current.catches?.upsert.orEmpty(), base?.catches, CatchItem::id, CatchItem.ADAPTER)
+            keyed(current.catches?.upsert.orEmpty(), base?.catches, last?.catches, CatchItem::id, CatchItem.ADAPTER)
         val radar =
-            keyed(current.radar?.upsert.orEmpty(), base?.radar, Contact::player_id, Contact.ADAPTER)
+            keyed(current.radar?.upsert.orEmpty(), base?.radar, last?.radar, Contact::player_id, Contact.ADAPTER)
         val delta =
             State(
                 game = game,
@@ -126,7 +133,7 @@ object LiveDelta {
         val isEmpty = !changed && players.changes == null && catches.changes == null && radar.changes == null
         return LiveDeltaResult(
             state = delta,
-            digest = LiveDigest(whole, players.digest, catches.digest, radar.digest),
+            digest = LiveDigest(shared(whole, base?.whole, last?.whole), players.digest, catches.digest, radar.digest),
             isEmpty = isEmpty,
         )
     }
@@ -136,19 +143,28 @@ object LiveDelta {
 
     private class Changes<T>(val upsert: List<T>, val remove: List<String>, val order: Keys?)
 
-    private fun players(items: List<PlayerItem>, base: LiveDigest.Keyed?): KeyedResult<PlayerItem> {
+    /**
+     * A player's parts: [ROSTER_PRESENCE] hashes the roster and the presence together (both change rarely: either one
+     * changed, both go), [LOCATION] the location, which changes every few seconds (spec §8.5).
+     */
+    private fun players(
+        items: List<PlayerItem>,
+        base: LiveDigest.Keyed?,
+        last: LiveDigest.Keyed?,
+    ): KeyedResult<PlayerItem> {
         val ids = Array(items.size) { items[it].id }
         val hashes = LongArray(items.size * PLAYER_PARTS)
         val upsert = ArrayList<PlayerItem>()
+        var positions: Map<String, Int>? = null
+        val lookup = { positions ?: base!!.positions().also { positions = it } }
         items.forEachIndexed { i, item ->
-            val roster = Roster.ADAPTER.encode(item.roster ?: NO_ROSTER)
             val presence = Presence.ADAPTER.encode(item.presence ?: CONNECTED)
             val location = LocationPart.ADAPTER.encode(item.location ?: NOT_SEEN)
             val at = i * PLAYER_PARTS
-            hashes[at] = XxHash64.hash(roster)
-            hashes[at + 1] = XxHash64.hash(presence)
-            hashes[at + 2] = XxHash64.hash(location)
-            val was = base?.indexOf(item.id, i) ?: -1
+            hashes[at + ROSTER_PRESENCE] =
+                XxHash64.hash(Roster.ADAPTER.encode(item.roster ?: NO_ROSTER)) * MIX + XxHash64.hash(presence)
+            hashes[at + LOCATION] = XxHash64.hash(location)
+            val was = base?.indexOf(item.id, i, lookup) ?: -1
             if (was < 0) {
                 // New to the phone: an absent part is its zero, so only the roster always comes.
                 upsert +=
@@ -160,39 +176,66 @@ object LiveDelta {
                     )
             } else {
                 val before = was * PLAYER_PARTS
-                val rosterChanged = base!!.hashes[before] != hashes[at]
-                val presenceChanged = base.hashes[before + 1] != hashes[at + 1]
-                val locationChanged = base.hashes[before + 2] != hashes[at + 2]
-                if (rosterChanged || presenceChanged || locationChanged) {
+                val rosterChanged = base!!.hashes[before + ROSTER_PRESENCE] != hashes[at + ROSTER_PRESENCE]
+                val locationChanged = base.hashes[before + LOCATION] != hashes[at + LOCATION]
+                if (rosterChanged || locationChanged) {
                     upsert +=
                         PlayerItem(
                             id = item.id,
                             roster = (item.roster ?: NO_ROSTER).takeIf { rosterChanged },
-                            presence = (item.presence ?: CONNECTED).takeIf { presenceChanged },
+                            presence = (item.presence ?: CONNECTED).takeIf { rosterChanged },
                             location = (item.location ?: NOT_SEEN).takeIf { locationChanged },
                         )
                 }
             }
         }
-        val digest = LiveDigest.Keyed(ids, hashes, PLAYER_PARTS)
-        return KeyedResult(changes(ids, upsert, base), digest)
+        return KeyedResult(changes(ids, upsert, base), keyed(ids, hashes, PLAYER_PARTS, base, last))
     }
 
     private inline fun <T : Any> keyed(
         items: List<T>,
         base: LiveDigest.Keyed?,
+        last: LiveDigest.Keyed?,
         key: (T) -> String,
         adapter: ProtoAdapter<T>,
     ): KeyedResult<T> {
         val ids = Array(items.size) { key(items[it]) }
         val hashes = LongArray(items.size)
         val upsert = ArrayList<T>()
+        var positions: Map<String, Int>? = null
+        val lookup = { positions ?: base!!.positions().also { positions = it } }
         items.forEachIndexed { i, item ->
             hashes[i] = XxHash64.hash(adapter.encode(item))
-            val was = base?.indexOf(ids[i], i) ?: -1
+            val was = base?.indexOf(ids[i], i, lookup) ?: -1
             if (was < 0 || base!!.hashes[was] != hashes[i]) upsert += item
         }
-        return KeyedResult(changes(ids, upsert, base), LiveDigest.Keyed(ids, hashes, 1))
+        return KeyedResult(changes(ids, upsert, base), keyed(ids, hashes, 1, base, last))
+    }
+
+    /** A keyed section's digest, its arrays taken from [base] or [last] where equal; an empty one is shared. */
+    private fun keyed(
+        ids: Array<String>,
+        hashes: LongArray,
+        parts: Int,
+        base: LiveDigest.Keyed?,
+        last: LiveDigest.Keyed?,
+    ): LiveDigest.Keyed {
+        if (ids.isEmpty()) return if (parts == 1) EMPTY_KEYED else EMPTY_PLAYERS
+        if (base != null && base.ids.contentEquals(ids) && base.hashes.contentEquals(hashes)) return base
+        if (last != null && last.ids.contentEquals(ids) && last.hashes.contentEquals(hashes)) return last
+        return LiveDigest.Keyed(shared(ids, base?.ids, last?.ids), shared(hashes, base?.hashes, last?.hashes), parts)
+    }
+
+    private fun shared(fresh: LongArray, base: LongArray?, last: LongArray?): LongArray = when {
+        base != null && base.contentEquals(fresh) -> base
+        last != null && last.contentEquals(fresh) -> last
+        else -> fresh
+    }
+
+    private fun shared(fresh: Array<String>, base: Array<String>?, last: Array<String>?): Array<String> = when {
+        base != null && base.contentEquals(fresh) -> base
+        last != null && last.contentEquals(fresh) -> last
+        else -> fresh
     }
 
     /**
@@ -223,7 +266,15 @@ object LiveDelta {
     private const val PERKS = 8
     private const val COUNTS = 9
     private const val WHOLE_SECTIONS = 10
-    private const val PLAYER_PARTS = 3
+    private const val PLAYER_PARTS = 2
+    private const val ROSTER_PRESENCE = 0
+    private const val LOCATION = 1
+
+    /** Mixes the roster's hash into the presence's: xxHash64's odd prime. */
+    private const val MIX = -7046029288634856825L
+
+    private val EMPTY_KEYED = LiveDigest.Keyed(emptyArray(), LongArray(0), 1)
+    private val EMPTY_PLAYERS = LiveDigest.Keyed(emptyArray(), LongArray(0), PLAYER_PARTS)
 
     private val NO_ROSTER = Roster()
     private val CONNECTED = Presence()
