@@ -50,7 +50,9 @@ object LiveSections {
         return State(
             game = game(snapshot, json),
             settings = SettingsSection(json = json.settings.encode(snapshot.settings)),
-            players = PlayersSection(upsert = snapshot.players.map { player(it, now) }),
+            players = PlayersSection(
+                upsert = snapshot.players.mapIndexed { i, player -> json.game.players.item(i, player, now) },
+            ),
             me = me(snapshot.me),
             catches = CatchesSection(upsert = snapshot.catches.map(::catchItem)),
             radar = RadarSection(upsert = snapshot.me.radar?.contacts.orEmpty().map(::contact)),
@@ -94,7 +96,10 @@ object LiveSections {
         big_game_json = json.bigGame.encode(snapshot.bigGame),
     )
 
-    /** A player whole: [now] decides whether their presence says «connected» (docs/live-v2/spec.md §9.1). */
+    /**
+     * A player whole: [now] decides whether their presence says «connected» (docs/live-v2/spec.md §9.1). [fromSnapshot]
+     * takes the same from its game's [LivePlayers], which builds a roster once for all the game's viewers.
+     */
     fun player(player: PlayerView, now: Long): PlayerItem = PlayerItem(
         id = player.id.value,
         roster = roster(player),
@@ -102,7 +107,7 @@ object LiveSections {
         location = LocationPart(value_ = player.location?.let(::location)),
     )
 
-    private fun roster(player: PlayerView): Roster = Roster(
+    internal fun roster(player: PlayerView): Roster = Roster(
         name = player.name,
         role = LiveEnums.wire(player.role),
         status = LiveEnums.wire(player.status),
@@ -130,7 +135,7 @@ object LiveSections {
             CONNECTED
         }
 
-    private fun location(location: VisibleLocation): Location = Location(
+    internal fun location(location: VisibleLocation): Location = Location(
         lat_e7 = LiveValues.toE7(location.point.lat),
         lon_e7 = LiveValues.toE7(location.point.lon),
         accuracy_dm = LiveValues.toDecimetres(location.accuracyMeters),

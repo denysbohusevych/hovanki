@@ -152,7 +152,8 @@ class LiveExchange(
         chat: List<ChatMessage> = emptyList(),
         chatMore: Boolean = false,
     ): Down {
-        val next = session.states.next(LiveSections.fromSnapshot(snapshot, session.json), push)
+        val state = LiveSections.fromSnapshot(snapshot, session.json)
+        val next = session.states.next(state, push, session.json.game.players)
         return Down(
             reply_to = replyTo,
             ack_up = session.lastSeq,

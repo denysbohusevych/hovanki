@@ -34,10 +34,11 @@ class LiveServerStates(private val kept: Int = LiveLimits.SERVER_STATES_KEPT) {
      * The next Down's state for the whole [current] state, or null when the Down goes without one: nothing changed
      * since the acknowledged state, and that is also the last one sent (§8.2, rule 4). A [push] also goes without one
      * when [current] is the last state sent: the phone has it, or gets it with the answer to its next Up (§8.7).
+     * [rosters]: the game's, which [current] was cut with: its rosters' hashes are not made again.
      */
-    fun next(current: State, push: Boolean = false): Next? {
+    fun next(current: State, push: Boolean = false, rosters: LivePlayers? = null): Next? {
         val base = sent.firstOrNull { it.id == ackedId }
-        val result = LiveDelta.between(current, base?.digest, sent.lastOrNull()?.digest)
+        val result = LiveDelta.between(current, base?.digest, sent.lastOrNull()?.digest, rosters)
         if (base != null && result.isEmpty && lastSentId == base.id) return null
         if (push &&
             sent.lastOrNull()?.let { it.id == lastSentId && it.digest.sameAs(result.digest) } == true
