@@ -3,7 +3,11 @@
 Тонкая iOS-оболочка: SwiftUI-приложение, которое показывает Compose Multiplatform UI из Kotlin-фреймворка
 `ComposeApp` (модуль `:composeApp`). Вся логика и экраны живут в Kotlin; здесь только `Info.plist`,
 тексты разрешений (`InfoPlist.xcstrings`, en/uk/ru), privacy manifest (`PrivacyInfo.xcprivacy`), иконка
-и точка входа (`ContentView.swift` вызывает `MainViewControllerKt.mainViewController()`).
+и точка входа (`ContentView.swift` вызывает `MainViewControllerKt.mainViewController()`). Перед этим он отдаёт Kotlin
+мосты к тому, что есть только в Swift: `LiveCrypto.swift` — AES-GCM CryptoKit для UDP живого канала v2
+([client.md, §12](../docs/live-v2/client.md#12-как-сделано-мост-cryptokit-и-чем-отличается)), и Live Activity
+(ниже). Если мост CryptoKit не прошёл проверку байтами спеки, в консоли Xcode строка «the CryptoKit bridge failed»,
+а приложение играет по WebSocket v2.
 
 ## Запуск
 

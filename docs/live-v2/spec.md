@@ -809,6 +809,7 @@ reset_tag = 5db9c3d4b54d3a1a55839d6ff976fe7d
 | `LiveUplink` | `Up` из того, что сейчас несёт `SyncRequest`, и обратно на сервере | §7.1, §10 |
 | `LiveDownlink` | чат `Down` с пределом в байтах, ошибки | §11, §13 |
 | `LiveDatagrams`, `LiveReassembler`, `LiveReplayWindow`, `LiveAead` | датаграммы, куски, окно повторов, RESET, `sessionId` текстом; шифрование — интерфейс, реализации у платформ | §4, §5 |
+| `LiveAeadCheck` | проверка AES-GCM платформы байтами §18 (мост CryptoKit на iOS ставится, только если прошёл) | §5.2, §18 |
 
 Сервер, пакет `app.hovanki.server.live.v2` (подробно — [server.md](server.md), §4.7):
 
@@ -830,6 +831,7 @@ reset_tag = 5db9c3d4b54d3a1a55839d6ff976fe7d
 | `LiveGameConnection` | `Up` по расписанию, `Down` и push → те же `ConnectionEvent`, что у v1; точки до `ack_up`, отчёт до подтверждения, новая сессия до срока | §7, §8.3, §8.6, §11, §13 |
 | `LiveFirstGameConnection` | v2, пока сервер его включил и он работает, иначе v1 | §3, §13 |
 | `LiveUdp`, `UdpLiveSocket`, `KtorLiveDatagramOpener`, `JdkLiveAeads`, `NetworkChanges` | UDP за тем же швом `LiveSocket`; потерянные `Up`, новый порт, уход на WebSocket v2 и возврат ([client.md](client.md), §11) | §5 |
+| `LiveCryptoBridge`, `IosLiveAeads`, `IosNetworkChanges` (в `composeApp/iosMain`) и `LiveCrypto.swift` | UDP на iPhone: AES-GCM CryptoKit через мост Swift, смена сети по `nw_path_monitor` ([client.md](client.md), §12) | §5.2, §5.6 |
 
 Протокол JSON открытия — `shared/.../protocol/Live.kt` (`LiveOpenRequest`, `LiveOpenResponse`, `LiveWs`), маршруты —
 `ApiRoutes.LIVE_OPEN`, `ApiRoutes.LIVE_WS`, флаги — `ServerFeature.LIVE_V2` и `ServerFeature.LIVE_UDP`.

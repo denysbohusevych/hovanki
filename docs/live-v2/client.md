@@ -28,9 +28,9 @@
 | `:shared` | `live/` (**уже в коде**, шаг 2) | `LiveLimits` (спека, §14); `LiveClientStates` (до 8 состояний телефона, применение `Down`, §8.6) поверх `LiveStates.apply`; `LiveSnapshots` (состояние → `GameSnapshot`, §9) и обратный ему `LiveSections.fromSnapshot` (им пользуется сервер); `LiveUplink` (кусок `SyncRequest` → `Up`, §7.1, §10); `LiveDownlink` (чат и ошибки `Down`, §11, §13); `LiveDatagrams`, `LiveReassembler`, `LiveReplayWindow` (заголовок, куски, окно повторов, §5); интерфейс `LiveAead`. Серверное (`LiveDelta`, `LiveServerStates`) телефону не нужно. Полная таблица — спека, §19 |
 | `:clientCore` | `network/live/` | **сделано (шаг 3b, §10):** `LiveApi`/`HttpLiveApi` (открытие по HTTPS); `LiveSocket`, `LiveSocketOpener`, `KtorLiveSocketOpener` (WebSocket v2); `LiveGameConnection : GameConnection`; `LiveFirstGameConnection`; `LiveChannelException`. **Сделано (шаг 4, §11):** `LiveUdp`, `UdpLiveSocket`, `KtorLiveDatagramOpener`, `NetworkChanges` |
 | `:clientCore` | `jvmMain`, `androidMain` | `JdkLiveAeads` (**сделано**) |
-| `:clientCore` | `iosMain` | `IosAesGcm : LiveAead` поверх моста `LiveCryptoBridge` (впереди) |
-| `iosApp` | `LiveCrypto.swift` | реализация моста на CryptoKit |
-| `:composeApp` | `di/Koin.kt`, `di/PlatformModule.android.kt` | новая привязка `GameConnection` (§5), **сделано**; `LiveUdp` на Android с `AndroidNetworkChanges` (**сделано**) |
+| `:composeApp` | `iosMain`, `network/` | **сделано (§12):** мост `LiveCryptoBridge`, `installLiveCryptoBridge`, `IosLiveAeads`; `IosNetworkChanges` на `nw_path_monitor`. В `composeApp`, а не в `:clientCore`: Swift видит только фреймворк `ComposeApp` |
+| `iosApp` | `LiveCrypto.swift` | реализация моста на CryptoKit (**сделано**, §12) |
+| `:composeApp` | `di/Koin.kt`, `di/PlatformModule.android.kt`, `di/PlatformModule.ios.kt` | новая привязка `GameConnection` (§5), **сделано**; `LiveUdp` на Android с `AndroidNetworkChanges` и на iOS с мостом и `IosNetworkChanges` (**сделано**) |
 | `e2e` | `bot/`, `scenario/` | **сделано:** `FakeNetwork.liveSockets`, `FakeNetwork.liveDatagrams`, `-Pe2e.transport=v2ws` и `v2`, `LiveV2Test` |
 
 Почему состояние и сборка снимка в `:shared`, а не в `:clientCore`: тест равенства на сервере (спека, §18)
@@ -209,7 +209,7 @@ interface LiveAead {
   `LiveActivityBridge`:
 
 ```swift
-// iosApp/iosApp/LiveCrypto.swift — registered at start: LiveCryptoRegistry.shared.bridge = LiveCrypto()
+// iosApp/iosApp/LiveCrypto.swift — installed at start: LiveCryptoBridgeKt.installLiveCryptoBridge(bridge: LiveCrypto())
 import CryptoKit
 final class LiveCrypto: NSObject, LiveCryptoBridge {
     func seal(key: Data, nonce: Data, aad: Data, plaintext: Data) -> Data? {
@@ -227,8 +227,10 @@ final class LiveCrypto: NSObject, LiveCryptoBridge {
 }
 ```
 
-  - `LiveCryptoBridge` — протокол Kotlin в `iosMain` (`NSData` на входе и выходе). Ключ мост получает в каждом
-    вызове, а `IosAesGcm(key) : LiveAead` хранит его на стороне Kotlin.
+  - `LiveCryptoBridge` — протокол Kotlin в `composeApp/iosMain` (`NSData` на входе и выходе). Ключ мост получает в
+    каждом вызове, а `LiveAead` из `IosLiveAeads.forKey(key)` хранит его на стороне Kotlin.
+  - Прежде чем поставить мост, Kotlin проверяет его байтами спеки (§18, `LiveAeadCheck`). Не прошёл — моста нет, UDP
+    не предлагается.
   - Мост собирается и проверяется только на Mac с Xcode. Владелец собирает его на своём Mac (Remote Control, как
     стенд). Вслепую из облака iOS не чинить.
   - Запасной путь без Swift — библиотека `cryptography-kotlin` 0.6 с провайдером CryptoKit. Минусы: версия 0.x,
@@ -404,8 +406,7 @@ final class LiveCrypto: NSObject, LiveCryptoBridge {
   `Up` решает. RESET своей сессии — новая сессия без события, чужой или поддельный — выбрасывается.
 - **Сессия пропала сразу после отказа от UDP** (сервер перезапустился без `reset_secret`: `Up` по UDP пропадали, а
   WebSocket ответил 4410, не дав ни одного `Down`) — отсрочка снимается: новая сессия снова пробует UDP.
-- **iOS** пока без UDP: в Koin его `LiveUdp` нет, приложение просит только `ws`. `ktor-network` в `commonMain` уже
-  есть, не хватает моста CryptoKit (§6).
+- **iOS** — с моста CryptoKit (§12) так же, как Android: `LiveUdp` в Koin есть, когда мост прошёл проверку.
 - **Полевой журнал и диагностика:** `Transport.LIVE_UDP` пишется как `udp` (`SyncFields.LIVE_UDP`), в диагностике —
   «by udp»; сервер считает `udp_p50`/`udp_p95` в `srv`.
 - **Тесты:** `LiveUdpConnectionTest` на `FakeLiveServer` с UDP (`FakeUdpPath` проверяет адрес как сервер,
@@ -413,3 +414,28 @@ final class LiveCrypto: NSObject, LiveCryptoBridge {
   потери → новый порт → WebSocket → UDP через 10 минут, новая сеть → новый порт, RESET и поддельный RESET, `close`
   по UDP, снятие отсрочки после пропавшей сессии. `JdkLiveAeadsTest` (JVM). e2e — `LiveV2Test` и
   `-Pe2e.transport=v2` ([server.md](server.md), §8).
+
+## 12. Как сделано (мост CryptoKit) и чем отличается
+
+iPhone ходит по UDP так же, как Android: тот же `UdpLiveSocket`, те же потери, новый порт и отсрочка (§11). Своё у
+iOS — только шифрование и сигнал смены сети.
+
+| где | что |
+|---|---|
+| `iosApp/iosApp/LiveCrypto.swift` | `LiveCrypto : LiveCryptoBridge` — `AES.GCM.seal` и `open` CryptoKit, как в §6. Без состояния, ключ в каждом вызове |
+| `iosApp/iosApp/ContentView.swift` | `installLiveCrypto()` до `mainViewController()`: мост ставится раньше, чем Koin соберёт модуль платформы |
+| `composeApp/.../network/LiveCryptoBridge.kt` | протокол `LiveCryptoBridge` (`NSData`), `installLiveCryptoBridge(bridge)`, `IosLiveAeads` |
+| `composeApp/.../network/IosNetworkChanges.kt` | `nw_path_monitor` на своей очереди: поколение растёт, когда у пути меняются статус или интерфейсы (тип и номер) |
+| `composeApp/.../di/PlatformModule.ios.kt` | `LiveUdp(KtorLiveDatagramOpener(), IosLiveAeads(bridge), IosNetworkChanges())`, только если мост поставлен |
+| `shared/.../live/LiveAeadCheck.kt` | проверка AES-GCM платформы байтами спеки §18: та же датаграмма `Down`, она открывается, а с изменённым байтом — нет |
+
+Чем отличается от §6:
+
+- **Мост в `composeApp`, а не `IosAesGcm` в `:clientCore`.** Фреймворк `ComposeApp` не экспортирует `:clientCore`,
+  и Swift не увидел бы протокол. Ровня Android — `AndroidNetworkChanges`, тоже в `composeApp`.
+- **Проверка перед установкой.** `installLiveCryptoBridge` возвращает `false` и не ставит мост, если тот не прошёл
+  `LiveAeadCheck`: приложение остаётся на WebSocket v2, в журнал Xcode идёт строка. Сломанный мост не теряет `Up`.
+- **Смена сети без `NWConnection`:** сокет остаётся POSIX-сокетом Ktor, `nw_path_monitor` только говорит, когда
+  взять новый (TN3151). План Б из §6 не понадобился до проверки на телефонах.
+- **Проверено** только в облаке: общий код и `LiveAeadCheck` на JVM, сборка iOS — CI на Mac. На симуляторе и
+  телефонах — шаг владельца (план, шаг 4).
