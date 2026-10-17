@@ -90,15 +90,15 @@ object LiveDelta {
      * sent last) where they are equal, so the states kept do not each hold a copy.
      */
     fun between(current: State, base: LiveDigest?, last: LiveDigest? = null): LiveDeltaResult {
+        val hasher = LiveHasher()
         val whole = LongArray(WHOLE_SECTIONS)
         var changed = false
 
         fun <T : Any> section(slot: Int, value: T?, adapter: ProtoAdapter<T>): T? {
             if (value == null) return null
-            val bytes = adapter.encode(value)
-            val hash = XxHash64.hash(bytes)
+            val hash = hasher.hash(adapter, value)
             whole[slot] = hash
-            val send = if (base == null) bytes.isNotEmpty() else base.whole[slot] != hash
+            val send = if (base == null) hasher.size > 0 else base.whole[slot] != hash
             if (send) changed = true
             return value.takeIf { send }
         }
@@ -114,11 +114,23 @@ object LiveDelta {
         val perks = section(PERKS, current.perks, PerksSection.ADAPTER)
         val counts = section(COUNTS, current.counts, CountsSection.ADAPTER)
 
-        val players = players(current.players?.upsert.orEmpty(), base?.players, last?.players)
-        val catches =
-            keyed(current.catches?.upsert.orEmpty(), base?.catches, last?.catches, CatchItem::id, CatchItem.ADAPTER)
-        val radar =
-            keyed(current.radar?.upsert.orEmpty(), base?.radar, last?.radar, Contact::player_id, Contact.ADAPTER)
+        val players = players(current.players?.upsert.orEmpty(), base?.players, last?.players, hasher)
+        val catches = keyed(
+            current.catches?.upsert.orEmpty(),
+            base?.catches,
+            last?.catches,
+            hasher,
+            CatchItem::id,
+            CatchItem.ADAPTER,
+        )
+        val radar = keyed(
+            current.radar?.upsert.orEmpty(),
+            base?.radar,
+            last?.radar,
+            hasher,
+            Contact::player_id,
+            Contact.ADAPTER,
+        )
         val delta =
             State(
                 game = game,
@@ -160,6 +172,7 @@ object LiveDelta {
         items: List<PlayerItem>,
         base: LiveDigest.Keyed?,
         last: LiveDigest.Keyed?,
+        hasher: LiveHasher,
     ): KeyedResult<PlayerItem> {
         val ids = Array(items.size) { items[it].id }
         val hashes = LongArray(items.size)
@@ -168,10 +181,12 @@ object LiveDelta {
         var positions: Map<String, Int>? = null
         val lookup = { positions ?: base!!.positions().also { positions = it } }
         items.forEachIndexed { i, item ->
-            val presence = Presence.ADAPTER.encode(item.presence ?: CONNECTED)
-            val location = LocationPart.ADAPTER.encode(item.location ?: NOT_SEEN)
-            hashes[i] = XxHash64.hash(Roster.ADAPTER.encode(item.roster ?: NO_ROSTER)) * MIX + XxHash64.hash(presence)
-            locations[i] = XxHash64.hash(location)
+            val roster = hasher.hash(Roster.ADAPTER, item.roster ?: NO_ROSTER)
+            val presence = hasher.hash(Presence.ADAPTER, item.presence ?: CONNECTED)
+            val hasPresence = hasher.size > 0
+            hashes[i] = roster * MIX + presence
+            locations[i] = hasher.hash(LocationPart.ADAPTER, item.location ?: NOT_SEEN)
+            val hasLocation = hasher.size > 0
             val was = base?.indexOf(item.id, i, lookup) ?: -1
             if (was < 0) {
                 // New to the phone: an absent part is its zero, so only the roster always comes.
@@ -179,8 +194,8 @@ object LiveDelta {
                     PlayerItem(
                         id = item.id,
                         roster = item.roster ?: NO_ROSTER,
-                        presence = item.presence.takeIf { presence.isNotEmpty() },
-                        location = item.location.takeIf { location.isNotEmpty() },
+                        presence = item.presence.takeIf { hasPresence },
+                        location = item.location.takeIf { hasLocation },
                     )
             } else {
                 val rosterChanged = base!!.hashes[was] != hashes[i]
@@ -203,6 +218,7 @@ object LiveDelta {
         items: List<T>,
         base: LiveDigest.Keyed?,
         last: LiveDigest.Keyed?,
+        hasher: LiveHasher,
         key: (T) -> String,
         adapter: ProtoAdapter<T>,
     ): KeyedResult<T> {
@@ -212,7 +228,7 @@ object LiveDelta {
         var positions: Map<String, Int>? = null
         val lookup = { positions ?: base!!.positions().also { positions = it } }
         items.forEachIndexed { i, item ->
-            hashes[i] = XxHash64.hash(adapter.encode(item))
+            hashes[i] = hasher.hash(adapter, item)
             val was = base?.indexOf(ids[i], i, lookup) ?: -1
             if (was < 0 || base!!.hashes[was] != hashes[i]) upsert += item
         }
