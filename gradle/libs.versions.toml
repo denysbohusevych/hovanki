@@ -27,7 +27,7 @@ kotlinx-serialization = "1.11.0"
 ktor = "3.6.0"
 wire = "7.1.0"
 koin = "4.2.2"
-maplibre-compose = "0.18.0"
+maplibre-compose = "0.20.0"
 
 spring-boot = "4.1.1"
 # Embedded PostgreSQL for server and e2e tests (TestPostgres); the binaries' version is the server's major version.
@@ -43,14 +43,14 @@ zxing = "3.5.4"
 
 # Errors of the field test build (docs/adr/0018-field-test-build.md §7): Android app (preview builds only) and the
 # staging server. One version: the Spring Boot starter and the Android SDK share the core.
-sentry = "8.59.0"
+sentry = "8.61.0"
 
 # The server's load tests (docs/perf.md): Gatling's Gradle plugin brings the Gatling of the same version.
 gatling = "3.16.0"
 # The server's profiler (docs/perf.md): the JVM agent from Maven Central, loaded into the running server with jcmd.
-async-profiler = "4.5"
+async-profiler = "4.6"
 
-spotless = "8.10.3"
+spotless = "8.10.4"
 ktlint = "1.8.0"
 
 [libraries]
