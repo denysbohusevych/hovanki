@@ -4,7 +4,7 @@
 # (Kotlin 2.4.20: Gradle 7.6.3–9.7.0, AGP 8.5.2–9.3.x, Xcode 26.4)
 
 [versions]
-kotlin = "2.4.20"
+kotlin = "2.4.21"
 agp = "9.3.3"
 compose-multiplatform = "1.12.1"
 # Stable Material 3 for Compose Multiplatform (versioned separately from CMP).
@@ -23,7 +23,7 @@ play-services-location = "21.3.0"
 camerax = "1.6.2"
 
 kotlinx-coroutines = "1.11.0"
-kotlinx-serialization = "1.11.0"
+kotlinx-serialization = "1.12.0"
 ktor = "3.6.0"
 wire = "7.1.0"
 koin = "4.2.2"
